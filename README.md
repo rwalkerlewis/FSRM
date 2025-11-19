@@ -40,7 +40,7 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - ParaView (for 3D visualization)
 ```
 
-### Compilation
+### Local Compilation
 ```bash
 # Configure
 mkdir build && cd build
@@ -55,6 +55,27 @@ make test
 # Install
 sudo make install
 ```
+
+### Cloud Deployment (AWS or Google Cloud)
+
+Deploy ReservoirSim on cloud platforms for high-performance computing:
+
+```bash
+# Quick start - AWS
+cd deploy/aws && ./setup.sh
+
+# Quick start - Google Cloud
+cd deploy/gcp && ./setup.sh
+
+# Docker deployment
+docker build -t reservoirsim:latest .
+docker run -it reservoirsim:latest
+```
+
+**Documentation**:
+- **Quick Start Guide**: [docs/QUICK_START_CLOUD.md](docs/QUICK_START_CLOUD.md)
+- **Comprehensive Guide**: [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md)
+- **Deployment Tools**: [deploy/README.md](deploy/README.md)
 
 ## Usage
 
