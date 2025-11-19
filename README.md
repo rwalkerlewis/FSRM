@@ -247,6 +247,7 @@ permeability_x = 0.001
 - `ex_induced_seismicity.cpp` - Fault reactivation
 - `ex_thermal_recovery.cpp` - Steam injection
 - `ex_stochastic_reservoir.cpp` - Monte Carlo uncertainty
+- `ex_lefm_fracture_growth.cpp` - LEFM-based fracture propagation
 
 ### Running Examples
 ```bash
@@ -260,6 +261,11 @@ cd build/examples
 
 # Hydraulic fracturing
 mpirun -np 4 ./ex_hydraulic_fracturing
+
+# LEFM fracture growth (shows K_I evolution)
+mpirun -np 4 ./ex_lefm_fracture_growth
+# Or with config:
+mpirun -np 4 reservoirsim -c config/lefm_fracture_growth.config
 
 # Induced seismicity
 mpirun -np 8 ./ex_induced_seismicity
