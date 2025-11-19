@@ -9,6 +9,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ENABLE_TESTING "Enable testing" ON)
 option(ENABLE_MPI "Enable MPI support" ON)
 option(BUILD_EXAMPLES "Build examples" ON)
+option(ENABLE_CUDA "Enable CUDA GPU support" ON)
+option(ENABLE_HIP "Enable AMD ROCm/HIP GPU support" OFF)
 
 # Find required packages
 find_package(MPI REQUIRED)
@@ -19,6 +21,37 @@ pkg_check_modules(PETSC REQUIRED PETSc>=3.15)
 
 # Find HDF5 for output
 find_package(HDF5 REQUIRED COMPONENTS CXX)
+
+# GPU support
+if(ENABLE_CUDA)
+    enable_language(CUDA)
+    find_package(CUDAToolkit)
+    if(CUDAToolkit_FOUND)
+        message(STATUS "CUDA enabled: ${CUDAToolkit_VERSION}")
+        set(CMAKE_CUDA_STANDARD 14)
+        set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+        add_definitions(-DUSE_CUDA)
+        
+        # Set CUDA architectures (adjust based on your GPU)
+        if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+            set(CMAKE_CUDA_ARCHITECTURES 60 70 75 80 86)
+        endif()
+    else()
+        message(WARNING "CUDA requested but not found. Building CPU-only version.")
+        set(ENABLE_CUDA OFF)
+    endif()
+endif()
+
+if(ENABLE_HIP)
+    find_package(hip)
+    if(hip_FOUND)
+        message(STATUS "HIP/ROCm enabled")
+        add_definitions(-DUSE_HIP)
+    else()
+        message(WARNING "HIP requested but not found.")
+        set(ENABLE_HIP OFF)
+    endif()
+endif()
 
 # Include directories
 include_directories(
@@ -41,6 +74,13 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 file(GLOB_RECURSE HEADERS "include/*.hpp")
 
+# GPU source files
+if(ENABLE_CUDA)
+    file(GLOB_RECURSE CUDA_SOURCES "src/*.cu")
+    set_source_files_properties(${CUDA_SOURCES} PROPERTIES LANGUAGE CUDA)
+    list(APPEND SOURCES ${CUDA_SOURCES})
+endif()
+
 # Create library
 add_library(reservoirlib SHARED ${SOURCES})
 target_link_libraries(reservoirlib 
@@ -49,6 +89,19 @@ target_link_libraries(reservoirlib
     ${HDF5_LIBRARIES}
     m
 )
+
+# Link CUDA libraries if enabled
+if(ENABLE_CUDA AND CUDAToolkit_FOUND)
+    target_link_libraries(reservoirlib CUDA::cudart CUDA::cublas CUDA::cusparse)
+    set_target_properties(reservoirlib PROPERTIES 
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    )
+endif()
+
+if(ENABLE_HIP AND hip_FOUND)
+    target_link_libraries(reservoirlib hip::host)
+endif()
 
 # Main executable
 add_executable(reservoirsim src/main.cpp)

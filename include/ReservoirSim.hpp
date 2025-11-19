@@ -66,6 +66,14 @@ enum class PhysicsType {
     POROELASTODYNAMICS       // Coupled fluid-solid wave propagation
 };
 
+// GPU execution mode
+enum class GPUExecutionMode {
+    CPU_ONLY,           // Run entirely on CPU
+    GPU_ONLY,           // Run entirely on GPU
+    HYBRID,             // Automatic load balancing between CPU and GPU
+    CPU_FALLBACK        // Try GPU first, fallback to CPU if not available
+};
+
 // Configuration structures
 struct SimulationConfig {
     std::string input_file;
@@ -85,11 +93,23 @@ struct SimulationConfig {
     bool enable_checkpointing = true;
     int checkpoint_frequency = 100;
     
+    // GPU configuration
+    bool use_gpu = false;
+    GPUExecutionMode gpu_mode = GPUExecutionMode::CPU_FALLBACK;
+    int gpu_device_id = 0;
+    bool gpu_verbose = false;
+    double gpu_memory_fraction = 0.8;  // Fraction of GPU memory to use
+    
     // Solver options
     double rtol = 1e-6;
     double atol = 1e-8;
     int max_nonlinear_iterations = 50;
     int max_linear_iterations = 1000;
+    
+    // GPU solver options (when use_gpu = true)
+    bool use_gpu_preconditioner = true;
+    bool use_gpu_matrix_assembly = true;
+    bool pin_host_memory = true;  // Pin CPU memory for faster GPU transfers
     
     // Physics flags
     bool enable_geomechanics = false;
