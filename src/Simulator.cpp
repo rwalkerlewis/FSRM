@@ -1,5 +1,6 @@
 #include "Simulator.hpp"
 #include "Visualization.hpp"
+#include "ConfigReader.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -40,6 +41,70 @@ PetscErrorCode Simulator::initialize(const SimulationConfig& config_in) {
         PetscPrintf(comm, "  Initial dt: %g\n", config.dt_initial);
         PetscPrintf(comm, "  Fluid model: %d\n", static_cast<int>(config.fluid_model));
         PetscPrintf(comm, "  Solid model: %d\n", static_cast<int>(config.solid_model));
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_file) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Loading configuration from: %s\n", config_file.c_str());
+    }
+    
+    ConfigReader reader;
+    if (!reader.loadFile(config_file)) {
+        SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Failed to load configuration file");
+    }
+    
+    // Parse simulation configuration
+    reader.parseSimulationConfig(config);
+    
+    // Parse grid configuration
+    reader.parseGridConfig(grid_config);
+    
+    // Parse material properties
+    std::vector<MaterialProperties> props;
+    if (reader.parseMaterialProperties(props)) {
+        material_props = props;
+    }
+    
+    // Parse fluid properties
+    FluidProperties fluid;
+    if (reader.parseFluidProperties(fluid)) {
+        fluid_props.clear();
+        fluid_props.push_back(fluid);
+    }
+    
+    // Initialize with loaded config
+    ierr = initialize(config); CHKERRQ(ierr);
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Configuration loaded successfully\n");
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::loadMaterialPropertiesFromFile(const std::string& filename) {
+    PetscFunctionBeginUser;
+    
+    ConfigReader reader;
+    if (!reader.loadFile(filename)) {
+        SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Failed to load material properties file");
+    }
+    
+    std::vector<MaterialProperties> props;
+    if (reader.parseMaterialProperties(props)) {
+        material_props = props;
+    }
+    
+    FluidProperties fluid;
+    if (reader.parseFluidProperties(fluid)) {
+        fluid_props.clear();
+        fluid_props.push_back(fluid);
     }
     
     PetscFunctionReturn(0);
@@ -355,8 +420,15 @@ PetscErrorCode Simulator::setInitialConditions() {
 
 PetscErrorCode Simulator::setMaterialProperties() {
     PetscFunctionBeginUser;
+    PetscErrorCode ierr;
     
-    // Get material properties from Eclipse input for each cell
+    // If material_props already loaded from config file, use those
+    if (!material_props.empty()) {
+        ierr = applyMaterialPropertiesToKernels(); CHKERRQ(ierr);
+        PetscFunctionReturn(0);
+    }
+    
+    // Otherwise, get material properties from Eclipse input for each cell
     int ncells = grid_config.nx * grid_config.ny * grid_config.nz;
     material_props.resize(ncells);
     
@@ -366,6 +438,60 @@ PetscErrorCode Simulator::setMaterialProperties() {
                 int idx = i + j * grid_config.nx + k * grid_config.nx * grid_config.ny;
                 material_props[idx] = eclipse_io->getMaterialProperties(i, j, k);
             }
+        }
+    }
+    
+    ierr = applyMaterialPropertiesToKernels(); CHKERRQ(ierr);
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::applyMaterialPropertiesToKernels() {
+    PetscFunctionBeginUser;
+    
+    if (material_props.empty()) {
+        PetscFunctionReturn(0);
+    }
+    
+    // Use first material properties (can be extended for heterogeneous)
+    const MaterialProperties& mat = material_props[0];
+    const FluidProperties& fluid = fluid_props.empty() ? FluidProperties() : fluid_props[0];
+    
+    // Apply to physics kernels
+    for (auto& kernel : kernels) {
+        switch (kernel->getType()) {
+            case PhysicsType::FLUID_FLOW: {
+                if (auto sp_kernel = std::dynamic_pointer_cast<SinglePhaseFlowKernel>(kernel)) {
+                    sp_kernel->setProperties(mat.porosity, mat.permeability_x, 
+                                            mat.compressibility, fluid.viscosity, fluid.density);
+                } else if (auto bo_kernel = std::dynamic_pointer_cast<BlackOilKernel>(kernel)) {
+                    bo_kernel->setRockProperties(mat.porosity, mat.permeability_x,
+                                                mat.permeability_y, mat.permeability_z);
+                    bo_kernel->setFluidProperties(fluid);
+                }
+                break;
+            }
+            case PhysicsType::GEOMECHANICS: {
+                if (auto geo_kernel = std::dynamic_pointer_cast<GeomechanicsKernel>(kernel)) {
+                    geo_kernel->setMaterialProperties(mat.youngs_modulus, mat.poisson_ratio, mat.density);
+                    if (config.solid_model == SolidModelType::VISCOELASTIC) {
+                        geo_kernel->setViscoelasticProperties(mat.relaxation_time, mat.viscosity);
+                    }
+                    if (config.solid_model == SolidModelType::POROELASTIC) {
+                        geo_kernel->setPoroelasticCoupling(mat.biot_coefficient, 1e10);
+                    }
+                }
+                break;
+            }
+            case PhysicsType::THERMAL: {
+                if (auto therm_kernel = std::dynamic_pointer_cast<ThermalKernel>(kernel)) {
+                    therm_kernel->setThermalProperties(mat.thermal_conductivity, 
+                                                      mat.density, mat.heat_capacity);
+                }
+                break;
+            }
+            default:
+                break;
         }
     }
     

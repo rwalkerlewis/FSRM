@@ -11,6 +11,9 @@
 
 namespace ResSim {
 
+// Forward declaration
+class ConfigReader;
+
 class Simulator {
 public:
     Simulator(MPI_Comm comm);
@@ -18,6 +21,7 @@ public:
     
     // Initialization
     PetscErrorCode initialize(const SimulationConfig& config);
+    PetscErrorCode initializeFromConfigFile(const std::string& config_file);
     PetscErrorCode setupDM();
     PetscErrorCode setupFields();
     PetscErrorCode setupPhysics();
@@ -26,6 +30,7 @@ public:
     
     // Load input
     PetscErrorCode loadEclipseInput(const std::string& filename);
+    PetscErrorCode loadMaterialPropertiesFromFile(const std::string& filename);
     PetscErrorCode setInitialConditions();
     PetscErrorCode setMaterialProperties();
     
@@ -92,7 +97,7 @@ private:
     // Eclipse I/O
     std::unique_ptr<EclipseIO> eclipse_io;
     
-    // Material properties (per cell)
+    // Material properties (per cell or per region)
     std::vector<MaterialProperties> material_props;
     std::vector<FluidProperties> fluid_props;
     
@@ -139,6 +144,7 @@ private:
     PetscErrorCode createFieldsFromConfig();
     PetscErrorCode setupBoundaryConditions();
     PetscErrorCode interpolateMaterialProperties();
+    PetscErrorCode applyMaterialPropertiesToKernels();
 };
 
 } // namespace ResSim
