@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  reservoirsim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reservoirsim:latest
+    container_name: reservoirsim
+    hostname: reservoirsim-node
+    
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '16'
+          memory: 32G
+        reservations:
+          cpus: '8'
+          memory: 16G
+    
+    # Mount volumes for data persistence
+    volumes:
+      - ./data:/data
+      - ./config:/config
+      - ./output:/app/output
+      - ./simulations:/home/simuser/simulations
+    
+    # Working directory
+    working_dir: /app
+    
+    # Keep container running
+    command: /bin/bash -c "tail -f /dev/null"
+    
+    # Enable IPC for MPI
+    ipc: host
+    
+    # Environment variables
+    environment:
+      - OMP_NUM_THREADS=1
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+    
+    # Use host network for MPI (optional, for multi-node)
+    # network_mode: host
+    
+    networks:
+      - reservoirsim-network
+
+  # Optional: Add a Jupyter notebook service for post-processing
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reservoirsim:latest
+    container_name: reservoirsim-jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./output:/app/output
+      - ./notebooks:/notebooks
+    working_dir: /notebooks
+    command: >
+      bash -c "pip3 install jupyter jupyterlab &&
+               jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+               --NotebookApp.token='' --NotebookApp.password=''"
+    networks:
+      - reservoirsim-network
+
+networks:
+  reservoirsim-network:
+    driver: bridge

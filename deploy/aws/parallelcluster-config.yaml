@@ -1,0 +1,66 @@
+# AWS ParallelCluster configuration for multi-node HPC deployment
+# This is for large-scale simulations requiring multiple compute nodes
+
+Region: us-east-1
+Image:
+  Os: ubuntu2204
+
+HeadNode:
+  InstanceType: c5.2xlarge
+  Networking:
+    SubnetId: subnet-xxxxx  # Replace with your subnet ID
+  Ssh:
+    KeyName: your-key-pair  # Replace with your key pair name
+  Iam:
+    AdditionalIamPolicies:
+      - Policy: arn:aws:iam::aws:policy/AmazonS3FullAccess
+  LocalStorage:
+    RootVolume:
+      Size: 100
+      VolumeType: gp3
+
+Scheduling:
+  Scheduler: slurm
+  SlurmQueues:
+    - Name: compute
+      ComputeResources:
+        - Name: c5-4xlarge-nodes
+          InstanceType: c5.4xlarge
+          MinCount: 0
+          MaxCount: 10
+          DisableSimultaneousMultithreading: true
+      Networking:
+        SubnetIds:
+          - subnet-xxxxx  # Replace with your subnet ID
+        PlacementGroup:
+          Enabled: true
+      ComputeSettings:
+        LocalStorage:
+          RootVolume:
+            Size: 100
+            VolumeType: gp3
+      CustomActions:
+        OnNodeConfigured:
+          Script: s3://your-bucket/scripts/install_reservoirsim.sh
+          Args:
+            - arg1
+
+SharedStorage:
+  - MountDir: /shared
+    Name: shared-ebs
+    StorageType: Ebs
+    EbsSettings:
+      VolumeType: gp3
+      Size: 500
+      Iops: 3000
+      Throughput: 125
+
+DevSettings:
+  Cookbook:
+    ChefCookbook: s3://your-bucket/cookbooks/custom-cookbook.tgz
+
+Tags:
+  - Key: Project
+    Value: ReservoirSim
+  - Key: Environment
+    Value: Production
