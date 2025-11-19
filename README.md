@@ -60,11 +60,24 @@ sudo make install
 
 ### Using Configuration Files (Recommended)
 
-Configuration files allow you to specify all material properties, simulation parameters, and physics models without recompiling.
+Configuration files allow you to specify **ALL** simulation parameters without recompiling:
+- Rock/formation properties
+- Fluid properties  
+- Well locations, types, and controls
+- Fracture properties and locations
+- Fault properties and friction laws
+- Particle/proppant properties
+- Boundary conditions
+- Initial conditions
+- All physics settings
 
 #### 1. Generate a template configuration
 ```bash
+# Generate a basic template
 reservoirsim -generate_config my_simulation.config
+
+# Or use the complete template with all options
+cp config/complete_template.config my_simulation.config
 ```
 
 #### 2. Edit the configuration file
@@ -72,7 +85,6 @@ reservoirsim -generate_config my_simulation.config
 [SIMULATION]
 start_time = 0.0
 end_time = 86400.0        # 1 day
-dt_initial = 3600.0       # 1 hour
 fluid_model = BLACK_OIL
 enable_geomechanics = true
 
@@ -80,18 +92,45 @@ enable_geomechanics = true
 porosity = 0.20           # 20%
 permeability_x = 100.0    # milliDarcy
 youngs_modulus = 10.0e9   # 10 GPa
-poisson_ratio = 0.25
 
 [FLUID]
-oil_density_std = 800.0   # kg/m³
 oil_viscosity = 0.005     # Pa·s (5 cP)
 solution_GOR = 100.0      # scf/stb
+
+[WELL1]
+name = PROD1
+type = PRODUCER
+i = 10
+j = 10
+k = 5
+control_mode = RATE
+target_value = 0.01       # m³/s
+
+[FRACTURE1]
+type = HYDRAULIC
+location = 500, 500, 50, 0, 1, 0
+aperture = 0.001          # m
+enable_propagation = true
+
+[BC1]
+type = DIRICHLET
+field = PRESSURE
+location = XMIN
+value = 20.0e6            # Pa
+
+[IC1]
+field = PRESSURE
+distribution = GRADIENT
+value = 20.0e6
+gradient = 0, 0, 10000    # Hydrostatic
 ```
 
 #### 3. Run simulation
 ```bash
 mpirun -np 4 reservoirsim -c my_simulation.config
 ```
+
+**No recompilation needed!** Edit the config file and re-run.
 
 ### Using Eclipse Format
 ```bash
@@ -142,6 +181,40 @@ Configuration files use a simple INI format with sections:
 - **Single-phase**: density, viscosity, compressibility
 - **Black oil**: oil/gas/water properties, solution GOR
 - **Compositional**: component arrays (MW, Tc, Pc, omega)
+
+### [WELL1], [WELL2], ... - Well Definitions
+- **Location**: i, j, k (grid indices)
+- **Type**: PRODUCER, INJECTOR, OBSERVATION
+- **Control**: control_mode (RATE/BHP/THP), target_value
+- **Constraints**: max_rate, min_bhp
+- **Geometry**: diameter, skin
+
+### [FRACTURE1], [FRACTURE2], ... - Fracture Definitions
+- **Type**: NATURAL, HYDRAULIC, INDUCED_THERMAL
+- **Location**: x, y, z, nx, ny, nz (center + normal)
+- **Properties**: aperture, permeability, toughness, energy
+- **Options**: enable_propagation, enable_proppant
+
+### [FAULT1], [FAULT2], ... - Fault Definitions
+- **Geometry**: strike, dip, length, width
+- **Friction**: static_friction, dynamic_friction, cohesion
+- **Rate-state**: use_rate_state, a_parameter, b_parameter, Dc_parameter
+
+### [PARTICLE] - Proppant/Particle Properties
+- **Size**: diameter, density
+- **Transport**: concentration, diffusivity
+- **Physics**: enable_settling, enable_bridging
+
+### [BC1], [BC2], ... - Boundary Conditions
+- **Type**: DIRICHLET, NEUMANN, ROBIN
+- **Field**: PRESSURE, TEMPERATURE, DISPLACEMENT
+- **Location**: XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX
+- **Value**: value, gradient
+
+### [IC1], [IC2], ... - Initial Conditions
+- **Field**: PRESSURE, TEMPERATURE, SATURATION_OIL, etc.
+- **Distribution**: UNIFORM, GRADIENT, FILE
+- **Value**: value, gradient, file
 
 ### Multiple Rock Types
 Define heterogeneous properties using multiple sections:

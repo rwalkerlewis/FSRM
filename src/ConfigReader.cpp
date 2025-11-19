@@ -321,6 +321,125 @@ bool ConfigReader::parseFluidProperties(FluidProperties& props) {
     return true;
 }
 
+std::vector<ConfigReader::WellConfig> ConfigReader::parseWells() {
+    std::vector<WellConfig> wells;
+    
+    for (const auto& section : getSections()) {
+        if (section.find("WELL") == 0) {
+            WellConfig well;
+            well.name = getString(section, "name", section);
+            well.type = getString(section, "type", "PRODUCER");
+            well.i = getInt(section, "i", 0);
+            well.j = getInt(section, "j", 0);
+            well.k = getInt(section, "k", 0);
+            well.control_mode = getString(section, "control_mode", "RATE");
+            well.target_value = getDouble(section, "target_value", 100.0);
+            well.max_rate = getDouble(section, "max_rate", 1000.0);
+            well.min_bhp = getDouble(section, "min_bhp", 5e6);
+            well.diameter = getDouble(section, "diameter", 0.2);
+            well.skin = getDouble(section, "skin", 0.0);
+            wells.push_back(well);
+        }
+    }
+    
+    return wells;
+}
+
+std::vector<ConfigReader::FractureConfig> ConfigReader::parseFractures() {
+    std::vector<FractureConfig> fractures;
+    
+    for (const auto& section : getSections()) {
+        if (section.find("FRACTURE") == 0) {
+            FractureConfig frac;
+            frac.type = getString(section, "type", "NATURAL");
+            frac.location = getDoubleArray(section, "location");
+            frac.aperture = getDouble(section, "aperture", 1e-4);
+            frac.permeability = getDouble(section, "permeability", 1e-12);
+            frac.toughness = getDouble(section, "toughness", 1e6);
+            frac.energy = getDouble(section, "energy", 100.0);
+            frac.enable_propagation = getBool(section, "enable_propagation", false);
+            frac.enable_proppant = getBool(section, "enable_proppant", false);
+            fractures.push_back(frac);
+        }
+    }
+    
+    return fractures;
+}
+
+std::vector<ConfigReader::FaultConfig> ConfigReader::parseFaults() {
+    std::vector<FaultConfig> faults;
+    
+    for (const auto& section : getSections()) {
+        if (section.find("FAULT") == 0) {
+            FaultConfig fault;
+            fault.name = getString(section, "name", section);
+            fault.strike = getDoubleArray(section, "strike");
+            fault.dip = getDoubleArray(section, "dip");
+            fault.length = getDouble(section, "length", 1000.0);
+            fault.width = getDouble(section, "width", 500.0);
+            fault.static_friction = getDouble(section, "static_friction", 0.6);
+            fault.dynamic_friction = getDouble(section, "dynamic_friction", 0.4);
+            fault.cohesion = getDouble(section, "cohesion", 1e6);
+            fault.use_rate_state = getBool(section, "use_rate_state", false);
+            fault.a_parameter = getDouble(section, "a_parameter", 0.01);
+            fault.b_parameter = getDouble(section, "b_parameter", 0.015);
+            fault.Dc_parameter = getDouble(section, "Dc_parameter", 0.001);
+            faults.push_back(fault);
+        }
+    }
+    
+    return faults;
+}
+
+bool ConfigReader::parseParticleProperties(ParticleConfig& config) {
+    if (!hasSection("PARTICLE")) return false;
+    
+    config.diameter = getDouble("PARTICLE", "diameter", 0.0003);
+    config.density = getDouble("PARTICLE", "density", 2650.0);
+    config.concentration = getDouble("PARTICLE", "concentration", 0.0);
+    config.diffusivity = getDouble("PARTICLE", "diffusivity", 1e-9);
+    config.enable_settling = getBool("PARTICLE", "enable_settling", true);
+    config.enable_bridging = getBool("PARTICLE", "enable_bridging", false);
+    
+    return true;
+}
+
+std::vector<ConfigReader::BoundaryCondition> ConfigReader::parseBoundaryConditions() {
+    std::vector<BoundaryCondition> bcs;
+    
+    for (const auto& section : getSections()) {
+        if (section.find("BC") == 0) {
+            BoundaryCondition bc;
+            bc.type = getString(section, "type", "DIRICHLET");
+            bc.field = getString(section, "field", "PRESSURE");
+            bc.location = getString(section, "location", "XMIN");
+            bc.value = getDouble(section, "value", 0.0);
+            bc.gradient = getDouble(section, "gradient", 0.0);
+            bcs.push_back(bc);
+        }
+    }
+    
+    return bcs;
+}
+
+std::vector<ConfigReader::InitialCondition> ConfigReader::parseInitialConditions() {
+    std::vector<InitialCondition> ics;
+    
+    for (const auto& section : getSections()) {
+        if (section.find("IC") == 0) {
+            InitialCondition ic;
+            ic.field = getString(section, "field", "PRESSURE");
+            ic.distribution = getString(section, "distribution", "UNIFORM");
+            ic.value = getDouble(section, "value", 1e7);
+            ic.gradient = getDoubleArray(section, "gradient");
+            ic.file = getString(section, "file", "");
+            ics.push_back(ic);
+        }
+    }
+    
+    return ics;
+}
+
 void ConfigReader::generateTemplate(const std::string& filename) {
     std::ofstream file(filename);
     
@@ -429,8 +548,105 @@ void ConfigReader::generateTemplate(const std::string& filename) {
     file << "component_Pc = 4.60e6, 4.88e6, 4.25e6 # Pa\n";
     file << "component_omega = 0.011, 0.099, 0.152 # Acentric factor\n\n";
     
+    file << "[WELL1]\n";
+    file << "# Well configuration\n";
+    file << "name = PROD1\n";
+    file << "type = PRODUCER                       # PRODUCER, INJECTOR\n";
+    file << "i = 10                                # Grid indices (0-based)\n";
+    file << "j = 10\n";
+    file << "k = 5\n";
+    file << "control_mode = RATE                   # RATE, BHP, THP\n";
+    file << "target_value = 0.01                   # m³/s (rate) or Pa (pressure)\n";
+    file << "max_rate = 0.1                        # m³/s\n";
+    file << "min_bhp = 5.0e6                       # Pa (5 MPa)\n";
+    file << "diameter = 0.2                        # meters (8 inch)\n";
+    file << "skin = 0.0                            # Skin factor\n\n";
+    
+    file << "[WELL2]\n";
+    file << "name = INJ1\n";
+    file << "type = INJECTOR\n";
+    file << "i = 1\n";
+    file << "j = 1\n";
+    file << "k = 5\n";
+    file << "control_mode = RATE\n";
+    file << "target_value = 0.015                  # m³/s\n";
+    file << "max_rate = 0.2\n";
+    file << "min_bhp = 50.0e6                      # Pa (50 MPa max injection pressure)\n";
+    file << "diameter = 0.15\n";
+    file << "skin = 0.0\n\n";
+    
+    file << "[FRACTURE1]\n";
+    file << "# Hydraulic or natural fracture\n";
+    file << "type = HYDRAULIC                      # NATURAL, HYDRAULIC\n";
+    file << "location = 500.0, 500.0, 50.0, 0.0, 1.0, 0.0  # x,y,z center + normal vector\n";
+    file << "aperture = 0.001                      # meters (1 mm)\n";
+    file << "permeability = 1.0e-10                # m² (from cubic law)\n";
+    file << "toughness = 1.0e6                     # Pa·m^0.5\n";
+    file << "energy = 100.0                        # J/m²\n";
+    file << "enable_propagation = true\n";
+    file << "enable_proppant = true\n\n";
+    
+    file << "[FAULT1]\n";
+    file << "# Pre-existing fault\n";
+    file << "name = MAIN_FAULT\n";
+    file << "strike = 1.0, 0.0, 0.0                # Direction vector (E-W)\n";
+    file << "dip = 0.0, 0.707, 0.707               # 45 degree dip\n";
+    file << "length = 2000.0                       # meters\n";
+    file << "width = 1500.0                        # meters\n";
+    file << "static_friction = 0.6                 # Byerlee's law\n";
+    file << "dynamic_friction = 0.4\n";
+    file << "cohesion = 1.0e6                      # Pa (1 MPa)\n";
+    file << "use_rate_state = true                 # Rate-and-state friction\n";
+    file << "a_parameter = 0.010                   # Rate-state a\n";
+    file << "b_parameter = 0.015                   # Rate-state b (b>a: velocity weakening)\n";
+    file << "Dc_parameter = 0.001                  # Rate-state critical slip distance (m)\n\n";
+    
+    file << "[PARTICLE]\n";
+    file << "# Proppant or tracer properties\n";
+    file << "diameter = 0.0003                     # meters (300 microns, 40/70 mesh)\n";
+    file << "density = 2650.0                      # kg/m³ (ceramic proppant)\n";
+    file << "concentration = 0.0                   # kg/m³ (set to 0 initially)\n";
+    file << "diffusivity = 1.0e-9                  # m²/s\n";
+    file << "enable_settling = true                # Gravitational settling\n";
+    file << "enable_bridging = false               # Proppant bridging in fractures\n\n";
+    
+    file << "[BC1]\n";
+    file << "# Boundary condition 1\n";
+    file << "type = DIRICHLET                      # DIRICHLET, NEUMANN, ROBIN\n";
+    file << "field = PRESSURE                      # PRESSURE, TEMPERATURE, DISPLACEMENT\n";
+    file << "location = XMIN                       # XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX\n";
+    file << "value = 20.0e6                        # Pa (20 MPa)\n";
+    file << "gradient = 0.0                        # For Neumann BC\n\n";
+    
+    file << "[BC2]\n";
+    file << "type = NEUMANN\n";
+    file << "field = DISPLACEMENT\n";
+    file << "location = ZMAX\n";
+    file << "value = 0.0\n";
+    file << "gradient = 0.0                        # No stress at top\n\n";
+    
+    file << "[IC1]\n";
+    file << "# Initial condition for pressure\n";
+    file << "field = PRESSURE\n";
+    file << "distribution = GRADIENT               # UNIFORM, GRADIENT, FILE\n";
+    file << "value = 20.0e6                        # Pa (base value)\n";
+    file << "gradient = 0.0, 0.0, 10000.0          # Pa/m (hydrostatic gradient in z)\n";
+    file << "file =                                # Optional file for complex distributions\n\n";
+    
+    file << "[IC2]\n";
+    file << "# Initial temperature\n";
+    file << "field = TEMPERATURE\n";
+    file << "distribution = GRADIENT\n";
+    file << "value = 300.0                         # K (at top)\n";
+    file << "gradient = 0.0, 0.0, 0.025            # K/m (geothermal gradient)\n";
+    file << "file = \n\n";
+    
     file << "# Multiple rock types can be defined as [ROCK1], [ROCK2], etc.\n";
-    file << "# Use Eclipse INCLUDE files for complex property distributions\n";
+    file << "# Multiple wells as [WELL1], [WELL2], [WELL3], etc.\n";
+    file << "# Multiple fractures as [FRACTURE1], [FRACTURE2], etc.\n";
+    file << "# Multiple faults as [FAULT1], [FAULT2], etc.\n";
+    file << "# Multiple boundary conditions as [BC1], [BC2], etc.\n";
+    file << "# Multiple initial conditions as [IC1], [IC2], etc.\n";
     
     file.close();
 }

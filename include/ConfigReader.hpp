@@ -25,6 +25,81 @@ public:
     bool parseMaterialProperties(std::vector<MaterialProperties>& props);
     bool parseFluidProperties(FluidProperties& props);
     
+    // Parse wells
+    struct WellConfig {
+        std::string name;
+        std::string type;  // PRODUCER, INJECTOR
+        int i, j, k;
+        std::string control_mode;  // RATE, BHP, THP
+        double target_value;
+        double max_rate;
+        double min_bhp;
+        double diameter;
+        double skin;
+    };
+    std::vector<WellConfig> parseWells();
+    
+    // Parse fractures
+    struct FractureConfig {
+        std::string type;  // NATURAL, HYDRAULIC
+        std::vector<double> location;
+        double aperture;
+        double permeability;
+        double toughness;
+        double energy;
+        bool enable_propagation;
+        bool enable_proppant;
+    };
+    std::vector<FractureConfig> parseFractures();
+    
+    // Parse faults
+    struct FaultConfig {
+        std::string name;
+        std::vector<double> strike;
+        std::vector<double> dip;
+        double length;
+        double width;
+        double static_friction;
+        double dynamic_friction;
+        double cohesion;
+        bool use_rate_state;
+        double a_parameter;
+        double b_parameter;
+        double Dc_parameter;
+    };
+    std::vector<FaultConfig> parseFaults();
+    
+    // Parse particle/proppant properties
+    struct ParticleConfig {
+        double diameter;
+        double density;
+        double concentration;
+        double diffusivity;
+        bool enable_settling;
+        bool enable_bridging;
+    };
+    bool parseParticleProperties(ParticleConfig& config);
+    
+    // Parse boundary conditions
+    struct BoundaryCondition {
+        std::string type;  // DIRICHLET, NEUMANN, ROBIN
+        std::string field; // PRESSURE, TEMPERATURE, DISPLACEMENT
+        std::string location; // XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX
+        double value;
+        double gradient;  // For Neumann
+    };
+    std::vector<BoundaryCondition> parseBoundaryConditions();
+    
+    // Parse initial conditions
+    struct InitialCondition {
+        std::string field;
+        std::string distribution; // UNIFORM, GRADIENT, FILE
+        double value;
+        std::vector<double> gradient;
+        std::string file;
+    };
+    std::vector<InitialCondition> parseInitialConditions();
+    
     // Get values by key
     std::string getString(const std::string& section, const std::string& key, 
                          const std::string& default_val = "") const;

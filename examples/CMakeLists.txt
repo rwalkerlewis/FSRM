@@ -29,6 +29,7 @@ add_reservoir_example(ex_hydraulic_fracturing ex_hydraulic_fracturing.cpp)
 add_reservoir_example(ex_induced_seismicity ex_induced_seismicity.cpp)
 add_reservoir_example(ex_thermal_recovery ex_thermal_recovery.cpp)
 add_reservoir_example(ex_stochastic_reservoir ex_stochastic_reservoir.cpp)
+add_reservoir_example(ex_config_driven ex_config_driven.cpp)
 
 # Copy data files
 file(GLOB DATA_FILES "*.DATA" "*.INC")
