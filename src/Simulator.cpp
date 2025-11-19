@@ -306,7 +306,96 @@ PetscErrorCode Simulator::setupPhysics() {
     
     // Add geomechanics if enabled
     if (config.enable_geomechanics) {
-        auto kernel = std::make_shared<GeomechanicsKernel>(config.solid_model);
+        // Choose between static and dynamic geomechanics
+        if (config.solid_model == SolidModelType::ELASTODYNAMIC) {
+            auto kernel = std::make_shared<ElastodynamicsKernel>();
+            if (!material_props.empty()) {
+                const MaterialProperties& mat = material_props[0];
+                kernel->setMaterialProperties(mat.youngs_modulus, mat.poisson_ratio, mat.density);
+                kernel->setWaveProperties(mat.p_wave_velocity, mat.s_wave_velocity, mat.quality_factor);
+                kernel->setDamping(mat.damping_alpha, mat.damping_beta);
+                
+                if (config.use_static_triggering) {
+                    kernel->setStaticTriggeringMode(true, config.dynamic_trigger_threshold, 
+                                                   config.dynamic_event_duration);
+                }
+            }
+            ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
+        } else if (config.solid_model == SolidModelType::POROELASTODYNAMIC) {
+            auto kernel = std::make_shared<PoroelastodynamicsKernel>();
+            if (!material_props.empty()) {
+                const MaterialProperties& mat = material_props[0];
+                const FluidProperties& fluid = fluid_props.empty() ? FluidProperties() : fluid_props[0];
+                
+                kernel->setMaterialProperties(mat.youngs_modulus, mat.poisson_ratio, 
+                                             mat.density, mat.porosity);
+                kernel->setFluidProperties(fluid.density, fluid.viscosity, 2.2e9);
+                kernel->setBiotParameters(mat.biot_coefficient, 1e10);
+                kernel->setWaveProperties(mat.p_wave_velocity, mat.s_wave_velocity, 1500.0);
+                kernel->setDamping(mat.damping_alpha, mat.damping_beta);
+                
+                if (config.use_static_triggering) {
+                    kernel->setStaticTriggeringMode(true, config.dynamic_trigger_threshold,
+                                                   config.dynamic_event_duration);
+                }
+                
+                if (config.enable_dynamic_permeability_change) {
+                    kernel->enableDynamicPermeabilityChange(true, 
+                                                           mat.permeability_strain_coeff,
+                                                           mat.permeability_stress_coeff,
+                                                           config.permeability_recovery_time);
+                }
+            }
+            ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
+        } else {
+            auto kernel = std::make_shared<GeomechanicsKernel>(config.solid_model);
+            ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
+        }
+    }
+    
+    // Add standalone elastodynamics if enabled
+    if (config.enable_elastodynamics) {
+        auto kernel = std::make_shared<ElastodynamicsKernel>();
+        if (!material_props.empty()) {
+            const MaterialProperties& mat = material_props[0];
+            kernel->setMaterialProperties(mat.youngs_modulus, mat.poisson_ratio, mat.density);
+            kernel->setWaveProperties(mat.p_wave_velocity, mat.s_wave_velocity, mat.quality_factor);
+            kernel->setDamping(mat.damping_alpha, mat.damping_beta);
+            
+            if (config.use_static_triggering) {
+                kernel->setStaticTriggeringMode(true, config.dynamic_trigger_threshold,
+                                               config.dynamic_event_duration);
+            }
+        }
+        ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
+    }
+    
+    // Add standalone poroelastodynamics if enabled
+    if (config.enable_poroelastodynamics) {
+        auto kernel = std::make_shared<PoroelastodynamicsKernel>();
+        if (!material_props.empty()) {
+            const MaterialProperties& mat = material_props[0];
+            const FluidProperties& fluid = fluid_props.empty() ? FluidProperties() : fluid_props[0];
+            
+            kernel->setMaterialProperties(mat.youngs_modulus, mat.poisson_ratio,
+                                         mat.density, mat.porosity);
+            kernel->setFluidProperties(fluid.density, fluid.viscosity, 2.2e9);
+            kernel->setBiotParameters(mat.biot_coefficient, 1e10);
+            kernel->setWaveProperties(mat.p_wave_velocity, mat.s_wave_velocity, 1500.0);
+            kernel->setDamping(mat.damping_alpha, mat.damping_beta);
+            
+            if (config.use_static_triggering) {
+                kernel->setStaticTriggeringMode(true, config.dynamic_trigger_threshold,
+                                               config.dynamic_event_duration);
+            }
+            
+            if (config.enable_dynamic_permeability_change) {
+                kernel->enableDynamicPermeabilityChange(true,
+                                                       mat.permeability_strain_coeff,
+                                                       mat.permeability_stress_coeff,
+                                                       config.permeability_recovery_time);
+            }
+        }
         ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
     }
     
@@ -352,7 +441,20 @@ PetscErrorCode Simulator::setupTimeStepper() {
     ierr = TSSetProblemType(ts, TS_NONLINEAR); CHKERRQ(ierr);
     
     // Set time stepping method
-    ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
+    // Use implicit methods for quasi-static, explicit or implicit for dynamic
+    if (config.use_dynamic_mode || config.enable_elastodynamics || config.enable_poroelastodynamics) {
+        // For wave propagation, use second-order time integrator
+        ierr = TSSetType(ts, TSALPHA2); CHKERRQ(ierr);  // Generalized-alpha for dynamics
+        
+        // Set parameters for optimal stability and accuracy
+        PetscReal alpha_m = 0.5;  // Spectral radius
+        PetscReal alpha_f = 0.5;
+        PetscReal gamma = 0.5 + alpha_m - alpha_f;
+        // These can be set via TSAlpha2SetParams if needed
+    } else {
+        // Quasi-static: use backward Euler
+        ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
+    }
     
     // Set time parameters
     ierr = TSSetTime(ts, config.start_time); CHKERRQ(ierr);

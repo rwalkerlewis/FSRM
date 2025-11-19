@@ -37,7 +37,9 @@ enum class SolidModelType {
     ELASTIC,
     VISCOELASTIC,
     POROELASTIC,
-    THERMOELASTIC
+    THERMOELASTIC,
+    ELASTODYNAMIC,           // Full dynamic elasticity with inertia
+    POROELASTODYNAMIC        // Biot's dynamic poroelasticity
 };
 
 enum class FractureType {
@@ -59,7 +61,9 @@ enum class PhysicsType {
     PARTICLE_TRANSPORT,
     FRACTURE_PROPAGATION,
     TIDAL_FORCES,
-    CHEMICAL_REACTION
+    CHEMICAL_REACTION,
+    ELASTODYNAMICS,          // Elastic wave propagation
+    POROELASTODYNAMICS       // Coupled fluid-solid wave propagation
 };
 
 // Configuration structures
@@ -94,6 +98,19 @@ struct SimulationConfig {
     bool enable_particle_transport = false;
     bool enable_faults = false;
     bool enable_tidal_forces = false;
+    bool enable_elastodynamics = false;           // Enable wave propagation
+    bool enable_poroelastodynamics = false;       // Enable coupled fluid-solid waves
+    
+    // Dynamic simulation mode
+    bool use_dynamic_mode = false;                 // Full dynamic vs quasi-static
+    bool use_static_triggering = false;            // Static stress triggers dynamic event
+    double dynamic_trigger_threshold = 1.0e6;      // Stress threshold for triggering (Pa)
+    double dynamic_event_duration = 10.0;          // Duration of dynamic event (s)
+    
+    // Permeability change from dynamic waves
+    bool enable_dynamic_permeability_change = false;
+    double permeability_sensitivity = 1.0;         // Sensitivity to strain/stress
+    double permeability_recovery_time = 100.0;     // Recovery time constant (s)
     
     FluidModelType fluid_model = FluidModelType::SINGLE_COMPONENT;
     SolidModelType solid_model = SolidModelType::ELASTIC;
@@ -132,6 +149,19 @@ struct MaterialProperties {
     // Fracture properties
     double fracture_toughness = 1e6; // Pa·m^0.5
     double fracture_energy = 100.0; // J/m^2
+    
+    // Wave propagation properties
+    double p_wave_velocity = 5000.0;     // m/s (typical for rock)
+    double s_wave_velocity = 3000.0;     // m/s
+    double damping_alpha = 0.01;         // Rayleigh damping (mass proportional)
+    double damping_beta = 0.001;         // Rayleigh damping (stiffness proportional)
+    double quality_factor = 100.0;       // Seismic quality factor Q
+    
+    // Permeability dynamics
+    double permeability_strain_coeff = 1e-7;     // dK/dε (1/strain)
+    double permeability_stress_coeff = 1e-15;    // dK/dσ (1/Pa)
+    double min_permeability = 0.001;             // mD (minimum allowable)
+    double max_permeability = 10000.0;           // mD (maximum allowable)
 };
 
 struct FluidProperties {

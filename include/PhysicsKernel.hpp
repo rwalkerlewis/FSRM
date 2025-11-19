@@ -298,6 +298,155 @@ private:
     double current_time;
 };
 
+// Elastodynamics kernel (wave propagation with inertia)
+class ElastodynamicsKernel : public PhysicsKernel {
+public:
+    ElastodynamicsKernel();
+    
+    PetscErrorCode setup(DM dm, PetscFE fe) override;
+    
+    void residual(const PetscScalar u[], const PetscScalar u_t[],
+                 const PetscScalar u_x[], const PetscScalar a[],
+                 const PetscReal x[], PetscScalar f[]) override;
+    
+    void jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                 const PetscScalar u_x[], const PetscScalar a[],
+                 const PetscReal x[], PetscScalar J[]) override;
+    
+    int getNumFields() const override { return 1; }
+    int getNumComponents(int field) const override { return 3; } // ux, uy, uz
+    
+    void setMaterialProperties(double E, double nu, double rho);
+    void setWaveProperties(double vp, double vs, double Q);
+    void setDamping(double alpha, double beta);
+    void setStaticTriggeringMode(bool enable, double threshold, double duration);
+    
+    // Check if static stress exceeds threshold
+    bool checkStaticTrigger(const PetscScalar stress[], double current_time);
+    bool isInDynamicEvent(double current_time) const;
+    
+private:
+    double youngs_modulus;
+    double poisson_ratio;
+    double density;
+    double p_wave_velocity;
+    double s_wave_velocity;
+    double quality_factor;
+    double damping_alpha;  // Rayleigh mass damping
+    double damping_beta;   // Rayleigh stiffness damping
+    
+    // Static triggering parameters
+    bool enable_static_triggering;
+    double trigger_threshold;
+    double event_duration;
+    double trigger_time;
+    bool event_active;
+};
+
+// Poroelastodynamics kernel (Biot's equations with dynamics)
+class PoroelastodynamicsKernel : public PhysicsKernel {
+public:
+    PoroelastodynamicsKernel();
+    
+    PetscErrorCode setup(DM dm, PetscFE fe) override;
+    
+    void residual(const PetscScalar u[], const PetscScalar u_t[],
+                 const PetscScalar u_x[], const PetscScalar a[],
+                 const PetscReal x[], PetscScalar f[]) override;
+    
+    void jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                 const PetscScalar u_x[], const PetscScalar a[],
+                 const PetscReal x[], PetscScalar J[]) override;
+    
+    int getNumFields() const override { return 2; } // Displacement + Pressure
+    int getNumComponents(int field) const override { return (field == 0 ? 3 : 1); }
+    
+    void setMaterialProperties(double E, double nu, double rho, double phi);
+    void setFluidProperties(double rho_f, double mu, double K_f);
+    void setBiotParameters(double alpha, double M);
+    void setWaveProperties(double vp_fast, double vs, double vp_slow);
+    void setDamping(double alpha, double beta);
+    void setStaticTriggeringMode(bool enable, double threshold, double duration);
+    
+    // Permeability dynamics
+    void enableDynamicPermeabilityChange(bool enable, double strain_coeff, 
+                                         double stress_coeff, double recovery_time);
+    double computePermeabilityChange(const PetscScalar u_x[], const PetscScalar stress[], 
+                                     double k_initial, double dt);
+    
+    bool checkStaticTrigger(const PetscScalar stress[], double current_time);
+    bool isInDynamicEvent(double current_time) const;
+    
+private:
+    // Solid properties
+    double youngs_modulus;
+    double poisson_ratio;
+    double density_solid;
+    double porosity;
+    
+    // Fluid properties
+    double density_fluid;
+    double viscosity;
+    double bulk_modulus_fluid;
+    
+    // Biot parameters
+    double biot_coefficient;
+    double biot_modulus;
+    
+    // Wave properties
+    double p_wave_fast;   // Fast P-wave (Biot wave I)
+    double s_wave;        // Shear wave
+    double p_wave_slow;   // Slow P-wave (Biot wave II)
+    double damping_alpha;
+    double damping_beta;
+    
+    // Permeability
+    double permeability;
+    double permeability_initial;
+    
+    // Permeability dynamics
+    bool enable_dynamic_k;
+    double k_strain_coeff;
+    double k_stress_coeff;
+    double k_recovery_time;
+    
+    // Static triggering
+    bool enable_static_triggering;
+    double trigger_threshold;
+    double event_duration;
+    double trigger_time;
+    bool event_active;
+};
+
+// Dynamic permeability change model (can be used by other kernels)
+class DynamicPermeabilityModel {
+public:
+    DynamicPermeabilityModel();
+    
+    void setParameters(double k0, double strain_coeff, double stress_coeff,
+                      double recovery_time, double k_min, double k_max);
+    
+    // Compute instantaneous permeability change from wave passage
+    double computeInstantaneousChange(double strain_amplitude, double stress_amplitude);
+    
+    // Compute time-dependent permeability evolution
+    double computeTimeEvolution(double k_current, double k0, double dt);
+    
+    // Mechanistic models for permeability change
+    double strainModel(double volumetric_strain);
+    double stressModel(double effective_stress);
+    double shearDilationModel(double shear_strain);
+    double crackOpeningModel(double normal_stress);
+    
+private:
+    double k_initial;
+    double strain_coefficient;
+    double stress_coefficient;
+    double recovery_tau;
+    double k_minimum;
+    double k_maximum;
+};
+
 } // namespace ResSim
 
 #endif // PHYSICS_KERNEL_HPP
