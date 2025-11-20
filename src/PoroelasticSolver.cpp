@@ -275,6 +275,9 @@ void PoroelasticSolver::getPressure(std::vector<std::vector<double>>& P) const {
     DMGetLocalVector(dm_, &local);
     DMGlobalToLocal(dm_, solution_, INSERT_VALUES, local);
     
+    PetscSection section;
+    DMGetLocalSection(dm_, &section);
+    
     PetscScalar *array;
     VecGetArray(local, &array);
     
@@ -282,10 +285,11 @@ void PoroelasticSolver::getPressure(std::vector<std::vector<double>>& P) const {
     DMPlexGetHeightStratum(dm_, 0, &cStart, &cEnd);
     
     for (PetscInt c = cStart; c < cEnd; ++c) {
-        PetscInt offset;
-        DMPlexGetPointGlobal(dm_, c, &offset, nullptr);
+        PetscInt dof, offset;
+        PetscSectionGetDof(section, c, &dof);
+        PetscSectionGetOffset(section, c, &offset);
         
-        if (offset >= 0) {
+        if (dof >= 5) {
             // Determine (i, k) from cell index
             PetscInt cell_idx = c - cStart;
             PetscInt i = cell_idx % grid_cells_.x;
@@ -308,6 +312,9 @@ void PoroelasticSolver::getSaturation(std::vector<std::vector<double>>& Sw) cons
     DMGetLocalVector(dm_, &local);
     DMGlobalToLocal(dm_, solution_, INSERT_VALUES, local);
     
+    PetscSection section;
+    DMGetLocalSection(dm_, &section);
+    
     PetscScalar *array;
     VecGetArray(local, &array);
     
@@ -315,10 +322,11 @@ void PoroelasticSolver::getSaturation(std::vector<std::vector<double>>& Sw) cons
     DMPlexGetHeightStratum(dm_, 0, &cStart, &cEnd);
     
     for (PetscInt c = cStart; c < cEnd; ++c) {
-        PetscInt offset;
-        DMPlexGetPointGlobal(dm_, c, &offset, nullptr);
+        PetscInt dof, offset;
+        PetscSectionGetDof(section, c, &dof);
+        PetscSectionGetOffset(section, c, &offset);
         
-        if (offset >= 0) {
+        if (dof >= 5) {
             PetscInt cell_idx = c - cStart;
             PetscInt i = cell_idx % grid_cells_.x;
             PetscInt k = cell_idx / grid_cells_.x;
@@ -334,13 +342,16 @@ void PoroelasticSolver::getSaturation(std::vector<std::vector<double>>& Sw) cons
 }
 
 void PoroelasticSolver::getDisplacement(std::vector<std::vector<double>>& ux,
-                                        std::vector<std::vector<double>>& uz) const {
+                                       std::vector<std::vector<double>>& uz) const {
     ux.resize(grid_cells_.z, std::vector<double>(grid_cells_.x, 0.0));
     uz.resize(grid_cells_.z, std::vector<double>(grid_cells_.x, 0.0));
     
     Vec local;
     DMGetLocalVector(dm_, &local);
     DMGlobalToLocal(dm_, solution_, INSERT_VALUES, local);
+    
+    PetscSection section;
+    DMGetLocalSection(dm_, &section);
     
     PetscScalar *array;
     VecGetArray(local, &array);
@@ -349,10 +360,11 @@ void PoroelasticSolver::getDisplacement(std::vector<std::vector<double>>& ux,
     DMPlexGetHeightStratum(dm_, 0, &cStart, &cEnd);
     
     for (PetscInt c = cStart; c < cEnd; ++c) {
-        PetscInt offset;
-        DMPlexGetPointGlobal(dm_, c, &offset, nullptr);
+        PetscInt dof, offset;
+        PetscSectionGetDof(section, c, &dof);
+        PetscSectionGetOffset(section, c, &offset);
         
-        if (offset >= 0) {
+        if (dof >= 5) {
             PetscInt cell_idx = c - cStart;
             PetscInt i = cell_idx % grid_cells_.x;
             PetscInt k = cell_idx / grid_cells_.x;
@@ -366,14 +378,15 @@ void PoroelasticSolver::getDisplacement(std::vector<std::vector<double>>& ux,
     
     VecRestoreArray(local, &array);
     DMRestoreLocalVector(dm_, &local);
-}
-
-void PoroelasticSolver::getPorosity(std::vector<std::vector<double>>& phi) const {
+}void PoroelasticSolver::getPorosity(std::vector<std::vector<double>>& phi) const {
     phi.resize(grid_cells_.z, std::vector<double>(grid_cells_.x, 0.0));
     
     Vec local;
     DMGetLocalVector(dm_, &local);
     DMGlobalToLocal(dm_, solution_, INSERT_VALUES, local);
+    
+    PetscSection section;
+    DMGetLocalSection(dm_, &section);
     
     PetscScalar *array;
     VecGetArray(local, &array);
@@ -382,10 +395,11 @@ void PoroelasticSolver::getPorosity(std::vector<std::vector<double>>& phi) const
     DMPlexGetHeightStratum(dm_, 0, &cStart, &cEnd);
     
     for (PetscInt c = cStart; c < cEnd; ++c) {
-        PetscInt offset;
-        DMPlexGetPointGlobal(dm_, c, &offset, nullptr);
+        PetscInt dof, offset;
+        PetscSectionGetDof(section, c, &dof);
+        PetscSectionGetOffset(section, c, &offset);
         
-        if (offset >= 0) {
+        if (dof >= 5) {
             PetscInt cell_idx = c - cStart;
             PetscInt i = cell_idx % grid_cells_.x;
             PetscInt k = cell_idx / grid_cells_.x;
