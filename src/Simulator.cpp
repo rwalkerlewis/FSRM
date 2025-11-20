@@ -183,8 +183,9 @@ PetscErrorCode Simulator::setupUnstructuredGrid() {
     PetscErrorCode ierr;
     
     // Create DMPlex for unstructured grid
+    PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
     ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
-                              (PetscInt[]){grid_config.nx, grid_config.ny, grid_config.nz},
+                              faces,
                               nullptr, nullptr, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
     
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
@@ -665,7 +666,8 @@ void Simulator::f0_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                                const PetscScalar u[], const PetscScalar u_t[],
                                const PetscScalar u_x[], const PetscInt aOff[],
                                const PetscInt aOff_x[], const PetscScalar a[],
-                               const PetscScalar a_x[], PetscReal t,
+                               const PetscScalar a_x[], const PetscScalar a_t[],
+                               PetscReal t,
                                const PetscReal x[], PetscInt numConstants,
                                const PetscScalar constants[], PetscScalar f0[]) {
     // Accumulation term: phi * ct * dP/dt
@@ -680,7 +682,8 @@ void Simulator::f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                                const PetscScalar u[], const PetscScalar u_t[],
                                const PetscScalar u_x[], const PetscInt aOff[],
                                const PetscInt aOff_x[], const PetscScalar a[],
-                               const PetscScalar a_x[], PetscReal t,
+                               const PetscScalar a_x[], const PetscScalar a_t[],
+                               PetscReal t,
                                const PetscReal x[], PetscInt numConstants,
                                const PetscScalar constants[], PetscScalar f1[]) {
     // Flux term: -k/mu * grad(P)

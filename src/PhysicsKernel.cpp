@@ -233,9 +233,9 @@ void CompositionalKernel::residual(const PetscScalar u[], const PetscScalar u_t[
     }
     
     // Perform flash calculation
-    std::vector<double> x(nc), y(nc);
+    std::vector<double> x_comp(nc), y_comp(nc);
     double S_L, S_V;
-    flashCalculation(P, T, z, x, y, S_L, S_V);
+    flashCalculation(P, T, z, x_comp, y_comp, S_L, S_V);
     
     // Component mass balance: d/dt(phi * sum_p(rho_p * S_p * x_ip)) + div(flux_i) = 0
     for (int i = 0; i < nc - 1; ++i) {

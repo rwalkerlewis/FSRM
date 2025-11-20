@@ -1,0 +1,269 @@
+# GitHub Actions CI Workflow for FSRM Tests
+name: FSRM Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  BUILD_TYPE: Release
+  PETSC_VERSION: "3.18"
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          mpich \
+          libmpich-dev \
+          libhdf5-mpich-dev \
+          libgtest-dev \
+          python3-pip
+        
+        # Install PETSc
+        pip3 install petsc==${{ env.PETSC_VERSION }}
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DENABLE_TESTING=ON \
+          -DENABLE_CUDA=OFF
+    
+    - name: Build
+      run: cmake --build build -j$(nproc)
+    
+    - name: Run Unit Tests
+      working-directory: build
+      run: ctest -R "UnitTest|EclipseIO|PhysicsKernel|WellModel|FractureModel" --output-on-failure
+    
+    - name: Upload Test Results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: unit-test-results
+        path: build/Testing/Temporary/LastTest.log
+
+  convergence-tests:
+    name: Convergence Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          mpich \
+          libmpich-dev \
+          libhdf5-mpich-dev \
+          libgtest-dev \
+          gnuplot
+        pip3 install petsc==${{ env.PETSC_VERSION }}
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DENABLE_TESTING=ON
+    
+    - name: Build
+      run: cmake --build build -j$(nproc)
+    
+    - name: Run Convergence Tests
+      working-directory: build
+      run: ctest -R "MMS|Convergence" --output-on-failure --timeout 300
+    
+    - name: Upload Convergence Plots
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: convergence-plots
+        path: build/tests/*_convergence.png
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        nprocs: [1, 2, 4]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          mpich \
+          libmpich-dev \
+          libhdf5-mpich-dev \
+          libgtest-dev
+        pip3 install petsc==${{ env.PETSC_VERSION }}
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DENABLE_TESTING=ON
+    
+    - name: Build
+      run: cmake --build build -j$(nproc)
+    
+    - name: Run Integration Tests
+      working-directory: build
+      run: |
+        mpirun -np ${{ matrix.nprocs }} ./tests/run_tests \
+          --gtest_filter=IntegrationTest* || true
+        ctest -R "Integration" --output-on-failure --timeout 600
+    
+    - name: Upload Test Output
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: integration-test-results-np${{ matrix.nprocs }}
+        path: |
+          build/Testing/Temporary/LastTest.log
+          build/tests/test_report.txt
+
+  gpu-tests:
+    name: GPU Tests
+    runs-on: ubuntu-latest
+    # This would need GPU runners
+    if: false  # Disabled for now
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install CUDA
+      uses: Jimver/cuda-toolkit@v0.2.11
+      with:
+        cuda: '12.0.0'
+    
+    - name: Build with CUDA
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DENABLE_TESTING=ON \
+          -DENABLE_CUDA=ON
+        cmake --build . -j$(nproc)
+    
+    - name: Run GPU Tests
+      working-directory: build
+      run: ctest --output-on-failure
+
+  code-coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          mpich \
+          libmpich-dev \
+          libhdf5-mpich-dev \
+          libgtest-dev \
+          lcov
+        pip3 install petsc==${{ env.PETSC_VERSION }}
+    
+    - name: Configure with Coverage
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DENABLE_TESTING=ON \
+          -DCMAKE_CXX_FLAGS="--coverage" \
+          -DCMAKE_C_FLAGS="--coverage"
+    
+    - name: Build
+      run: cmake --build build -j$(nproc)
+    
+    - name: Run Tests
+      working-directory: build
+      run: ctest --output-on-failure
+    
+    - name: Generate Coverage Report
+      working-directory: build
+      run: |
+        lcov --capture --directory . --output-file coverage.info
+        lcov --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
+        lcov --list coverage.info
+    
+    - name: Upload to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: build/coverage.info
+        fail_ci_if_error: false
+
+  performance-tests:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'push'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          mpich \
+          libmpich-dev \
+          libhdf5-mpich-dev \
+          libgtest-dev
+        pip3 install petsc==${{ env.PETSC_VERSION }}
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON
+    
+    - name: Build
+      run: cmake --build build -j$(nproc)
+    
+    - name: Run Performance Tests
+      working-directory: build
+      run: ctest -R "Performance" --output-on-failure
+    
+    - name: Store Benchmark Results
+      uses: benchmark-action/github-action-benchmark@v1
+      if: always()
+      with:
+        name: FSRM Benchmarks
+        tool: 'googletest'
+        output-file-path: build/benchmark_results.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true

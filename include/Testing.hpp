@@ -161,6 +161,12 @@ public:
         std::vector<std::string> failed_test_names;
         std::vector<std::string> error_messages;
         double total_time;
+        
+        // Detailed per-test information
+        std::vector<std::string> test_names;
+        std::vector<std::string> test_descriptions;
+        std::vector<double> test_times;
+        std::vector<bool> test_passed;
     };
     
     TestResults runAll();

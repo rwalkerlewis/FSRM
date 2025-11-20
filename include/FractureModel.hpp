@@ -55,7 +55,7 @@ public:
     
     // Dual porosity/permeability model
     void enableDualPorosity(bool enable);
-    void setShapeFactormodel(const std::string& model); // Warren-Root, Kazemi, etc.
+    void setShapeFactorModel(const std::string& model); // Warren-Root, Kazemi, etc.
     void setMatrixBlockSize(double size);
     
     // Fracture flow
@@ -163,7 +163,7 @@ public:
     // Mechanical properties
     void setFrictionCoefficient(double static_mu, double dynamic_mu);
     void setCohesion(double cohesion);
-    void setDilation Angle(double angle);
+    void setDilationAngle(double angle);
     
     // Fault slip
     enum class SlipMode {
@@ -180,7 +180,7 @@ public:
     // Rate-and-state friction
     void enableRateStateFriction(bool enable);
     void setRateStateParameters(double a, double b, double Dc);
-    void updateStatevariable(double slip_rate, double dt);
+    void updateStateVariable(double slip_rate, double dt);
     
     // Fluid pressure effects
     void computeEffectiveStress(double pore_pressure, double& eff_normal_stress);
@@ -216,7 +216,7 @@ private:
     // Current state
     double permeability;
     double cumulative_slip;
-    SlipMode current_slip_mode;
+    mutable SlipMode current_slip_mode;
 };
 
 } // namespace ResSim

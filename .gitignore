@@ -1,0 +1,43 @@
+# Build directories
+build/
+build-*/
+
+# Compiled object files
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+
+# Executables
+reservoirsim
+run_tests
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Output files
+output/
+*.vtk
+*.vtu
+*.h5
+*.xdmf
+
+# Log files
+*.log
+
+# Generated config files
+compile_commands.json

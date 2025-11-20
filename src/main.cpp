@@ -1,5 +1,6 @@
 #include "ReservoirSim.hpp"
 #include "Simulator.hpp"
+#include "ConfigReader.hpp"
 #include <petsc.h>
 #include <iostream>
 #include <string>

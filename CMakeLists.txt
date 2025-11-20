@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ENABLE_TESTING "Enable testing" ON)
 option(ENABLE_MPI "Enable MPI support" ON)
 option(BUILD_EXAMPLES "Build examples" ON)
-option(ENABLE_CUDA "Enable CUDA GPU support" ON)
+option(ENABLE_CUDA "Enable CUDA GPU support" OFF)
 option(ENABLE_HIP "Enable AMD ROCm/HIP GPU support" OFF)
 
 # Find required packages
@@ -19,8 +19,8 @@ find_package(PkgConfig REQUIRED)
 # Find PETSc
 pkg_check_modules(PETSC REQUIRED PETSc>=3.15)
 
-# Find HDF5 for output
-find_package(HDF5 REQUIRED COMPONENTS CXX)
+# Find HDF5 for output (use pkg-config)
+pkg_check_modules(HDF5 REQUIRED hdf5-openmpi)
 
 # GPU support
 if(ENABLE_CUDA)
@@ -56,6 +56,7 @@ endif()
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external
     ${PETSC_INCLUDE_DIRS}
     ${MPI_CXX_INCLUDE_DIRS}
     ${HDF5_INCLUDE_DIRS}
@@ -86,7 +87,7 @@ add_library(reservoirlib SHARED ${SOURCES})
 target_link_libraries(reservoirlib 
     ${PETSC_LIBRARIES}
     ${MPI_CXX_LIBRARIES}
-    ${HDF5_LIBRARIES}
+    ${HDF5_LDFLAGS}
     m
 )
 

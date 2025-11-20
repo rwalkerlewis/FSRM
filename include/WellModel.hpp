@@ -154,7 +154,7 @@ public:
     HorizontalWell(const std::string& name, WellType type);
     
     void setWellPath(const std::vector<std::vector<double>>& path);
-    void enableInflow ControlDevices(bool enable);
+    void enableInflowControlDevices(bool enable);
     
     double computeWellIndex(int completion_idx,
                            double kx, double ky, double kz,

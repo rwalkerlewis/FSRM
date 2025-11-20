@@ -125,7 +125,8 @@ private:
                               const PetscScalar u[], const PetscScalar u_t[],
                               const PetscScalar u_x[], const PetscInt aOff[],
                               const PetscInt aOff_x[], const PetscScalar a[],
-                              const PetscScalar a_x[], PetscReal t,
+                              const PetscScalar a_x[], const PetscScalar a_t[],
+                              PetscReal t,
                               const PetscReal x[], PetscInt numConstants,
                               const PetscScalar constants[], PetscScalar f0[]);
     
@@ -134,7 +135,8 @@ private:
                               const PetscScalar u[], const PetscScalar u_t[],
                               const PetscScalar u_x[], const PetscInt aOff[],
                               const PetscInt aOff_x[], const PetscScalar a[],
-                              const PetscScalar a_x[], PetscReal t,
+                              const PetscScalar a_x[], const PetscScalar a_t[],
+                              PetscReal t,
                               const PetscReal x[], PetscInt numConstants,
                               const PetscScalar constants[], PetscScalar f1[]);
     

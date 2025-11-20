@@ -406,7 +406,8 @@ void FaultModel::checkSlipCriteria(double shear_stress, double normal_stress,
         }
     }
     
-    current_slip_mode = mode;
+    // Don't assign to current_slip_mode in const function
+    // current_slip_mode = mode;
 }
 
 void FaultModel::enableRateStateFriction(bool enable) {

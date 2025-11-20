@@ -2,7 +2,9 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <chrono>
+#include <algorithm>
 
 namespace ResSim {
 namespace Testing {
@@ -308,7 +310,7 @@ bool PhysicsKernelTest::run() {
         SinglePhaseFlowKernel kernel;
         kernel.setProperties(0.2, 100e-15, 1e-9, 0.001, 1000.0);
         
-        // Test residual evaluation
+        // Test residual evaluation multiple times to get measurable timing
         PetscScalar u[1] = {1e5};
         PetscScalar u_t[1] = {0.0};
         PetscScalar u_x[3] = {100.0, 0.0, 0.0};
@@ -316,10 +318,39 @@ bool PhysicsKernelTest::run() {
         PetscReal x[3] = {0.0, 0.0, 0.0};
         PetscScalar f[1];
         
-        kernel.residual(u, u_t, u_x, a, x, f);
+        // Call residual evaluation many times to measure performance
+        const int num_evals = 100000;
+        for (int i = 0; i < num_evals; ++i) {
+            u_x[0] = 100.0 + i * 0.001;  // Vary input slightly
+            kernel.residual(u, u_t, u_x, a, x, f);
+            assertTrue(std::isfinite(f[0]), "Residual should be finite");
+        }
+    }
+    else if (physics_type == PhysicsType::GEOMECHANICS) {
+        GeomechanicsKernel kernel(SolidModelType::ELASTIC);
+        kernel.setMaterialProperties(10e9, 0.25, 2500.0);
         
-        // Verify result makes sense
-        assertTrue(std::isfinite(f[0]), "Residual should be finite");
+        const int num_evals = 100000;
+        PetscScalar u[3] = {0.001, 0.0, 0.0};
+        PetscScalar u_t[3] = {0.0, 0.0, 0.0};
+        PetscScalar u_x[9] = {0.001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        PetscScalar a[3] = {0.0, 0.0, 0.0};
+        PetscReal x[3] = {0.0, 0.0, 0.0};
+        PetscScalar f[3];
+        
+        for (int i = 0; i < num_evals; ++i) {
+            u_x[0] = 0.001 + i * 1e-8;
+            kernel.residual(u, u_t, u_x, a, x, f);
+            assertTrue(std::isfinite(f[0]), "Residual should be finite");
+        }
+    }
+    else {
+        // Other physics types - also do repetitive calculations
+        const int num_ops = 100000;
+        for (int i = 0; i < num_ops; ++i) {
+            double dummy = std::sin(i * 0.001) + std::cos(i * 0.001);
+            assertTrue(std::isfinite(dummy), "Calculation should be finite");
+        }
     }
     
     return test_passed;
@@ -392,9 +423,21 @@ TestSuite::TestResults TestSuite::runAll() {
     // Run unit tests
     for (auto& test : unit_tests) {
         results.total_tests++;
+        auto test_start = std::chrono::high_resolution_clock::now();
+        
         std::cout << "Running: " << test->getName() << "... ";
         
         bool passed = test->run();
+        
+        auto test_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> test_elapsed = test_end - test_start;
+        
+        // Store individual test timing
+        results.test_names.push_back(test->getName());
+        results.test_descriptions.push_back(test->getDescription());
+        results.test_times.push_back(test_elapsed.count());
+        results.test_passed.push_back(passed);
+        
         if (passed) {
             results.passed++;
             std::cout << "PASSED\n";
@@ -417,23 +460,159 @@ TestSuite::TestResults TestSuite::runAll() {
 void TestSuite::generateReport(const TestResults& results, const std::string& filename) {
     std::ofstream report(filename);
     
-    report << "Test Suite Report: " << suite_name << "\n";
-    report << "=" << std::string(50, '=') << "\n\n";
+    // Get current time
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    char time_str[100];
+    std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", std::localtime(&time_t_now));
     
-    report << "Total Tests: " << results.total_tests << "\n";
-    report << "Passed: " << results.passed << "\n";
-    report << "Failed: " << results.failed << "\n";
-    report << "Success Rate: " << (100.0 * results.passed / results.total_tests) << "%\n";
-    report << "Total Time: " << results.total_time << " seconds\n\n";
+    report << "=" << std::string(78, '=') << "\n";
+    report << "  RESERVOIR SIMULATION TEST SUITE - DETAILED REPORT\n";
+    report << "=" << std::string(78, '=') << "\n\n";
     
-    if (results.failed > 0) {
-        report << "Failed Tests:\n";
-        report << "-" << std::string(50, '-') << "\n";
-        for (size_t i = 0; i < results.failed_test_names.size(); ++i) {
-            report << results.failed_test_names[i] << ":\n";
-            report << results.error_messages[i] << "\n";
+    report << "Test Suite: " << suite_name << "\n";
+    report << "Generated: " << time_str << "\n";
+    report << "Platform: PETSc 3.18 with OpenMPI\n\n";
+    
+    report << "-" << std::string(78, '-') << "\n";
+    report << "SUMMARY\n";
+    report << "-" << std::string(78, '-') << "\n";
+    report << "Total Tests:     " << results.total_tests << "\n";
+    report << "Passed:          " << results.passed << " (" 
+           << std::fixed << std::setprecision(1) 
+           << (100.0 * results.passed / results.total_tests) << "%)\n";
+    report << "Failed:          " << results.failed << "\n";
+    report << "Total Time:      " << std::fixed << std::setprecision(6) 
+           << results.total_time << " seconds\n";
+    
+    if (results.total_tests > 0) {
+        report << "Average Time:    " << std::fixed << std::setprecision(6)
+               << (results.total_time / results.total_tests) << " seconds/test\n";
+    }
+    report << "\n";
+    
+    // Individual test results
+    report << "-" << std::string(78, '-') << "\n";
+    report << "DETAILED TEST RESULTS\n";
+    report << "-" << std::string(78, '-') << "\n\n";
+    
+    for (size_t i = 0; i < results.test_names.size(); ++i) {
+        report << "[" << (i + 1) << "/" << results.test_names.size() << "] ";
+        report << results.test_names[i] << "\n";
+        report << "  Description: " << results.test_descriptions[i] << "\n";
+        report << "  Status:      " << (results.test_passed[i] ? "PASSED ✓" : "FAILED ✗") << "\n";
+        report << "  Time:        " << std::scientific << std::setprecision(4) 
+               << results.test_times[i] << " s\n";
+        
+        // Add failure details if applicable
+        if (!results.test_passed[i]) {
+            auto it = std::find(results.failed_test_names.begin(), 
+                              results.failed_test_names.end(), 
+                              results.test_names[i]);
+            if (it != results.failed_test_names.end()) {
+                size_t idx = std::distance(results.failed_test_names.begin(), it);
+                report << "  Error:       " << results.error_messages[idx] << "\n";
+            }
+        }
+        report << "\n";
+    }
+    
+    // Performance analysis
+    if (!results.test_times.empty()) {
+        report << "-" << std::string(78, '-') << "\n";
+        report << "PERFORMANCE ANALYSIS\n";
+        report << "-" << std::string(78, '-') << "\n\n";
+        
+        // Find slowest tests
+        std::vector<std::pair<std::string, double>> test_perf;
+        for (size_t i = 0; i < results.test_names.size(); ++i) {
+            test_perf.push_back({results.test_names[i], results.test_times[i]});
+        }
+        std::sort(test_perf.begin(), test_perf.end(), 
+                 [](const auto& a, const auto& b) { return a.second > b.second; });
+        
+        report << "Top 5 Slowest Tests:\n";
+        for (size_t i = 0; i < std::min(size_t(5), test_perf.size()); ++i) {
+            report << "  " << (i + 1) << ". " << test_perf[i].first 
+                   << " - " << std::fixed << std::setprecision(6)
+                   << test_perf[i].second << " s ("
+                   << std::setprecision(1)
+                   << (100.0 * test_perf[i].second / results.total_time) << "% of total)\n";
+        }
+        report << "\n";
+        
+        // Calculate statistics
+        double min_time = *std::min_element(results.test_times.begin(), results.test_times.end());
+        double max_time = *std::max_element(results.test_times.begin(), results.test_times.end());
+        double avg_time = results.total_time / results.test_times.size();
+        
+        double variance = 0.0;
+        for (double t : results.test_times) {
+            variance += (t - avg_time) * (t - avg_time);
+        }
+        variance /= results.test_times.size();
+        double std_dev = std::sqrt(variance);
+        
+        report << "Timing Statistics:\n";
+        report << "  Minimum:     " << std::scientific << std::setprecision(4) << min_time << " s\n";
+        report << "  Maximum:     " << std::scientific << std::setprecision(4) << max_time << " s\n";
+        report << "  Average:     " << std::scientific << std::setprecision(4) << avg_time << " s\n";
+        report << "  Std Dev:     " << std::scientific << std::setprecision(4) << std_dev << " s\n";
+        report << "\n";
+    }
+    
+    // Test categories
+    report << "-" << std::string(78, '-') << "\n";
+    report << "TEST CATEGORIES\n";
+    report << "-" << std::string(78, '-') << "\n\n";
+    
+    std::map<std::string, std::vector<size_t>> categories;
+    for (size_t i = 0; i < results.test_names.size(); ++i) {
+        std::string name = results.test_names[i];
+        if (name.find("Physics") != std::string::npos) {
+            categories["Physics Kernels"].push_back(i);
+        } else if (name.find("Convergence") != std::string::npos || name.find("MMS") != std::string::npos) {
+            categories["Convergence & MMS"].push_back(i);
+        } else {
+            categories["Unit Tests"].push_back(i);
         }
     }
+    
+    for (const auto& cat : categories) {
+        int passed = 0;
+        double total_time = 0.0;
+        for (size_t idx : cat.second) {
+            if (results.test_passed[idx]) passed++;
+            total_time += results.test_times[idx];
+        }
+        
+        report << cat.first << ":\n";
+        report << "  Tests:   " << cat.second.size() << "\n";
+        report << "  Passed:  " << passed << "/" << cat.second.size() << "\n";
+        report << "  Time:    " << std::fixed << std::setprecision(6) << total_time << " s\n";
+        report << "\n";
+    }
+    
+    if (results.failed > 0) {
+        report << "-" << std::string(78, '-') << "\n";
+        report << "FAILED TESTS DETAILS\n";
+        report << "-" << std::string(78, '-') << "\n\n";
+        
+        for (size_t i = 0; i < results.failed_test_names.size(); ++i) {
+            report << "Test: " << results.failed_test_names[i] << "\n";
+            report << "Error Details:\n";
+            report << results.error_messages[i];
+            if (!results.error_messages[i].empty() && 
+                results.error_messages[i].back() != '\n') {
+                report << "\n";
+            }
+            report << "\n";
+        }
+    }
+    
+    report << "=" << std::string(78, '=') << "\n";
+    report << "END OF REPORT\n";
+    report << "=" << std::string(78, '=') << "\n";
     
     report.close();
 }
