@@ -347,12 +347,76 @@ void GeomechanicsKernel::residual(const PetscScalar u[], const PetscScalar u_t[]
 void GeomechanicsKernel::jacobian(const PetscScalar u[], const PetscScalar u_t[],
                                   const PetscScalar u_x[], const PetscScalar a[],
                                   const PetscReal x[], PetscScalar J[]) {
-    // Elasticity tensor C_ijkl
+    // Lamé parameters from Young's modulus and Poisson's ratio
     double lambda = youngs_modulus * poisson_ratio / ((1.0 + poisson_ratio) * (1.0 - 2.0 * poisson_ratio));
     double mu = youngs_modulus / (2.0 * (1.0 + poisson_ratio));
     
-    // Fill Jacobian (9x9 for 3D displacement field)
-    // Simplified - full implementation requires proper assembly
+    // For 3D displacement field (ux, uy, uz), the Jacobian is 9x9
+    // J[i*9 + j] corresponds to dF_i/du_j where i,j are gradients (3 components × 3 directions)
+    // The weak form is: ∫ σ_ij δε_ij dV where ε_ij = 1/2(∂u_i/∂x_j + ∂u_j/∂x_i)
+    // The Jacobian relates stress to strain: σ = C : ε
+    
+    // Initialize all entries to zero
+    for (int i = 0; i < 81; ++i) {
+        J[i] = 0.0;
+    }
+    
+    // The constitutive tensor for isotropic linear elasticity:
+    // σ_ij = λ δ_ij ε_kk + 2μ ε_ij
+    // 
+    // For the gradient-based formulation in PETSc:
+    // J[i*9 + j] = ∂(stress_component_i)/∂(displacement_gradient_j)
+    //
+    // Displacement gradient components are ordered as:
+    // u_x[0] = ∂u_x/∂x, u_x[1] = ∂u_x/∂y, u_x[2] = ∂u_x/∂z
+    // u_x[3] = ∂u_y/∂x, u_x[4] = ∂u_y/∂y, u_x[5] = ∂u_y/∂z
+    // u_x[6] = ∂u_z/∂x, u_x[7] = ∂u_z/∂y, u_x[8] = ∂u_z/∂z
+    
+    // Jacobian for ∂σ_xx/∂(∇u)
+    J[0*9 + 0] = lambda + 2.0*mu;  // ∂σ_xx/∂(∂u_x/∂x)
+    J[0*9 + 4] = lambda;            // ∂σ_xx/∂(∂u_y/∂y)
+    J[0*9 + 8] = lambda;            // ∂σ_xx/∂(∂u_z/∂z)
+    
+    // Jacobian for ∂σ_yy/∂(∇u)
+    J[1*9 + 0] = lambda;            // ∂σ_yy/∂(∂u_x/∂x)
+    J[1*9 + 4] = lambda + 2.0*mu;  // ∂σ_yy/∂(∂u_y/∂y)
+    J[1*9 + 8] = lambda;            // ∂σ_yy/∂(∂u_z/∂z)
+    
+    // Jacobian for ∂σ_zz/∂(∇u)
+    J[2*9 + 0] = lambda;            // ∂σ_zz/∂(∂u_x/∂x)
+    J[2*9 + 4] = lambda;            // ∂σ_zz/∂(∂u_y/∂y)
+    J[2*9 + 8] = lambda + 2.0*mu;  // ∂σ_zz/∂(∂u_z/∂z)
+    
+    // Jacobian for ∂σ_xy/∂(∇u) (shear stress)
+    J[3*9 + 1] = mu;  // ∂σ_xy/∂(∂u_x/∂y)
+    J[3*9 + 3] = mu;  // ∂σ_xy/∂(∂u_y/∂x)
+    
+    // Jacobian for ∂σ_xz/∂(∇u) (shear stress)
+    J[4*9 + 2] = mu;  // ∂σ_xz/∂(∂u_x/∂z)
+    J[4*9 + 6] = mu;  // ∂σ_xz/∂(∂u_z/∂x)
+    
+    // Jacobian for ∂σ_yz/∂(∇u) (shear stress)
+    J[5*9 + 5] = mu;  // ∂σ_yz/∂(∂u_y/∂z)
+    J[5*9 + 7] = mu;  // ∂σ_yz/∂(∂u_z/∂y)
+    
+    // For symmetric stress tensor, σ_yx = σ_xy, etc.
+    J[6*9 + 1] = mu;  // ∂σ_yx/∂(∂u_x/∂y)
+    J[6*9 + 3] = mu;  // ∂σ_yx/∂(∂u_y/∂x)
+    
+    J[7*9 + 2] = mu;  // ∂σ_zx/∂(∂u_x/∂z)
+    J[7*9 + 6] = mu;  // ∂σ_zx/∂(∂u_z/∂x)
+    
+    J[8*9 + 5] = mu;  // ∂σ_zy/∂(∂u_y/∂z)
+    J[8*9 + 7] = mu;  // ∂σ_zy/∂(∂u_z/∂y)
+    
+    // Add viscoelastic contribution if using viscoelastic model
+    if (model_type == SolidModelType::VISCOELASTIC && a != nullptr) {
+        // For Maxwell viscoelasticity: σ_v = η * ∂ε/∂t
+        // This adds a time-derivative term with shift parameter a[0]
+        J[0*9 + 0] += viscosity * a[0];  // Normal stress xx
+        J[1*9 + 4] += viscosity * a[0];  // Normal stress yy
+        J[2*9 + 8] += viscosity * a[0];  // Normal stress zz
+    }
 }
 
 void GeomechanicsKernel::setMaterialProperties(double E, double nu, double rho) {
