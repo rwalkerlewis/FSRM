@@ -64,8 +64,8 @@ Fixed multiple issues in the integration and performance benchmark tests that we
 3. `IntegrationTest.SinglePhaseFlow_WithWells`
 4. `IntegrationTest.Poroelasticity_Consolidation`
 5. `IntegrationTest.Elastodynamics_WavePropagation`
-6. `IntegrationTest.HydraulicFracturing_PropagationTest`
-7. `IntegrationTest.InducedSeismicity_FaultReactivation`
+6. `IntegrationTest.HydraulicFracturing_SimpleFrac`
+7. `IntegrationTest.InducedSeismicity_InjectionTriggered`
 8. `IntegrationTest.Restart_Checkpoint`
 9. `IntegrationTest.Regression_SPE1`
 
