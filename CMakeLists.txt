@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Use g++ if available
+if(EXISTS "/usr/bin/g++")
+    set(CMAKE_CXX_COMPILER "/usr/bin/g++")
+endif()
+
 # Options
 option(ENABLE_TESTING "Enable testing" ON)
 option(ENABLE_MPI "Enable MPI support" ON)
@@ -13,6 +18,14 @@ option(ENABLE_CUDA "Enable CUDA GPU support" OFF)
 option(ENABLE_HIP "Enable AMD ROCm/HIP GPU support" OFF)
 
 # Find required packages
+# Set MPI paths if they exist
+if(EXISTS "/usr/lib/x86_64-linux-gnu/openmpi")
+    set(MPI_HOME "/usr/lib/x86_64-linux-gnu/openmpi")
+    set(MPI_C_INCLUDE_PATH "/usr/lib/x86_64-linux-gnu/openmpi/include")
+    set(MPI_CXX_INCLUDE_PATH "/usr/lib/x86_64-linux-gnu/openmpi/include")
+endif()
+set(MPI_C_COMPILER mpicc)
+set(MPI_CXX_COMPILER mpicxx)
 find_package(MPI REQUIRED)
 find_package(PkgConfig REQUIRED)
 
