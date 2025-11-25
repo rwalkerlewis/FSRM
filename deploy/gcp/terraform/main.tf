@@ -1,4 +1,4 @@
-# Terraform configuration for ReservoirSim on Google Cloud Platform
+# Terraform configuration for FSRM on Google Cloud Platform
 # This creates a compute-optimized VM instance for running simulations
 
 terraform {
@@ -18,22 +18,22 @@ provider "google" {
 }
 
 # VPC Network
-resource "google_compute_network" "reservoirsim_network" {
-  name                    = "reservoirsim-network"
+resource "google_compute_network" "fsrm_network" {
+  name                    = "fsrm-network"
   auto_create_subnetworks = false
 }
 
-resource "google_compute_subnetwork" "reservoirsim_subnet" {
-  name          = "reservoirsim-subnet"
+resource "google_compute_subnetwork" "fsrm_subnet" {
+  name          = "fsrm-subnet"
   ip_cidr_range = "10.0.1.0/24"
   region        = var.region
-  network       = google_compute_network.reservoirsim_network.id
+  network       = google_compute_network.fsrm_network.id
 }
 
 # Firewall rules
-resource "google_compute_firewall" "reservoirsim_ssh" {
-  name    = "reservoirsim-allow-ssh"
-  network = google_compute_network.reservoirsim_network.name
+resource "google_compute_firewall" "fsrm_ssh" {
+  name    = "fsrm-allow-ssh"
+  network = google_compute_network.fsrm_network.name
 
   allow {
     protocol = "tcp"
@@ -41,12 +41,12 @@ resource "google_compute_firewall" "reservoirsim_ssh" {
   }
 
   source_ranges = var.allowed_ssh_ranges
-  target_tags   = ["reservoirsim"]
+  target_tags   = ["fsrm"]
 }
 
-resource "google_compute_firewall" "reservoirsim_internal" {
-  name    = "reservoirsim-allow-internal"
-  network = google_compute_network.reservoirsim_network.name
+resource "google_compute_firewall" "fsrm_internal" {
+  name    = "fsrm-allow-internal"
+  network = google_compute_network.fsrm_network.name
 
   allow {
     protocol = "tcp"
@@ -62,37 +62,37 @@ resource "google_compute_firewall" "reservoirsim_internal" {
     protocol = "icmp"
   }
 
-  source_tags = ["reservoirsim"]
-  target_tags = ["reservoirsim"]
+  source_tags = ["fsrm"]
+  target_tags = ["fsrm"]
 }
 
 # Service Account
-resource "google_service_account" "reservoirsim_sa" {
-  account_id   = "reservoirsim-compute"
-  display_name = "ReservoirSim Compute Service Account"
+resource "google_service_account" "fsrm_sa" {
+  account_id   = "fsrm-compute"
+  display_name = "FSRM Compute Service Account"
 }
 
-resource "google_project_iam_member" "reservoirsim_sa_storage" {
+resource "google_project_iam_member" "fsrm_sa_storage" {
   project = var.project_id
   role    = "roles/storage.objectAdmin"
-  member  = "serviceAccount:${google_service_account.reservoirsim_sa.email}"
+  member  = "serviceAccount:${google_service_account.fsrm_sa.email}"
 }
 
-resource "google_project_iam_member" "reservoirsim_sa_logging" {
+resource "google_project_iam_member" "fsrm_sa_logging" {
   project = var.project_id
   role    = "roles/logging.logWriter"
-  member  = "serviceAccount:${google_service_account.reservoirsim_sa.email}"
+  member  = "serviceAccount:${google_service_account.fsrm_sa.email}"
 }
 
-resource "google_project_iam_member" "reservoirsim_sa_monitoring" {
+resource "google_project_iam_member" "fsrm_sa_monitoring" {
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
-  member  = "serviceAccount:${google_service_account.reservoirsim_sa.email}"
+  member  = "serviceAccount:${google_service_account.fsrm_sa.email}"
 }
 
 # Cloud Storage bucket for data
-resource "google_storage_bucket" "reservoirsim_data" {
-  name     = "${var.project_id}-reservoirsim-data"
+resource "google_storage_bucket" "fsrm_data" {
+  name     = "${var.project_id}-fsrm-data"
   location = var.region
 
   uniform_bucket_level_access = true
@@ -112,12 +112,12 @@ resource "google_storage_bucket" "reservoirsim_data" {
 }
 
 # Compute Instance
-resource "google_compute_instance" "reservoirsim_instance" {
-  name         = "reservoirsim-compute"
+resource "google_compute_instance" "fsrm_instance" {
+  name         = "fsrm-compute"
   machine_type = var.machine_type
   zone         = var.zone
 
-  tags = ["reservoirsim"]
+  tags = ["fsrm"]
 
   boot_disk {
     initialize_params {
@@ -136,7 +136,7 @@ resource "google_compute_instance" "reservoirsim_instance" {
   }
 
   network_interface {
-    subnetwork = google_compute_subnetwork.reservoirsim_subnet.id
+    subnetwork = google_compute_subnetwork.fsrm_subnet.id
 
     access_config {
       # Ephemeral public IP
@@ -149,11 +149,11 @@ resource "google_compute_instance" "reservoirsim_instance" {
   }
 
   metadata_startup_script = templatefile("${path.module}/startup-script.sh", {
-    bucket_name = google_storage_bucket.reservoirsim_data.name
+    bucket_name = google_storage_bucket.fsrm_data.name
   })
 
   service_account {
-    email  = google_service_account.reservoirsim_sa.email
+    email  = google_service_account.fsrm_sa.email
     scopes = ["cloud-platform"]
   }
 
@@ -165,18 +165,18 @@ resource "google_compute_instance" "reservoirsim_instance" {
 }
 
 # Static IP
-resource "google_compute_address" "reservoirsim_ip" {
-  name   = "reservoirsim-ip"
+resource "google_compute_address" "fsrm_ip" {
+  name   = "fsrm-ip"
   region = var.region
 }
 
-resource "google_compute_instance" "reservoirsim_instance_static_ip" {
+resource "google_compute_instance" "fsrm_instance_static_ip" {
   count        = var.use_static_ip ? 1 : 0
-  name         = "reservoirsim-compute-static"
+  name         = "fsrm-compute-static"
   machine_type = var.machine_type
   zone         = var.zone
 
-  tags = ["reservoirsim"]
+  tags = ["fsrm"]
 
   boot_disk {
     initialize_params {
@@ -187,41 +187,41 @@ resource "google_compute_instance" "reservoirsim_instance_static_ip" {
   }
 
   network_interface {
-    subnetwork = google_compute_subnetwork.reservoirsim_subnet.id
+    subnetwork = google_compute_subnetwork.fsrm_subnet.id
 
     access_config {
-      nat_ip = google_compute_address.reservoirsim_ip.address
+      nat_ip = google_compute_address.fsrm_ip.address
     }
   }
 
   metadata_startup_script = templatefile("${path.module}/startup-script.sh", {
-    bucket_name = google_storage_bucket.reservoirsim_data.name
+    bucket_name = google_storage_bucket.fsrm_data.name
   })
 
   service_account {
-    email  = google_service_account.reservoirsim_sa.email
+    email  = google_service_account.fsrm_sa.email
     scopes = ["cloud-platform"]
   }
 }
 
 # Outputs
 output "instance_name" {
-  value       = var.use_static_ip ? google_compute_instance.reservoirsim_instance_static_ip[0].name : google_compute_instance.reservoirsim_instance.name
+  value       = var.use_static_ip ? google_compute_instance.fsrm_instance_static_ip[0].name : google_compute_instance.fsrm_instance.name
   description = "Name of the compute instance"
 }
 
 output "instance_ip" {
-  value       = var.use_static_ip ? google_compute_address.reservoirsim_ip.address : google_compute_instance.reservoirsim_instance.network_interface[0].access_config[0].nat_ip
+  value       = var.use_static_ip ? google_compute_address.fsrm_ip.address : google_compute_instance.fsrm_instance.network_interface[0].access_config[0].nat_ip
   description = "Public IP address of the instance"
 }
 
 output "bucket_name" {
-  value       = google_storage_bucket.reservoirsim_data.name
+  value       = google_storage_bucket.fsrm_data.name
   description = "Name of the Cloud Storage bucket"
 }
 
 output "ssh_command" {
-  value       = "gcloud compute ssh ubuntu@${var.use_static_ip ? google_compute_instance.reservoirsim_instance_static_ip[0].name : google_compute_instance.reservoirsim_instance.name} --zone=${var.zone}"
+  value       = "gcloud compute ssh ubuntu@${var.use_static_ip ? google_compute_instance.fsrm_instance_static_ip[0].name : google_compute_instance.fsrm_instance.name} --zone=${var.zone}"
   description = "Command to SSH into the instance"
 }
 

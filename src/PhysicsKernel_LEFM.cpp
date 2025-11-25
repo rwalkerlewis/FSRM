@@ -8,7 +8,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace ResSim {
+namespace FSRM {
 namespace LEFM {
 
 // Compute Mode I stress intensity factor for pressurized crack
@@ -224,4 +224,4 @@ namespace GeometryFactors {
 }
 
 } // namespace LEFM
-} // namespace ResSim
+} // namespace FSRM

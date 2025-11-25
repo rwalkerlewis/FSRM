@@ -6,7 +6,7 @@
 #include <chrono>
 #include <algorithm>
 
-namespace ResSim {
+namespace FSRM {
 namespace Testing {
 
 // ============================================================================
@@ -707,4 +707,4 @@ double BenchmarkTest::getMemoryUsage() {
     return 0.0;
 }
 
-}} // namespace ResSim::Testing
+}} // namespace FSRM::Testing

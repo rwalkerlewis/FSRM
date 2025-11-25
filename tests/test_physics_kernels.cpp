@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 
-using namespace ResSim;
+using namespace FSRM;
 
 // Test fixture for physics kernel tests
 class PhysicsKernelTestFixture : public ::testing::Test {

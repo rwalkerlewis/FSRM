@@ -22,7 +22,7 @@
 #include <cmath>
 #include <vector>
 
-using namespace ResSim;
+using namespace FSRM;
 
 // Black oil fluid properties
 struct BlackOilProperties {

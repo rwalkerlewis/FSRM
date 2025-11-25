@@ -2,7 +2,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace ResSim {
+namespace FSRM {
 
 // ============================================================================
 // Single Phase Flow Kernel
@@ -660,4 +660,4 @@ void TidalForcesKernel::computeTidalStress(const PetscReal x[], PetscScalar stre
     stress[5] = 0.0;
 }
 
-} // namespace ResSim
+} // namespace FSRM

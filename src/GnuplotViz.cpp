@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <sys/stat.h>
 
-namespace ResSim {
+namespace FSRM {
 
 GnuplotViz::GnuplotViz(const std::string& output_dir)
     : output_dir_(output_dir) {
@@ -262,4 +262,4 @@ void GnuplotViz::plotMultiPanel(const std::vector<std::vector<std::vector<double
     system(cmd.c_str());
 }
 
-} // namespace ResSim
+} // namespace FSRM

@@ -29,18 +29,18 @@ int main(int argc, char** argv) {
     }
     
     // Create simulator
-    ResSim::Simulator sim(comm);
+    FSRM::Simulator sim(comm);
     
     // Configuration
-    ResSim::SimulationConfig config;
+    FSRM::SimulationConfig config;
     config.start_time = 0.0;
     config.end_time = 7200.0;  // 2 hours of pumping + shut-in
     config.dt_initial = 10.0;   // 10 seconds
     config.dt_min = 1.0;
     config.dt_max = 60.0;
     
-    config.fluid_model = ResSim::FluidModelType::SINGLE_COMPONENT;
-    config.solid_model = ResSim::SolidModelType::ELASTIC;
+    config.fluid_model = FSRM::FluidModelType::SINGLE_COMPONENT;
+    config.solid_model = FSRM::SolidModelType::ELASTIC;
     config.enable_geomechanics = true;
     config.enable_fractures = true;
     config.enable_particle_transport = true;
@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
     sim.initialize(config);
     
     // Grid
-    ResSim::GridConfig grid;
+    FSRM::GridConfig grid;
     grid.nx = 40;
     grid.ny = 40;
     grid.nz = 20;
@@ -61,12 +61,12 @@ int main(int argc, char** argv) {
     sim.setupPhysics();
     
     // Enable coupling
-    sim.enableCoupling(ResSim::PhysicsType::FLUID_FLOW,
-                      ResSim::PhysicsType::GEOMECHANICS);
-    sim.enableCoupling(ResSim::PhysicsType::FLUID_FLOW,
-                      ResSim::PhysicsType::FRACTURE_PROPAGATION);
-    sim.enableCoupling(ResSim::PhysicsType::FRACTURE_PROPAGATION,
-                      ResSim::PhysicsType::PARTICLE_TRANSPORT);
+    sim.enableCoupling(FSRM::PhysicsType::FLUID_FLOW,
+                      FSRM::PhysicsType::GEOMECHANICS);
+    sim.enableCoupling(FSRM::PhysicsType::FLUID_FLOW,
+                      FSRM::PhysicsType::FRACTURE_PROPAGATION);
+    sim.enableCoupling(FSRM::PhysicsType::FRACTURE_PROPAGATION,
+                      FSRM::PhysicsType::PARTICLE_TRANSPORT);
     
     // Create hydraulic fracture
     if (rank == 0) {
@@ -79,10 +79,10 @@ int main(int argc, char** argv) {
         0.0, 1.0, 0.0        // Normal vector (E-W fracture)
     };
     
-    sim.addFracture(ResSim::FractureType::INDUCED_HYDRAULIC, frac_coords);
+    sim.addFracture(FSRM::FractureType::INDUCED_HYDRAULIC, frac_coords);
     
     // Add horizontal well (injection point)
-    sim.addWell("FRAC_WELL", ResSim::WellType::INJECTOR);
+    sim.addWell("FRAC_WELL", FSRM::WellType::INJECTOR);
     
     // Fracturing schedule:
     // Stage 1: Pad (0-30 min) - low viscosity, no proppant

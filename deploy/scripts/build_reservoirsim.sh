@@ -1,11 +1,11 @@
 #!/bin/bash
-# Script to build ReservoirSim
+# Script to build FSRM
 # Assumes PETSc and dependencies are already installed
 
 set -e
 
 echo "=========================================="
-echo "ReservoirSim Build Script"
+echo "FSRM Build Script"
 echo "=========================================="
 echo ""
 
@@ -43,12 +43,12 @@ print_info "Using PETSc from: $PETSC_DIR"
 # Determine source directory
 if [ -d "/workspace" ]; then
     SOURCE_DIR="/workspace"
-elif [ -d "$HOME/ReservoirSim" ]; then
-    SOURCE_DIR="$HOME/ReservoirSim"
+elif [ -d "$HOME/FSRM" ]; then
+    SOURCE_DIR="$HOME/FSRM"
 elif [ -d "$(pwd)" ] && [ -f "$(pwd)/CMakeLists.txt" ]; then
     SOURCE_DIR="$(pwd)"
 else
-    print_error "Cannot find ReservoirSim source directory"
+    print_error "Cannot find FSRM source directory"
     exit 1
 fi
 
@@ -75,7 +75,7 @@ cmake .. \
     -DBUILD_EXAMPLES=ON
 
 # Build
-print_info "Building ReservoirSim..."
+print_info "Building FSRM..."
 make -j$NCORES
 
 # Run tests
@@ -88,12 +88,12 @@ fi
 
 # Create symlink in user's PATH
 print_info "Creating symlink..."
-sudo ln -sf $BUILD_DIR/reservoirsim /usr/local/bin/reservoirsim
+sudo ln -sf $BUILD_DIR/fsrm /usr/local/bin/fsrm
 
 print_info "Build complete!"
 echo ""
-echo "ReservoirSim installed to: $BUILD_DIR/reservoirsim"
-echo "You can now run: reservoirsim -help"
+echo "FSRM installed to: $BUILD_DIR/fsrm"
+echo "You can now run: fsrm -help"
 echo ""
 echo "Examples are in: $BUILD_DIR/examples/"
 echo "Configuration files are in: $SOURCE_DIR/config/"

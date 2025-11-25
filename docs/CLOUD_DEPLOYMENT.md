@@ -1,6 +1,6 @@
-# ReservoirSim Cloud Deployment Guide
+# FSRM Cloud Deployment Guide
 
-This guide provides detailed instructions for deploying ReservoirSim on AWS and Google Cloud Platform for high-performance computing workloads.
+This guide provides detailed instructions for deploying FSRM on AWS and Google Cloud Platform for high-performance computing workloads.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ This guide provides detailed instructions for deploying ReservoirSim on AWS and 
 
 ## Overview
 
-ReservoirSim is a computationally intensive application that benefits from cloud deployment for:
+FSRM is a computationally intensive application that benefits from cloud deployment for:
 
 - **Scalability**: Run large simulations on high-core-count instances
 - **Flexibility**: Scale resources up/down based on simulation needs
@@ -63,8 +63,8 @@ aws configure
 # Enter: Access Key ID, Secret Access Key, Region, Output format
 
 # Create an SSH key pair in the AWS console or via CLI
-aws ec2 create-key-pair --key-name reservoirsim-key --query 'KeyMaterial' --output text > reservoirsim-key.pem
-chmod 400 reservoirsim-key.pem
+aws ec2 create-key-pair --key-name fsrm-key --query 'KeyMaterial' --output text > fsrm-key.pem
+chmod 400 fsrm-key.pem
 ```
 
 #### GCP
@@ -74,7 +74,7 @@ gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
 
 # Create SSH key (optional - gcloud manages this automatically)
-ssh-keygen -t rsa -f ~/.ssh/reservoirsim-key -C ubuntu
+ssh-keygen -t rsa -f ~/.ssh/fsrm-key -C ubuntu
 ```
 
 ---
@@ -100,7 +100,7 @@ This interactive script will:
 ```bash
 $ ./setup.sh
 ==========================================
-ReservoirSim AWS Deployment Setup
+FSRM AWS Deployment Setup
 ==========================================
 
 [INFO] Checking prerequisites...
@@ -113,7 +113,7 @@ Select deployment type:
 Enter choice [1-3]: 1
 
 Enter AWS region (default: us-east-1): us-west-2
-Enter SSH key pair name: reservoirsim-key
+Enter SSH key pair name: fsrm-key
 
 Select instance type:
 1) c5.2xlarge  (8 vCPUs, 16 GB RAM) - Small simulations
@@ -137,7 +137,7 @@ cd deploy/aws/terraform
 # Create terraform.tfvars file
 cat > terraform.tfvars << EOF
 aws_region = "us-east-1"
-key_name = "reservoirsim-key"
+key_name = "fsrm-key"
 instance_type = "c5.4xlarge"
 root_volume_size = 100
 allowed_ssh_cidr = ["YOUR_IP/32"]  # Replace with your IP
@@ -171,14 +171,14 @@ nano parallelcluster-config.yaml
 
 # Create the cluster
 pcluster create-cluster \
-  --cluster-name reservoirsim-cluster \
+  --cluster-name fsrm-cluster \
   --cluster-configuration parallelcluster-config.yaml
 
 # Check cluster status
-pcluster describe-cluster --cluster-name reservoirsim-cluster
+pcluster describe-cluster --cluster-name fsrm-cluster
 
 # Connect to head node
-pcluster ssh --cluster-name reservoirsim-cluster
+pcluster ssh --cluster-name fsrm-cluster
 ```
 
 ### Connecting to Your Instance
@@ -191,10 +191,10 @@ cd deploy/aws/terraform
 terraform output
 
 # SSH to instance
-ssh -i ~/reservoirsim-key.pem ubuntu@<INSTANCE_PUBLIC_IP>
+ssh -i ~/fsrm-key.pem ubuntu@<INSTANCE_PUBLIC_IP>
 ```
 
-### Building ReservoirSim on AWS
+### Building FSRM on AWS
 
 Once connected to your instance:
 
@@ -207,8 +207,8 @@ sudo journalctl -u cloud-final -f
 
 # Clone your repository (if not done automatically)
 cd ~
-git clone https://github.com/yourusername/ReservoirSim.git
-cd ReservoirSim
+git clone https://github.com/yourusername/FSRM.git
+cd FSRM
 
 # Build
 mkdir build && cd build
@@ -216,22 +216,22 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
 # Verify installation
-./reservoirsim -help
+./fsrm -help
 ```
 
 ### Running Simulations on AWS
 
 ```bash
-cd ~/ReservoirSim/build
+cd ~/FSRM/build
 
 # Run a single-node simulation
-mpirun -np 16 ./reservoirsim -c ../config/shale_reservoir.config
+mpirun -np 16 ./fsrm -c ../config/shale_reservoir.config
 
 # For AWS ParallelCluster (multi-node):
 # Create a SLURM job script
 cat > run_simulation.sh << 'EOF'
 #!/bin/bash
-#SBATCH --job-name=reservoirsim
+#SBATCH --job-name=fsrm
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=16
 #SBATCH --time=24:00:00
@@ -239,7 +239,7 @@ cat > run_simulation.sh << 'EOF'
 
 module load openmpi
 
-mpirun ./reservoirsim -c ../config/shale_reservoir.config
+mpirun ./fsrm -c ../config/shale_reservoir.config
 EOF
 
 # Submit job
@@ -291,7 +291,7 @@ This interactive script will:
 ```bash
 $ ./setup.sh
 ==========================================
-ReservoirSim GCP Deployment Setup
+FSRM GCP Deployment Setup
 ==========================================
 
 [INFO] Checking prerequisites...
@@ -344,13 +344,13 @@ cd deploy/gcp/terraform
 terraform output
 
 # SSH using gcloud (recommended)
-gcloud compute ssh ubuntu@reservoirsim-compute --zone=us-central1-a
+gcloud compute ssh ubuntu@fsrm-compute --zone=us-central1-a
 
 # Or use standard SSH
 ssh ubuntu@<INSTANCE_EXTERNAL_IP>
 ```
 
-### Building ReservoirSim on GCP
+### Building FSRM on GCP
 
 ```bash
 # Check startup script progress
@@ -360,8 +360,8 @@ sudo journalctl -u google-startup-scripts.service -f
 
 # Clone repository (if not done automatically)
 cd ~
-git clone https://github.com/yourusername/ReservoirSim.git
-cd ReservoirSim
+git clone https://github.com/yourusername/FSRM.git
+cd FSRM
 
 # Build
 mkdir build && cd build
@@ -369,20 +369,20 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
 # Verify
-./reservoirsim -help
+./fsrm -help
 ```
 
 ### Running Simulations on GCP
 
 ```bash
-cd ~/ReservoirSim/build
+cd ~/FSRM/build
 
 # Run simulation with all available cores
 NCORES=$(nproc)
-mpirun -np $NCORES ./reservoirsim -c ../config/geothermal.config
+mpirun -np $NCORES ./fsrm -c ../config/geothermal.config
 
 # Use local SSD for temporary storage (if configured)
-mpirun -np $NCORES ./reservoirsim -c ../config/geothermal.config -o /mnt/localssd/output
+mpirun -np $NCORES ./fsrm -c ../config/geothermal.config -o /mnt/localssd/output
 ```
 
 ### Data Management on GCP
@@ -412,57 +412,57 @@ gsutil -m rsync -r ~/simulations/output/ gs://$GCS_BUCKET/outputs/
 
 ```bash
 # Build locally
-docker build -t reservoirsim:latest .
+docker build -t fsrm:latest .
 
 # Test locally
-docker run -it reservoirsim:latest /bin/bash
+docker run -it fsrm:latest /bin/bash
 ```
 
 ### Running with Docker
 
 ```bash
 # Run interactively
-docker run -it -v $(pwd)/data:/data reservoirsim:latest
+docker run -it -v $(pwd)/data:/data fsrm:latest
 
 # Inside container
 cd /app
-mpirun -np 4 ./reservoirsim -c config/default.config
+mpirun -np 4 ./fsrm -c config/default.config
 
 # Run simulation directly
 docker run -v $(pwd)/config:/config -v $(pwd)/output:/output \
-  reservoirsim:latest \
-  mpirun -np 4 /app/reservoirsim -c /config/my_simulation.config -o /output/results
+  fsrm:latest \
+  mpirun -np 4 /app/fsrm -c /config/my_simulation.config -o /output/results
 ```
 
 ### Deploying Docker to AWS
 
 ```bash
 # Build and save image
-docker build -t reservoirsim:latest .
-docker save reservoirsim:latest | gzip > reservoirsim-docker.tar.gz
+docker build -t fsrm:latest .
+docker save fsrm:latest | gzip > fsrm-docker.tar.gz
 
 # Upload to EC2 instance
-scp -i reservoirsim-key.pem reservoirsim-docker.tar.gz ubuntu@<INSTANCE_IP>:~/
+scp -i fsrm-key.pem fsrm-docker.tar.gz ubuntu@<INSTANCE_IP>:~/
 
 # On EC2 instance
-ssh -i reservoirsim-key.pem ubuntu@<INSTANCE_IP>
-docker load < reservoirsim-docker.tar.gz
-docker run -it reservoirsim:latest
+ssh -i fsrm-key.pem ubuntu@<INSTANCE_IP>
+docker load < fsrm-docker.tar.gz
+docker run -it fsrm:latest
 ```
 
 ### Deploying Docker to GCP
 
 ```bash
 # Tag for Google Container Registry
-docker tag reservoirsim:latest gcr.io/YOUR_PROJECT_ID/reservoirsim:latest
+docker tag fsrm:latest gcr.io/YOUR_PROJECT_ID/fsrm:latest
 
 # Push to GCR
-docker push gcr.io/YOUR_PROJECT_ID/reservoirsim:latest
+docker push gcr.io/YOUR_PROJECT_ID/fsrm:latest
 
 # On GCE instance
-gcloud compute ssh ubuntu@reservoirsim-compute --zone=us-central1-a
-docker pull gcr.io/YOUR_PROJECT_ID/reservoirsim:latest
-docker run -it gcr.io/YOUR_PROJECT_ID/reservoirsim:latest
+gcloud compute ssh ubuntu@fsrm-compute --zone=us-central1-a
+docker pull gcr.io/YOUR_PROJECT_ID/fsrm:latest
+docker run -it gcr.io/YOUR_PROJECT_ID/fsrm:latest
 ```
 
 ---
@@ -523,7 +523,7 @@ Create a CloudWatch/Cloud Scheduler rule to stop instances during off-hours:
 aws ec2 stop-instances --instance-ids i-1234567890abcdef0
 
 # GCP - Stop instance
-gcloud compute instances stop reservoirsim-compute --zone=us-central1-a
+gcloud compute instances stop fsrm-compute --zone=us-central1-a
 ```
 
 3. **Right-Size Your Instances**
@@ -576,21 +576,21 @@ iotop
 nethogs
 
 # MPI profiling
-mpirun -np 16 --mca btl tcp,self --report-bindings ./reservoirsim ...
+mpirun -np 16 --mca btl tcp,self --report-bindings ./fsrm ...
 ```
 
 ### Application Monitoring
 
 ```bash
 # PETSc performance monitoring
-mpirun -np 16 ./reservoirsim -c config/simulation.config \
+mpirun -np 16 ./fsrm -c config/simulation.config \
   -log_view \
   -snes_monitor \
   -ksp_monitor \
   -ts_monitor
 
 # Output to file
-mpirun -np 16 ./reservoirsim -c config/simulation.config \
+mpirun -np 16 ./fsrm -c config/simulation.config \
   -log_view :performance.log:ascii_info_detail
 ```
 
@@ -626,7 +626,7 @@ enable_checkpointing = true
 checkpoint_frequency = 3600  # Every hour
 
 # Restart from checkpoint
-mpirun -np 16 ./reservoirsim -c config/simulation.config -restart checkpoint_0001.h5
+mpirun -np 16 ./fsrm -c config/simulation.config -restart checkpoint_0001.h5
 ```
 
 ---
@@ -660,7 +660,7 @@ mpirun --version
 mpirun -np 4 hostname
 
 # Use correct MPI launcher
-mpirun -np 4 --mca btl tcp,self ./reservoirsim ...
+mpirun -np 4 --mca btl tcp,self ./fsrm ...
 ```
 
 #### 3. Out of Memory
@@ -724,19 +724,19 @@ sudo journalctl -u google-startup-scripts.service
 2. **Verify Installation**
 ```bash
 # Run tests
-cd ~/ReservoirSim/build
+cd ~/FSRM/build
 ctest -V
 ```
 
 3. **Enable Debug Mode**
 ```bash
 # Rebuild with debug symbols
-cd ~/ReservoirSim/build
+cd ~/FSRM/build
 cmake .. -DCMAKE_BUILD_TYPE=Debug
 make
 
 # Run with debugger
-mpirun -np 4 gdb --args ./reservoirsim -c config/simulation.config
+mpirun -np 4 gdb --args ./fsrm -c config/simulation.config
 ```
 
 ---
@@ -755,14 +755,14 @@ cd deploy/aws
 # (5-10 minutes)
 
 # 3. Connect
-ssh -i reservoirsim-key.pem ubuntu@<INSTANCE_IP>
+ssh -i fsrm-key.pem ubuntu@<INSTANCE_IP>
 
 # 4. Verify installation
-cd ~/ReservoirSim/build
-./reservoirsim -help
+cd ~/FSRM/build
+./fsrm -help
 
 # 5. Run simulation
-mpirun -np 16 ./reservoirsim -c ../config/shale_reservoir.config -o ~/simulations/output/run1
+mpirun -np 16 ./fsrm -c ../config/shale_reservoir.config -o ~/simulations/output/run1
 
 # 6. Monitor progress
 tail -f ~/simulations/output/run1.log
@@ -788,14 +788,14 @@ cd deploy/gcp
 # Select option 1, configure as needed
 
 # 2. Connect
-gcloud compute ssh ubuntu@reservoirsim-compute --zone=us-central1-a
+gcloud compute ssh ubuntu@fsrm-compute --zone=us-central1-a
 
 # 3. Verify installation
-cd ~/ReservoirSim/build
-./reservoirsim -help
+cd ~/FSRM/build
+./fsrm -help
 
 # 4. Run simulation
-mpirun -np 16 ./reservoirsim -c ../config/geothermal.config
+mpirun -np 16 ./fsrm -c ../config/geothermal.config
 
 # 5. Sync to Cloud Storage
 ~/sync_to_gcs.sh

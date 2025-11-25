@@ -39,20 +39,20 @@ int main(int argc, char** argv) {
     std::mt19937 gen(seed);
     
     // Create simulator for this realization
-    ResSim::Simulator sim(MPI_COMM_SELF);  // Each rank independent
+    FSRM::Simulator sim(MPI_COMM_SELF);  // Each rank independent
     
     // Configuration
-    ResSim::SimulationConfig config;
+    FSRM::SimulationConfig config;
     config.start_time = 0.0;
     config.end_time = 365.25 * 5.0 * 86400.0;  // 5 years
     config.dt_initial = 86400.0;                // 1 day
-    config.fluid_model = ResSim::FluidModelType::BLACK_OIL;
+    config.fluid_model = FSRM::FluidModelType::BLACK_OIL;
     config.enable_fractures = true;  // Natural fractures
     
     sim.initialize(config);
     
     // Grid
-    ResSim::GridConfig grid;
+    FSRM::GridConfig grid;
     grid.nx = 30;
     grid.ny = 30;
     grid.nz = 10;
@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
     // ... generate correlated random fields ...
     
     // Generate natural fracture network
-    auto fracture_network = std::make_shared<ResSim::NaturalFractureNetwork>();
+    auto fracture_network = std::make_shared<FSRM::NaturalFractureNetwork>();
     
     // Stochastic fracture parameters
     std::uniform_int_distribution<int> num_frac_dist(20, 50);
@@ -103,10 +103,10 @@ int main(int argc, char** argv) {
     fracture_network->setShapeFactorModel("KAZEMI");
     
     // Add wells
-    sim.addWell("PROD1", ResSim::WellType::PRODUCER);
+    sim.addWell("PROD1", FSRM::WellType::PRODUCER);
     sim.setWellControl("PROD1", 0.01);  // 10 L/s
     
-    sim.addWell("INJ1", ResSim::WellType::INJECTOR);
+    sim.addWell("INJ1", FSRM::WellType::INJECTOR);
     sim.setWellControl("INJ1", 0.015);  // 15 L/s
     
     // Set initial conditions

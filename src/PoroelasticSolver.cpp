@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <iostream>
 
-namespace ResSim {
+namespace FSRM {
 
 PoroelasticSolver::PoroelasticSolver(MPI_Comm comm) 
     : comm_(comm), dm_(nullptr), ts_(nullptr), solution_(nullptr), prob_(nullptr) {}
@@ -433,4 +433,4 @@ PetscErrorCode PoroelasticSolver::FormIJacobian(TS ts, PetscReal t, Vec X, Vec X
     return 0;
 }
 
-} // namespace ResSim
+} // namespace FSRM

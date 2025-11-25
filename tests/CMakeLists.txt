@@ -11,7 +11,7 @@ set(TEST_SOURCES
 add_executable(run_tests ${TEST_SOURCES})
 
 target_link_libraries(run_tests 
-    reservoirlib
+    fsrmlib
     ${PETSC_LIBRARIES}
     ${MPI_CXX_LIBRARIES}
 )

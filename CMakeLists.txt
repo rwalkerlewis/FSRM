@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(ReservoirSim VERSION 1.0.0 LANGUAGES CXX C)
+project(FSRM VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -83,8 +83,8 @@ if(ENABLE_CUDA)
 endif()
 
 # Create library
-add_library(reservoirlib SHARED ${SOURCES})
-target_link_libraries(reservoirlib 
+add_library(fsrmlib SHARED ${SOURCES})
+target_link_libraries(fsrmlib 
     ${PETSC_LIBRARIES}
     ${MPI_CXX_LIBRARIES}
     ${HDF5_LDFLAGS}
@@ -93,20 +93,20 @@ target_link_libraries(reservoirlib
 
 # Link CUDA libraries if enabled
 if(ENABLE_CUDA AND CUDAToolkit_FOUND)
-    target_link_libraries(reservoirlib CUDA::cudart CUDA::cublas CUDA::cusparse)
-    set_target_properties(reservoirlib PROPERTIES 
+    target_link_libraries(fsrmlib CUDA::cudart CUDA::cublas CUDA::cusparse)
+    set_target_properties(fsrmlib PROPERTIES 
         CUDA_SEPARABLE_COMPILATION ON
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
     )
 endif()
 
 if(ENABLE_HIP AND hip_FOUND)
-    target_link_libraries(reservoirlib hip::host)
+    target_link_libraries(fsrmlib hip::host)
 endif()
 
 # Main executable
-add_executable(reservoirsim src/main.cpp)
-target_link_libraries(reservoirsim reservoirlib)
+add_executable(fsrm src/main.cpp)
+target_link_libraries(fsrm fsrmlib)
 
 # Testing
 if(ENABLE_TESTING)
@@ -120,7 +120,7 @@ if(BUILD_EXAMPLES)
 endif()
 
 # Install
-install(TARGETS reservoirsim reservoirlib
+install(TARGETS fsrm fsrmlib
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib

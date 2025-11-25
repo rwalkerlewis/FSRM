@@ -10,7 +10,7 @@
 #include <sstream>
 #include <iomanip>
 
-using namespace ResSim;
+using namespace FSRM;
 
 // Helper to get memory usage in MB
 double getMemoryUsageMB() {

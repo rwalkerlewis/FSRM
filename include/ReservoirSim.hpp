@@ -1,5 +1,5 @@
-#ifndef RESERVOIR_SIM_HPP
-#define RESERVOIR_SIM_HPP
+#ifndef FSRM_HPP
+#define FSRM_HPP
 
 #include <petsc.h>
 #include <petscts.h>
@@ -14,7 +14,7 @@
 #include <map>
 #include <functional>
 
-namespace ResSim {
+namespace FSRM {
 
 // Forward declarations
 class Simulator;
@@ -206,6 +206,6 @@ struct FluidProperties {
     std::vector<double> component_omega; // Acentric factors
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
-#endif // RESERVOIR_SIM_HPP
+#endif // FSRM_HPP

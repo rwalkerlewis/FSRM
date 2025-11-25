@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 #include <fstream>
 
-using namespace ResSim;
+using namespace FSRM;
 
 // Integration tests that run complete simulations
 class IntegrationTest : public ::testing::Test {

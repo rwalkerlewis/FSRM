@@ -14,7 +14,7 @@
 #include <iostream>
 #include <cmath>
 
-using namespace ResSim;
+using namespace FSRM;
 
 // Example 1: Pure elastodynamic waves
 PetscErrorCode runElastodynamicWaves(MPI_Comm comm) {

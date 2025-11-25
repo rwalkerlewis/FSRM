@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-namespace ResSim {
+namespace FSRM {
 
 // Forward declaration
 class ConfigReader;
@@ -149,6 +149,6 @@ private:
     PetscErrorCode applyMaterialPropertiesToKernels();
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // SIMULATOR_HPP

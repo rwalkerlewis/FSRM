@@ -1,8 +1,8 @@
-# Linear Elastic Fracture Mechanics (LEFM) in ReservoirSim
+# Linear Elastic Fracture Mechanics (LEFM) in FSRM
 
 ## Overview
 
-ReservoirSim implements comprehensive Linear Elastic Fracture Mechanics (LEFM) for hydraulic fracture propagation. This document explains the theory and implementation.
+FSRM implements comprehensive Linear Elastic Fracture Mechanics (LEFM) for hydraulic fracture propagation. This document explains the theory and implementation.
 
 ## Fundamental Concepts
 
@@ -267,7 +267,7 @@ v_tip = f(K_I, K_Ic)
 K_I = Y·(P - σ)·√(π·a)
 ```
 
-## Implementation in ReservoirSim
+## Implementation in FSRM
 
 ### Step-by-Step Algorithm
 

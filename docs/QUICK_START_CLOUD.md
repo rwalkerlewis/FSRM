@@ -1,6 +1,6 @@
-# ReservoirSim Cloud Quick Start Guide
+# FSRM Cloud Quick Start Guide
 
-Get ReservoirSim running on AWS or Google Cloud in 15 minutes.
+Get FSRM running on AWS or Google Cloud in 15 minutes.
 
 ## Prerequisites
 
@@ -41,17 +41,17 @@ aws configure
 # Output format: json
 
 # Create SSH key pair
-aws ec2 create-key-pair --key-name reservoirsim-key \
-    --query 'KeyMaterial' --output text > ~/.ssh/reservoirsim-key.pem
-chmod 400 ~/.ssh/reservoirsim-key.pem
+aws ec2 create-key-pair --key-name fsrm-key \
+    --query 'KeyMaterial' --output text > ~/.ssh/fsrm-key.pem
+chmod 400 ~/.ssh/fsrm-key.pem
 ```
 
 ### Step 3: Deploy
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ReservoirSim.git
-cd ReservoirSim
+git clone https://github.com/yourusername/FSRM.git
+cd FSRM
 
 # Run the automated setup
 cd deploy/aws
@@ -61,7 +61,7 @@ cd deploy/aws
 Follow the prompts:
 - Select deployment type: `1` (Single EC2 instance)
 - AWS region: Press Enter for default (us-east-1)
-- SSH key name: `reservoirsim-key`
+- SSH key name: `fsrm-key`
 - Instance type: `2` (c5.4xlarge - recommended)
 
 Wait 2-3 minutes for Terraform to provision infrastructure.
@@ -73,28 +73,28 @@ Wait 2-3 minutes for Terraform to provision infrastructure.
 export INSTANCE_IP=$(cd terraform && terraform output -raw instance_public_ip)
 
 # SSH to instance (wait 5-10 minutes for initialization to complete)
-ssh -i ~/.ssh/reservoirsim-key.pem ubuntu@$INSTANCE_IP
+ssh -i ~/.ssh/fsrm-key.pem ubuntu@$INSTANCE_IP
 
 # Check installation status
 sudo tail -f /var/log/cloud-init-output.log
 # Wait until you see "Instance initialization completed"
 # Press Ctrl+C when done
 
-# Build ReservoirSim
-cd ReservoirSim
+# Build FSRM
+cd FSRM
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
 # Run a test
-./reservoirsim -c ../config/default.config
+./fsrm -c ../config/default.config
 ```
 
 ### Step 5: Run Your First Simulation
 
 ```bash
 # Run a shale reservoir simulation with 16 cores
-mpirun -np 16 ./reservoirsim -c ../config/shale_reservoir.config
+mpirun -np 16 ./fsrm -c ../config/shale_reservoir.config
 
 # Monitor progress
 tail -f output.log
@@ -154,8 +154,8 @@ gcloud beta billing projects link YOUR_PROJECT_ID \
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ReservoirSim.git
-cd ReservoirSim
+git clone https://github.com/yourusername/FSRM.git
+cd FSRM
 
 # Run the automated setup
 cd deploy/gcp
@@ -175,28 +175,28 @@ Wait 2-3 minutes for deployment.
 
 ```bash
 # Connect via gcloud (easiest)
-gcloud compute ssh ubuntu@reservoirsim-compute --zone=us-central1-a
+gcloud compute ssh ubuntu@fsrm-compute --zone=us-central1-a
 
 # Check installation status
 sudo journalctl -u google-startup-scripts.service -f
 # Wait until initialization completes
 # Press Ctrl+C when done
 
-# Build ReservoirSim
-cd ReservoirSim
+# Build FSRM
+cd FSRM
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
 # Run a test
-./reservoirsim -help
+./fsrm -help
 ```
 
 ### Step 5: Run Your First Simulation
 
 ```bash
 # Run a geothermal simulation
-mpirun -np 16 ./reservoirsim -c ../config/geothermal.config
+mpirun -np 16 ./fsrm -c ../config/geothermal.config
 
 # Monitor progress
 watch -n 1 'tail -20 output.log'
@@ -223,14 +223,14 @@ terraform destroy
 
 ```bash
 # Build the Docker image
-docker build -t reservoirsim:latest .
+docker build -t fsrm:latest .
 
 # Run interactively
-docker run -it reservoirsim:latest /bin/bash
+docker run -it fsrm:latest /bin/bash
 
 # Inside container
 cd /app
-mpirun -np 4 ./reservoirsim -c config/default.config
+mpirun -np 4 ./fsrm -c config/default.config
 ```
 
 ### Deploy Docker to AWS/GCP
@@ -239,8 +239,8 @@ Already deployed an instance? Add Docker:
 
 ```bash
 # On your cloud instance
-docker pull yourusername/reservoirsim:latest
-docker run -it -v ~/data:/data reservoirsim:latest
+docker pull yourusername/fsrm:latest
+docker run -it -v ~/data:/data fsrm:latest
 ```
 
 ---
@@ -252,7 +252,7 @@ docker run -it -v ~/data:/data reservoirsim:latest
 Quick test to verify everything works:
 
 ```bash
-mpirun -np 4 ./reservoirsim -c ../config/default.config
+mpirun -np 4 ./fsrm -c ../config/default.config
 ```
 
 ### 2. Shale Reservoir (10 minutes)
@@ -260,7 +260,7 @@ mpirun -np 4 ./reservoirsim -c ../config/default.config
 Hydraulic fracturing simulation:
 
 ```bash
-mpirun -np 16 ./reservoirsim -c ../config/shale_reservoir.config
+mpirun -np 16 ./fsrm -c ../config/shale_reservoir.config
 ```
 
 ### 3. Geothermal System (15 minutes)
@@ -268,7 +268,7 @@ mpirun -np 16 ./reservoirsim -c ../config/shale_reservoir.config
 Enhanced geothermal system with thermal effects:
 
 ```bash
-mpirun -np 16 ./reservoirsim -c ../config/geothermal.config
+mpirun -np 16 ./fsrm -c ../config/geothermal.config
 ```
 
 ### 4. CO2 Storage (20 minutes)
@@ -276,7 +276,7 @@ mpirun -np 16 ./reservoirsim -c ../config/geothermal.config
 Carbon sequestration simulation:
 
 ```bash
-mpirun -np 16 ./reservoirsim -c ../config/co2_storage.config
+mpirun -np 16 ./fsrm -c ../config/co2_storage.config
 ```
 
 ---
@@ -337,7 +337,7 @@ python3
 aws ec2 stop-instances --instance-ids i-XXXXX
 
 # GCP
-gcloud compute instances stop reservoirsim-compute --zone=us-central1-a
+gcloud compute instances stop fsrm-compute --zone=us-central1-a
 ```
 
 2. **Use spot/preemptible instances** (up to 80% savings)

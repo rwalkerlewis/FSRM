@@ -18,7 +18,7 @@
  * - Result extraction and visualization
  */
 
-using namespace ResSim;
+using namespace FSRM;
 
 int main(int argc, char** argv) {
     PetscInitialize(&argc, &argv, nullptr, nullptr);

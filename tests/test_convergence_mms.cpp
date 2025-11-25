@@ -3,8 +3,8 @@
 #include <gtest/gtest.h>
 #include <cmath>
 
-using namespace ResSim;
-using namespace ResSim::Testing;
+using namespace FSRM;
+using namespace FSRM::Testing;
 
 // Test fixture for Method of Manufactured Solutions tests
 class MMSConvergenceTest : public ::testing::Test {

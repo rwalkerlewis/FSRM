@@ -3,7 +3,7 @@
 # Helper function to create examples
 function(add_reservoir_example NAME SOURCE)
     add_executable(${NAME} ${SOURCE})
-    target_link_libraries(${NAME} reservoirlib)
+    target_link_libraries(${NAME} fsrmlib)
     
     # Install example data files
     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.DATA)

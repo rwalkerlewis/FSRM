@@ -7,7 +7,7 @@
 #include <map>
 #include <array>
 
-namespace ResSim {
+namespace FSRM {
 
 // ============================================================================
 // PPM Image Generation Classes
@@ -246,6 +246,6 @@ private:
                               const std::string& output_file);
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // VISUALIZATION_HPP

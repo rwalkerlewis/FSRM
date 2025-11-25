@@ -1,13 +1,13 @@
 # Cloud Deployment Setup - Summary
 
-This document summarizes the cloud deployment infrastructure added to ReservoirSim.
+This document summarizes the cloud deployment infrastructure added to FSRM.
 
 ## What Was Added
 
 ### 1. Docker Support
 
 **Files Created**:
-- `Dockerfile` - Multi-stage Docker build optimized for ReservoirSim
+- `Dockerfile` - Multi-stage Docker build optimized for FSRM
 - `.dockerignore` - Excludes unnecessary files from Docker build
 - `docker-compose.yml` - Docker Compose configuration for easy deployment
 
@@ -21,10 +21,10 @@ This document summarizes the cloud deployment infrastructure added to ReservoirS
 **Usage**:
 ```bash
 # Build
-docker build -t reservoirsim:latest .
+docker build -t fsrm:latest .
 
 # Run
-docker run -it -v $(pwd)/data:/data reservoirsim:latest
+docker run -it -v $(pwd)/data:/data fsrm:latest
 
 # Or use docker-compose
 docker-compose up -d
@@ -113,7 +113,7 @@ terraform apply
 
 **Files Created**:
 - `deploy/scripts/install_petsc.sh` - Automated PETSc installation
-- `deploy/scripts/build_reservoirsim.sh` - Automated build script
+- `deploy/scripts/build_fsrm.sh` - Automated build script
 - `deploy/scripts/run_example.sh` - Interactive example runner
 
 **Features**:
@@ -128,8 +128,8 @@ terraform apply
 cd deploy/scripts
 ./install_petsc.sh
 
-# Build ReservoirSim
-./build_reservoirsim.sh
+# Build FSRM
+./build_fsrm.sh
 
 # Run examples
 ./run_example.sh
@@ -189,7 +189,7 @@ cd deploy/scripts
 │  │  ┌──────────────────────────────────────────┐  │ │
 │  │  │    EC2 Instance (c5.4xlarge)             │  │ │
 │  │  │    - Ubuntu 22.04                        │  │ │
-│  │  │    - PETSc + MPI + ReservoirSim          │  │ │
+│  │  │    - PETSc + MPI + FSRM          │  │ │
 │  │  │    - Auto-sync to S3                     │  │ │
 │  │  └──────────────────────────────────────────┘  │ │
 │  └────────────────────────────────────────────────┘ │
@@ -212,7 +212,7 @@ cd deploy/scripts
 │  │  ┌──────────────────────────────────────────┐  │ │
 │  │  │    GCE Instance (c2-standard-16)         │  │ │
 │  │  │    - Ubuntu 22.04                        │  │ │
-│  │  │    - PETSc + MPI + ReservoirSim          │  │ │
+│  │  │    - PETSc + MPI + FSRM          │  │ │
 │  │  │    - Auto-sync to Cloud Storage          │  │ │
 │  │  │    - Optional: Local SSD                 │  │ │
 │  │  └──────────────────────────────────────────┘  │ │
@@ -285,19 +285,19 @@ cd deploy/scripts
 ```bash
 # 1. Configure AWS
 aws configure
-aws ec2 create-key-pair --key-name reservoirsim-key \
-    --query 'KeyMaterial' --output text > ~/.ssh/reservoirsim-key.pem
-chmod 400 ~/.ssh/reservoirsim-key.pem
+aws ec2 create-key-pair --key-name fsrm-key \
+    --query 'KeyMaterial' --output text > ~/.ssh/fsrm-key.pem
+chmod 400 ~/.ssh/fsrm-key.pem
 
 # 2. Deploy
 cd deploy/aws && ./setup.sh
 
 # 3. Connect (after 5-10 min initialization)
-ssh -i ~/.ssh/reservoirsim-key.pem ubuntu@<INSTANCE_IP>
+ssh -i ~/.ssh/fsrm-key.pem ubuntu@<INSTANCE_IP>
 
 # 4. Run simulation
-cd ReservoirSim/build
-mpirun -np 16 ./reservoirsim -c ../config/shale_reservoir.config
+cd FSRM/build
+mpirun -np 16 ./fsrm -c ../config/shale_reservoir.config
 ```
 
 **GCP (15 minutes)**:
@@ -310,24 +310,24 @@ gcloud config set project YOUR_PROJECT_ID
 cd deploy/gcp && ./setup.sh
 
 # 3. Connect (after 5-10 min initialization)
-gcloud compute ssh ubuntu@reservoirsim-compute --zone=us-central1-a
+gcloud compute ssh ubuntu@fsrm-compute --zone=us-central1-a
 
 # 4. Run simulation
-cd ReservoirSim/build
-mpirun -np 16 ./reservoirsim -c ../config/geothermal.config
+cd FSRM/build
+mpirun -np 16 ./fsrm -c ../config/geothermal.config
 ```
 
 **Docker (5 minutes)**:
 ```bash
 # 1. Build
-docker build -t reservoirsim:latest .
+docker build -t fsrm:latest .
 
 # 2. Run
-docker run -it reservoirsim:latest
+docker run -it fsrm:latest
 
 # 3. Inside container
 cd /app
-mpirun -np 4 ./reservoirsim -c config/default.config
+mpirun -np 4 ./fsrm -c config/default.config
 ```
 
 ---
@@ -372,7 +372,7 @@ cd deploy/aws
 nano parallelcluster-config.yaml
 
 # Create cluster
-pcluster create-cluster --cluster-name reservoirsim-cluster \
+pcluster create-cluster --cluster-name fsrm-cluster \
   --cluster-configuration parallelcluster-config.yaml
 
 # Submit jobs via SLURM
@@ -403,7 +403,7 @@ local_ssd_count = 2  # 2 x 375 GB
 
 Use for temporary simulation data:
 ```bash
-mpirun -np 16 ./reservoirsim -c config.file -o /mnt/localssd/output
+mpirun -np 16 ./fsrm -c config.file -o /mnt/localssd/output
 ```
 
 ### 4. Docker Deployment on Cloud
@@ -412,13 +412,13 @@ Combine Docker with cloud instances:
 
 ```bash
 # Build and push to registry
-docker build -t gcr.io/PROJECT_ID/reservoirsim:latest .
-docker push gcr.io/PROJECT_ID/reservoirsim:latest
+docker build -t gcr.io/PROJECT_ID/fsrm:latest .
+docker push gcr.io/PROJECT_ID/fsrm:latest
 
 # Run on GCE instance
 gcloud compute ssh instance-name
-docker pull gcr.io/PROJECT_ID/reservoirsim:latest
-docker run -it gcr.io/PROJECT_ID/reservoirsim:latest
+docker pull gcr.io/PROJECT_ID/fsrm:latest
+docker run -it gcr.io/PROJECT_ID/fsrm:latest
 ```
 
 ---
@@ -440,7 +440,7 @@ docker run -it gcr.io/PROJECT_ID/reservoirsim:latest
 11. `deploy/gcp/terraform/startup-script.sh` - GCP initialization
 12. `deploy/gcp/setup.sh` - GCP setup script
 13. `deploy/scripts/install_petsc.sh` - PETSc installer
-14. `deploy/scripts/build_reservoirsim.sh` - Build script
+14. `deploy/scripts/build_fsrm.sh` - Build script
 15. `deploy/scripts/run_example.sh` - Example runner
 16. `docs/CLOUD_DEPLOYMENT.md` - Comprehensive guide
 17. `docs/QUICK_START_CLOUD.md` - Quick start guide
@@ -458,11 +458,11 @@ docker run -it gcr.io/PROJECT_ID/reservoirsim:latest
 
 ```bash
 # Build
-docker build -t reservoirsim:latest .
+docker build -t fsrm:latest .
 
 # Run test
-docker run -it reservoirsim:latest /bin/bash -c \
-  "cd /app && mpirun -np 4 ./reservoirsim -help"
+docker run -it fsrm:latest /bin/bash -c \
+  "cd /app && mpirun -np 4 ./fsrm -help"
 
 # Expected: Help message displayed
 ```
@@ -480,8 +480,8 @@ cd deploy/aws && ./setup.sh
 ssh -i key.pem ubuntu@<IP>
 
 # Test
-cd ReservoirSim/build
-./reservoirsim -help
+cd FSRM/build
+./fsrm -help
 
 # Expected: Help message displayed
 ```
@@ -496,11 +496,11 @@ cd deploy/gcp && ./setup.sh
 # Wait for initialization (5-10 minutes)
 
 # Connect
-gcloud compute ssh ubuntu@reservoirsim-compute --zone=us-central1-a
+gcloud compute ssh ubuntu@fsrm-compute --zone=us-central1-a
 
 # Test
-cd ReservoirSim/build
-./reservoirsim -help
+cd FSRM/build
+./fsrm -help
 
 # Expected: Help message displayed
 ```
@@ -548,7 +548,7 @@ This cloud deployment infrastructure provides:
 ✅ **Production Ready**: Monitoring, logging, data backup  
 ✅ **Flexible**: Multiple deployment options for different needs  
 
-**You can now run ReservoirSim simulations in the cloud with minimal setup!** 🚀
+**You can now run FSRM simulations in the cloud with minimal setup!** 🚀
 
 ---
 

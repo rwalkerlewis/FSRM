@@ -64,10 +64,10 @@ int main(int argc, char** argv) {
     }
     
     // Create simulator
-    ResSim::Simulator sim(comm);
+    FSRM::Simulator sim(comm);
     
     // Configuration
-    ResSim::SimulationConfig config;
+    FSRM::SimulationConfig config;
     config.start_time = 0.0;
     config.end_time = 3600.0;              // 1 hour
     config.dt_initial = 1.0;                // 1 second (small for accurate propagation)
@@ -84,8 +84,8 @@ int main(int argc, char** argv) {
     config.max_nonlinear_iterations = 100;
     config.max_linear_iterations = 5000;
     
-    config.fluid_model = ResSim::FluidModelType::SINGLE_COMPONENT;
-    config.solid_model = ResSim::SolidModelType::ELASTIC;
+    config.fluid_model = FSRM::FluidModelType::SINGLE_COMPONENT;
+    config.solid_model = FSRM::SolidModelType::ELASTIC;
     
     config.enable_geomechanics = true;      // Critical for LEFM
     config.enable_fractures = true;
@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
     sim.initialize(config);
     
     // Grid - fine mesh near wellbore for accurate stress field
-    ResSim::GridConfig grid;
+    FSRM::GridConfig grid;
     grid.nx = 80;
     grid.ny = 80;
     grid.nz = 40;
@@ -109,12 +109,12 @@ int main(int argc, char** argv) {
     sim.setupPhysics();
     
     // Enable fluid-solid-fracture coupling
-    sim.enableCoupling(ResSim::PhysicsType::FLUID_FLOW, 
-                      ResSim::PhysicsType::GEOMECHANICS);
-    sim.enableCoupling(ResSim::PhysicsType::FLUID_FLOW,
-                      ResSim::PhysicsType::FRACTURE_PROPAGATION);
-    sim.enableCoupling(ResSim::PhysicsType::GEOMECHANICS,
-                      ResSim::PhysicsType::FRACTURE_PROPAGATION);
+    sim.enableCoupling(FSRM::PhysicsType::FLUID_FLOW, 
+                      FSRM::PhysicsType::GEOMECHANICS);
+    sim.enableCoupling(FSRM::PhysicsType::FLUID_FLOW,
+                      FSRM::PhysicsType::FRACTURE_PROPAGATION);
+    sim.enableCoupling(FSRM::PhysicsType::GEOMECHANICS,
+                      FSRM::PhysicsType::FRACTURE_PROPAGATION);
     
     if (rank == 0) {
         std::cout << "========================================================================\n";
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
         0.0, 1.0, 0.0                        // Normal vector: East-West fracture
     };
     
-    auto fracture = std::make_shared<ResSim::HydraulicFractureModel>();
+    auto fracture = std::make_shared<FSRM::HydraulicFractureModel>();
     fracture->setGeometry(notch_coords);
     fracture->setFractureModel("P3D");      // Pseudo-3D model
     
@@ -153,7 +153,7 @@ int main(int argc, char** argv) {
     fracture->enableLeakoff(true);
     fracture->setLeakoffCoefficient(1e-7);  // C_L = 10^-7 m/s^0.5
     
-    sim.addFracture(ResSim::FractureType::INDUCED_HYDRAULIC, notch_coords);
+    sim.addFracture(FSRM::FractureType::INDUCED_HYDRAULIC, notch_coords);
     
     // Injection well at center
     if (rank == 0) {
@@ -167,7 +167,7 @@ int main(int argc, char** argv) {
         std::cout << "Wellbore diameter: 0.15 m (6 inch)\n\n";
     }
     
-    sim.addWell("FRAC_WELL", ResSim::WellType::INJECTOR);
+    sim.addWell("FRAC_WELL", FSRM::WellType::INJECTOR);
     sim.setWellControl("FRAC_WELL", 0.05);  // 50 L/s injection
     
     // Set initial conditions
@@ -222,9 +222,9 @@ int main(int argc, char** argv) {
     sim.generatePlots();
     
     // Create visualization
-    ResSim::Visualization viz;
+    FSRM::Visualization viz;
     viz.setOutputDirectory("output");
-    viz.setFormat(ResSim::Visualization::OutputFormat::VTK);
+    viz.setFormat(FSRM::Visualization::OutputFormat::VTK);
     
     if (rank == 0) {
         std::cout << "\n========================================================================\n";

@@ -9,7 +9,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Project name for resource naming"
   type        = string
-  default     = "reservoirsim"
+  default     = "fsrm"
 }
 
 variable "instance_type" {

@@ -5,8 +5,8 @@
 #include <iostream>
 #include <string>
 
-static char help[] = "ReservoirSim - Comprehensive Petroleum Reservoir Simulator\n"
-                    "Usage: reservoirsim [options]\n\n"
+static char help[] = "FSRM - Comprehensive Petroleum Reservoir Simulator\n"
+                    "Usage: fsrm [options]\n\n"
                     "Options:\n"
                     "  -i <file>         Input file (Eclipse format .DATA)\n"
                     "  -c <file>         Configuration file (.config)\n"
@@ -18,11 +18,11 @@ static char help[] = "ReservoirSim - Comprehensive Petroleum Reservoir Simulator
                     "  -pc_type <type>   Preconditioner: ilu, asm, gamg, hypre\n\n"
                     "Examples:\n"
                     "  # Use configuration file (recommended)\n"
-                    "  mpirun -np 4 reservoirsim -c config/shale_reservoir.config\n\n"
+                    "  mpirun -np 4 fsrm -c config/shale_reservoir.config\n\n"
                     "  # Use Eclipse input\n"
-                    "  mpirun -np 4 reservoirsim -i SPE1.DATA -o output/spe1\n\n"
+                    "  mpirun -np 4 fsrm -i SPE1.DATA -o output/spe1\n\n"
                     "  # Generate template configuration\n"
-                    "  reservoirsim -generate_config my_config.config\n\n";
+                    "  fsrm -generate_config my_config.config\n\n";
 
 int main(int argc, char** argv) {
     PetscErrorCode ierr;
@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
         
         if (gen_config) {
             if (rank == 0) {
-                ResSim::ConfigReader::generateTemplate(generate_config);
+                FSRM::ConfigReader::generateTemplate(generate_config);
                 PetscPrintf(comm, "Configuration template written to: %s\n", generate_config);
                 PetscPrintf(comm, "Edit this file to customize your simulation.\n");
             }
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
             if (rank == 0) {
                 PetscPrintf(comm, "Error: Configuration file (-c) or Eclipse input file (-i) required\n");
                 PetscPrintf(comm, "Run with -help for usage information\n");
-                PetscPrintf(comm, "Generate template: reservoirsim -generate_config template.config\n");
+                PetscPrintf(comm, "Generate template: fsrm -generate_config template.config\n");
             }
             ierr = PetscFinalize();
             return 1;
@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
         if (rank == 0) {
             PetscPrintf(comm, "\n");
             PetscPrintf(comm, "============================================================\n");
-            PetscPrintf(comm, "  ReservoirSim - Coupled Petroleum Reservoir Simulator\n");
+            PetscPrintf(comm, "  FSRM - Coupled Petroleum Reservoir Simulator\n");
             PetscPrintf(comm, "  Version 1.0.0\n");
             PetscPrintf(comm, "============================================================\n");
             PetscPrintf(comm, "\n");
@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
         
         try {
             // Create simulator
-            ResSim::Simulator sim(comm);
+            FSRM::Simulator sim(comm);
             
             if (rank == 0) {
                 PetscPrintf(comm, "Initializing simulator...\n");
@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
                 ierr = sim.initializeFromConfigFile(config_file); CHKERRQ(ierr);
             } else {
                 // Configure simulation from Eclipse input
-                ResSim::SimulationConfig config;
+                FSRM::SimulationConfig config;
                 config.input_file = input_file;
                 config.output_file = output_file;
                 config.output_format = output_format;

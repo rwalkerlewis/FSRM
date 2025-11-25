@@ -7,7 +7,7 @@
 #include <cmath>
 #include <sys/stat.h>
 
-using namespace ResSim;
+using namespace FSRM;
 
 // Buckley-Leverett fractional flow function
 double fractionalFlow(double Sw, double mu_w, double mu_o, double krw_max = 1.0, double kro_max = 1.0) {

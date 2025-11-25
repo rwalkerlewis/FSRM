@@ -3,7 +3,7 @@
 #include <random>
 #include <algorithm>
 
-namespace ResSim {
+namespace FSRM {
 
 // ============================================================================
 // FractureModel Base Class
@@ -469,4 +469,4 @@ void FaultModel::updatePermeability(double slip_amount) {
     }
 }
 
-} // namespace ResSim
+} // namespace FSRM

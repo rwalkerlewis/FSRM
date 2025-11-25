@@ -1,8 +1,8 @@
-# GPU Implementation Summary for ReservoirSim
+# GPU Implementation Summary for FSRM
 
 ## Overview
 
-GPU acceleration has been successfully integrated into ReservoirSim, providing 5-50x speedup for large-scale reservoir simulations. The implementation supports both NVIDIA CUDA and AMD ROCm/HIP backends.
+GPU acceleration has been successfully integrated into FSRM, providing 5-50x speedup for large-scale reservoir simulations. The implementation supports both NVIDIA CUDA and AMD ROCm/HIP backends.
 
 ## What Was Added
 
@@ -52,7 +52,7 @@ Features:
 
 ### 4. Configuration Support
 
-#### Updated `include/ReservoirSim.hpp`:
+#### Updated `include/FSRM.hpp`:
 - Added `GPUExecutionMode` enum (CPU_ONLY, GPU_ONLY, HYBRID, CPU_FALLBACK)
 - GPU configuration parameters in `SimulationConfig`
 - GPU solver options
@@ -183,34 +183,34 @@ make -j$(nproc)
 ### Basic GPU Execution
 ```bash
 # Run on GPU
-reservoirsim -c config.ini --use-gpu
+fsrm -c config.ini --use-gpu
 
 # Specify GPU device
-reservoirsim -c config.ini --use-gpu --gpu-device 0
+fsrm -c config.ini --use-gpu --gpu-device 0
 
 # Verbose GPU output
-reservoirsim -c config.ini --use-gpu --gpu-verbose
+fsrm -c config.ini --use-gpu --gpu-verbose
 ```
 
 ### Multi-GPU Execution
 ```bash
 # 4 GPUs with MPI
-mpirun -np 4 reservoirsim -c config.ini --use-gpu
+mpirun -np 4 fsrm -c config.ini --use-gpu
 
 # Hybrid mode (8 CPU + 4 GPU)
-mpirun -np 8 reservoirsim -c config.ini --gpu-mode hybrid
+mpirun -np 8 fsrm -c config.ini --gpu-mode hybrid
 ```
 
 ### Performance Analysis
 ```bash
 # Check GPU availability
-reservoirsim --gpu-info
+fsrm --gpu-info
 
 # Benchmark CPU vs GPU
-reservoirsim -c config.ini --benchmark-gpu
+fsrm -c config.ini --benchmark-gpu
 
 # Profile GPU kernels
-reservoirsim -c config.ini --use-gpu --profile
+fsrm -c config.ini --use-gpu --profile
 ```
 
 ## File Structure
@@ -222,7 +222,7 @@ reservoirsim -c config.ini --use-gpu --profile
 │   ├── GPUManager.hpp                      # NEW: GPU device management
 │   ├── GPUKernels.cuh                      # NEW: CUDA kernel declarations
 │   ├── PhysicsKernel_GPU.hpp              # NEW: GPU physics kernel wrappers
-│   └── ReservoirSim.hpp                    # Updated: GPU config structures
+│   └── FSRM.hpp                    # Updated: GPU config structures
 ├── src/
 │   ├── GPUManager.cu                       # NEW: GPU manager implementation
 │   ├── GPUKernels.cu                       # NEW: CUDA kernel implementations
@@ -249,7 +249,7 @@ The GPU implementation integrates seamlessly with PETSc:
 
 Recommended validation steps:
 1. Build with GPU support
-2. Run `reservoirsim --gpu-info` to verify GPU detection
+2. Run `fsrm --gpu-info` to verify GPU detection
 3. Run small test cases with `--compare-cpu-gpu` flag
 4. Benchmark performance with `--benchmark-gpu`
 5. Test example configurations in `config/gpu_*.config`
@@ -281,10 +281,10 @@ Recommended validation steps:
 
 For GPU-related issues:
 - Check `docs/GPU_USAGE_GUIDE.md` for detailed troubleshooting
-- Run diagnostics: `reservoirsim --gpu-info --gpu-verbose`
+- Run diagnostics: `fsrm --gpu-info --gpu-verbose`
 - Review example configurations in `config/gpu_*.config`
 - Verify CUDA/ROCm installation with `nvidia-smi` or `rocm-smi`
 
 ## Conclusion
 
-ReservoirSim now has comprehensive GPU support that provides significant performance improvements for large-scale simulations. The implementation is flexible, supporting multiple GPU backends, execution modes, and seamlessly falling back to CPU when needed. Users can expect 5-50x speedup depending on problem size and physics complexity.
+FSRM now has comprehensive GPU support that provides significant performance improvements for large-scale simulations. The implementation is flexible, supporting multiple GPU backends, execution modes, and seamlessly falling back to CPU when needed. Users can expect 5-50x speedup depending on problem size and physics complexity.
