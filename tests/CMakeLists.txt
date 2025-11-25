@@ -6,6 +6,7 @@ set(TEST_SOURCES
     test_main.cpp
     test_mms_simple.cpp
     test_physics_detailed.cpp
+    test_performance.cpp
 )
 add_executable(run_tests ${TEST_SOURCES})
 
@@ -39,6 +40,9 @@ if(GTest_FOUND)
     add_test(NAME ElastodynamicsTests COMMAND run_tests --gtest_filter=*Elastodynamics*)
     add_test(NAME HydraulicFractureTests COMMAND run_tests --gtest_filter=*HydraulicFracture*)
     
+    # Performance tests
+    add_test(NAME PerformanceTest COMMAND run_tests --gtest_filter=PerformanceTest*)
+    
     # Set test properties
     set_tests_properties(
         UnitTests
@@ -56,6 +60,11 @@ if(GTest_FOUND)
     
     set_tests_properties(
         IntegrationTest
+        PROPERTIES TIMEOUT 600
+    )
+    
+    set_tests_properties(
+        PerformanceTest
         PROPERTIES TIMEOUT 600
     )
     
