@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
     config.enable_fractures = true;
     config.enable_thermal = false;
     config.enable_particle_transport = false;
-    config.adaptive_timestepping = true;
+    config.enable_adaptive_timestepping = true;
     
     sim.initialize(config);
     
@@ -147,12 +147,6 @@ int main(int argc, char** argv) {
     fracture->setPropagationCriteria(
         1.0e6,                               // K_Ic = 1.0 MPa·m^0.5
         30.0e6                               // sigma_min = 30 MPa
-    );
-    
-    fracture->setFractureProperties(
-        1.0e6,                               // K_Ic
-        40.0,                                // G_c = 40 J/m²
-        30.0e6                               // sigma_c
     );
     
     // Enable leak-off (Carter model)
