@@ -264,7 +264,7 @@ jobs:
       if: always()
       with:
         name: FSRM Benchmarks
-        tool: 'googletest'
+        tool: 'googlecpp'
         output-file-path: build/benchmark_results.json
         github-token: ${{ secrets.GITHUB_TOKEN }}
         auto-push: true
