@@ -12,7 +12,6 @@ on:
 
 env:
   BUILD_TYPE: Release
-  PETSC_VERSION: "3.18"
 
 jobs:
   unit-tests:
@@ -32,10 +31,8 @@ jobs:
           libmpich-dev \
           libhdf5-mpich-dev \
           libgtest-dev \
-          python3-pip
-        
-        # Install PETSc
-        pip3 install petsc==${{ env.PETSC_VERSION }}
+          petsc-dev \
+          libpetsc-real-dev
     
     - name: Configure CMake
       run: |
@@ -55,7 +52,7 @@ jobs:
     
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: unit-test-results
         path: build/Testing/Temporary/LastTest.log
@@ -77,8 +74,9 @@ jobs:
           libmpich-dev \
           libhdf5-mpich-dev \
           libgtest-dev \
+          petsc-dev \
+          libpetsc-real-dev \
           gnuplot
-        pip3 install petsc==${{ env.PETSC_VERSION }}
     
     - name: Configure CMake
       run: |
@@ -95,7 +93,7 @@ jobs:
     
     - name: Upload Convergence Plots
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: convergence-plots
         path: build/tests/*_convergence.png
@@ -119,8 +117,9 @@ jobs:
           mpich \
           libmpich-dev \
           libhdf5-mpich-dev \
-          libgtest-dev
-        pip3 install petsc==${{ env.PETSC_VERSION }}
+          libgtest-dev \
+          petsc-dev \
+          libpetsc-real-dev
     
     - name: Configure CMake
       run: |
@@ -140,7 +139,7 @@ jobs:
     
     - name: Upload Test Output
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: integration-test-results-np${{ matrix.nprocs }}
         path: |
@@ -192,8 +191,9 @@ jobs:
           libmpich-dev \
           libhdf5-mpich-dev \
           libgtest-dev \
+          petsc-dev \
+          libpetsc-real-dev \
           lcov
-        pip3 install petsc==${{ env.PETSC_VERSION }}
     
     - name: Configure with Coverage
       run: |
@@ -242,8 +242,9 @@ jobs:
           mpich \
           libmpich-dev \
           libhdf5-mpich-dev \
-          libgtest-dev
-        pip3 install petsc==${{ env.PETSC_VERSION }}
+          libgtest-dev \
+          petsc-dev \
+          libpetsc-real-dev
     
     - name: Configure CMake
       run: |
