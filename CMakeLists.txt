@@ -33,11 +33,63 @@ endif()
 find_package(MPI REQUIRED)
 find_package(PkgConfig REQUIRED)
 
-# Find PETSc
-pkg_check_modules(PETSC REQUIRED PETSc>=3.15)
+# Find PETSc - try pkg-config first, then environment variables
+pkg_check_modules(PETSC PETSc>=3.15)
 
-# Find HDF5 for output (use pkg-config)
-pkg_check_modules(HDF5 REQUIRED hdf5-openmpi)
+if(NOT PETSC_FOUND)
+    message(STATUS "PETSc not found via pkg-config, trying environment variables")
+    
+    # Try to find PETSc using PETSC_DIR and PETSC_ARCH
+    if(DEFINED ENV{PETSC_DIR})
+        set(PETSC_DIR $ENV{PETSC_DIR})
+        if(DEFINED ENV{PETSC_ARCH})
+            set(PETSC_ARCH $ENV{PETSC_ARCH})
+            set(PETSC_INCLUDE_DIRS "${PETSC_DIR}/include" "${PETSC_DIR}/${PETSC_ARCH}/include")
+            set(PETSC_LIBRARY_DIRS "${PETSC_DIR}/${PETSC_ARCH}/lib")
+        else()
+            set(PETSC_INCLUDE_DIRS "${PETSC_DIR}/include")
+            set(PETSC_LIBRARY_DIRS "${PETSC_DIR}/lib")
+        endif()
+        set(PETSC_LIBRARIES "petsc")
+        set(PETSC_FOUND TRUE)
+        message(STATUS "Found PETSc via environment: ${PETSC_DIR}")
+    else()
+        # Try common installation locations
+        find_path(PETSC_INCLUDE_DIR petsc.h
+            PATHS /usr/include/petsc /usr/local/include/petsc 
+                  /usr/include /usr/local/include
+                  /usr/lib/petsc/include /usr/lib/petscdir/petsc-3.*/x86_64-linux-gnu-real/include
+            PATH_SUFFIXES petsc)
+        
+        find_library(PETSC_LIBRARY NAMES petsc
+            PATHS /usr/lib /usr/local/lib 
+                  /usr/lib/x86_64-linux-gnu
+                  /usr/lib/petscdir/petsc-3.*/x86_64-linux-gnu-real/lib
+            PATH_SUFFIXES petsc)
+        
+        if(PETSC_INCLUDE_DIR AND PETSC_LIBRARY)
+            set(PETSC_INCLUDE_DIRS ${PETSC_INCLUDE_DIR})
+            set(PETSC_LIBRARIES ${PETSC_LIBRARY})
+            set(PETSC_FOUND TRUE)
+            message(STATUS "Found PETSc: ${PETSC_LIBRARY}")
+        else()
+            message(FATAL_ERROR "PETSc not found. Please install petsc-dev or set PETSC_DIR")
+        endif()
+    endif()
+endif()
+
+# Find HDF5 for output
+pkg_check_modules(HDF5 hdf5-openmpi)
+if(NOT HDF5_FOUND)
+    find_package(HDF5 COMPONENTS C)
+    if(HDF5_FOUND)
+        set(HDF5_INCLUDE_DIRS ${HDF5_INCLUDE_DIRS})
+        set(HDF5_LIBRARIES ${HDF5_LIBRARIES})
+        set(HDF5_LDFLAGS ${HDF5_LIBRARIES})
+    else()
+        message(WARNING "HDF5 not found, output functionality may be limited")
+    endif()
+endif()
 
 # GPU support
 if(ENABLE_CUDA)

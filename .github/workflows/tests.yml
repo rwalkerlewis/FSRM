@@ -42,12 +42,43 @@ jobs:
     - name: Verify Dependencies
       run: |
         echo "=== Checking installed dependencies ==="
-        which gcc g++ mpicc mpicxx cmake
-        gcc --version
-        g++ --version
-        mpicc --version
-        pkg-config --modversion PETSc || echo "PETSc pkg-config not found, will use cmake find"
+        which gcc g++ mpicc mpicxx cmake || true
+        gcc --version || true
+        g++ --version || true
+        mpicc --version || true
+        pkg-config --modversion PETSc || echo "PETSc pkg-config not found"
+        
+        echo "=== Finding PETSc installation ==="
+        find /usr -name "petsc.h" 2>/dev/null | head -3 || echo "petsc.h search completed"
+        find /usr -name "libpetsc.*" 2>/dev/null | head -3 || echo "libpetsc search completed"
+        
+        # Try to set PETSC_DIR if we find PETSc
+        if [ -d "/usr/lib/petscdir" ]; then
+          export PETSC_DIR=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
+          echo "Found PETSC_DIR: $PETSC_DIR"
+          if [ -d "$PETSC_DIR" ]; then
+            ls -la "$PETSC_DIR"
+          fi
+        fi
+        
         echo "=== Dependencies verified ==="
+    
+    - name: Set PETSc Environment
+      run: |
+        # Find and set PETSC_DIR
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
+          if [ -n "$PETSC_FOUND" ]; then
+            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
+            echo "Found PETSc at: $PETSC_FOUND"
+            # Find the arch subdirectory
+            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
+            if [ -n "$PETSC_ARCH_FOUND" ]; then
+              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
+              echo "Found PETSC_ARCH: $PETSC_ARCH_FOUND"
+            fi
+          fi
+        fi
     
     - name: Configure CMake
       run: |
@@ -57,7 +88,8 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DENABLE_TESTING=ON \
           -DENABLE_CUDA=OFF \
-          -DBUILD_EXAMPLES=ON
+          -DBUILD_EXAMPLES=ON \
+          -DCMAKE_VERBOSE_MAKEFILE=ON
     
     - name: Build
       run: |
@@ -111,13 +143,28 @@ jobs:
           libstdc++-12-dev \
           gnuplot || true
     
+    - name: Set PETSc Environment
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
+          if [ -n "$PETSC_FOUND" ]; then
+            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
+            echo "Found PETSc at: $PETSC_FOUND"
+            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
+            if [ -n "$PETSC_ARCH_FOUND" ]; then
+              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
     - name: Configure CMake
       run: |
         mkdir -p build
         cd build
         CC=gcc CXX=g++ cmake .. \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DENABLE_TESTING=ON
+          -DENABLE_TESTING=ON \
+          -DCMAKE_VERBOSE_MAKEFILE=ON
     
     - name: Build
       run: cmake --build build -j$(nproc)
@@ -161,13 +208,28 @@ jobs:
           pkg-config \
           libstdc++-12-dev || true
     
+    - name: Set PETSc Environment
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
+          if [ -n "$PETSC_FOUND" ]; then
+            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
+            echo "Found PETSc at: $PETSC_FOUND"
+            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
+            if [ -n "$PETSC_ARCH_FOUND" ]; then
+              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
     - name: Configure CMake
       run: |
         mkdir -p build
         cd build
         CC=gcc CXX=g++ cmake .. \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DENABLE_TESTING=ON
+          -DENABLE_TESTING=ON \
+          -DCMAKE_VERBOSE_MAKEFILE=ON
     
     - name: Build
       run: cmake --build build -j$(nproc)
@@ -242,6 +304,20 @@ jobs:
           libstdc++-12-dev \
           lcov || true
     
+    - name: Set PETSc Environment
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
+          if [ -n "$PETSC_FOUND" ]; then
+            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
+            echo "Found PETSc at: $PETSC_FOUND"
+            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
+            if [ -n "$PETSC_ARCH_FOUND" ]; then
+              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
     - name: Configure with Coverage
       run: |
         mkdir -p build
@@ -250,7 +326,8 @@ jobs:
           -DCMAKE_BUILD_TYPE=Debug \
           -DENABLE_TESTING=ON \
           -DCMAKE_CXX_FLAGS="--coverage" \
-          -DCMAKE_C_FLAGS="--coverage"
+          -DCMAKE_C_FLAGS="--coverage" \
+          -DCMAKE_VERBOSE_MAKEFILE=ON
     
     - name: Build
       run: cmake --build build -j$(nproc)
@@ -298,13 +375,28 @@ jobs:
           pkg-config \
           libstdc++-12-dev || true
     
+    - name: Set PETSc Environment
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
+          if [ -n "$PETSC_FOUND" ]; then
+            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
+            echo "Found PETSc at: $PETSC_FOUND"
+            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
+            if [ -n "$PETSC_ARCH_FOUND" ]; then
+              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
     - name: Configure CMake
       run: |
         mkdir -p build
         cd build
         CC=gcc CXX=g++ cmake .. \
           -DCMAKE_BUILD_TYPE=Release \
-          -DENABLE_TESTING=ON
+          -DENABLE_TESTING=ON \
+          -DCMAKE_VERBOSE_MAKEFILE=ON
     
     - name: Build
       run: cmake --build build -j$(nproc)
@@ -348,6 +440,20 @@ jobs:
           pkg-config \
           libstdc++-12-dev || true
     
+    - name: Set PETSc Environment
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
+          if [ -n "$PETSC_FOUND" ]; then
+            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
+            echo "Found PETSc at: $PETSC_FOUND"
+            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
+            if [ -n "$PETSC_ARCH_FOUND" ]; then
+              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
     - name: Configure CMake
       run: |
         mkdir -p build
@@ -355,7 +461,8 @@ jobs:
         CC=gcc CXX=g++ cmake .. \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DENABLE_TESTING=ON \
-          -DBUILD_EXAMPLES=ON
+          -DBUILD_EXAMPLES=ON \
+          -DCMAKE_VERBOSE_MAKEFILE=ON
     
     - name: Build
       run: cmake --build build -j$(nproc)
