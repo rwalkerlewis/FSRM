@@ -44,7 +44,7 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 
 ### GPU Support
 
-ReservoirSim supports GPU acceleration using NVIDIA CUDA or AMD ROCm/HIP:
+FSRM supports GPU acceleration using NVIDIA CUDA or AMD ROCm/HIP:
 
 **NVIDIA GPU (CUDA)**:
 - Supported architectures: Pascal (SM 6.0), Volta (7.0), Turing (7.5), Ampere (8.0), Ada (8.6+)
@@ -93,7 +93,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release \
 make -j4
 
 # Verify GPU detection
-./reservoirsim --gpu-info
+./fsrm --gpu-info
 
 # Install
 sudo make install
@@ -116,7 +116,7 @@ sudo make install
 
 ### Cloud Deployment (AWS or Google Cloud)
 
-Deploy ReservoirSim on cloud platforms for high-performance computing:
+Deploy FSRM on cloud platforms for high-performance computing:
 
 ```bash
 # Quick start - AWS
@@ -126,8 +126,8 @@ cd deploy/aws && ./setup.sh
 cd deploy/gcp && ./setup.sh
 
 # Docker deployment
-docker build -t reservoirsim:latest .
-docker run -it reservoirsim:latest
+docker build -t fsrm:latest .
+docker run -it fsrm:latest
 ```
 
 **Documentation**:
@@ -153,7 +153,7 @@ Configuration files allow you to specify **ALL** simulation parameters without r
 #### 1. Generate a template configuration
 ```bash
 # Generate a basic template
-reservoirsim -generate_config my_simulation.config
+fsrm -generate_config my_simulation.config
 
 # Or use the complete template with all options
 cp config/complete_template.config my_simulation.config
@@ -208,29 +208,29 @@ gradient = 0, 0, 10000    # Hydrostatic
 
 **CPU execution**:
 ```bash
-mpirun -np 4 reservoirsim -c my_simulation.config
+mpirun -np 4 fsrm -c my_simulation.config
 ```
 
 **GPU execution**:
 ```bash
 # Single GPU
-reservoirsim -c my_simulation.config --use-gpu
+fsrm -c my_simulation.config --use-gpu
 
 # Multiple GPUs with MPI
-mpirun -np 4 reservoirsim -c my_simulation.config --use-gpu
+mpirun -np 4 fsrm -c my_simulation.config --use-gpu
 
 # Specify GPU device
-reservoirsim -c my_simulation.config --use-gpu --gpu-device 0
+fsrm -c my_simulation.config --use-gpu --gpu-device 0
 
 # Hybrid CPU+GPU mode
-mpirun -np 8 reservoirsim -c my_simulation.config --gpu-mode hybrid
+mpirun -np 8 fsrm -c my_simulation.config --gpu-mode hybrid
 ```
 
 **No recompilation needed!** Edit the config file and re-run.
 
 ### Using Eclipse Format
 ```bash
-mpirun -np 4 reservoirsim -i SPE1.DATA -o output/spe1
+mpirun -np 4 fsrm -i SPE1.DATA -o output/spe1
 ```
 
 ### Pre-configured Examples
@@ -239,16 +239,16 @@ We provide several ready-to-use configurations:
 
 ```bash
 # Shale reservoir with hydraulic fracturing
-mpirun -np 8 reservoirsim -c config/shale_reservoir.config
+mpirun -np 8 fsrm -c config/shale_reservoir.config
 
 # Enhanced geothermal system (EGS)
-mpirun -np 8 reservoirsim -c config/geothermal.config
+mpirun -np 8 fsrm -c config/geothermal.config
 
 # Induced seismicity from injection
-mpirun -np 8 reservoirsim -c config/induced_seismicity.config
+mpirun -np 8 fsrm -c config/induced_seismicity.config
 
 # CO2 geological storage
-mpirun -np 8 reservoirsim -c config/co2_storage.config
+mpirun -np 8 fsrm -c config/co2_storage.config
 ```
 
 ## Configuration File Format
@@ -362,7 +362,7 @@ mpirun -np 4 ./ex_hydraulic_fracturing
 # LEFM fracture growth (shows K_I evolution)
 mpirun -np 4 ./ex_lefm_fracture_growth
 # Or with config:
-mpirun -np 4 reservoirsim -c config/lefm_fracture_growth.config
+mpirun -np 4 fsrm -c config/lefm_fracture_growth.config
 
 # Induced seismicity
 mpirun -np 8 ./ex_induced_seismicity
@@ -510,22 +510,22 @@ pin_host_memory = true
 ### Command-line GPU options
 ```bash
 # Check available GPUs
-reservoirsim --gpu-info
+fsrm --gpu-info
 
 # Run on GPU
-reservoirsim -c config.ini --use-gpu
+fsrm -c config.ini --use-gpu
 
 # Specify device
-reservoirsim -c config.ini --use-gpu --gpu-device 1
+fsrm -c config.ini --use-gpu --gpu-device 1
 
 # Verbose GPU output
-reservoirsim -c config.ini --use-gpu --gpu-verbose
+fsrm -c config.ini --use-gpu --gpu-verbose
 
 # Benchmark CPU vs GPU
-reservoirsim -c config.ini --benchmark-gpu
+fsrm -c config.ini --benchmark-gpu
 
 # Profile GPU kernels
-reservoirsim -c config.ini --use-gpu --profile
+fsrm -c config.ini --use-gpu --profile
 ```
 
 ### Hybrid CPU+GPU Execution
@@ -550,7 +550,7 @@ nvidia-smi
 nvcc --version
 
 # Check if CUDA is enabled in build
-reservoirsim --version
+fsrm --version
 ```
 
 **Out of memory errors**:
@@ -583,10 +583,10 @@ Contributions welcome! Areas of interest:
 
 ## Citation
 
-If you use ReservoirSim in your research, please cite:
+If you use FSRM in your research, please cite:
 ```bibtex
-@software{reservoirsim2024,
-  title = {ReservoirSim: Coupled Multi-Physics Reservoir Simulator},
+@software{fsrm2024,
+  title = {FSRM: Coupled Multi-Physics Reservoir Simulator},
   author = {Your Name},
   year = {2024},
   version = {1.0.0}

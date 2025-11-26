@@ -41,7 +41,7 @@ Scheduling:
             VolumeType: gp3
       CustomActions:
         OnNodeConfigured:
-          Script: s3://your-bucket/scripts/install_reservoirsim.sh
+          Script: s3://your-bucket/scripts/install_fsrm.sh
           Args:
             - arg1
 
@@ -61,6 +61,6 @@ DevSettings:
 
 Tags:
   - Key: Project
-    Value: ReservoirSim
+    Value: FSRM
   - Key: Environment
     Value: Production

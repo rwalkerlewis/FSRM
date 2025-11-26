@@ -7,7 +7,7 @@
 #include <vector>
 #include <string>
 
-namespace ResSim {
+namespace FSRM {
 namespace Testing {
 
 // Method of Manufactured Solutions (MMS)
@@ -214,6 +214,6 @@ private:
     double getMemoryUsage();
 };
 
-}} // namespace ResSim::Testing
+}} // namespace FSRM::Testing
 
 #endif // TESTING_HPP

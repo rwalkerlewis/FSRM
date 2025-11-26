@@ -4,7 +4,7 @@
 #include "ReservoirSim.hpp"
 #include <petscfe.h>
 
-namespace ResSim {
+namespace FSRM {
 
 // Base class for all physics kernels
 class PhysicsKernel {
@@ -447,6 +447,6 @@ private:
     double k_maximum;
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // PHYSICS_KERNEL_HPP

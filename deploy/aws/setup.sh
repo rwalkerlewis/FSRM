@@ -1,11 +1,11 @@
 #!/bin/bash
-# AWS deployment setup script for ReservoirSim
-# This script automates the deployment of ReservoirSim on AWS
+# AWS deployment setup script for FSRM
+# This script automates the deployment of FSRM on AWS
 
 set -e
 
 echo "=========================================="
-echo "ReservoirSim AWS Deployment Setup"
+echo "FSRM AWS Deployment Setup"
 echo "=========================================="
 echo ""
 
@@ -137,7 +137,7 @@ EOF
         fi
         
         print_warning "Please edit deploy/aws/parallelcluster-config.yaml with your subnet IDs"
-        print_warning "Then run: pcluster create-cluster --cluster-name reservoirsim-cluster --cluster-configuration parallelcluster-config.yaml"
+        print_warning "Then run: pcluster create-cluster --cluster-name fsrm-cluster --cluster-configuration parallelcluster-config.yaml"
         ;;
         
     3)
@@ -161,16 +161,16 @@ EOF
         
         # Build Docker image locally
         cd ../..
-        docker build -t reservoirsim:latest .
+        docker build -t fsrm:latest .
         
         # Save and upload to instance
-        docker save reservoirsim:latest | gzip > reservoirsim-docker.tar.gz
+        docker save fsrm:latest | gzip > fsrm-docker.tar.gz
         
         print_info "Uploading Docker image to EC2 instance..."
-        scp -i "$KEY_NAME.pem" reservoirsim-docker.tar.gz ubuntu@$INSTANCE_IP:/home/ubuntu/
+        scp -i "$KEY_NAME.pem" fsrm-docker.tar.gz ubuntu@$INSTANCE_IP:/home/ubuntu/
         
         print_info "Loading Docker image on EC2 instance..."
-        ssh -i "$KEY_NAME.pem" ubuntu@$INSTANCE_IP "docker load < reservoirsim-docker.tar.gz"
+        ssh -i "$KEY_NAME.pem" ubuntu@$INSTANCE_IP "docker load < fsrm-docker.tar.gz"
         
         print_info "Docker deployment complete!"
         echo "Connect with: ssh -i $KEY_NAME.pem ubuntu@$INSTANCE_IP"

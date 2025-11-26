@@ -11,7 +11,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace ResSim {
+namespace FSRM {
 
 // ============================================================================
 // Elastodynamics Kernel
@@ -513,4 +513,4 @@ double DynamicPermeabilityModel::crackOpeningModel(double normal_stress) {
     return k_initial * k_ratio;
 }
 
-} // namespace ResSim
+} // namespace FSRM

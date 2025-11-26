@@ -8,7 +8,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace ResSim {
+namespace FSRM {
 
 struct EclipseKeyword {
     std::string name;
@@ -190,6 +190,6 @@ private:
     void expandArrayNotation(std::vector<std::string>& tokens);
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // ECLIPSE_IO_HPP

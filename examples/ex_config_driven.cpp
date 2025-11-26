@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
     }
     
     // Create simulator
-    ResSim::Simulator sim(comm);
+    FSRM::Simulator sim(comm);
     
     // Initialize entirely from config file
     PetscErrorCode ierr = sim.initializeFromConfigFile(config_file);

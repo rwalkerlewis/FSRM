@@ -1,6 +1,6 @@
-# GPU Usage Guide for ReservoirSim
+# GPU Usage Guide for FSRM
 
-This guide provides detailed instructions for using GPU acceleration in ReservoirSim.
+This guide provides detailed instructions for using GPU acceleration in FSRM.
 
 ## Table of Contents
 1. [System Requirements](#system-requirements)
@@ -72,12 +72,12 @@ export LD_LIBRARY_PATH=/opt/rocm/lib:$LD_LIBRARY_PATH
 rocminfo
 ```
 
-### 3. Build ReservoirSim with GPU Support
+### 3. Build FSRM with GPU Support
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/reservoirsim.git
-cd reservoirsim
+git clone https://github.com/your-org/fsrm.git
+cd fsrm
 
 # Create build directory
 mkdir build && cd build
@@ -95,8 +95,8 @@ cmake .. -DCMAKE_BUILD_TYPE=Release \
 make -j$(nproc)
 
 # Verify GPU support
-./reservoirsim --version
-./reservoirsim --gpu-info
+./fsrm --version
+./fsrm --gpu-info
 ```
 
 ## Configuration
@@ -166,7 +166,7 @@ For multiple GPUs, use MPI:
 
 ```bash
 # Run on 4 GPUs
-mpirun -np 4 reservoirsim -c config.ini --use-gpu
+mpirun -np 4 fsrm -c config.ini --use-gpu
 
 # Each MPI rank automatically uses a different GPU
 # GPU assignment: rank 0 -> GPU 0, rank 1 -> GPU 1, etc.
@@ -177,7 +177,7 @@ Manual GPU assignment:
 # Assign specific GPUs
 mpirun -np 2 \
   -x CUDA_VISIBLE_DEVICES=0,2 \
-  reservoirsim -c config.ini --use-gpu
+  fsrm -c config.ini --use-gpu
 ```
 
 ## Performance Optimization
@@ -244,13 +244,13 @@ Compare CPU vs GPU performance:
 
 ```bash
 # Benchmark GPU performance
-reservoirsim -c config.ini --benchmark-gpu
+fsrm -c config.ini --benchmark-gpu
 
 # Profile GPU kernels
-reservoirsim -c config.ini --use-gpu --profile
+fsrm -c config.ini --use-gpu --profile
 
 # Generate performance report
-reservoirsim -c config.ini --use-gpu --performance-report
+fsrm -c config.ini --use-gpu --performance-report
 ```
 
 ## Troubleshooting
@@ -273,14 +273,14 @@ nvidia-smi  # Should show CUDA version
 
 3. Check build configuration:
 ```bash
-./reservoirsim --version
+./fsrm --version
 # Should show "CUDA support: Enabled"
 ```
 
 4. Set CUDA device explicitly:
 ```bash
 export CUDA_VISIBLE_DEVICES=0
-./reservoirsim -c config.ini --use-gpu
+./fsrm -c config.ini --use-gpu
 ```
 
 ### Out of Memory Errors
@@ -312,7 +312,7 @@ output_frequency = 1000
 5. Check memory usage:
 ```bash
 nvidia-smi  # Monitor GPU memory
-reservoirsim -c config.ini --use-gpu --print-memory-usage
+fsrm -c config.ini --use-gpu --print-memory-usage
 ```
 
 ### Poor Performance
@@ -351,7 +351,7 @@ mpirun -np 4 nvidia-smi
 
 2. Verify GPU assignment:
 ```bash
-reservoirsim -c config.ini --use-gpu --gpu-verbose
+fsrm -c config.ini --use-gpu --gpu-verbose
 ```
 
 3. Enable GPU-aware MPI:
@@ -402,7 +402,7 @@ checkpoint_frequency = 1000
 ### 6. Test Correctness
 ```bash
 # Compare CPU and GPU results
-reservoirsim -c config.ini --use-gpu --compare-cpu-gpu
+fsrm -c config.ini --use-gpu --compare-cpu-gpu
 ```
 
 ## Performance Guidelines
@@ -431,5 +431,5 @@ reservoirsim -c config.ini --use-gpu --compare-cpu-gpu
 For GPU-related issues:
 - Check the troubleshooting section above
 - Review example configurations in `config/gpu_*.config`
-- Run diagnostic: `reservoirsim --gpu-info --gpu-verbose`
+- Run diagnostic: `fsrm --gpu-info --gpu-verbose`
 - Report issues on GitHub with output from `--gpu-info`

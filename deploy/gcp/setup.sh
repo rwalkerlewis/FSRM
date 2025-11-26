@@ -1,11 +1,11 @@
 #!/bin/bash
-# Google Cloud Platform deployment setup script for ReservoirSim
-# This script automates the deployment of ReservoirSim on GCP
+# Google Cloud Platform deployment setup script for FSRM
+# This script automates the deployment of FSRM on GCP
 
 set -e
 
 echo "=========================================="
-echo "ReservoirSim GCP Deployment Setup"
+echo "FSRM GCP Deployment Setup"
 echo "=========================================="
 echo ""
 
@@ -186,14 +186,14 @@ EOF
         
         print_info "Building Docker image..."
         cd ../..
-        docker build -t reservoirsim:latest .
+        docker build -t fsrm:latest .
         
         print_info "Pushing to Google Container Registry..."
-        docker tag reservoirsim:latest gcr.io/$PROJECT_ID/reservoirsim:latest
-        docker push gcr.io/$PROJECT_ID/reservoirsim:latest
+        docker tag fsrm:latest gcr.io/$PROJECT_ID/fsrm:latest
+        docker push gcr.io/$PROJECT_ID/fsrm:latest
         
         print_info "Pulling image on GCE instance..."
-        gcloud compute ssh ubuntu@$INSTANCE_NAME --zone=$ZONE --command="docker pull gcr.io/$PROJECT_ID/reservoirsim:latest"
+        gcloud compute ssh ubuntu@$INSTANCE_NAME --zone=$ZONE --command="docker pull gcr.io/$PROJECT_ID/fsrm:latest"
         
         print_info "Docker deployment complete!"
         echo "Connect with: gcloud compute ssh ubuntu@$INSTANCE_NAME --zone=$ZONE"

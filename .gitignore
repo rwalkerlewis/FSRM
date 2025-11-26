@@ -11,7 +11,7 @@ build-*/
 *.dll
 
 # Executables
-reservoirsim
+fsrm
 run_tests
 
 # CMake files

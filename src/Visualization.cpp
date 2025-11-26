@@ -7,7 +7,7 @@
 #include <sys/stat.h>
 #include <petscviewerhdf5.h>
 
-namespace ResSim {
+namespace FSRM {
 
 // ============================================================================
 // Color and ColorMap Implementations
@@ -879,4 +879,4 @@ void Visualization::plot2DField(const std::vector<std::vector<double>>& data,
     plot.writeImage(full_path);
 }
 
-} // namespace ResSim
+} // namespace FSRM

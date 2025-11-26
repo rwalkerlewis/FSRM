@@ -3,8 +3,8 @@
 #include <cmath>
 #include <iostream>
 
-using namespace ResSim;
-using namespace ResSim::Testing;
+using namespace FSRM;
+using namespace FSRM::Testing;
 
 // Detailed physics kernel tests without GoogleTest
 class DetailedPhysicsTest : public UnitTest {
@@ -223,6 +223,6 @@ private:
 };
 
 // Factory function
-std::shared_ptr<ResSim::Testing::UnitTest> createDetailedPhysicsTest() {
+std::shared_ptr<FSRM::Testing::UnitTest> createDetailedPhysicsTest() {
     return std::make_shared<DetailedPhysicsTest>();
 }

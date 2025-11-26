@@ -161,7 +161,7 @@ Four complete example configurations are provided:
 
 ```bash
 # Run specific example
-./reservoirsim -config config/elastodynamic_waves.config
+./fsrm -config config/elastodynamic_waves.config
 
 # Or using the example program
 ./ex_wave_propagation -example 1    # Elastodynamic waves
@@ -174,14 +174,14 @@ Four complete example configurations are provided:
 ### With MPI
 
 ```bash
-mpirun -np 4 ./reservoirsim -config config/poroelastodynamic_waves.config
+mpirun -np 4 ./fsrm -config config/poroelastodynamic_waves.config
 ```
 
 ### With Custom Options
 
 ```bash
 # Override configuration parameters
-./reservoirsim -config config/static_triggered_seismicity.config \
+./fsrm -config config/static_triggered_seismicity.config \
   -dt_initial 0.001 \
   -dynamic_trigger_threshold 3.0e6 \
   -permeability_recovery_time 500.0
@@ -422,7 +422,7 @@ For questions, bug reports, or contributions:
 If you use this code in your research, please cite:
 
 ```bibtex
-@software{reservoirsim_waves,
+@software{fsrm_waves,
   title = {Reservoir Simulator with Wave Physics},
   author = {Your Name},
   year = {2024},

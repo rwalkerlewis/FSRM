@@ -8,7 +8,7 @@
 #include "GPUKernels.cuh"
 #endif
 
-namespace ResSim {
+namespace FSRM {
 
 // GPU-accelerated single phase flow kernel
 class SinglePhaseFlowKernelGPU : public SinglePhaseFlowKernel {
@@ -183,6 +183,6 @@ private:
     static double speedup_factor;
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // PHYSICS_KERNEL_GPU_HPP

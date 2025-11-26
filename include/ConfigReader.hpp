@@ -8,7 +8,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace ResSim {
+namespace FSRM {
 
 // Simple INI-style configuration reader
 class ConfigReader {
@@ -132,6 +132,6 @@ private:
     std::vector<std::string> split(const std::string& str, char delim) const;
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // CONFIG_READER_HPP

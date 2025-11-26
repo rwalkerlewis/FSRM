@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <sys/stat.h>
 
-using namespace ResSim;
+using namespace FSRM;
 
 // ============================================================================
 // PPM Image Generation with Advanced Features

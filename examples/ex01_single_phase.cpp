@@ -26,20 +26,20 @@ int main(int argc, char** argv) {
     }
     
     // Create simulator
-    ResSim::Simulator sim(comm);
+    FSRM::Simulator sim(comm);
     
     // Configure simulation
-    ResSim::SimulationConfig config;
+    FSRM::SimulationConfig config;
     config.start_time = 0.0;
     config.end_time = 3600.0 * 24.0;  // 24 hours
     config.dt_initial = 3600.0;        // 1 hour
     config.output_frequency = 1;
-    config.fluid_model = ResSim::FluidModelType::SINGLE_COMPONENT;
+    config.fluid_model = FSRM::FluidModelType::SINGLE_COMPONENT;
     config.enable_geomechanics = false;
     config.enable_thermal = false;
     
     // Grid configuration
-    ResSim::GridConfig grid;
+    FSRM::GridConfig grid;
     grid.nx = 20;
     grid.ny = 20;
     grid.nz = 5;
@@ -54,11 +54,11 @@ int main(int argc, char** argv) {
     sim.setupPhysics();
     
     // Add production well at center
-    sim.addWell("PROD1", ResSim::WellType::PRODUCER);
+    sim.addWell("PROD1", FSRM::WellType::PRODUCER);
     sim.setWellControl("PROD1", 100.0);  // 100 m³/day
     
     // Add injection well at corner
-    sim.addWell("INJ1", ResSim::WellType::INJECTOR);
+    sim.addWell("INJ1", FSRM::WellType::INJECTOR);
     sim.setWellControl("INJ1", 150.0);  // 150 m³/day
     
     // Set initial conditions

@@ -65,15 +65,15 @@ cat >> /home/ubuntu/.bashrc << EOF
 export PETSC_DIR=/opt/petsc-3.20.0
 export PETSC_ARCH=arch-linux-c-opt
 export PKG_CONFIG_PATH=/opt/petsc-3.20.0/arch-linux-c-opt/lib/pkgconfig:\$PKG_CONFIG_PATH
-export PATH=\$PATH:/home/ubuntu/ReservoirSim/build
+export PATH=\$PATH:/home/ubuntu/FSRM/build
 
 # AWS configuration
 export S3_BUCKET=${s3_bucket}
 EOF
 
-# Clone and build ReservoirSim
+# Clone and build FSRM
 cd /home/ubuntu
-git clone https://github.com/yourusername/ReservoirSim.git || \
+git clone https://github.com/yourusername/FSRM.git || \
     echo "Repository not yet public - will need to upload manually"
 
 # Create directories

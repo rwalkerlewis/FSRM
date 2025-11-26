@@ -1,4 +1,4 @@
-# Terraform configuration for ReservoirSim on AWS
+# Terraform configuration for FSRM on AWS
 # This creates an HPC-optimized EC2 instance or cluster for running simulations
 
 terraform {
@@ -16,58 +16,58 @@ provider "aws" {
 }
 
 # VPC Configuration
-resource "aws_vpc" "reservoirsim_vpc" {
+resource "aws_vpc" "fsrm_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
 
   tags = {
-    Name = "reservoirsim-vpc"
+    Name = "fsrm-vpc"
   }
 }
 
-resource "aws_subnet" "reservoirsim_subnet" {
-  vpc_id                  = aws_vpc.reservoirsim_vpc.id
+resource "aws_subnet" "fsrm_subnet" {
+  vpc_id                  = aws_vpc.fsrm_vpc.id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "reservoirsim-subnet"
+    Name = "fsrm-subnet"
   }
 }
 
-resource "aws_internet_gateway" "reservoirsim_igw" {
-  vpc_id = aws_vpc.reservoirsim_vpc.id
+resource "aws_internet_gateway" "fsrm_igw" {
+  vpc_id = aws_vpc.fsrm_vpc.id
 
   tags = {
-    Name = "reservoirsim-igw"
+    Name = "fsrm-igw"
   }
 }
 
-resource "aws_route_table" "reservoirsim_rt" {
-  vpc_id = aws_vpc.reservoirsim_vpc.id
+resource "aws_route_table" "fsrm_rt" {
+  vpc_id = aws_vpc.fsrm_vpc.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.reservoirsim_igw.id
+    gateway_id = aws_internet_gateway.fsrm_igw.id
   }
 
   tags = {
-    Name = "reservoirsim-rt"
+    Name = "fsrm-rt"
   }
 }
 
-resource "aws_route_table_association" "reservoirsim_rta" {
-  subnet_id      = aws_subnet.reservoirsim_subnet.id
-  route_table_id = aws_route_table.reservoirsim_rt.id
+resource "aws_route_table_association" "fsrm_rta" {
+  subnet_id      = aws_subnet.fsrm_subnet.id
+  route_table_id = aws_route_table.fsrm_rt.id
 }
 
 # Security Group
-resource "aws_security_group" "reservoirsim_sg" {
-  name        = "reservoirsim-sg"
-  description = "Security group for ReservoirSim instances"
-  vpc_id      = aws_vpc.reservoirsim_vpc.id
+resource "aws_security_group" "fsrm_sg" {
+  name        = "fsrm-sg"
+  description = "Security group for FSRM instances"
+  vpc_id      = aws_vpc.fsrm_vpc.id
 
   # SSH access
   ingress {
@@ -101,13 +101,13 @@ resource "aws_security_group" "reservoirsim_sg" {
   }
 
   tags = {
-    Name = "reservoirsim-sg"
+    Name = "fsrm-sg"
   }
 }
 
 # IAM Role for EC2 instances
-resource "aws_iam_role" "reservoirsim_role" {
-  name = "reservoirsim-ec2-role"
+resource "aws_iam_role" "fsrm_role" {
+  name = "fsrm-ec2-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -124,13 +124,13 @@ resource "aws_iam_role" "reservoirsim_role" {
 }
 
 resource "aws_iam_role_policy_attachment" "ssm_policy" {
-  role       = aws_iam_role.reservoirsim_role.name
+  role       = aws_iam_role.fsrm_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_role_policy" "s3_policy" {
-  name = "reservoirsim-s3-policy"
-  role = aws_iam_role.reservoirsim_role.id
+  name = "fsrm-s3-policy"
+  role = aws_iam_role.fsrm_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -143,30 +143,30 @@ resource "aws_iam_role_policy" "s3_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          aws_s3_bucket.reservoirsim_data.arn,
-          "${aws_s3_bucket.reservoirsim_data.arn}/*"
+          aws_s3_bucket.fsrm_data.arn,
+          "${aws_s3_bucket.fsrm_data.arn}/*"
         ]
       }
     ]
   })
 }
 
-resource "aws_iam_instance_profile" "reservoirsim_profile" {
-  name = "reservoirsim-instance-profile"
-  role = aws_iam_role.reservoirsim_role.name
+resource "aws_iam_instance_profile" "fsrm_profile" {
+  name = "fsrm-instance-profile"
+  role = aws_iam_role.fsrm_role.name
 }
 
 # S3 Bucket for data storage
-resource "aws_s3_bucket" "reservoirsim_data" {
+resource "aws_s3_bucket" "fsrm_data" {
   bucket = "${var.project_name}-data-${random_string.suffix.result}"
 
   tags = {
-    Name = "reservoirsim-data"
+    Name = "fsrm-data"
   }
 }
 
-resource "aws_s3_bucket_versioning" "reservoirsim_data_versioning" {
-  bucket = aws_s3_bucket.reservoirsim_data.id
+resource "aws_s3_bucket_versioning" "fsrm_data_versioning" {
+  bucket = aws_s3_bucket.fsrm_data.id
 
   versioning_configuration {
     status = "Enabled"
@@ -180,15 +180,15 @@ resource "random_string" "suffix" {
 }
 
 # EC2 Instance for single-node deployment
-resource "aws_instance" "reservoirsim_instance" {
+resource "aws_instance" "fsrm_instance" {
   count = var.use_parallel_cluster ? 0 : 1
 
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   key_name               = var.key_name
-  subnet_id              = aws_subnet.reservoirsim_subnet.id
-  vpc_security_group_ids = [aws_security_group.reservoirsim_sg.id]
-  iam_instance_profile   = aws_iam_instance_profile.reservoirsim_profile.name
+  subnet_id              = aws_subnet.fsrm_subnet.id
+  vpc_security_group_ids = [aws_security_group.fsrm_sg.id]
+  iam_instance_profile   = aws_iam_instance_profile.fsrm_profile.name
 
   root_block_device {
     volume_size = var.root_volume_size
@@ -198,11 +198,11 @@ resource "aws_instance" "reservoirsim_instance" {
   }
 
   user_data = templatefile("${path.module}/user_data.sh", {
-    s3_bucket = aws_s3_bucket.reservoirsim_data.id
+    s3_bucket = aws_s3_bucket.fsrm_data.id
   })
 
   tags = {
-    Name = "reservoirsim-compute"
+    Name = "fsrm-compute"
   }
 }
 
@@ -227,28 +227,28 @@ data "aws_availability_zones" "available" {
 }
 
 # Elastic IP
-resource "aws_eip" "reservoirsim_eip" {
+resource "aws_eip" "fsrm_eip" {
   count    = var.use_parallel_cluster ? 0 : 1
-  instance = aws_instance.reservoirsim_instance[0].id
+  instance = aws_instance.fsrm_instance[0].id
   domain   = "vpc"
 
   tags = {
-    Name = "reservoirsim-eip"
+    Name = "fsrm-eip"
   }
 }
 
 # Outputs
 output "instance_public_ip" {
-  value       = var.use_parallel_cluster ? null : aws_eip.reservoirsim_eip[0].public_ip
-  description = "Public IP address of the ReservoirSim instance"
+  value       = var.use_parallel_cluster ? null : aws_eip.fsrm_eip[0].public_ip
+  description = "Public IP address of the FSRM instance"
 }
 
 output "s3_bucket_name" {
-  value       = aws_s3_bucket.reservoirsim_data.id
+  value       = aws_s3_bucket.fsrm_data.id
   description = "Name of the S3 bucket for data storage"
 }
 
 output "ssh_command" {
-  value       = var.use_parallel_cluster ? null : "ssh -i ${var.key_name}.pem ubuntu@${aws_eip.reservoirsim_eip[0].public_ip}"
+  value       = var.use_parallel_cluster ? null : "ssh -i ${var.key_name}.pem ubuntu@${aws_eip.fsrm_eip[0].public_ip}"
   description = "SSH command to connect to the instance"
 }

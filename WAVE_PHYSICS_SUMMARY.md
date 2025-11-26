@@ -47,7 +47,7 @@ docs/WAVE_PHYSICS_README.md             # Usage guide
 
 ### Modified Files
 ```
-include/ReservoirSim.hpp                # Added enums and config options
+include/FSRM.hpp                # Added enums and config options
 include/PhysicsKernel.hpp               # Added kernel classes
 src/Simulator.cpp                       # Added kernel setup and time integration
 ```
@@ -100,7 +100,7 @@ max_permeability = 10000.0              # mD
 ### 1. Elastic Wave Propagation
 
 ```bash
-./reservoirsim -config config/elastodynamic_waves.config
+./fsrm -config config/elastodynamic_waves.config
 ```
 
 **Use cases:**
@@ -111,7 +111,7 @@ max_permeability = 10000.0              # mD
 ### 2. Poroelastic Wave Propagation
 
 ```bash
-./reservoirsim -config config/poroelastodynamic_waves.config
+./fsrm -config config/poroelastodynamic_waves.config
 ```
 
 **Use cases:**
@@ -122,7 +122,7 @@ max_permeability = 10000.0              # mD
 ### 3. Stress-Induced Seismicity
 
 ```bash
-./reservoirsim -config config/static_triggered_seismicity.config
+./fsrm -config config/static_triggered_seismicity.config
 ```
 
 **Use cases:**
@@ -133,7 +133,7 @@ max_permeability = 10000.0              # mD
 ### 4. Wave-Enhanced Permeability
 
 ```bash
-./reservoirsim -config config/wave_permeability_enhancement.config
+./fsrm -config config/wave_permeability_enhancement.config
 ```
 
 **Use cases:**

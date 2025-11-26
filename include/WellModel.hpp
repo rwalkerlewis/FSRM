@@ -4,8 +4,9 @@
 #include "ReservoirSim.hpp"
 #include <vector>
 #include <string>
+#include <map>
 
-namespace ResSim {
+namespace FSRM {
 
 struct WellCompletion {
     int i, j, k;  // Grid indices
@@ -14,6 +15,27 @@ struct WellCompletion {
     double skin_factor;
     bool is_open;
     double perforation_length;
+};
+
+// Directional well survey data point
+struct SurveyPoint {
+    double measured_depth;      // Measured depth along wellbore (m)
+    double inclination;         // Inclination angle from vertical (degrees)
+    double azimuth;             // Azimuth angle from North (degrees)
+    double tvd;                 // True vertical depth (m)
+    double north_offset;        // North coordinate offset (m)
+    double east_offset;         // East coordinate offset (m)
+    double dogleg_severity;     // Dogleg severity (degrees/30m)
+};
+
+// Directional well trajectory segment
+struct TrajectorySegment {
+    SurveyPoint start;
+    SurveyPoint end;
+    double length;              // Segment length (m)
+    double avg_inclination;     // Average inclination (degrees)
+    double avg_azimuth;         // Average azimuth (degrees)
+    std::vector<int> grid_cells; // Grid cells intersected by segment
 };
 
 struct WellConstraints {
@@ -177,6 +199,77 @@ private:
     std::map<int, bool> lateral_status;
 };
 
-} // namespace ResSim
+// Directional/Deviated well model
+class DirectionalWell : public WellModel {
+public:
+    DirectionalWell(const std::string& name, WellType type);
+    
+    // Survey data management
+    void addSurveyPoint(double md, double inc, double azi);
+    void addSurveyPoint(const SurveyPoint& point);
+    void computeTrajectory();  // Build trajectory from survey points
+    
+    // Trajectory calculations
+    void calculateDoglegSeverity();
+    void calculatePositions();  // Compute TVD and offsets from angles
+    std::vector<TrajectorySegment> getTrajectorySegments() const;
+    
+    // Well geometry queries
+    double getTotalMeasuredDepth() const;
+    double getTrueVerticalDepth() const;
+    double getMaxInclination() const;
+    SurveyPoint interpolateSurvey(double md) const;
+    
+    // Grid intersection
+    void computeGridIntersections(int nx, int ny, int nz,
+                                 double dx, double dy, double dz);
+    std::vector<int> getCellsIntersected() const;
+    
+    // Well index for deviated wells
+    double computeWellIndex(int completion_idx,
+                           double kx, double ky, double kz,
+                           double dx, double dy, double dz) const override;
+    
+    // Deviated well productivity
+    double computeDeviatedWellPI(double length, double angle,
+                                 double kh, double kv,
+                                 double h, double rw) const;
+    
+    // Kickoff and build section parameters
+    void setKickoffDepth(double depth);
+    void setBuildRate(double rate_deg_per_30m);  // Build rate in deg/30m
+    void setMaxInclination(double max_inc);
+    
+    // Advanced trajectory types
+    void buildSCurve(double kickoff_md, double build_rate,
+                     double target_inc, double hold_md, double drop_rate);
+    void buildJCurve(double kickoff_md, double build_rate, double target_inc);
+    void buildSlantWell(double kickoff_md, double target_inc, double target_azi);
+    
+    // Getters
+    const std::vector<SurveyPoint>& getSurveyData() const { return survey_data; }
+    double getKickoffDepth() const { return kickoff_depth; }
+    double getBuildRate() const { return build_rate; }
+    
+protected:
+    std::vector<SurveyPoint> survey_data;
+    std::vector<TrajectorySegment> trajectory;
+    
+    double kickoff_depth;       // Depth where well deviates from vertical
+    double build_rate;          // Build rate (degrees per 30m)
+    double max_inclination;     // Maximum inclination angle
+    
+    // Minimum curvature method for trajectory calculation
+    void computeMinimumCurvature(const SurveyPoint& p1, const SurveyPoint& p2,
+                                SurveyPoint& p2_out);
+    
+    // Dogleg calculation between two survey points
+    double computeDogleg(const SurveyPoint& p1, const SurveyPoint& p2) const;
+    
+    // Intersected cells with weights
+    std::map<int, double> cell_intersection_lengths;
+};
+
+} // namespace FSRM
 
 #endif // WELL_MODEL_HPP

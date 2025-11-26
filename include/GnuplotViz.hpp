@@ -5,7 +5,7 @@
 #include <string>
 #include <map>
 
-namespace ResSim {
+namespace FSRM {
 
 /**
  * @brief High-quality plotting using gnuplot-iostream
@@ -70,6 +70,6 @@ private:
     std::string getPalette(const std::string& colormap);
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // GNUPLOT_VIZ_HPP

@@ -2,8 +2,8 @@
 #include <iostream>
 #include <cmath>
 
-using namespace ResSim;
-using namespace ResSim::Testing;
+using namespace FSRM;
+using namespace FSRM::Testing;
 
 // Simple MMS test that doesn't require GoogleTest
 class SimpleMMSTest : public UnitTest {
@@ -248,14 +248,14 @@ private:
 };
 
 // Factory functions for test creation
-std::shared_ptr<ResSim::Testing::UnitTest> createSimpleMMSTest() {
+std::shared_ptr<FSRM::Testing::UnitTest> createSimpleMMSTest() {
     return std::make_shared<SimpleMMSTest>();
 }
 
-std::shared_ptr<ResSim::Testing::UnitTest> createSpatialConvergenceTest() {
+std::shared_ptr<FSRM::Testing::UnitTest> createSpatialConvergenceTest() {
     return std::make_shared<SpatialConvergenceTest>();
 }
 
-std::shared_ptr<ResSim::Testing::UnitTest> createTemporalConvergenceTest() {
+std::shared_ptr<FSRM::Testing::UnitTest> createTemporalConvergenceTest() {
     return std::make_shared<TemporalConvergenceTest>();
 }

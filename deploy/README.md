@@ -1,6 +1,6 @@
-# ReservoirSim Deployment Tools
+# FSRM Deployment Tools
 
-This directory contains deployment scripts and configurations for running ReservoirSim on cloud platforms.
+This directory contains deployment scripts and configurations for running FSRM on cloud platforms.
 
 ## Directory Structure
 
@@ -23,7 +23,7 @@ deploy/
 │
 └── scripts/                      # Utility scripts
     ├── install_petsc.sh         # PETSc installation script
-    ├── build_reservoirsim.sh    # Build script
+    ├── build_fsrm.sh    # Build script
     └── run_example.sh           # Example runner
 
 ```
@@ -81,7 +81,7 @@ cd deploy/gcp && ./setup.sh
 ```bash
 cd deploy/aws
 # Edit parallelcluster-config.yaml with your settings
-pcluster create-cluster --cluster-name reservoirsim-cluster \
+pcluster create-cluster --cluster-name fsrm-cluster \
   --cluster-configuration parallelcluster-config.yaml
 ```
 
@@ -95,13 +95,13 @@ pcluster create-cluster --cluster-name reservoirsim-cluster \
 
 ```bash
 # Build locally
-docker build -t reservoirsim:latest .
+docker build -t fsrm:latest .
 
 # Or use docker-compose
-docker-compose up -d reservoirsim
+docker-compose up -d fsrm
 
 # Run simulation
-docker exec -it reservoirsim mpirun -np 4 /app/reservoirsim -c /config/default.config
+docker exec -it fsrm mpirun -np 4 /app/fsrm -c /config/default.config
 ```
 
 ## Prerequisites
@@ -194,19 +194,19 @@ Customize installation:
 PETSC_VERSION=3.20.0 INSTALL_DIR=/opt ./install_petsc.sh
 ```
 
-### Build ReservoirSim
+### Build FSRM
 
-Builds ReservoirSim from source:
+Builds FSRM from source:
 
 ```bash
 cd deploy/scripts
-./build_reservoirsim.sh
+./build_fsrm.sh
 ```
 
 Customize build:
 
 ```bash
-BUILD_TYPE=Debug ./build_reservoirsim.sh
+BUILD_TYPE=Debug ./build_fsrm.sh
 ```
 
 ### Run Examples
@@ -342,10 +342,10 @@ df -h
 
 ```bash
 # PETSc performance logging
-mpirun -np 16 ./reservoirsim -c config.file -log_view
+mpirun -np 16 ./fsrm -c config.file -log_view
 
 # Monitor convergence
-mpirun -np 16 ./reservoirsim -c config.file -snes_monitor -ksp_monitor -ts_monitor
+mpirun -np 16 ./fsrm -c config.file -snes_monitor -ksp_monitor -ts_monitor
 ```
 
 ### Cloud Monitoring

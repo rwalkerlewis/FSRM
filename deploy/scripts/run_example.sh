@@ -4,7 +4,7 @@
 set -e
 
 echo "=========================================="
-echo "ReservoirSim Example Runner"
+echo "FSRM Example Runner"
 echo "=========================================="
 echo ""
 
@@ -103,7 +103,7 @@ fi
 # Run with timing
 START_TIME=$(date +%s)
 
-mpirun -np $NPROCS reservoirsim \
+mpirun -np $NPROCS fsrm \
     -c $CONFIG_DIR/$CONFIG \
     -o $OUTPUT_DIR/$(basename $CONFIG .config) \
     -log_view \

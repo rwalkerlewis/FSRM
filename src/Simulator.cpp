@@ -5,7 +5,7 @@
 #include <fstream>
 #include <cmath>
 
-namespace ResSim {
+namespace FSRM {
 
 Simulator::Simulator(MPI_Comm comm_in) 
     : comm(comm_in), dm(nullptr), ts(nullptr), 
@@ -846,4 +846,4 @@ PetscErrorCode Simulator::solve() {
     PetscFunctionReturn(0);
 }
 
-} // namespace ResSim
+} // namespace FSRM

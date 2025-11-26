@@ -9,7 +9,7 @@
 #include <cuda_runtime.h>
 #endif
 
-namespace ResSim {
+namespace FSRM {
 
 enum class GPUBackend {
     NONE,
@@ -124,6 +124,6 @@ private:
     T* data_;
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // GPU_MANAGER_HPP

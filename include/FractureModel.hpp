@@ -5,7 +5,7 @@
 #include <vector>
 #include <memory>
 
-namespace ResSim {
+namespace FSRM {
 
 // Base fracture model
 class FractureModel {
@@ -219,6 +219,6 @@ private:
     mutable SlipMode current_slip_mode;
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // FRACTURE_MODEL_HPP

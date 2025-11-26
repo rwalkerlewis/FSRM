@@ -1,13 +1,13 @@
 version: '3.8'
 
 services:
-  reservoirsim:
+  fsrm:
     build:
       context: .
       dockerfile: Dockerfile
-    image: reservoirsim:latest
-    container_name: reservoirsim
-    hostname: reservoirsim-node
+    image: fsrm:latest
+    container_name: fsrm
+    hostname: fsrm-node
     
     # Resource limits (adjust based on your needs)
     deploy:
@@ -45,15 +45,15 @@ services:
     # network_mode: host
     
     networks:
-      - reservoirsim-network
+      - fsrm-network
 
   # Optional: Add a Jupyter notebook service for post-processing
   jupyter:
     build:
       context: .
       dockerfile: Dockerfile
-    image: reservoirsim:latest
-    container_name: reservoirsim-jupyter
+    image: fsrm:latest
+    container_name: fsrm-jupyter
     ports:
       - "8888:8888"
     volumes:
@@ -65,8 +65,8 @@ services:
                jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
                --NotebookApp.token='' --NotebookApp.password=''"
     networks:
-      - reservoirsim-network
+      - fsrm-network
 
 networks:
-  reservoirsim-network:
+  fsrm-network:
     driver: bridge

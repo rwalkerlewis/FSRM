@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <sys/stat.h>
 
-using namespace ResSim;
+using namespace FSRM;
 
 /**
  * 2D Vertical Section Reservoir Simulation

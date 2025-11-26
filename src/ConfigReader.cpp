@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
-namespace ResSim {
+namespace FSRM {
 
 ConfigReader::ConfigReader() {}
 
@@ -443,7 +443,7 @@ std::vector<ConfigReader::InitialCondition> ConfigReader::parseInitialConditions
 void ConfigReader::generateTemplate(const std::string& filename) {
     std::ofstream file(filename);
     
-    file << "# ReservoirSim Configuration File\n";
+    file << "# FSRM Configuration File\n";
     file << "# All units in SI unless otherwise specified\n";
     file << "#\n";
     file << "# Lines starting with # or ; are comments\n";
@@ -651,4 +651,4 @@ void ConfigReader::generateTemplate(const std::string& filename) {
     file.close();
 }
 
-} // namespace ResSim
+} // namespace FSRM

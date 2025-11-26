@@ -8,7 +8,7 @@
 #include <vector>
 #include <string>
 
-namespace ResSim {
+namespace FSRM {
 
 // Simple vector types
 struct Vec3 { double x, y, z; };
@@ -158,6 +158,6 @@ private:
     }
 };
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // POROELASTIC_SOLVER_HPP

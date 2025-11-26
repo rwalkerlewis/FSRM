@@ -6,7 +6,7 @@
 #include <cmath>
 #include <iostream>
 
-namespace ResSim {
+namespace FSRM {
 
 EclipseIO::EclipseIO() : nx(0), ny(0), nz(0), ncells(0) {}
 
@@ -571,4 +571,4 @@ SimulationConfig EclipseIO::getSimulationConfig() const {
     return config;
 }
 
-} // namespace ResSim
+} // namespace FSRM

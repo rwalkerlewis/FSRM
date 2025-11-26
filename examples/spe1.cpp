@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     }
     
     // Create simulator
-    ResSim::Simulator sim(comm);
+    FSRM::Simulator sim(comm);
     
     // Load SPE1 data file
     PetscErrorCode ierr = sim.loadEclipseInput("SPE1.DATA");
@@ -43,17 +43,17 @@ int main(int argc, char** argv) {
         }
         
         // Manual configuration
-        ResSim::SimulationConfig config;
+        FSRM::SimulationConfig config;
         config.start_time = 0.0;
         config.end_time = 365.25 * 10.0 * 86400.0;  // 10 years
         config.dt_initial = 30.0 * 86400.0;          // 30 days
-        config.fluid_model = ResSim::FluidModelType::BLACK_OIL;
+        config.fluid_model = FSRM::FluidModelType::BLACK_OIL;
         config.output_frequency = 10;
         
         sim.initialize(config);
         
         // Grid: 10x10x3
-        ResSim::GridConfig grid;
+        FSRM::GridConfig grid;
         grid.nx = 10;
         grid.ny = 10;
         grid.nz = 3;
@@ -66,11 +66,11 @@ int main(int argc, char** argv) {
         sim.setupPhysics();
         
         // Producer at (10,10,3)
-        sim.addWell("PRODUCER", ResSim::WellType::PRODUCER);
+        sim.addWell("PRODUCER", FSRM::WellType::PRODUCER);
         sim.setWellControl("PRODUCER", 6.178e-4);  // 20,000 STB/day to m³/s
         
         // Injector at (1,1,1)
-        sim.addWell("INJECTOR", ResSim::WellType::INJECTOR);
+        sim.addWell("INJECTOR", FSRM::WellType::INJECTOR);
         sim.setWellControl("INJECTOR", 3.089e-4);  // 10,000 MSCF/day
         
         sim.setInitialConditions();

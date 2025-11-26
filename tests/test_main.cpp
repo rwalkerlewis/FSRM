@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
         auto print_header = [&](std::ostream& out) {
             out << "\n";
             out << "========================================\n";
-            out << "  ReservoirSim Test Suite\n";
+            out << "  FSRM Test Suite\n";
             out << "  " << timestamp << "\n";
             out << "========================================\n";
             out << "\n";
@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
     }
     
     // Create test suite
-    ResSim::Testing::TestSuite suite("ReservoirSim");
+    FSRM::Testing::TestSuite suite("FSRM");
     
     // Add unit tests for all physics types
     if (rank == 0) {
@@ -49,20 +49,20 @@ int main(int argc, char** argv) {
     }
     
     // Test all physics types
-    std::vector<ResSim::PhysicsType> physics_types = {
-        ResSim::PhysicsType::FLUID_FLOW,
-        ResSim::PhysicsType::GEOMECHANICS,
-        ResSim::PhysicsType::THERMAL,
-        ResSim::PhysicsType::ELASTODYNAMICS,
-        ResSim::PhysicsType::POROELASTODYNAMICS
+    std::vector<FSRM::PhysicsType> physics_types = {
+        FSRM::PhysicsType::FLUID_FLOW,
+        FSRM::PhysicsType::GEOMECHANICS,
+        FSRM::PhysicsType::THERMAL,
+        FSRM::PhysicsType::ELASTODYNAMICS,
+        FSRM::PhysicsType::POROELASTODYNAMICS
     };
     
-    std::map<ResSim::PhysicsType, std::string> physics_names = {
-        {ResSim::PhysicsType::FLUID_FLOW, "Fluid Flow"},
-        {ResSim::PhysicsType::GEOMECHANICS, "Geomechanics"},
-        {ResSim::PhysicsType::THERMAL, "Thermal"},
-        {ResSim::PhysicsType::ELASTODYNAMICS, "Elastodynamics"},
-        {ResSim::PhysicsType::POROELASTODYNAMICS, "Poroelastodynamics"}
+    std::map<FSRM::PhysicsType, std::string> physics_names = {
+        {FSRM::PhysicsType::FLUID_FLOW, "Fluid Flow"},
+        {FSRM::PhysicsType::GEOMECHANICS, "Geomechanics"},
+        {FSRM::PhysicsType::THERMAL, "Thermal"},
+        {FSRM::PhysicsType::ELASTODYNAMICS, "Elastodynamics"},
+        {FSRM::PhysicsType::POROELASTODYNAMICS, "Poroelastodynamics"}
     };
     
     for (auto physics : physics_types) {
@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
             std::cout << "  - " << physics_names[physics] << " kernel test\n";
             logfile << "  - " << physics_names[physics] << " kernel test\n";
         }
-        suite.addTest(std::make_shared<ResSim::Testing::PhysicsKernelTest>(physics));
+        suite.addTest(std::make_shared<FSRM::Testing::PhysicsKernelTest>(physics));
     }
     
     // Add other unit tests
@@ -88,14 +88,14 @@ int main(int argc, char** argv) {
         logfile << "  - Temporal Convergence test\n";
         logfile << "  - Detailed Physics test\n\n";
     }
-    suite.addTest(std::make_shared<ResSim::Testing::EclipseIOTest>());
-    suite.addTest(std::make_shared<ResSim::Testing::WellModelTest>());
+    suite.addTest(std::make_shared<FSRM::Testing::EclipseIOTest>());
+    suite.addTest(std::make_shared<FSRM::Testing::WellModelTest>());
     
     // Add MMS convergence tests (declared in test_mms_simple.cpp)
-    extern std::shared_ptr<ResSim::Testing::UnitTest> createSimpleMMSTest();
-    extern std::shared_ptr<ResSim::Testing::UnitTest> createSpatialConvergenceTest();
-    extern std::shared_ptr<ResSim::Testing::UnitTest> createTemporalConvergenceTest();
-    extern std::shared_ptr<ResSim::Testing::UnitTest> createDetailedPhysicsTest();
+    extern std::shared_ptr<FSRM::Testing::UnitTest> createSimpleMMSTest();
+    extern std::shared_ptr<FSRM::Testing::UnitTest> createSpatialConvergenceTest();
+    extern std::shared_ptr<FSRM::Testing::UnitTest> createTemporalConvergenceTest();
+    extern std::shared_ptr<FSRM::Testing::UnitTest> createDetailedPhysicsTest();
     
     suite.addTest(createSimpleMMSTest());
     suite.addTest(createSpatialConvergenceTest());
