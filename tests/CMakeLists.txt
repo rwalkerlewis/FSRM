@@ -14,6 +14,8 @@ set(UNIT_TEST_SOURCES
     unit/test_well_model.cpp
     unit/test_fracture_model.cpp
     unit/test_eclipse_io.cpp
+    unit/test_fluid_model.cpp
+    unit/test_material_model.cpp
 )
 
 # Functional Tests - Test features working correctly
@@ -174,6 +176,10 @@ if(GTest_FOUND)
         COMMAND run_unit_tests --gtest_filter=*FractureModelTest.*:*FractureNetworkTest.*)
     add_test(NAME Unit.EclipseIO 
         COMMAND run_unit_tests --gtest_filter=EclipseIOTest.*)
+    add_test(NAME Unit.FluidModel
+        COMMAND run_unit_tests --gtest_filter=FluidModelTest.*)
+    add_test(NAME Unit.MaterialModel
+        COMMAND run_unit_tests --gtest_filter=MaterialModelTest.*)
     
     # Functional tests
     add_test(NAME Functional.SimulatorInit 
@@ -218,6 +224,8 @@ if(GTest_FOUND)
         Unit.WellModel
         Unit.FractureModel
         Unit.EclipseIO
+        Unit.FluidModel
+        Unit.MaterialModel
         PROPERTIES 
             TIMEOUT 60
             LABELS "unit;quick"

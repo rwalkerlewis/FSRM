@@ -1,4 +1,4 @@
-/* 
+/*
  * Example 1: Single-Phase Flow
  * 
  * Demonstrates:
@@ -6,12 +6,19 @@
  * - Structured grid setup
  * - Well injection/production
  * - Pressure transient response
+ * 
+ * This example is configuration-driven. All parameters are specified
+ * in the config file (default: config/single_phase.config).
+ * 
+ * Usage:
+ *   mpirun -np 4 ./ex01_single_phase -c config/single_phase.config
  */
 
 #include "Simulator.hpp"
 #include <iostream>
 
-static char help[] = "Example 1: Single-phase flow in homogeneous reservoir\n\n";
+static char help[] = "Example 1: Single-phase flow in homogeneous reservoir\n"
+                     "Usage: mpirun -np N ./ex01_single_phase -c <config_file>\n\n";
 
 int main(int argc, char** argv) {
     PetscInitialize(&argc, &argv, nullptr, help);
@@ -20,60 +27,45 @@ int main(int argc, char** argv) {
     int rank;
     MPI_Comm_rank(comm, &rank);
     
+    // Get config file from command line (default: config/single_phase.config)
+    char config_file[PETSC_MAX_PATH_LEN] = "config/single_phase.config";
+    PetscOptionsGetString(nullptr, nullptr, "-c", config_file,
+                         sizeof(config_file), nullptr);
+    
     if (rank == 0) {
-        std::cout << "Running Example 1: Single-Phase Flow\n";
-        std::cout << "====================================\n\n";
+        std::cout << "================================================\n";
+        std::cout << "  Example 1: Single-Phase Flow\n";
+        std::cout << "================================================\n\n";
+        std::cout << "Config file: " << config_file << "\n\n";
+        std::cout << "This example demonstrates:\n";
+        std::cout << "  - Basic single-phase Darcy flow\n";
+        std::cout << "  - Structured grid setup\n";
+        std::cout << "  - Well injection/production\n";
+        std::cout << "  - Pressure transient response\n\n";
     }
     
     // Create simulator
     FSRM::Simulator sim(comm);
     
-    // Configure simulation
-    FSRM::SimulationConfig config;
-    config.start_time = 0.0;
-    config.end_time = 3600.0 * 24.0;  // 24 hours
-    config.dt_initial = 3600.0;        // 1 hour
-    config.output_frequency = 1;
-    config.fluid_model = FSRM::FluidModelType::SINGLE_COMPONENT;
-    config.enable_geomechanics = false;
-    config.enable_thermal = false;
+    // Initialize entirely from config file
+    PetscErrorCode ierr = sim.initializeFromConfigFile(config_file);
+    CHKERRQ(ierr);
     
-    // Grid configuration
-    FSRM::GridConfig grid;
-    grid.nx = 20;
-    grid.ny = 20;
-    grid.nz = 5;
-    grid.Lx = 1000.0;  // 1 km
-    grid.Ly = 1000.0;
-    grid.Lz = 50.0;
-    
-    // Initialize
-    sim.initialize(config);
-    sim.setupDM();
-    sim.setupFields();
-    sim.setupPhysics();
-    
-    // Add production well at center
-    sim.addWell("PROD1", FSRM::WellType::PRODUCER);
-    sim.setWellControl("PROD1", 100.0);  // 100 m³/day
-    
-    // Add injection well at corner
-    sim.addWell("INJ1", FSRM::WellType::INJECTOR);
-    sim.setWellControl("INJ1", 150.0);  // 150 m³/day
-    
-    // Set initial conditions
-    sim.setInitialConditions();
-    
-    // Setup solvers
-    sim.setupTimeStepper();
-    sim.setupSolvers();
+    // Setup
+    ierr = sim.setupDM(); CHKERRQ(ierr);
+    ierr = sim.setupFields(); CHKERRQ(ierr);
+    ierr = sim.setupPhysics(); CHKERRQ(ierr);
+    ierr = sim.setMaterialProperties(); CHKERRQ(ierr);
+    ierr = sim.setInitialConditions(); CHKERRQ(ierr);
+    ierr = sim.setupTimeStepper(); CHKERRQ(ierr);
+    ierr = sim.setupSolvers(); CHKERRQ(ierr);
     
     // Run simulation
     if (rank == 0) {
-        std::cout << "Starting simulation...\n";
+        std::cout << "Starting simulation...\n\n";
     }
     
-    PetscErrorCode ierr = sim.run(); CHKERRQ(ierr);
+    ierr = sim.run(); CHKERRQ(ierr);
     
     // Generate outputs
     sim.writeSummary();
@@ -81,8 +73,11 @@ int main(int argc, char** argv) {
     sim.generatePlots();
     
     if (rank == 0) {
-        std::cout << "\nSimulation completed successfully!\n";
-        std::cout << "Output files: output/ex01_*\n";
+        std::cout << "\n================================================\n";
+        std::cout << "  Simulation Complete\n";
+        std::cout << "================================================\n\n";
+        std::cout << "To modify parameters, edit the config file:\n";
+        std::cout << "  " << config_file << "\n\n";
     }
     
     PetscFinalize();
