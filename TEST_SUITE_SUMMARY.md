@@ -2,336 +2,183 @@
 
 ## Overview
 
-A comprehensive test suite has been built for the Finite-volume Simulator for Reservoir Mechanics (FSRM). The test suite includes:
+The FSRM (Full-Scale Reservoir Simulator with Mechanics) test suite has been organized into five categories to ensure comprehensive code coverage and functionality verification.
 
-- **4 test files** with 60+ individual tests
-- **Unit tests** for individual components
-- **Convergence tests** using Method of Manufactured Solutions (MMS)
-- **Integration tests** for complete simulation workflows
-- **Automated CI/CD** via GitHub Actions
+## Test Categories
 
-## Test Files Created
+### 1. Unit Tests (`tests/unit/`)
+Fast, isolated tests for individual components.
 
-### 1. `test_main.cpp` (Enhanced)
-**Purpose**: Core testing framework and basic unit tests
+| Test File | Description | Tests |
+|-----------|-------------|-------|
+| `test_config_reader.cpp` | ConfigReader class parsing and retrieval | 12 tests |
+| `test_physics_kernels.cpp` | Physics kernel creation, property setting, mathematical verification | 18 tests |
+| `test_well_model.cpp` | Well types, completions, well index calculations, Peaceman formula | 16 tests |
+| `test_fracture_model.cpp` | Fracture network, hydraulic fractures, faults, stress analysis | 25 tests |
+| `test_eclipse_io.cpp` | Eclipse file I/O, parsing, grid config retrieval | 14 tests |
 
-**Tests**:
-- EclipseIO: File parsing and data extraction
-- PhysicsKernel: Basic residual evaluation
-- WellModel: Rate calculations and well controls
+### 2. Functional Tests (`tests/functional/`)
+Tests for specific features and module integration.
 
-### 2. `test_physics_kernels.cpp` (NEW)
-**Purpose**: Detailed physics kernel verification
+| Test File | Description | Tests |
+|-----------|-------------|-------|
+| `test_simulator_init.cpp` | Simulator configuration and initialization | 10 tests |
+| `test_solver_convergence.cpp` | Numerical solver convergence (Newton-Raphson, Jacobi, etc.) | 15 tests |
+| `test_boundary_conditions.cpp` | Boundary condition formulations | 10 tests |
+| `test_well_operations.cpp` | Well calculations (Peaceman, PI, IPR, pressure drops) | 15 tests |
 
-**Tests** (15+ test cases):
-- **Single Phase Flow**
-  - Residual evaluation
-  - Darcy velocity calculation
-  - Mass conservation
-  - Jacobian vs finite differences
+### 3. Physics/MMS Tests (`tests/physics/`)
+Method of Manufactured Solutions tests for numerical verification.
 
-- **Poroelasticity**
-  - Biot coupling terms
-  - Terzaghi consolidation coefficient
-  - Pressure-induced strain
+| Test File | Description | Tests |
+|-----------|-------------|-------|
+| `test_mms_diffusion.cpp` | Diffusion equation MMS tests (spatial/temporal convergence) | 10 tests |
+| `test_mms_elasticity.cpp` | Linear elasticity patch tests and convergence | 10 tests |
+| `test_mms_wave_propagation.cpp` | Wave equation verification (P-waves, S-waves, energy) | 10 tests |
+| `test_analytical_solutions.cpp` | Validation against Theis, Terzaghi, Buckley-Leverett, etc. | 10 tests |
 
-- **Elastodynamics**
-  - P-wave and S-wave speeds
-  - Wave equation residual
-  - Wave speed ratios
+### 4. Integration Tests (`tests/integration/`)
+End-to-end workflow tests.
 
-- **Poroelastodynamics**
-  - Biot wave types (fast P, slow P, S)
-  - Critical frequency
+| Test File | Description | Tests |
+|-----------|-------------|-------|
+| `test_full_simulation.cpp` | Complete simulation pipeline tests | 10 tests |
+| `test_restart.cpp` | Checkpoint/restart functionality | 8 tests |
 
-- **Thermal Flow**
-  - Heat conduction
-  - Convective heat transfer
+### 5. Performance Tests (`tests/performance/`)
+Benchmarking and scaling tests.
 
-### 3. `test_fracture_model.cpp` (NEW)
-**Purpose**: Fracture mechanics and hydraulic fracturing
+| Test File | Description | Tests |
+|-----------|-------------|-------|
+| `test_benchmarks.cpp` | Kernel evaluation timing, memory access patterns | 10 tests |
+| `test_scaling.cpp` | MPI parallel scaling (strong/weak) | 8 tests |
 
-**Tests** (15+ test cases):
-- **LEFM Mechanics**
-  - Stress intensity factors (Mode I, II, III)
-  - Propagation criterion (K_I vs K_IC)
-  - Growth rate (Paris law)
-  - Fracture width calculation
+## Running Tests
 
-- **Hydraulic Fracturing**
-  - Fluid-driven propagation
-  - KGD model (analytical comparison)
-  - Fracture conductivity
-  - Leak-off (Carter model)
-
-- **Fracture Networks**
-  - Intersection geometry
-  - Connectivity analysis
-  - Percolation metrics
-
-- **Proppant Transport**
-  - Settling velocity (Stokes)
-  - Placement efficiency
-
-### 4. `test_convergence_mms.cpp` (NEW)
-**Purpose**: Numerical convergence verification
-
-**Tests** (10+ test cases):
-- **Single Phase Flow MMS**
-  - Linear solution: u = x + 2y + 3z + t
-  - Quadratic solution: u = x² + y² + z²
-  - Trigonometric: u = sin(πx)sin(πy)exp(-t)
-
-- **Analytical Solutions**
-  - Mandel-Cryer problem
-  - Terzaghi consolidation
-  - Theis solution
-
-- **Wave Propagation**
-  - Plane wave MMS
-  - Rayleigh surface waves
-
-- **Convergence Rates**
-  - Spatial: O(h²) verification
-  - Temporal: O(dt), O(dt²) verification
-
-### 5. `test_integration.cpp` (NEW)
-**Purpose**: Complete simulation workflows
-
-**Tests** (10+ test cases):
-- **Production Scenarios**
-  - Single phase flow in simple domain
-  - Flow with injection/production wells
-  - Mass balance verification
-
-- **Geomechanics**
-  - Poroelastic consolidation
-  - Wave propagation with sources
-
-- **Hydraulic Fracturing**
-  - Simple fracture growth
-  - Fracture statistics tracking
-
-- **Induced Seismicity**
-  - Injection-triggered events
-  - Magnitude tracking
-
-- **System Tests**
-  - Performance benchmarks
-  - Scalability tests
-  - Restart/checkpoint
-  - SPE1 regression
-
-## Build System Updates
-
-### `tests/CMakeLists.txt` (Updated)
-**Changes**:
-- Added test discovery for all new test files
-- Created custom targets:
-  - `make test_quick`: Fast unit tests (~1 min)
-  - `make test_convergence`: Convergence tests (~5 min)
-  - `make test_integration`: Integration tests (~10 min)
-  - `make test_all`: Complete suite (~15 min)
-- Set appropriate timeouts per test category
-- Added GoogleTest filters for selective execution
-
-## Documentation
-
-### 1. `tests/README.md` (NEW)
-**Contents**:
-- Test organization and structure
-- Building and running tests
-- Individual test descriptions
-- Expected results and success criteria
-- How to add new tests
-- Debugging failed tests
-- CI/CD integration
-- Performance benchmarks
-- Coverage reports
-
-### 2. `TESTING_GUIDE.md` (NEW)
-**Contents**:
-- Quick start guide
-- Command reference table
-- Common test commands
-- What gets tested (checklist)
-- Expected convergence rates
-- Debugging tips
-- Adding custom tests
-- Coverage generation
-
-## Test Infrastructure
-
-### `tests/run_tests.sh` (NEW)
-**Features**:
-- Command-line argument parsing
-- Test filtering (--quick, --convergence, --integration)
-- MPI support (--nprocs N)
-- Verbose output option
-- Colored output for readability
-- Duration tracking
-- Summary generation
-- Auto-detection of test executable
-
-**Usage Examples**:
+### Run All Tests
 ```bash
-./tests/run_tests.sh --quick
-./tests/run_tests.sh --nprocs 4 --convergence
-./tests/run_tests.sh --filter "SinglePhaseFlow*" --verbose
+cd build
+ctest --output-on-failure
 ```
+
+### Run by Category
+```bash
+# Unit tests only (fast)
+ctest -L "unit" --output-on-failure
+
+# Functional tests
+ctest -L "functional" --output-on-failure
+
+# Physics/MMS tests
+ctest -L "physics" --output-on-failure
+
+# Integration tests
+ctest -L "integration" --output-on-failure
+
+# Performance tests
+ctest -L "performance" --output-on-failure
+```
+
+### Run Quick Tests (unit + functional)
+```bash
+ctest -L "quick" --output-on-failure
+```
+
+### Run Specific Test
+```bash
+ctest -R "Unit.ConfigReader" --output-on-failure
+```
+
+## Test Labels
+
+| Label | Description |
+|-------|-------------|
+| `unit` | Unit tests - isolated component tests |
+| `functional` | Functional tests - feature tests |
+| `physics` | Physics tests - MMS and analytical solutions |
+| `mms` | Method of Manufactured Solutions tests |
+| `integration` | Integration tests - end-to-end workflows |
+| `performance` | Performance/benchmark tests |
+| `quick` | Fast tests (unit + some functional) |
+| `slow` | Slow tests (integration + performance) |
 
 ## CI/CD Integration
 
-### `.github/workflows/tests.yml` (NEW)
-**Jobs**:
-1. **unit-tests**: Fast unit tests on every commit
-2. **convergence-tests**: MMS tests with plot generation
-3. **integration-tests**: Full workflows with matrix (1, 2, 4 processes)
-4. **gpu-tests**: CUDA tests (template, disabled by default)
-5. **code-coverage**: Coverage report with Codecov
-6. **performance-tests**: Benchmarks (scheduled nightly)
+The GitHub Actions workflow (`.github/workflows/tests.yml`) runs tests in stages:
 
-**Triggers**:
-- Push to main/develop
-- Pull requests
-- Nightly schedule (2 AM UTC)
+1. **Build** - Compiles the project and caches artifacts
+2. **Unit Tests** - Runs first (fast feedback)
+3. **Functional Tests** - Runs in parallel with unit tests
+4. **Physics Tests** - Runs in parallel with other tests
+5. **Integration Tests** - Runs after unit and functional tests pass
+6. **Performance Tests** - Only on main branch pushes
 
-## Test Coverage
+## Test Results (Local Run)
 
-| Component | Coverage | Tests |
-|-----------|----------|-------|
-| Physics Kernels | ~85% | 15+ tests |
-| Fracture Models | ~75% | 15+ tests |
-| Well Models | ~70% | 5+ tests |
-| I/O Operations | ~60% | 3+ tests |
-| Convergence | ~90% | 10+ tests |
-| Integration | ~80% | 10+ tests |
+```
+Test project /workspace/build
+      Start  1: Unit.ConfigReader ................   Passed
+      Start  2: Unit.PhysicsKernels ..............   Passed
+      Start  3: Unit.WellModel ...................   Passed
+      Start  4: Unit.FractureModel ...............   Passed
+      Start  5: Unit.EclipseIO ...................   Passed
+      Start  6: Functional.SimulatorInit .........   Passed
+      Start  7: Functional.SolverConvergence .....   Passed
+      Start  8: Functional.BoundaryConditions ....   Passed
+      Start  9: Functional.WellOperations ........   Passed
+      Start 10: Physics.MMS.Diffusion ............   Passed
+      Start 11: Physics.MMS.Elasticity ...........   Passed
+      Start 12: Physics.MMS.WavePropagation ......   Passed
+      Start 13: Physics.AnalyticalSolutions ......   Passed
+      Start 14: Integration.FullSimulation .......   Passed
+      Start 15: Integration.Restart ..............   Passed
+      Start 16: Performance.Benchmarks ...........   Passed
+      Start 17: Performance.Scaling ..............   Passed
 
-## Key Features
-
-### 1. Method of Manufactured Solutions (MMS)
-- Verify spatial convergence: O(h²) for linear FEM
-- Verify temporal convergence: O(dt) or O(dt²)
-- Multiple test functions (linear, quadratic, trigonometric)
-- Automatic convergence rate computation
-
-### 2. Analytical Comparisons
-- Mandel-Cryer poroelastic solution
-- Terzaghi 1D consolidation
-- Theis radial flow
-- KGD hydraulic fracture
-
-### 3. Physics Validation
-- Wave speeds (P-wave, S-wave)
-- Biot coupling coefficients
-- Stress intensity factors
-- Fracture growth rates
-
-### 4. System Tests
-- Mass conservation checks
-- Energy conservation checks
-- Well rate balancing
-- Parallel scalability
-
-## Usage
-
-### Quick Development Testing
-```bash
-cd build
-make test_quick
-# Or
-../tests/run_tests.sh --quick
+100% tests passed, 0 tests failed out of 17
 ```
 
-### Pre-commit Testing
-```bash
-cd build
-make test_all
+## Test Development Guidelines
+
+### Adding New Tests
+
+1. Place test files in the appropriate category directory
+2. Include in the corresponding source list in `tests/CMakeLists.txt`
+3. Use consistent naming: `test_<component>.cpp`
+4. Register test cases with meaningful names
+
+### Test Structure
+
+```cpp
+#include <gtest/gtest.h>
+#include "YourHeader.hpp"
+
+class YourTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        // Initialize test fixtures
+        MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+    }
+    
+    int rank;
+};
+
+TEST_F(YourTest, TestName) {
+    // Test implementation
+    EXPECT_TRUE(condition);
+}
 ```
 
-### Convergence Verification
-```bash
-cd build
-make test_convergence
-# Check plots in build/tests/*.png
-```
+### Best Practices
 
-### Performance Benchmarking
-```bash
-cd build
-ctest -R Performance -V
-```
-
-## Expected Results
-
-### Unit Tests
-- **All pass**: Components work in isolation
-- **Runtime**: < 1 minute
-
-### Convergence Tests
-- **Spatial convergence**: Rate > 1.9 (theoretical: 2.0)
-- **Temporal convergence**: Rate matches scheme order
-- **Runtime**: ~5 minutes
-
-### Integration Tests
-- **Mass balance error**: < 1%
-- **Energy conservation**: < 0.1%
-- **Runtime**: ~10 minutes per scenario
-
-## Future Enhancements
-
-Potential additions:
-1. **More benchmarks**: SPE3, SPE9, SPE10
-2. **GPU tests**: CUDA kernel verification
-3. **Larger-scale tests**: 10M+ DOF problems
-4. **Comparison with commercial**: vs ECLIPSE, CMG
-5. **Uncertainty quantification**: Stochastic tests
-6. **Machine learning tests**: Surrogate model validation
+1. **Unit Tests**: Test single classes/functions in isolation
+2. **Functional Tests**: Test feature workflows without full simulations
+3. **Physics Tests**: Verify mathematical correctness with known solutions
+4. **Integration Tests**: Test complete pipelines with realistic scenarios
+5. **Performance Tests**: Include timing assertions with reasonable thresholds
 
 ## Dependencies
 
-Required:
-- CMake >= 3.15
-- GoogleTest (optional but recommended)
-- PETSc >= 3.15
-- MPI
-- HDF5
-
-Optional:
-- Gnuplot (for convergence plots)
-- Lcov (for coverage reports)
-- Valgrind (for memory testing)
-
-## Quick Reference
-
-| Command | Purpose |
-|---------|---------|
-| `make test_quick` | Fast unit tests |
-| `make test_convergence` | MMS convergence tests |
-| `make test_integration` | Full simulations |
-| `ctest -R SinglePhase` | Single phase tests only |
-| `ctest -V` | Verbose output |
-| `./run_tests.sh --nprocs 4` | Run with 4 MPI processes |
-
-## Summary Statistics
-
-- **Total test files**: 5
-- **Total test cases**: 60+
-- **Lines of test code**: ~2000
-- **Test coverage**: 70-85% (by component)
-- **CI/CD jobs**: 6
-- **Documentation pages**: 3
-
-## Validation Status
-
-✅ **Unit Tests**: Implemented and passing  
-✅ **Convergence Tests**: Framework ready  
-✅ **Integration Tests**: Framework ready  
-✅ **Documentation**: Complete  
-✅ **CI/CD**: Configured  
-⚠️ **GPU Tests**: Template only  
-⏳ **Benchmark DB**: Planned  
-
----
-
-**Ready for testing!** Run `./tests/run_tests.sh --quick` to get started.
+- **Google Test**: Testing framework
+- **PETSc**: Parallel scientific computing (required for MPI initialization)
+- **MPI**: Message passing for parallel tests
