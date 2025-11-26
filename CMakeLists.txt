@@ -1,14 +1,18 @@
 cmake_minimum_required(VERSION 3.15)
+
+# Set compilers before project() call if not already set
+if(NOT DEFINED CMAKE_C_COMPILER AND EXISTS "/usr/bin/gcc")
+    set(CMAKE_C_COMPILER "/usr/bin/gcc")
+endif()
+if(NOT DEFINED CMAKE_CXX_COMPILER AND EXISTS "/usr/bin/g++")
+    set(CMAKE_CXX_COMPILER "/usr/bin/g++")
+endif()
+
 project(FSRM VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# Use g++ if available
-if(EXISTS "/usr/bin/g++")
-    set(CMAKE_CXX_COMPILER "/usr/bin/g++")
-endif()
 
 # Options
 option(ENABLE_TESTING "Enable testing" ON)
@@ -18,14 +22,14 @@ option(ENABLE_CUDA "Enable CUDA GPU support" OFF)
 option(ENABLE_HIP "Enable AMD ROCm/HIP GPU support" OFF)
 
 # Find required packages
-# Set MPI paths if they exist
-if(EXISTS "/usr/lib/x86_64-linux-gnu/openmpi")
-    set(MPI_HOME "/usr/lib/x86_64-linux-gnu/openmpi")
-    set(MPI_C_INCLUDE_PATH "/usr/lib/x86_64-linux-gnu/openmpi/include")
-    set(MPI_CXX_INCLUDE_PATH "/usr/lib/x86_64-linux-gnu/openmpi/include")
+# Set MPI compiler wrappers
+if(NOT DEFINED MPI_C_COMPILER)
+    find_program(MPI_C_COMPILER NAMES mpicc)
 endif()
-set(MPI_C_COMPILER mpicc)
-set(MPI_CXX_COMPILER mpicxx)
+if(NOT DEFINED MPI_CXX_COMPILER)
+    find_program(MPI_CXX_COMPILER NAMES mpicxx mpic++)
+endif()
+
 find_package(MPI REQUIRED)
 find_package(PkgConfig REQUIRED)
 
