@@ -22,36 +22,10 @@ namespace FSRM {
  */
 class ConfigReader {
 public:
-    ConfigReader();
-    ~ConfigReader() = default;
-    
-    // Load configuration file
-    bool loadFile(const std::string& filename);
-    
-    // Parse different sections
-    bool parseSimulationConfig(SimulationConfig& config);
-    bool parseGridConfig(GridConfig& config);
-    bool parseMaterialProperties(std::vector<MaterialProperties>& props);
-    bool parseFluidProperties(FluidProperties& props);
-    
     // =========================================================================
-    // Extended Parsing Methods for New Libraries
+    // Nested Struct Definitions (must be before method declarations that use them)
     // =========================================================================
     
-    // Parse fluid model (returns configured FluidModelBase)
-    std::unique_ptr<FluidModelBase> parseFluidModel();
-    
-    // Parse all rock types as RockProperties objects
-    std::vector<RockProperties> parseRockProperties();
-    
-    // Parse individual material model
-    std::unique_ptr<MaterialModelBase> parseMaterialModel(const std::string& section);
-    
-    // Parse fault network
-    std::unique_ptr<FaultNetwork> parseFaultNetwork();
-    std::vector<FaultConfig> parseFaultsExtended();
-    
-    // Parse dynamics configuration
     struct DynamicsConfig {
         bool enable_dynamics;
         bool use_static_triggering;
@@ -64,9 +38,7 @@ public:
         double permeability_sensitivity;
         double permeability_recovery_time;
     };
-    bool parseDynamicsConfig(DynamicsConfig& config);
     
-    // Parse seismicity configuration
     struct SeismicityConfig {
         bool enable_seismicity;
         std::string friction_law;
@@ -76,9 +48,7 @@ public:
         bool enable_aftershocks;
         bool enable_stress_transfer;
     };
-    bool parseSeismicityConfig(SeismicityConfig& config);
     
-    // Parse output configuration
     struct OutputConfig {
         std::string format;           // VTK, HDF5, ECLIPSE
         std::string base_path;
@@ -94,9 +64,7 @@ public:
         bool write_fault_slip;
         bool write_seismic_catalog;
     };
-    bool parseOutputConfig(OutputConfig& config);
     
-    // Parse wells
     struct WellConfig {
         std::string name;
         std::string type;  // PRODUCER, INJECTOR
@@ -108,9 +76,7 @@ public:
         double diameter;
         double skin;
     };
-    std::vector<WellConfig> parseWells();
     
-    // Parse fractures
     struct FractureConfig {
         std::string type;  // NATURAL, HYDRAULIC
         std::vector<double> location;
@@ -121,9 +87,7 @@ public:
         bool enable_propagation;
         bool enable_proppant;
     };
-    std::vector<FractureConfig> parseFractures();
     
-    // Parse faults
     struct FaultConfig {
         std::string name;
         std::vector<double> strike;
@@ -138,9 +102,7 @@ public:
         double b_parameter;
         double Dc_parameter;
     };
-    std::vector<FaultConfig> parseFaults();
     
-    // Parse particle/proppant properties
     struct ParticleConfig {
         double diameter;
         double density;
@@ -149,9 +111,7 @@ public:
         bool enable_settling;
         bool enable_bridging;
     };
-    bool parseParticleProperties(ParticleConfig& config);
     
-    // Parse boundary conditions
     struct BoundaryCondition {
         std::string type;  // DIRICHLET, NEUMANN, ROBIN
         std::string field; // PRESSURE, TEMPERATURE, DISPLACEMENT
@@ -159,9 +119,7 @@ public:
         double value;
         double gradient;  // For Neumann
     };
-    std::vector<BoundaryCondition> parseBoundaryConditions();
     
-    // Parse initial conditions
     struct InitialCondition {
         std::string field;
         std::string distribution; // UNIFORM, GRADIENT, FILE
@@ -169,9 +127,57 @@ public:
         std::vector<double> gradient;
         std::string file;
     };
+    
+    struct ValidationResult {
+        bool valid;
+        std::vector<std::string> errors;
+        std::vector<std::string> warnings;
+    };
+    
+    // =========================================================================
+    // Constructor/Destructor
+    // =========================================================================
+    
+    ConfigReader();
+    ~ConfigReader() = default;
+    
+    // Load configuration file
+    bool loadFile(const std::string& filename);
+    
+    // =========================================================================
+    // Basic Parsing Methods
+    // =========================================================================
+    
+    bool parseSimulationConfig(SimulationConfig& config);
+    bool parseGridConfig(GridConfig& config);
+    bool parseMaterialProperties(std::vector<MaterialProperties>& props);
+    bool parseFluidProperties(FluidProperties& props);
+    
+    // =========================================================================
+    // Extended Parsing Methods for New Libraries
+    // =========================================================================
+    
+    std::unique_ptr<FluidModelBase> parseFluidModel();
+    std::vector<RockProperties> parseRockProperties();
+    std::unique_ptr<MaterialModelBase> parseMaterialModel(const std::string& section);
+    std::unique_ptr<FaultNetwork> parseFaultNetwork();
+    std::vector<FaultConfig> parseFaultsExtended();
+    
+    bool parseDynamicsConfig(DynamicsConfig& config);
+    bool parseSeismicityConfig(SeismicityConfig& config);
+    bool parseOutputConfig(OutputConfig& config);
+    
+    std::vector<WellConfig> parseWells();
+    std::vector<FractureConfig> parseFractures();
+    std::vector<FaultConfig> parseFaults();
+    bool parseParticleProperties(ParticleConfig& config);
+    std::vector<BoundaryCondition> parseBoundaryConditions();
     std::vector<InitialCondition> parseInitialConditions();
     
-    // Get values by key
+    // =========================================================================
+    // Value Accessors
+    // =========================================================================
+    
     std::string getString(const std::string& section, const std::string& key, 
                          const std::string& default_val = "") const;
     int getInt(const std::string& section, const std::string& key, 
@@ -183,41 +189,29 @@ public:
     std::vector<double> getDoubleArray(const std::string& section, 
                                        const std::string& key) const;
     
-    // Check if section/key exists
+    // =========================================================================
+    // Section/Key Query Methods
+    // =========================================================================
+    
     bool hasSection(const std::string& section) const;
     bool hasKey(const std::string& section, const std::string& key) const;
-    
-    // List all sections
     std::vector<std::string> getSections() const;
-    
-    // Get all keys in a section
     std::vector<std::string> getKeys(const std::string& section) const;
     
-    // Generate template configuration file
-    static void generateTemplate(const std::string& filename);
+    // =========================================================================
+    // Template Generation
+    // =========================================================================
     
-    // Generate comprehensive template with all options
+    static void generateTemplate(const std::string& filename);
     static void generateCompleteTemplate(const std::string& filename);
     
     // =========================================================================
     // Utility Methods
     // =========================================================================
     
-    // Get raw section data for custom parsing
     std::map<std::string, std::string> getSectionData(const std::string& section) const;
-    
-    // Get all sections matching a pattern (e.g., "FAULT*", "ROCK*")
     std::vector<std::string> getSectionsMatching(const std::string& prefix) const;
-    
-    // Merge another config file (for includes)
     bool mergeFile(const std::string& filename);
-    
-    // Validate configuration (check for required fields)
-    struct ValidationResult {
-        bool valid;
-        std::vector<std::string> errors;
-        std::vector<std::string> warnings;
-    };
     ValidationResult validate() const;
     
 private:
@@ -226,7 +220,6 @@ private:
     std::string trim(const std::string& str) const;
     std::vector<std::string> split(const std::string& str, char delim) const;
     
-    // Helper to parse array values
     std::vector<double> parseDoubleArray(const std::string& value) const;
     std::vector<int> parseIntArray(const std::string& value) const;
     std::vector<std::string> parseStringArray(const std::string& value) const;
