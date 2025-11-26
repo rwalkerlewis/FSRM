@@ -10,6 +10,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [USER_GUIDE.md](USER_GUIDE.md) | Complete user manual |
 | [CONFIGURATION.md](CONFIGURATION.md) | Configuration file reference |
 | [PHYSICS_MODELS.md](PHYSICS_MODELS.md) | Physics and mathematical models |
+| [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md) | Numerical approaches and algorithms |
 | [API_REFERENCE.md](API_REFERENCE.md) | C++ API documentation |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Cloud, HPC, and GPU deployment |
 
@@ -19,6 +20,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 - **Running Simulations**: See [USER_GUIDE.md](USER_GUIDE.md)
 - **Configuration Options**: See [CONFIGURATION.md](CONFIGURATION.md)
 - **Physics Background**: See [PHYSICS_MODELS.md](PHYSICS_MODELS.md)
+- **Numerical Methods**: See [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md)
 - **Cloud Deployment**: See [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ## Key Concepts

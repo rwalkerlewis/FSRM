@@ -244,10 +244,10 @@ double RateStateFriction::getCriticalStiffness(double sigma_n_eff) const {
 }
 
 // =============================================================================
-// FaultModel Implementation
+// SeismicFaultModel Implementation
 // =============================================================================
 
-FaultModel::FaultModel()
+SeismicFaultModel::SeismicFaultModel()
     : name("fault"),
       current_slip(0.0),
       current_state_var(1e6),
@@ -260,7 +260,7 @@ FaultModel::FaultModel()
     friction = std::make_unique<CoulombFriction>();
 }
 
-void FaultModel::configure(const std::map<std::string, std::string>& config) {
+void SeismicFaultModel::configure(const std::map<std::string, std::string>& config) {
     name = parseString(config, "name", "fault");
     
     geometry.configure(config);
@@ -275,11 +275,11 @@ void FaultModel::configure(const std::map<std::string, std::string>& config) {
     friction = createFrictionModel(law, config);
 }
 
-void FaultModel::setGeometry(const FaultGeometry& geom) {
+void SeismicFaultModel::setGeometry(const FaultGeometry& geom) {
     geometry = geom;
 }
 
-void FaultModel::setGeometry(double x, double y, double z,
+void SeismicFaultModel::setGeometry(double x, double y, double z,
                             double strike, double dip, double length, double width) {
     geometry.x = x;
     geometry.y = y;
@@ -290,15 +290,15 @@ void FaultModel::setGeometry(double x, double y, double z,
     geometry.width = width;
 }
 
-void FaultModel::setFrictionModel(std::unique_ptr<FrictionModelBase> model) {
+void SeismicFaultModel::setFrictionModel(std::unique_ptr<FrictionModelBase> model) {
     friction = std::move(model);
 }
 
-void FaultModel::setFrictionLaw(FrictionLaw law) {
+void SeismicFaultModel::setFrictionLaw(FrictionLaw law) {
     friction = createFrictionModel(law);
 }
 
-FaultStressState FaultModel::computeStressState(double sxx, double syy, double szz,
+FaultStressState SeismicFaultModel::computeStressState(double sxx, double syy, double szz,
                                                 double sxy, double sxz, double syz,
                                                 double pore_pressure) const {
     FaultStressState state;
@@ -345,7 +345,7 @@ FaultStressState FaultModel::computeStressState(double sxx, double syy, double s
     return state;
 }
 
-FaultStressState FaultModel::updateSlip(const FaultStressState& current_state,
+FaultStressState SeismicFaultModel::updateSlip(const FaultStressState& current_state,
                                         double shear_modulus, double dt) {
     FaultStressState new_state = current_state;
     
@@ -392,7 +392,7 @@ FaultStressState FaultModel::updateSlip(const FaultStressState& current_state,
     return new_state;
 }
 
-bool FaultModel::checkNucleation(const FaultStressState& state) const {
+bool SeismicFaultModel::checkNucleation(const FaultStressState& state) const {
     // Check if stress exceeds strength and patch is large enough
     if (state.CFF < 0.0) return false;
     
@@ -401,7 +401,7 @@ bool FaultModel::checkNucleation(const FaultStressState& state) const {
     return (state.tau / state.tau_strength) > 1.0;
 }
 
-SeismicEvent FaultModel::computeEvent(const FaultStressState& initial_state,
+SeismicEvent SeismicFaultModel::computeEvent(const FaultStressState& initial_state,
                                      const FaultStressState& final_state,
                                      double shear_modulus,
                                      double current_time) const {
@@ -434,7 +434,7 @@ SeismicEvent FaultModel::computeEvent(const FaultStressState& initial_state,
     return event;
 }
 
-void FaultModel::computeCoulombStressChange(double slip, double receiver_x,
+void SeismicFaultModel::computeCoulombStressChange(double slip, double receiver_x,
                                             double receiver_y, double receiver_z,
                                             double shear_modulus,
                                             double& dCFF) const {
@@ -458,15 +458,15 @@ void FaultModel::computeCoulombStressChange(double slip, double receiver_x,
     dCFF *= (1.0 + 0.5 * std::cos(2.0 * azimuth));
 }
 
-void FaultModel::addEvent(const SeismicEvent& event) {
+void SeismicFaultModel::addEvent(const SeismicEvent& event) {
     events.push_back(event);
 }
 
-void FaultModel::clearCatalog() {
+void SeismicFaultModel::clearCatalog() {
     events.clear();
 }
 
-double FaultModel::getSeismicityRate(double stressing_rate, double sigma_n_eff,
+double SeismicFaultModel::getSeismicityRate(double stressing_rate, double sigma_n_eff,
                                      double temperature) const {
     // Dieterich (1994) seismicity rate model
     // R/r = 1 / (1 - (Δτ/(A*σ))*γ)
@@ -491,12 +491,12 @@ double FaultModel::getSeismicityRate(double stressing_rate, double sigma_n_eff,
 FaultNetwork::FaultNetwork()
     : use_stress_transfer(false) {}
 
-void FaultNetwork::addFault(std::unique_ptr<FaultModel> fault) {
+void FaultNetwork::addFault(std::unique_ptr<SeismicFaultModel> fault) {
     faults.push_back(std::move(fault));
 }
 
 void FaultNetwork::addFault(const std::map<std::string, std::string>& config) {
-    auto fault = std::make_unique<FaultModel>();
+    auto fault = std::make_unique<SeismicFaultModel>();
     fault->configure(config);
     faults.push_back(std::move(fault));
 }
@@ -562,14 +562,14 @@ void FaultNetwork::updateWithCascade(double sxx, double syy, double szz,
     }
 }
 
-FaultModel* FaultNetwork::getFault(size_t index) {
+SeismicFaultModel* FaultNetwork::getFault(size_t index) {
     if (index < faults.size()) {
         return faults[index].get();
     }
     return nullptr;
 }
 
-FaultModel* FaultNetwork::getFault(const std::string& name) {
+SeismicFaultModel* FaultNetwork::getFault(const std::string& name) {
     for (auto& fault : faults) {
         if (fault->name == name) {
             return fault.get();

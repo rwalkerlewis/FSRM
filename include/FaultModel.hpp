@@ -227,10 +227,13 @@ struct FaultGeometry {
 
 /**
  * @brief Complete fault model with mechanics and event tracking
+ * 
+ * Note: This class provides advanced fault mechanics with rate-state friction.
+ * For simple fault representation in fracture networks, see FractureModel.hpp::FaultModel
  */
-class FaultModel {
+class SeismicFaultModel {
 public:
-    FaultModel();
+    SeismicFaultModel();
     
     // Configuration from key-value pairs
     void configure(const std::map<std::string, std::string>& config);
@@ -316,7 +319,7 @@ public:
     FaultNetwork();
     
     // Add faults
-    void addFault(std::unique_ptr<FaultModel> fault);
+    void addFault(std::unique_ptr<SeismicFaultModel> fault);
     void addFault(const std::map<std::string, std::string>& config);
     
     // Configure all faults from config sections
@@ -333,8 +336,8 @@ public:
                           double pore_pressure, double shear_modulus, double dt);
     
     // Access faults
-    FaultModel* getFault(size_t index);
-    FaultModel* getFault(const std::string& name);
+    SeismicFaultModel* getFault(size_t index);
+    SeismicFaultModel* getFault(const std::string& name);
     size_t numFaults() const { return faults.size(); }
     
     // Combined event catalog
@@ -345,7 +348,7 @@ public:
     double getMagnitudeOfCompleteness() const;
     
 private:
-    std::vector<std::unique_ptr<FaultModel>> faults;
+    std::vector<std::unique_ptr<SeismicFaultModel>> faults;
     
     // Stress interaction matrix (optional precomputation)
     std::vector<std::vector<double>> stress_transfer_matrix;

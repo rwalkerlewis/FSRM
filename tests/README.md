@@ -1,5 +1,19 @@
 # FSRM Test Suite
 
+Comprehensive test suite organized by test type for the FSRM simulator.
+
+## Test Organization
+
+Tests are organized into categories by purpose and execution time:
+
+| Category | Purpose | Typical Runtime | CI Pipeline |
+|----------|---------|-----------------|-------------|
+| **Unit** | Test individual components in isolation | < 1 min | Always |
+| **Functional** | Test feature integration | 1-5 min | Always |
+| **Physics** | Verify numerical accuracy (MMS) | 2-10 min | Always |
+| **Integration** | End-to-end workflows | 5-20 min | On merge |
+| **Performance** | Benchmarking and scaling | 10-30 min | Main only |
+
 ## Directory Structure
 
 ```
@@ -9,12 +23,14 @@ tests/
 ├── test_main_gtest.cpp         # Main entry point for Google Test
 ├── data/                       # Test data files
 │   └── test_simple.config
-├── unit/                       # Unit tests
-│   ├── test_config_reader.cpp
-│   ├── test_physics_kernels.cpp
-│   ├── test_well_model.cpp
-│   ├── test_fracture_model.cpp
-│   └── test_eclipse_io.cpp
+├── unit/                       # Unit tests (fast, isolated)
+│   ├── test_config_reader.cpp  # ConfigReader parsing
+│   ├── test_physics_kernels.cpp # Physics kernel classes
+│   ├── test_well_model.cpp     # Well model operations
+│   ├── test_fracture_model.cpp # Fracture/fault models
+│   ├── test_eclipse_io.cpp     # Eclipse I/O
+│   ├── test_fluid_model.cpp    # Generic fluid models
+│   └── test_material_model.cpp # Generic material models
 ├── functional/                 # Functional tests
 │   ├── test_simulator_init.cpp
 │   ├── test_solver_convergence.cpp
@@ -42,6 +58,8 @@ Fast, isolated tests for individual classes and functions:
 - **WellModel**: Well types, completions, calculations
 - **FractureModel**: Fracture networks, faults, stress calculations
 - **EclipseIO**: Eclipse format file I/O
+- **FluidModel**: Generic fluid models (SinglePhase, BlackOil, Compositional, Brine, CO2)
+- **MaterialModel**: Generic material models (LinearElastic, Poroelastic, Viscoelastic, Elastoplastic, Anisotropic)
 
 ### Functional Tests
 Tests for specific features and module integration:
