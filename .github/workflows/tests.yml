@@ -2,7 +2,7 @@ name: FSRM Test Suite
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, "**" ]
   pull_request:
     branches: [ main, develop ]
 
@@ -10,8 +10,11 @@ env:
   BUILD_TYPE: Release
 
 jobs:
-  build-and-test:
-    name: Build and Test
+  # ============================================================================
+  # Build Job
+  # ============================================================================
+  build:
+    name: Build
     runs-on: ubuntu-latest
     
     steps:
@@ -31,13 +34,20 @@ jobs:
           libhdf5-mpich-dev \
           petsc-dev \
           libpetsc-real-dev \
+          libgtest-dev \
           pkg-config
+    
+    - name: Build GoogleTest
+      run: |
+        cd /usr/src/gtest
+        sudo cmake CMakeLists.txt
+        sudo make
+        sudo cp lib/*.a /usr/lib/ || sudo cp *.a /usr/lib/ || true
     
     - name: Find and Set PETSc
       run: |
         echo "=== Searching for PETSc ===" 
         
-        # Find PETSc directory
         if [ -d "/usr/lib/petscdir" ]; then
           PETSC_BASE=$(find /usr/lib/petscdir -maxdepth 1 -name "petsc-*" -type d 2>/dev/null | sort -V | tail -1)
           if [ -n "$PETSC_BASE" ]; then
@@ -45,7 +55,6 @@ jobs:
             export PETSC_DIR="$PETSC_BASE"
             echo "PETSC_DIR=$PETSC_BASE" >> $GITHUB_ENV
             
-            # Find architecture subdirectory
             if [ -d "$PETSC_BASE" ]; then
               PETSC_ARCH_DIR=$(find "$PETSC_BASE" -maxdepth 1 -type d -name "*x86_64*" 2>/dev/null | head -1)
               if [ -n "$PETSC_ARCH_DIR" ]; then
@@ -62,8 +71,6 @@ jobs:
           fi
         fi
         
-        # Also search for petsc.h and libpetsc
-        echo "=== PETSc files ===" 
         find /usr -name "petsc.h" 2>/dev/null | head -3 || true
         find /usr -name "libpetsc.so*" 2>/dev/null | head -3 || true
     
@@ -81,14 +88,14 @@ jobs:
     - name: Build
       run: |
         cd build
-        make -j$(nproc) VERBOSE=1
+        make -j$(nproc)
     
     - name: Verify Build
       run: |
         echo "=== Checking build artifacts ==="
         ls -lh build/fsrm || echo "fsrm not found"
         ls -lh build/libfsrmlib.so || echo "libfsrmlib.so not found"
-        ls -lh build/tests/run_tests || echo "run_tests not found"
+        ls -lh build/tests/run_all_tests 2>/dev/null || ls -lh build/tests/run_tests 2>/dev/null || echo "test executable not found"
         
         if [ -f "build/fsrm" ] && [ -f "build/libfsrmlib.so" ]; then
           echo "✓ Build SUCCESS - all artifacts present"
@@ -97,17 +104,294 @@ jobs:
           exit 1
         fi
     
-    - name: Run Tests
+    - name: Cache Build
+      uses: actions/cache@v3
+      with:
+        path: build
+        key: build-${{ github.sha }}
+
+  # ============================================================================
+  # Unit Tests Job (Fast, run first)
+  # ============================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake g++ gcc gfortran \
+          mpich libmpich-dev libhdf5-mpich-dev \
+          petsc-dev libpetsc-real-dev libgtest-dev pkg-config
+    
+    - name: Restore Build Cache
+      uses: actions/cache@v3
+      with:
+        path: build
+        key: build-${{ github.sha }}
+    
+    - name: Find and Set PETSc
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_BASE=$(find /usr/lib/petscdir -maxdepth 1 -name "petsc-*" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$PETSC_BASE" ]; then
+            echo "PETSC_DIR=$PETSC_BASE" >> $GITHUB_ENV
+            PETSC_ARCH_DIR=$(find "$PETSC_BASE" -maxdepth 1 -type d -name "*x86_64*" 2>/dev/null | head -1)
+            if [ -n "$PETSC_ARCH_DIR" ]; then
+              echo "PETSC_ARCH=$(basename $PETSC_ARCH_DIR)" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
+    - name: Run Unit Tests
       working-directory: build
       run: |
-        ctest --output-on-failure --verbose || true
+        echo "=== Running Unit Tests ==="
+        ctest -L "unit" --output-on-failure --timeout 120
     
-    - name: Upload Build Logs
+    - name: Upload Unit Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-test-results
+        path: build/Testing/
+
+  # ============================================================================
+  # Functional Tests Job
+  # ============================================================================
+  functional-tests:
+    name: Functional Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake g++ gcc gfortran \
+          mpich libmpich-dev libhdf5-mpich-dev \
+          petsc-dev libpetsc-real-dev libgtest-dev pkg-config
+    
+    - name: Restore Build Cache
+      uses: actions/cache@v3
+      with:
+        path: build
+        key: build-${{ github.sha }}
+    
+    - name: Find and Set PETSc
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_BASE=$(find /usr/lib/petscdir -maxdepth 1 -name "petsc-*" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$PETSC_BASE" ]; then
+            echo "PETSC_DIR=$PETSC_BASE" >> $GITHUB_ENV
+            PETSC_ARCH_DIR=$(find "$PETSC_BASE" -maxdepth 1 -type d -name "*x86_64*" 2>/dev/null | head -1)
+            if [ -n "$PETSC_ARCH_DIR" ]; then
+              echo "PETSC_ARCH=$(basename $PETSC_ARCH_DIR)" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
+    - name: Run Functional Tests
+      working-directory: build
+      run: |
+        echo "=== Running Functional Tests ==="
+        ctest -L "functional" --output-on-failure --timeout 180
+
+  # ============================================================================
+  # Physics/MMS Tests Job
+  # ============================================================================
+  physics-tests:
+    name: Physics/MMS Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake g++ gcc gfortran \
+          mpich libmpich-dev libhdf5-mpich-dev \
+          petsc-dev libpetsc-real-dev libgtest-dev pkg-config
+    
+    - name: Restore Build Cache
+      uses: actions/cache@v3
+      with:
+        path: build
+        key: build-${{ github.sha }}
+    
+    - name: Find and Set PETSc
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_BASE=$(find /usr/lib/petscdir -maxdepth 1 -name "petsc-*" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$PETSC_BASE" ]; then
+            echo "PETSC_DIR=$PETSC_BASE" >> $GITHUB_ENV
+            PETSC_ARCH_DIR=$(find "$PETSC_BASE" -maxdepth 1 -type d -name "*x86_64*" 2>/dev/null | head -1)
+            if [ -n "$PETSC_ARCH_DIR" ]; then
+              echo "PETSC_ARCH=$(basename $PETSC_ARCH_DIR)" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
+    - name: Run Physics Tests
+      working-directory: build
+      run: |
+        echo "=== Running Physics/MMS Tests ==="
+        ctest -L "physics" --output-on-failure --timeout 300
+
+  # ============================================================================
+  # Integration Tests Job
+  # ============================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests, functional-tests]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake g++ gcc gfortran \
+          mpich libmpich-dev libhdf5-mpich-dev \
+          petsc-dev libpetsc-real-dev libgtest-dev pkg-config
+    
+    - name: Restore Build Cache
+      uses: actions/cache@v3
+      with:
+        path: build
+        key: build-${{ github.sha }}
+    
+    - name: Find and Set PETSc
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_BASE=$(find /usr/lib/petscdir -maxdepth 1 -name "petsc-*" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$PETSC_BASE" ]; then
+            echo "PETSC_DIR=$PETSC_BASE" >> $GITHUB_ENV
+            PETSC_ARCH_DIR=$(find "$PETSC_BASE" -maxdepth 1 -type d -name "*x86_64*" 2>/dev/null | head -1)
+            if [ -n "$PETSC_ARCH_DIR" ]; then
+              echo "PETSC_ARCH=$(basename $PETSC_ARCH_DIR)" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
+    - name: Run Integration Tests
+      working-directory: build
+      run: |
+        echo "=== Running Integration Tests ==="
+        ctest -L "integration" --output-on-failure --timeout 600
+
+  # ============================================================================
+  # Performance Tests Job (Optional, can be slow)
+  # ============================================================================
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests, functional-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential cmake g++ gcc gfortran \
+          mpich libmpich-dev libhdf5-mpich-dev \
+          petsc-dev libpetsc-real-dev libgtest-dev pkg-config
+    
+    - name: Restore Build Cache
+      uses: actions/cache@v3
+      with:
+        path: build
+        key: build-${{ github.sha }}
+    
+    - name: Find and Set PETSc
+      run: |
+        if [ -d "/usr/lib/petscdir" ]; then
+          PETSC_BASE=$(find /usr/lib/petscdir -maxdepth 1 -name "petsc-*" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$PETSC_BASE" ]; then
+            echo "PETSC_DIR=$PETSC_BASE" >> $GITHUB_ENV
+            PETSC_ARCH_DIR=$(find "$PETSC_BASE" -maxdepth 1 -type d -name "*x86_64*" 2>/dev/null | head -1)
+            if [ -n "$PETSC_ARCH_DIR" ]; then
+              echo "PETSC_ARCH=$(basename $PETSC_ARCH_DIR)" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+    
+    - name: Run Performance Tests
+      working-directory: build
+      run: |
+        echo "=== Running Performance Tests ==="
+        ctest -L "performance" --output-on-failure --timeout 900
+    
+    - name: Upload Performance Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results
+        path: build/benchmark_results.json
+      if: always()
+
+  # ============================================================================
+  # All Tests Summary Job
+  # ============================================================================
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, functional-tests, physics-tests, integration-tests]
+    if: always()
+    
+    steps:
+    - name: Test Results Summary
+      run: |
+        echo "=== Test Summary ==="
+        echo "Unit Tests: ${{ needs.unit-tests.result }}"
+        echo "Functional Tests: ${{ needs.functional-tests.result }}"
+        echo "Physics Tests: ${{ needs.physics-tests.result }}"
+        echo "Integration Tests: ${{ needs.integration-tests.result }}"
+        
+        # Check all required tests passed
+        if [ "${{ needs.unit-tests.result }}" != "success" ]; then
+          echo "❌ Critical: Unit tests failed"
+          exit 1
+        fi
+        
+        if [ "${{ needs.functional-tests.result }}" != "success" ]; then
+          echo "❌ Critical: Functional tests failed"
+          exit 1
+        fi
+        
+        if [ "${{ needs.physics-tests.result }}" != "success" ]; then
+          echo "❌ Critical: Physics tests failed"
+          exit 1
+        fi
+        
+        if [ "${{ needs.integration-tests.result }}" != "success" ]; then
+          echo "❌ Critical: Integration tests failed"
+          exit 1
+        fi
+        
+        echo "✅ All tests passed!"
+    
+    - name: Upload All Logs
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: build-logs
+        name: test-logs
         path: |
+          build/Testing/Temporary/LastTest.log
           build/CMakeFiles/CMakeOutput.log
           build/CMakeFiles/CMakeError.log
-          build/Testing/Temporary/LastTest.log
