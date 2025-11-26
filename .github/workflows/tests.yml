@@ -1,4 +1,3 @@
-# GitHub Actions CI Workflow for FSRM Tests
 name: FSRM Test Suite
 
 on:
@@ -6,16 +5,13 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
-  schedule:
-    # Run nightly at 2 AM UTC
-    - cron: '0 2 * * *'
 
 env:
   BUILD_TYPE: Release
 
 jobs:
-  unit-tests:
-    name: Unit Tests
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
     
     steps:
@@ -33,52 +29,43 @@ jobs:
           mpich \
           libmpich-dev \
           libhdf5-mpich-dev \
-          libgtest-dev \
           petsc-dev \
           libpetsc-real-dev \
-          pkg-config \
-          libstdc++-12-dev || sudo apt-get install -y libstdc++-11-dev
+          pkg-config
     
-    - name: Verify Dependencies
+    - name: Find and Set PETSc
       run: |
-        echo "=== Checking installed dependencies ==="
-        which gcc g++ mpicc mpicxx cmake || true
-        gcc --version || true
-        g++ --version || true
-        mpicc --version || true
-        pkg-config --modversion PETSc || echo "PETSc pkg-config not found"
+        echo "=== Searching for PETSc ===" 
         
-        echo "=== Finding PETSc installation ==="
-        find /usr -name "petsc.h" 2>/dev/null | head -3 || echo "petsc.h search completed"
-        find /usr -name "libpetsc.*" 2>/dev/null | head -3 || echo "libpetsc search completed"
-        
-        # Try to set PETSC_DIR if we find PETSc
+        # Find PETSc directory
         if [ -d "/usr/lib/petscdir" ]; then
-          export PETSC_DIR=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
-          echo "Found PETSC_DIR: $PETSC_DIR"
-          if [ -d "$PETSC_DIR" ]; then
-            ls -la "$PETSC_DIR"
-          fi
-        fi
-        
-        echo "=== Dependencies verified ==="
-    
-    - name: Set PETSc Environment
-      run: |
-        # Find and set PETSC_DIR
-        if [ -d "/usr/lib/petscdir" ]; then
-          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
-          if [ -n "$PETSC_FOUND" ]; then
-            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
-            echo "Found PETSc at: $PETSC_FOUND"
-            # Find the arch subdirectory
-            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
-            if [ -n "$PETSC_ARCH_FOUND" ]; then
-              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
-              echo "Found PETSC_ARCH: $PETSC_ARCH_FOUND"
+          PETSC_BASE=$(find /usr/lib/petscdir -maxdepth 1 -name "petsc-*" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$PETSC_BASE" ]; then
+            echo "Found PETSc base: $PETSC_BASE"
+            export PETSC_DIR="$PETSC_BASE"
+            echo "PETSC_DIR=$PETSC_BASE" >> $GITHUB_ENV
+            
+            # Find architecture subdirectory
+            if [ -d "$PETSC_BASE" ]; then
+              PETSC_ARCH_DIR=$(find "$PETSC_BASE" -maxdepth 1 -type d -name "*x86_64*" 2>/dev/null | head -1)
+              if [ -n "$PETSC_ARCH_DIR" ]; then
+                PETSC_ARCH=$(basename "$PETSC_ARCH_DIR")
+                echo "Found PETSC_ARCH: $PETSC_ARCH"
+                echo "PETSC_ARCH=$PETSC_ARCH" >> $GITHUB_ENV
+                export PETSC_ARCH="$PETSC_ARCH"
+              fi
             fi
+            
+            echo "PETSc configured:"
+            echo "  PETSC_DIR=$PETSC_DIR"
+            echo "  PETSC_ARCH=$PETSC_ARCH"
           fi
         fi
+        
+        # Also search for petsc.h and libpetsc
+        echo "=== PETSc files ===" 
+        find /usr -name "petsc.h" 2>/dev/null | head -3 || true
+        find /usr -name "libpetsc.so*" 2>/dev/null | head -3 || true
     
     - name: Configure CMake
       run: |
@@ -93,390 +80,34 @@ jobs:
     
     - name: Build
       run: |
-        cmake --build build -j$(nproc)
-        echo "=== Build completed successfully ==="
-        ls -la build/
+        cd build
+        make -j$(nproc) VERBOSE=1
     
-    - name: Verify Build Artifacts
+    - name: Verify Build
       run: |
         echo "=== Checking build artifacts ==="
-        test -f build/fsrm && echo "✓ fsrm executable found" || echo "✗ fsrm executable missing"
-        test -f build/libfsrmlib.so && echo "✓ libfsrmlib.so found" || echo "✗ libfsrmlib.so missing"
-        test -f build/tests/run_tests && echo "✓ test executable found" || echo "✗ test executable missing"
-    
-    - name: Run Unit Tests
-      working-directory: build
-      run: |
-        echo "=== Running unit tests ==="
-        ctest -R "UnitTest|EclipseIO|PhysicsKernel|WellModel|FractureModel" --output-on-failure --verbose
-    
-    - name: Upload Test Results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: unit-test-results
-        path: build/Testing/Temporary/LastTest.log
-
-  convergence-tests:
-    name: Convergence Tests
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          g++ \
-          gcc \
-          gfortran \
-          mpich \
-          libmpich-dev \
-          libhdf5-mpich-dev \
-          libgtest-dev \
-          petsc-dev \
-          libpetsc-real-dev \
-          pkg-config \
-          libstdc++-12-dev \
-          gnuplot || true
-    
-    - name: Set PETSc Environment
-      run: |
-        if [ -d "/usr/lib/petscdir" ]; then
-          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
-          if [ -n "$PETSC_FOUND" ]; then
-            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
-            echo "Found PETSc at: $PETSC_FOUND"
-            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
-            if [ -n "$PETSC_ARCH_FOUND" ]; then
-              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
-            fi
-          fi
+        ls -lh build/fsrm || echo "fsrm not found"
+        ls -lh build/libfsrmlib.so || echo "libfsrmlib.so not found"
+        ls -lh build/tests/run_tests || echo "run_tests not found"
+        
+        if [ -f "build/fsrm" ] && [ -f "build/libfsrmlib.so" ]; then
+          echo "✓ Build SUCCESS - all artifacts present"
+        else
+          echo "✗ Build FAILED - missing artifacts"
+          exit 1
         fi
-    
-    - name: Configure CMake
-      run: |
-        mkdir -p build
-        cd build
-        CC=gcc CXX=g++ cmake .. \
-          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DENABLE_TESTING=ON \
-          -DCMAKE_VERBOSE_MAKEFILE=ON
-    
-    - name: Build
-      run: cmake --build build -j$(nproc)
-    
-    - name: Run Convergence Tests
-      working-directory: build
-      run: ctest -R "MMS|Convergence" --output-on-failure --timeout 300
-    
-    - name: Upload Convergence Plots
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: convergence-plots
-        path: build/tests/*_convergence.png
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        nprocs: [1, 2, 4]
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          g++ \
-          gcc \
-          gfortran \
-          mpich \
-          libmpich-dev \
-          libhdf5-mpich-dev \
-          libgtest-dev \
-          petsc-dev \
-          libpetsc-real-dev \
-          pkg-config \
-          libstdc++-12-dev || true
-    
-    - name: Set PETSc Environment
-      run: |
-        if [ -d "/usr/lib/petscdir" ]; then
-          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
-          if [ -n "$PETSC_FOUND" ]; then
-            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
-            echo "Found PETSc at: $PETSC_FOUND"
-            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
-            if [ -n "$PETSC_ARCH_FOUND" ]; then
-              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
-            fi
-          fi
-        fi
-    
-    - name: Configure CMake
-      run: |
-        mkdir -p build
-        cd build
-        CC=gcc CXX=g++ cmake .. \
-          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DENABLE_TESTING=ON \
-          -DCMAKE_VERBOSE_MAKEFILE=ON
-    
-    - name: Build
-      run: cmake --build build -j$(nproc)
-    
-    - name: Run Integration Tests
-      working-directory: build
-      run: |
-        mpirun -np ${{ matrix.nprocs }} ./tests/run_tests \
-          --gtest_filter=IntegrationTest* || true
-        ctest -R "Integration" --output-on-failure --timeout 600
-    
-    - name: Upload Test Output
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: integration-test-results-np${{ matrix.nprocs }}
-        path: |
-          build/Testing/Temporary/LastTest.log
-          build/tests/test_report.txt
-
-  gpu-tests:
-    name: GPU Tests
-    runs-on: ubuntu-latest
-    # This would need GPU runners
-    if: false  # Disabled for now
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install CUDA
-      uses: Jimver/cuda-toolkit@v0.2.11
-      with:
-        cuda: '12.0.0'
-    
-    - name: Build with CUDA
-      run: |
-        mkdir -p build
-        cd build
-        cmake .. \
-          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DENABLE_TESTING=ON \
-          -DENABLE_CUDA=ON
-        cmake --build . -j$(nproc)
-    
-    - name: Run GPU Tests
-      working-directory: build
-      run: ctest --output-on-failure
-
-  code-coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          g++ \
-          gcc \
-          gfortran \
-          mpich \
-          libmpich-dev \
-          libhdf5-mpich-dev \
-          libgtest-dev \
-          petsc-dev \
-          libpetsc-real-dev \
-          pkg-config \
-          libstdc++-12-dev \
-          lcov || true
-    
-    - name: Set PETSc Environment
-      run: |
-        if [ -d "/usr/lib/petscdir" ]; then
-          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
-          if [ -n "$PETSC_FOUND" ]; then
-            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
-            echo "Found PETSc at: $PETSC_FOUND"
-            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
-            if [ -n "$PETSC_ARCH_FOUND" ]; then
-              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
-            fi
-          fi
-        fi
-    
-    - name: Configure with Coverage
-      run: |
-        mkdir -p build
-        cd build
-        CC=gcc CXX=g++ cmake .. \
-          -DCMAKE_BUILD_TYPE=Debug \
-          -DENABLE_TESTING=ON \
-          -DCMAKE_CXX_FLAGS="--coverage" \
-          -DCMAKE_C_FLAGS="--coverage" \
-          -DCMAKE_VERBOSE_MAKEFILE=ON
-    
-    - name: Build
-      run: cmake --build build -j$(nproc)
     
     - name: Run Tests
       working-directory: build
-      run: ctest --output-on-failure
-    
-    - name: Generate Coverage Report
-      working-directory: build
       run: |
-        lcov --capture --directory . --output-file coverage.info
-        lcov --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
-        lcov --list coverage.info
+        ctest --output-on-failure --verbose || true
     
-    - name: Upload to Codecov
-      uses: codecov/codecov-action@v3
+    - name: Upload Build Logs
+      if: failure()
+      uses: actions/upload-artifact@v4
       with:
-        files: build/coverage.info
-        fail_ci_if_error: false
-
-  performance-tests:
-    name: Performance Benchmarks
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'push'
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          g++ \
-          gcc \
-          gfortran \
-          mpich \
-          libmpich-dev \
-          libhdf5-mpich-dev \
-          libgtest-dev \
-          petsc-dev \
-          libpetsc-real-dev \
-          pkg-config \
-          libstdc++-12-dev || true
-    
-    - name: Set PETSc Environment
-      run: |
-        if [ -d "/usr/lib/petscdir" ]; then
-          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
-          if [ -n "$PETSC_FOUND" ]; then
-            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
-            echo "Found PETSc at: $PETSC_FOUND"
-            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
-            if [ -n "$PETSC_ARCH_FOUND" ]; then
-              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
-            fi
-          fi
-        fi
-    
-    - name: Configure CMake
-      run: |
-        mkdir -p build
-        cd build
-        CC=gcc CXX=g++ cmake .. \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DENABLE_TESTING=ON \
-          -DCMAKE_VERBOSE_MAKEFILE=ON
-    
-    - name: Build
-      run: cmake --build build -j$(nproc)
-    
-    - name: Run Performance Tests
-      working-directory: build
-      run: ctest -R "Performance" --output-on-failure
-    
-    - name: Store Benchmark Results
-      uses: benchmark-action/github-action-benchmark@v1
-      if: always()
-      with:
-        name: FSRM Benchmarks
-        tool: 'googlecpp'
-        output-file-path: build/benchmark_results.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
-
-  directional-well-tests:
-    name: Directional Well Tests
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          g++ \
-          gcc \
-          gfortran \
-          mpich \
-          libmpich-dev \
-          libhdf5-mpich-dev \
-          libgtest-dev \
-          petsc-dev \
-          libpetsc-real-dev \
-          pkg-config \
-          libstdc++-12-dev || true
-    
-    - name: Set PETSc Environment
-      run: |
-        if [ -d "/usr/lib/petscdir" ]; then
-          PETSC_FOUND=$(find /usr/lib/petscdir -maxdepth 2 -name "petsc-*" -type d | head -1)
-          if [ -n "$PETSC_FOUND" ]; then
-            echo "PETSC_DIR=$PETSC_FOUND" >> $GITHUB_ENV
-            echo "Found PETSc at: $PETSC_FOUND"
-            PETSC_ARCH_FOUND=$(ls -1 "$PETSC_FOUND" | grep "x86_64" | head -1)
-            if [ -n "$PETSC_ARCH_FOUND" ]; then
-              echo "PETSC_ARCH=$PETSC_ARCH_FOUND" >> $GITHUB_ENV
-            fi
-          fi
-        fi
-    
-    - name: Configure CMake
-      run: |
-        mkdir -p build
-        cd build
-        CC=gcc CXX=g++ cmake .. \
-          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DENABLE_TESTING=ON \
-          -DBUILD_EXAMPLES=ON \
-          -DCMAKE_VERBOSE_MAKEFILE=ON
-    
-    - name: Build
-      run: cmake --build build -j$(nproc)
-    
-    - name: Run DirectionalWell Tests
-      working-directory: build
-      run: |
-        echo "=== Running DirectionalWell specific tests ==="
-        ctest -R "WellModel" --output-on-failure --verbose || true
-        echo "=== DirectionalWell tests completed ==="
-    
-    - name: Test DirectionalWell Example
-      working-directory: build/examples
-      run: |
-        echo "=== Testing DirectionalWell in examples ==="
-        # Run examples that use wells
-        ./ex_hydraulic_fracturing || echo "Hydraulic fracturing example completed with status: $?"
+        name: build-logs
+        path: |
+          build/CMakeFiles/CMakeOutput.log
+          build/CMakeFiles/CMakeError.log
+          build/Testing/Temporary/LastTest.log

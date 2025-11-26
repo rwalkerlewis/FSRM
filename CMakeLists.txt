@@ -31,63 +31,103 @@ if(NOT DEFINED MPI_CXX_COMPILER)
 endif()
 
 find_package(MPI REQUIRED)
-find_package(PkgConfig REQUIRED)
+find_package(PkgConfig)
 
-# Find PETSc - try pkg-config first, then environment variables
-pkg_check_modules(PETSC PETSc>=3.15)
+# Find PETSc with multiple fallback methods
+set(PETSC_FOUND FALSE)
 
-if(NOT PETSC_FOUND)
-    message(STATUS "PETSc not found via pkg-config, trying environment variables")
-    
-    # Try to find PETSc using PETSC_DIR and PETSC_ARCH
-    if(DEFINED ENV{PETSC_DIR})
-        set(PETSC_DIR $ENV{PETSC_DIR})
-        if(DEFINED ENV{PETSC_ARCH})
-            set(PETSC_ARCH $ENV{PETSC_ARCH})
-            set(PETSC_INCLUDE_DIRS "${PETSC_DIR}/include" "${PETSC_DIR}/${PETSC_ARCH}/include")
-            set(PETSC_LIBRARY_DIRS "${PETSC_DIR}/${PETSC_ARCH}/lib")
-        else()
-            set(PETSC_INCLUDE_DIRS "${PETSC_DIR}/include")
-            set(PETSC_LIBRARY_DIRS "${PETSC_DIR}/lib")
-        endif()
-        set(PETSC_LIBRARIES "petsc")
-        set(PETSC_FOUND TRUE)
-        message(STATUS "Found PETSc via environment: ${PETSC_DIR}")
-    else()
-        # Try common installation locations
-        find_path(PETSC_INCLUDE_DIR petsc.h
-            PATHS /usr/include/petsc /usr/local/include/petsc 
-                  /usr/include /usr/local/include
-                  /usr/lib/petsc/include /usr/lib/petscdir/petsc-3.*/x86_64-linux-gnu-real/include
-            PATH_SUFFIXES petsc)
-        
-        find_library(PETSC_LIBRARY NAMES petsc
-            PATHS /usr/lib /usr/local/lib 
-                  /usr/lib/x86_64-linux-gnu
-                  /usr/lib/petscdir/petsc-3.*/x86_64-linux-gnu-real/lib
-            PATH_SUFFIXES petsc)
-        
-        if(PETSC_INCLUDE_DIR AND PETSC_LIBRARY)
-            set(PETSC_INCLUDE_DIRS ${PETSC_INCLUDE_DIR})
-            set(PETSC_LIBRARIES ${PETSC_LIBRARY})
-            set(PETSC_FOUND TRUE)
-            message(STATUS "Found PETSc: ${PETSC_LIBRARY}")
-        else()
-            message(FATAL_ERROR "PETSc not found. Please install petsc-dev or set PETSC_DIR")
-        endif()
+# Method 1: Try pkg-config
+if(PkgConfig_FOUND)
+    pkg_check_modules(PETSC PETSc)
+    if(PETSC_FOUND)
+        message(STATUS "Found PETSc via pkg-config")
     endif()
 endif()
 
-# Find HDF5 for output
-pkg_check_modules(HDF5 hdf5-openmpi)
+# Method 2: Try environment variables
+if(NOT PETSC_FOUND AND DEFINED ENV{PETSC_DIR})
+    set(PETSC_DIR $ENV{PETSC_DIR})
+    message(STATUS "Using PETSC_DIR from environment: ${PETSC_DIR}")
+    
+    if(DEFINED ENV{PETSC_ARCH})
+        set(PETSC_ARCH $ENV{PETSC_ARCH})
+        set(PETSC_INCLUDE_DIRS "${PETSC_DIR}/include" "${PETSC_DIR}/${PETSC_ARCH}/include")
+        set(PETSC_LIBRARY_DIRS "${PETSC_DIR}/${PETSC_ARCH}/lib")
+        message(STATUS "Using PETSC_ARCH: ${PETSC_ARCH}")
+    else()
+        set(PETSC_INCLUDE_DIRS "${PETSC_DIR}/include")
+        set(PETSC_LIBRARY_DIRS "${PETSC_DIR}/lib")
+    endif()
+    
+    set(PETSC_LIBRARIES "petsc")
+    set(PETSC_FOUND TRUE)
+    message(STATUS "PETSc configured from environment variables")
+endif()
+
+# Method 3: Search common locations
+if(NOT PETSC_FOUND)
+    message(STATUS "Searching for PETSc in common locations...")
+    
+    # Try to find petsc.h
+    find_path(PETSC_INCLUDE_DIR 
+        NAMES petsc.h petsc/petsc.h
+        PATHS 
+            /usr/include/petsc
+            /usr/include
+            /usr/local/include/petsc
+            /usr/local/include
+            /usr/lib/petsc/include
+            /usr/lib/petscdir/petsc-3.18/x86_64-linux-gnu-real/include
+            /usr/lib/petscdir/petsc-3.19/x86_64-linux-gnu-real/include
+            /usr/lib/petscdir/petsc-3.20/x86_64-linux-gnu-real/include
+        PATH_SUFFIXES petsc
+        DOC "PETSc include directory"
+    )
+    
+    # Try to find libpetsc
+    find_library(PETSC_LIBRARY
+        NAMES petsc
+        PATHS
+            /usr/lib
+            /usr/lib/x86_64-linux-gnu
+            /usr/local/lib
+            /usr/lib/petscdir/petsc-3.18/x86_64-linux-gnu-real/lib
+            /usr/lib/petscdir/petsc-3.19/x86_64-linux-gnu-real/lib
+            /usr/lib/petscdir/petsc-3.20/x86_64-linux-gnu-real/lib
+        DOC "PETSc library"
+    )
+    
+    if(PETSC_INCLUDE_DIR AND PETSC_LIBRARY)
+        set(PETSC_INCLUDE_DIRS ${PETSC_INCLUDE_DIR})
+        set(PETSC_LIBRARIES ${PETSC_LIBRARY})
+        set(PETSC_FOUND TRUE)
+        message(STATUS "Found PETSc:")
+        message(STATUS "  Include: ${PETSC_INCLUDE_DIR}")
+        message(STATUS "  Library: ${PETSC_LIBRARY}")
+    endif()
+endif()
+
+if(NOT PETSC_FOUND)
+    message(FATAL_ERROR "PETSc not found. Please install petsc-dev or set PETSC_DIR environment variable.")
+endif()
+
+# Find HDF5 (make it optional)
+if(PkgConfig_FOUND)
+    pkg_check_modules(HDF5 hdf5-openmpi)
+endif()
+
 if(NOT HDF5_FOUND)
     find_package(HDF5 COMPONENTS C)
     if(HDF5_FOUND)
         set(HDF5_INCLUDE_DIRS ${HDF5_INCLUDE_DIRS})
         set(HDF5_LIBRARIES ${HDF5_LIBRARIES})
         set(HDF5_LDFLAGS ${HDF5_LIBRARIES})
+        message(STATUS "Found HDF5 via find_package")
     else()
-        message(WARNING "HDF5 not found, output functionality may be limited")
+        message(WARNING "HDF5 not found - continuing without it")
+        set(HDF5_INCLUDE_DIRS "")
+        set(HDF5_LIBRARIES "")
+        set(HDF5_LDFLAGS "")
     endif()
 endif()
 
@@ -101,7 +141,6 @@ if(ENABLE_CUDA)
         set(CMAKE_CUDA_STANDARD_REQUIRED ON)
         add_definitions(-DUSE_CUDA)
         
-        # Set CUDA architectures (adjust based on your GPU)
         if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
             set(CMAKE_CUDA_ARCHITECTURES 60 70 75 80 86)
         endif()
@@ -132,9 +171,9 @@ include_directories(
 )
 
 # Link directories
-link_directories(
-    ${PETSC_LIBRARY_DIRS}
-)
+if(PETSC_LIBRARY_DIRS)
+    link_directories(${PETSC_LIBRARY_DIRS})
+endif()
 
 # Compiler flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O3")
@@ -195,3 +234,22 @@ install(TARGETS fsrm fsrmlib
     ARCHIVE DESTINATION lib
 )
 install(DIRECTORY include/ DESTINATION include)
+
+# Print configuration summary
+message(STATUS "")
+message(STATUS "FSRM Configuration Summary:")
+message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  C Compiler: ${CMAKE_C_COMPILER}")
+message(STATUS "  CXX Compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "  MPI enabled: YES")
+message(STATUS "  CUDA enabled: ${ENABLE_CUDA}")
+message(STATUS "  HIP enabled: ${ENABLE_HIP}")
+message(STATUS "  Testing enabled: ${ENABLE_TESTING}")
+message(STATUS "  Examples enabled: ${BUILD_EXAMPLES}")
+message(STATUS "  PETSc found: ${PETSC_FOUND}")
+if(HDF5_FOUND)
+    message(STATUS "  HDF5 found: YES")
+else()
+    message(STATUS "  HDF5 found: NO (optional)")
+endif()
+message(STATUS "")
