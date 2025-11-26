@@ -7,6 +7,7 @@
 #include <memory>
 #include <cmath>
 #include <array>
+#include <functional>
 
 namespace FSRM {
 
@@ -20,6 +21,32 @@ enum class FrictionLaw {
     SLIP_WEAKENING,         // Linear slip-weakening
     FLASH_HEATING,          // Flash heating at high slip rates
     THERMAL_PRESSURIZATION  // Pore pressure effects
+};
+
+/**
+ * @brief Split node methods for fault modeling
+ * 
+ * Split nodes duplicate nodes along fault surfaces to allow discontinuous
+ * displacement fields across the fault. Different methods handle the
+ * traction conditions differently.
+ */
+enum class SplitNodeMethod {
+    LAGRANGE_MULTIPLIER,    // Enforce contact via Lagrange multipliers
+    PENALTY,                // Penalty method for contact enforcement
+    NITSCHE,                // Nitsche's method (consistent penalty)
+    MORTAR,                 // Mortar method for non-conforming meshes
+    AUGMENTED_LAGRANGIAN    // Augmented Lagrangian for robustness
+};
+
+/**
+ * @brief Traction type applied to split nodes
+ */
+enum class TractionType {
+    PRESCRIBED,             // User-specified constant traction
+    FRICTION_DEPENDENT,     // Computed from friction law
+    COHESIVE_ZONE,          // Cohesive zone model traction
+    RATE_STATE,             // Rate-and-state dependent traction
+    DYNAMIC                 // Time-varying traction (e.g., seismic source)
 };
 
 /**
@@ -312,6 +339,223 @@ private:
 };
 
 /**
+ * @brief Split node pair along a fault
+ * 
+ * Represents a pair of coincident nodes on opposite sides of the fault.
+ * The plus/minus convention refers to the two sides of the fault surface.
+ */
+struct SplitNodePair {
+    int node_plus;           // Node index on + side of fault
+    int node_minus;          // Node index on - side of fault
+    double x, y, z;          // Original coordinates
+    std::array<double, 3> normal;      // Fault normal at this location
+    std::array<double, 3> tangent1;    // First tangent direction (strike)
+    std::array<double, 3> tangent2;    // Second tangent direction (dip)
+    double weight;           // Integration weight for mortar method
+    
+    SplitNodePair() :
+        node_plus(-1), node_minus(-1),
+        x(0), y(0), z(0),
+        normal({0, 0, 1}),
+        tangent1({1, 0, 0}),
+        tangent2({0, 1, 0}),
+        weight(1.0) {}
+};
+
+/**
+ * @brief Traction state at a split node
+ */
+struct SplitNodeTraction {
+    double t_n;              // Normal traction (tension positive, Pa)
+    double t_s;              // Strike-direction shear traction (Pa)
+    double t_d;              // Dip-direction shear traction (Pa)
+    
+    // Slip state
+    double slip_n;           // Normal opening (m)
+    double slip_s;           // Strike-slip (m)
+    double slip_d;           // Dip-slip (m)
+    double slip_rate;        // Total slip rate (m/s)
+    
+    // Contact state
+    bool in_contact;         // Are nodes in contact?
+    bool is_slipping;        // Is fault slipping?
+    bool is_open;            // Is fault open (tensile)?
+    
+    SplitNodeTraction() :
+        t_n(0), t_s(0), t_d(0),
+        slip_n(0), slip_s(0), slip_d(0), slip_rate(0),
+        in_contact(true), is_slipping(false), is_open(false) {}
+    
+    // Total shear traction magnitude
+    double shearTraction() const { return std::sqrt(t_s * t_s + t_d * t_d); }
+    
+    // Total slip magnitude
+    double totalSlip() const { 
+        return std::sqrt(slip_s * slip_s + slip_d * slip_d); 
+    }
+};
+
+/**
+ * @brief Configuration for split node fault modeling
+ */
+struct SplitNodeConfig {
+    // Method selection
+    SplitNodeMethod method = SplitNodeMethod::PENALTY;
+    TractionType traction_type = TractionType::FRICTION_DEPENDENT;
+    
+    // Penalty/Nitsche parameters
+    double penalty_normal = 1e12;     // Normal penalty stiffness (Pa/m)
+    double penalty_tangent = 1e10;    // Tangential penalty stiffness (Pa/m)
+    double nitsche_gamma = 100.0;     // Nitsche stabilization parameter
+    
+    // Prescribed tractions (for TractionType::PRESCRIBED)
+    double prescribed_t_n = 0.0;      // Normal traction (Pa)
+    double prescribed_t_s = 0.0;      // Strike-slip traction (Pa)
+    double prescribed_t_d = 0.0;      // Dip-slip traction (Pa)
+    
+    // Time-varying traction (for TractionType::DYNAMIC)
+    std::function<void(double, double&, double&, double&)> traction_function;
+    
+    // Cohesive zone parameters (for TractionType::COHESIVE_ZONE)
+    double cohesive_strength = 5e6;   // Peak cohesive traction (Pa)
+    double critical_opening = 1e-4;   // Critical opening (m)
+    double critical_slip = 1e-3;      // Critical slip (m)
+    
+    // Contact parameters
+    double contact_tolerance = 1e-10; // Gap tolerance for contact (m)
+    bool allow_separation = true;     // Allow tensile opening?
+    bool symmetric_contact = true;    // Symmetric contact formulation?
+    
+    // Augmented Lagrangian parameters
+    double aug_lag_r = 1e10;          // Augmented Lagrangian parameter
+    int aug_lag_max_iter = 10;        // Max inner iterations
+    double aug_lag_tol = 1e-8;        // Convergence tolerance
+    
+    void configure(const std::map<std::string, std::string>& config);
+};
+
+/**
+ * @brief Split node fault model with traction boundary conditions
+ * 
+ * This class implements fault modeling using split (duplicated) nodes
+ * along the fault surface. Traction conditions are applied to enforce
+ * the constitutive behavior of the fault (friction, cohesion, etc.).
+ * 
+ * Key features:
+ * - Supports multiple enforcement methods (penalty, Lagrange, Nitsche)
+ * - Handles stick-slip friction with rate-state laws
+ * - Tracks slip accumulation and seismic events
+ * - Compatible with DMPlex mesh representation
+ */
+class SplitNodeFault {
+public:
+    SplitNodeFault();
+    
+    // Configuration
+    void configure(const std::map<std::string, std::string>& config);
+    void setGeometry(const FaultGeometry& geom);
+    void setFrictionModel(std::unique_ptr<FrictionModelBase> model);
+    void setSplitNodeConfig(const SplitNodeConfig& config);
+    
+    // Mesh operations
+    void identifySplitNodes(const std::vector<double>& node_coords,
+                           const std::vector<int>& fault_face_nodes);
+    void createSplitNodePairs(const FaultGeometry& geom);
+    void duplicateNodesAlongFault(std::vector<double>& node_coords,
+                                  std::vector<int>& connectivity);
+    
+    // Assembly contributions
+    void assembleContactResidual(const double* displacement,
+                                double* residual,
+                                double pore_pressure) const;
+    
+    void assembleContactJacobian(const double* displacement,
+                                double* jacobian,
+                                double pore_pressure) const;
+    
+    // Traction computation
+    void computeTractionFromGap(const SplitNodePair& pair,
+                               const double* displacement,
+                               double pore_pressure,
+                               SplitNodeTraction& traction) const;
+    
+    void applyPrescribedTraction(double time,
+                                SplitNodeTraction& traction) const;
+    
+    void applyCohesiveZoneTraction(double opening, double slip,
+                                   SplitNodeTraction& traction) const;
+    
+    void applyFrictionTraction(double sigma_n_eff, double slip_rate,
+                              double state_var,
+                              SplitNodeTraction& traction) const;
+    
+    // State update
+    void updateSlipState(double dt);
+    void updateStateVariables(double dt);
+    void checkSlipEvents(double current_time);
+    
+    // Accessors
+    const std::vector<SplitNodePair>& getSplitNodePairs() const { return node_pairs; }
+    const std::vector<SplitNodeTraction>& getNodeTractions() const { return tractions; }
+    size_t numSplitNodes() const { return node_pairs.size(); }
+    
+    // Get accumulated slip at a node
+    double getSlipAtNode(size_t node_idx) const;
+    double getSlipRateAtNode(size_t node_idx) const;
+    
+    // Get traction at a node
+    void getTractionAtNode(size_t node_idx, double& t_n, double& t_s, double& t_d) const;
+    
+    // Event tracking
+    const std::vector<SeismicEvent>& getSlipEvents() const { return slip_events; }
+    void clearSlipEvents();
+    
+    // Enable/disable features
+    void enableRateState(bool enable) { use_rate_state = enable; }
+    void enableCohesion(bool enable) { use_cohesion = enable; }
+    void enableDilation(bool enable) { use_dilation = enable; }
+    
+    std::string name;
+    
+private:
+    // Geometry
+    FaultGeometry geometry;
+    
+    // Node pairs and tractions
+    std::vector<SplitNodePair> node_pairs;
+    std::vector<SplitNodeTraction> tractions;
+    std::vector<double> state_variables;  // Rate-state θ at each node
+    
+    // Configuration
+    SplitNodeConfig config;
+    std::unique_ptr<FrictionModelBase> friction;
+    
+    // Flags
+    bool use_rate_state = false;
+    bool use_cohesion = true;
+    bool use_dilation = false;
+    
+    // Seismic events from slip
+    std::vector<SeismicEvent> slip_events;
+    
+    // Helper methods
+    void computeGapVector(const SplitNodePair& pair,
+                         const double* displacement,
+                         double& gap_n, double& gap_s, double& gap_d) const;
+    
+    double penaltyNormalForce(double gap_n) const;
+    double penaltyTangentForce(double gap_t, double sigma_n) const;
+    
+    void nitscheTerms(const SplitNodePair& pair,
+                     const double* displacement,
+                     double& term_consistency,
+                     double& term_penalty) const;
+    
+    void augmentedLagrangianUpdate(double& lambda, double gap,
+                                   double penalty) const;
+};
+
+/**
  * @brief Network of faults with interaction
  */
 class FaultNetwork {
@@ -366,6 +610,22 @@ std::unique_ptr<FrictionModelBase> createFrictionModel(
  * @brief Parse friction law from string
  */
 FrictionLaw parseFrictionLaw(const std::string& str);
+
+/**
+ * @brief Parse split node method from string
+ */
+SplitNodeMethod parseSplitNodeMethod(const std::string& str);
+
+/**
+ * @brief Parse traction type from string
+ */
+TractionType parseTractionType(const std::string& str);
+
+/**
+ * @brief Factory to create split node fault from configuration
+ */
+std::unique_ptr<SplitNodeFault> createSplitNodeFault(
+    const std::map<std::string, std::string>& config);
 
 /**
  * @brief Seismicity analysis utilities

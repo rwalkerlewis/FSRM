@@ -384,11 +384,49 @@ std::vector<ConfigReader::FaultConfig> ConfigReader::parseFaults() {
             fault.a_parameter = getDouble(section, "a_parameter", 0.01);
             fault.b_parameter = getDouble(section, "b_parameter", 0.015);
             fault.Dc_parameter = getDouble(section, "Dc_parameter", 0.001);
+            
+            // Split node options
+            fault.use_split_nodes = getBool(section, "use_split_nodes", false);
+            fault.split_node_method = getString(section, "split_node_method", "PENALTY");
+            fault.traction_type = getString(section, "traction_type", "FRICTION_DEPENDENT");
+            fault.penalty_normal = getDouble(section, "penalty_normal", 1e12);
+            fault.penalty_tangent = getDouble(section, "penalty_tangent", 1e10);
+            fault.prescribed_traction_normal = getDouble(section, "prescribed_traction_normal", 0.0);
+            fault.prescribed_traction_strike = getDouble(section, "prescribed_traction_strike", 0.0);
+            fault.prescribed_traction_dip = getDouble(section, "prescribed_traction_dip", 0.0);
+            fault.cohesive_strength = getDouble(section, "cohesive_strength", 5e6);
+            fault.critical_opening = getDouble(section, "critical_opening", 1e-4);
+            fault.critical_slip = getDouble(section, "critical_slip", 1e-3);
+            fault.allow_separation = getBool(section, "allow_separation", true);
+            
             faults.push_back(fault);
         }
     }
     
     return faults;
+}
+
+std::vector<std::unique_ptr<SplitNodeFault>> ConfigReader::parseSplitNodeFaults() {
+    std::vector<std::unique_ptr<SplitNodeFault>> split_faults;
+    
+    for (const auto& section : getSections()) {
+        if (section.find("FAULT") == 0 || section.find("SPLIT_NODE_FAULT") == 0) {
+            // Check if split nodes are enabled
+            if (!getBool(section, "use_split_nodes", false)) {
+                continue;
+            }
+            
+            // Get section data and create split node fault
+            auto section_data = getSectionData(section);
+            auto fault = createSplitNodeFault(section_data);
+            
+            if (fault) {
+                split_faults.push_back(std::move(fault));
+            }
+        }
+    }
+    
+    return split_faults;
 }
 
 bool ConfigReader::parseParticleProperties(ParticleConfig& config) {
