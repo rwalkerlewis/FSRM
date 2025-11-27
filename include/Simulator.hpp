@@ -6,6 +6,8 @@
 #include "EclipseIO.hpp"
 #include "WellModel.hpp"
 #include "FractureModel.hpp"
+#include "GmshIO.hpp"
+#include "CoordinateSystem.hpp"
 #include <memory>
 #include <vector>
 
@@ -97,6 +99,12 @@ private:
     // Eclipse I/O
     std::unique_ptr<EclipseIO> eclipse_io;
     
+    // Gmsh mesh I/O
+    std::unique_ptr<GmshIO> gmsh_io;
+    
+    // Coordinate system manager
+    std::unique_ptr<CoordinateSystemManager> coord_manager;
+    
     // Material properties (per cell or per region)
     std::vector<MaterialProperties> material_props;
     std::vector<FluidProperties> fluid_props;
@@ -143,10 +151,16 @@ private:
     // Helper functions
     PetscErrorCode setupStructuredGrid();
     PetscErrorCode setupUnstructuredGrid();
+    PetscErrorCode setupGmshGrid();
+    PetscErrorCode setupCoordinateSystem();
     PetscErrorCode createFieldsFromConfig();
     PetscErrorCode setupBoundaryConditions();
     PetscErrorCode interpolateMaterialProperties();
     PetscErrorCode applyMaterialPropertiesToKernels();
+    
+    // Coordinate transformation helpers
+    void transformToModelCoordinates(double& x, double& y, double& z) const;
+    void transformToInputCoordinates(double& x, double& y, double& z) const;
 };
 
 } // namespace FSRM

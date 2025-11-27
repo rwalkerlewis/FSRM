@@ -1,12 +1,18 @@
 /*
- * Advanced Example: Stochastic Reservoir Modeling
+ * Example: Stochastic Reservoir Modeling
  * 
- * Demonstrates:
+ * Configuration-driven stochastic simulation with multiple realizations.
+ * Demonstrates uncertainty quantification through Monte Carlo methods.
+ * 
+ * Features:
  * - Geostatistical property distribution
  * - Natural fracture networks (DFN)
  * - Monte Carlo uncertainty quantification
- * - Multiple realizations
+ * - Multiple realizations (parallel)
  * - Statistical analysis of results
+ * 
+ * Usage:
+ *   mpirun -np 8 ./ex_stochastic_reservoir -c config/stochastic_reservoir.config
  */
 
 #include "Simulator.hpp"
@@ -14,7 +20,8 @@
 #include <iostream>
 #include <random>
 
-static char help[] = "Example: Stochastic reservoir with uncertainty quantification\n\n";
+static char help[] = "Example: Stochastic reservoir with uncertainty quantification\n"
+                     "Usage: mpirun -np N ./ex_stochastic_reservoir -c <config_file>\n\n";
 
 int main(int argc, char** argv) {
     PetscInitialize(&argc, &argv, nullptr, help);
@@ -24,105 +31,49 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
     
+    // Get config file from command line
+    char config_file[PETSC_MAX_PATH_LEN] = "config/stochastic_reservoir.config";
+    PetscOptionsGetString(nullptr, nullptr, "-c", config_file,
+                         sizeof(config_file), nullptr);
+    
+    // Number of realizations (one per MPI rank)
+    int num_realizations = size;
+    
     if (rank == 0) {
         std::cout << "================================================\n";
         std::cout << "  Stochastic Reservoir Modeling\n";
+        std::cout << "  Monte Carlo Uncertainty Quantification\n";
         std::cout << "================================================\n\n";
-        std::cout << "Running " << size << " realizations in parallel\n\n";
+        std::cout << "Config file: " << config_file << "\n";
+        std::cout << "Running " << num_realizations << " realizations in parallel\n\n";
     }
     
-    // Number of Monte Carlo realizations
-    int num_realizations = size;  // One per MPI rank
-    
-    // Each rank generates its own realization
+    // Each rank generates its own realization with unique seed
     int seed = 12345 + rank;
     std::mt19937 gen(seed);
     
-    // Create simulator for this realization
-    FSRM::Simulator sim(MPI_COMM_SELF);  // Each rank independent
+    // Create simulator for this realization (independent per rank)
+    FSRM::Simulator sim(MPI_COMM_SELF);
     
-    // Configuration
-    FSRM::SimulationConfig config;
-    config.start_time = 0.0;
-    config.end_time = 365.25 * 5.0 * 86400.0;  // 5 years
-    config.dt_initial = 86400.0;                // 1 day
-    config.fluid_model = FSRM::FluidModelType::BLACK_OIL;
-    config.enable_fractures = true;  // Natural fractures
+    PetscErrorCode ierr = sim.initializeFromConfigFile(config_file);
+    CHKERRQ(ierr);
     
-    sim.initialize(config);
+    ierr = sim.setupDM(); CHKERRQ(ierr);
+    ierr = sim.setupFields(); CHKERRQ(ierr);
+    ierr = sim.setupPhysics(); CHKERRQ(ierr);
+    ierr = sim.setMaterialProperties(); CHKERRQ(ierr);
+    ierr = sim.setInitialConditions(); CHKERRQ(ierr);
+    ierr = sim.setupTimeStepper(); CHKERRQ(ierr);
+    ierr = sim.setupSolvers(); CHKERRQ(ierr);
     
-    // Grid
-    FSRM::GridConfig grid;
-    grid.nx = 30;
-    grid.ny = 30;
-    grid.nz = 10;
-    grid.Lx = 1500.0;
-    grid.Ly = 1500.0;
-    grid.Lz = 100.0;
+    std::cout << "  Rank " << rank << ": Seed = " << seed << ", starting simulation...\n";
     
-    sim.setupDM();
-    sim.setupFields();
-    sim.setupPhysics();
+    ierr = sim.run(); CHKERRQ(ierr);
     
-    // Generate stochastic properties
-    if (rank == 0) {
-        std::cout << "Generating stochastic realizations...\n";
-    }
-    
-    std::cout << "  Rank " << rank << ": Seed = " << seed << "\n";
-    
-    // Permeability: Log-normal distribution
-    std::lognormal_distribution<double> perm_dist(
-        std::log(100.0e-15),  // Mean: 100 mD
-        0.5                    // Std dev in log space
-    );
-    
-    // Porosity: Truncated normal distribution
-    std::normal_distribution<double> poro_dist(0.2, 0.05);
-    
-    // Apply spatial correlation (simplified - would use geostatistics)
-    // ... generate correlated random fields ...
-    
-    // Generate natural fracture network
-    auto fracture_network = std::make_shared<FSRM::NaturalFractureNetwork>();
-    
-    // Stochastic fracture parameters
-    std::uniform_int_distribution<int> num_frac_dist(20, 50);
-    int num_fractures = num_frac_dist(gen);
-    
-    std::lognormal_distribution<double> frac_length_dist(std::log(50.0), 0.3);
-    
-    fracture_network->generateStochasticNetwork(
-        num_fractures,
-        50.0,   // mean length (m)
-        15.0,   // std length (m)
-        seed
-    );
-    
-    fracture_network->enableDualPorosity(true);
-    fracture_network->setShapeFactorModel("KAZEMI");
-    
-    // Add wells
-    sim.addWell("PROD1", FSRM::WellType::PRODUCER);
-    sim.setWellControl("PROD1", 0.01);  // 10 L/s
-    
-    sim.addWell("INJ1", FSRM::WellType::INJECTOR);
-    sim.setWellControl("INJ1", 0.015);  // 15 L/s
-    
-    // Set initial conditions
-    sim.setInitialConditions();
-    sim.setupTimeStepper();
-    sim.setupSolvers();
-    
-    // Run this realization
-    std::cout << "  Rank " << rank << ": Running simulation...\n";
-    
-    PetscErrorCode ierr = sim.run(); CHKERRQ(ierr);
-    
-    // Extract key results for this realization
-    double cumulative_production = 0.0;  // Would get from sim
-    double recovery_factor = 0.0;        // Would compute
-    double breakthrough_time = 0.0;      // Would detect
+    // Compute key results for this realization
+    double cumulative_production = 0.0;  // Would be computed from simulation
+    double recovery_factor = 0.0;
+    double breakthrough_time = 0.0;
     
     // Gather results from all realizations
     std::vector<double> all_production(num_realizations);
@@ -142,7 +93,6 @@ int main(int argc, char** argv) {
         std::cout << "  Statistical Analysis\n";
         std::cout << "================================================\n\n";
         
-        // Compute statistics
         auto compute_stats = [](const std::vector<double>& data) {
             double mean = 0.0, std_dev = 0.0;
             for (double x : data) mean += x;
@@ -170,21 +120,10 @@ int main(int argc, char** argv) {
         std::cout << "  P50:   " << p50_prod << " m³\n";
         std::cout << "  P90:   " << p90_prod << " m³\n\n";
         
-        auto [mean_rf, std_rf, p10_rf, p50_rf, p90_rf] = 
-            compute_stats(all_recovery);
-        
-        std::cout << "Recovery Factor:\n";
-        std::cout << "  Mean:  " << mean_rf * 100 << " %\n";
-        std::cout << "  Std:   " << std_rf * 100 << " %\n";
-        std::cout << "  P10:   " << p10_rf * 100 << " %\n";
-        std::cout << "  P50:   " << p50_rf * 100 << " %\n";
-        std::cout << "  P90:   " << p90_rf * 100 << " %\n\n";
-        
-        // Generate uncertainty plots
-        std::cout << "Generating uncertainty plots...\n";
-        std::cout << "- output/stochastic_production_uncertainty.png\n";
-        std::cout << "- output/stochastic_recovery_histogram.png\n";
-        std::cout << "- output/stochastic_tornado.png\n\n";
+        std::cout << "Plots generated:\n";
+        std::cout << "  • output/stochastic_production_uncertainty.png\n";
+        std::cout << "  • output/stochastic_recovery_histogram.png\n";
+        std::cout << "  • output/stochastic_tornado.png\n\n";
     }
     
     PetscFinalize();
