@@ -101,6 +101,20 @@ public:
         double a_parameter;
         double b_parameter;
         double Dc_parameter;
+        
+        // Split node options
+        bool use_split_nodes;
+        std::string split_node_method;      // PENALTY, LAGRANGE, NITSCHE, etc.
+        std::string traction_type;          // PRESCRIBED, FRICTION_DEPENDENT, COHESIVE_ZONE
+        double penalty_normal;
+        double penalty_tangent;
+        double prescribed_traction_normal;
+        double prescribed_traction_strike;
+        double prescribed_traction_dip;
+        double cohesive_strength;
+        double critical_opening;
+        double critical_slip;
+        bool allow_separation;
     };
     
     struct ParticleConfig {
@@ -162,6 +176,7 @@ public:
     std::unique_ptr<MaterialModelBase> parseMaterialModel(const std::string& section);
     std::unique_ptr<FaultNetwork> parseFaultNetwork();
     std::vector<FaultConfig> parseFaultsExtended();
+    std::vector<std::unique_ptr<SplitNodeFault>> parseSplitNodeFaults();
     
     bool parseDynamicsConfig(DynamicsConfig& config);
     bool parseSeismicityConfig(SeismicityConfig& config);
