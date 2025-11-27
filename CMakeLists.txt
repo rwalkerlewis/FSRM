@@ -20,6 +20,7 @@ option(ENABLE_MPI "Enable MPI support" ON)
 option(BUILD_EXAMPLES "Build examples" ON)
 option(ENABLE_CUDA "Enable CUDA GPU support" OFF)
 option(ENABLE_HIP "Enable AMD ROCm/HIP GPU support" OFF)
+option(ENABLE_PROJ "Enable PROJ library for coordinate transformations" OFF)
 
 # Find required packages
 # Set MPI compiler wrappers
@@ -161,6 +162,38 @@ if(ENABLE_HIP)
     endif()
 endif()
 
+# PROJ support for coordinate transformations
+if(ENABLE_PROJ)
+    find_package(PkgConfig)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(PROJ proj)
+    endif()
+    
+    if(NOT PROJ_FOUND)
+        find_path(PROJ_INCLUDE_DIR 
+            NAMES proj.h
+            PATHS /usr/include /usr/local/include
+        )
+        find_library(PROJ_LIBRARY
+            NAMES proj
+            PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib
+        )
+        if(PROJ_INCLUDE_DIR AND PROJ_LIBRARY)
+            set(PROJ_INCLUDE_DIRS ${PROJ_INCLUDE_DIR})
+            set(PROJ_LIBRARIES ${PROJ_LIBRARY})
+            set(PROJ_FOUND TRUE)
+        endif()
+    endif()
+    
+    if(PROJ_FOUND)
+        message(STATUS "PROJ library found for coordinate transformations")
+        add_definitions(-DHAVE_PROJ)
+    else()
+        message(WARNING "PROJ requested but not found. Coordinate transformations disabled.")
+        set(ENABLE_PROJ OFF)
+    endif()
+endif()
+
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -169,6 +202,11 @@ include_directories(
     ${MPI_CXX_INCLUDE_DIRS}
     ${HDF5_INCLUDE_DIRS}
 )
+
+# Add PROJ include dirs if enabled
+if(ENABLE_PROJ AND PROJ_FOUND)
+    include_directories(${PROJ_INCLUDE_DIRS})
+endif()
 
 # Link directories
 if(PETSC_LIBRARY_DIRS)
@@ -198,6 +236,11 @@ target_link_libraries(fsrmlib
     ${HDF5_LDFLAGS}
     m
 )
+
+# Link PROJ if enabled
+if(ENABLE_PROJ AND PROJ_FOUND)
+    target_link_libraries(fsrmlib ${PROJ_LIBRARIES})
+endif()
 
 # Link CUDA libraries if enabled
 if(ENABLE_CUDA AND CUDAToolkit_FOUND)
@@ -244,6 +287,7 @@ message(STATUS "  CXX Compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "  MPI enabled: YES")
 message(STATUS "  CUDA enabled: ${ENABLE_CUDA}")
 message(STATUS "  HIP enabled: ${ENABLE_HIP}")
+message(STATUS "  PROJ enabled: ${ENABLE_PROJ}")
 message(STATUS "  Testing enabled: ${ENABLE_TESTING}")
 message(STATUS "  Examples enabled: ${BUILD_EXAMPLES}")
 message(STATUS "  PETSc found: ${PETSC_FOUND}")
@@ -251,5 +295,10 @@ if(HDF5_FOUND)
     message(STATUS "  HDF5 found: YES")
 else()
     message(STATUS "  HDF5 found: NO (optional)")
+endif()
+if(ENABLE_PROJ AND PROJ_FOUND)
+    message(STATUS "  PROJ found: YES (coordinate transformations enabled)")
+else()
+    message(STATUS "  PROJ found: NO (coordinate transformations disabled)")
 endif()
 message(STATUS "")

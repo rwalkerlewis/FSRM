@@ -33,7 +33,7 @@ add_reservoir_example(ex_config_driven ex_config_driven.cpp)
 add_reservoir_example(ex_lefm_fracture_growth ex_lefm_fracture_growth.cpp)
 add_reservoir_example(ex_wave_propagation ex_wave_propagation.cpp)
 add_reservoir_example(ex_buckley_leverett_2d ex_buckley_leverett_2d.cpp)
-# add_reservoir_example(ex_coupled_reservoir_2d ex_coupled_reservoir_2d.cpp)  # OLD - has errors
+add_reservoir_example(ex_coupled_reservoir_2d ex_coupled_reservoir_2d.cpp)
 add_reservoir_example(ex_reservoir_2d_vertical ex_reservoir_2d_vertical.cpp)
 add_reservoir_example(ex_reservoir_2d_vertical_enhanced ex_reservoir_2d_vertical_enhanced.cpp)
 add_reservoir_example(ex_gnuplot_solver ex_gnuplot_solver.cpp)

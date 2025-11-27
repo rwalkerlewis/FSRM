@@ -230,6 +230,7 @@ bool ConfigReader::parseSimulationConfig(SimulationConfig& config) {
 bool ConfigReader::parseGridConfig(GridConfig& config) {
     if (!hasSection("GRID")) return false;
     
+    // Grid dimensions (for structured grids)
     config.nx = getInt("GRID", "nx", 10);
     config.ny = getInt("GRID", "ny", 10);
     config.nz = getInt("GRID", "nz", 10);
@@ -238,8 +239,56 @@ bool ConfigReader::parseGridConfig(GridConfig& config) {
     config.Ly = getDouble("GRID", "Ly", 1000.0);
     config.Lz = getDouble("GRID", "Lz", 100.0);
     
+    // Domain origin
+    config.origin_x = getDouble("GRID", "origin_x", 0.0);
+    config.origin_y = getDouble("GRID", "origin_y", 0.0);
+    config.origin_z = getDouble("GRID", "origin_z", 0.0);
+    
+    // Mesh type
+    std::string mesh_type_str = getString("GRID", "mesh_type", "CARTESIAN");
+    if (mesh_type_str == "CARTESIAN") config.mesh_type = MeshType::CARTESIAN;
+    else if (mesh_type_str == "CORNER_POINT") config.mesh_type = MeshType::CORNER_POINT;
+    else if (mesh_type_str == "GMSH") config.mesh_type = MeshType::GMSH;
+    else if (mesh_type_str == "EXODUS") config.mesh_type = MeshType::EXODUS;
+    else if (mesh_type_str == "CUSTOM") config.mesh_type = MeshType::CUSTOM;
+    
     config.use_unstructured = getBool("GRID", "use_unstructured", false);
     config.mesh_file = getString("GRID", "mesh_file", "");
+    
+    // Auto-detect mesh type from file extension
+    if (!config.mesh_file.empty() && config.mesh_type == MeshType::CARTESIAN) {
+        std::string ext = config.mesh_file.substr(config.mesh_file.find_last_of('.') + 1);
+        if (ext == "msh") {
+            config.mesh_type = MeshType::GMSH;
+            config.use_unstructured = true;
+        } else if (ext == "exo" || ext == "e" || ext == "ex2") {
+            config.mesh_type = MeshType::EXODUS;
+            config.use_unstructured = true;
+        }
+    }
+    
+    // Gmsh-specific options
+    config.gmsh_physical_volume = getString("GRID", "gmsh_physical_volume", "");
+    
+    std::string boundary_str = getString("GRID", "gmsh_boundaries", "");
+    if (!boundary_str.empty()) {
+        config.gmsh_boundaries = split(boundary_str, ',');
+    }
+    
+    config.gmsh_refinement_level = getInt("GRID", "gmsh_refinement_level", 0);
+    
+    // Coordinate Reference System (CRS)
+    config.input_crs = getString("GRID", "input_crs", "");
+    config.model_crs = getString("GRID", "model_crs", "");
+    config.use_local_coordinates = getBool("GRID", "use_local_coordinates", true);
+    config.local_origin_x = getDouble("GRID", "local_origin_x", 0.0);
+    config.local_origin_y = getDouble("GRID", "local_origin_y", 0.0);
+    config.local_origin_z = getDouble("GRID", "local_origin_z", 0.0);
+    config.auto_detect_utm = getBool("GRID", "auto_detect_utm", false);
+    
+    // Grid quality settings
+    config.min_cell_volume = getDouble("GRID", "min_cell_volume", 1e-10);
+    config.max_aspect_ratio = getDouble("GRID", "max_aspect_ratio", 100.0);
     
     return true;
 }

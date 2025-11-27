@@ -136,11 +136,49 @@ struct SimulationConfig {
     SolidModelType solid_model = SolidModelType::ELASTIC;
 };
 
+/**
+ * @brief Mesh type enumeration
+ */
+enum class MeshType {
+    CARTESIAN,         ///< Structured Cartesian grid
+    CORNER_POINT,      ///< Corner-point grid (Eclipse style)
+    GMSH,              ///< Gmsh unstructured mesh
+    EXODUS,            ///< Exodus II mesh format
+    CUSTOM             ///< Custom mesh loader
+};
+
 struct GridConfig {
+    // Grid dimensions (for structured grids)
     int nx = 10, ny = 10, nz = 10;
     double Lx = 1000.0, Ly = 1000.0, Lz = 100.0; // meters
+    
+    // Domain origin (can be geo-referenced)
+    double origin_x = 0.0;
+    double origin_y = 0.0;
+    double origin_z = 0.0;
+    
+    // Mesh type
+    MeshType mesh_type = MeshType::CARTESIAN;
     bool use_unstructured = false;
     std::string mesh_file;
+    
+    // Gmsh-specific options
+    std::string gmsh_physical_volume;       ///< Physical group for main volume
+    std::vector<std::string> gmsh_boundaries;  ///< Physical groups for boundaries
+    int gmsh_refinement_level = 0;          ///< Additional mesh refinement
+    
+    // Coordinate Reference System (CRS)
+    std::string input_crs;                  ///< Input coordinates CRS (e.g., "EPSG:4326")
+    std::string model_crs;                  ///< Model/simulation CRS (e.g., "EPSG:32610")
+    bool use_local_coordinates = true;      ///< Shift to local origin
+    double local_origin_x = 0.0;            ///< Local coordinate origin X
+    double local_origin_y = 0.0;            ///< Local coordinate origin Y
+    double local_origin_z = 0.0;            ///< Local coordinate origin Z
+    bool auto_detect_utm = false;           ///< Auto-detect UTM zone from coordinates
+    
+    // Grid quality settings
+    double min_cell_volume = 1e-10;         ///< Minimum cell volume (m³)
+    double max_aspect_ratio = 100.0;        ///< Maximum cell aspect ratio
 };
 
 struct MaterialProperties {

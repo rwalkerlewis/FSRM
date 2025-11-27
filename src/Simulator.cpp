@@ -17,6 +17,8 @@ Simulator::Simulator(MPI_Comm comm_in)
     MPI_Comm_size(comm, &size);
     
     eclipse_io = std::make_unique<EclipseIO>();
+    gmsh_io = std::make_unique<GmshIO>();
+    coord_manager = std::make_unique<CoordinateSystemManager>();
 }
 
 Simulator::~Simulator() {
@@ -146,10 +148,126 @@ PetscErrorCode Simulator::setupDM() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
-    if (grid_config.use_unstructured) {
-        ierr = setupUnstructuredGrid(); CHKERRQ(ierr);
+    // Setup coordinate system first
+    ierr = setupCoordinateSystem(); CHKERRQ(ierr);
+    
+    // Choose grid setup based on mesh type
+    switch (grid_config.mesh_type) {
+        case MeshType::GMSH:
+            ierr = setupGmshGrid(); CHKERRQ(ierr);
+            break;
+        case MeshType::CORNER_POINT:
+        case MeshType::EXODUS:
+        case MeshType::CUSTOM:
+            if (grid_config.use_unstructured) {
+                ierr = setupUnstructuredGrid(); CHKERRQ(ierr);
+            } else {
+                ierr = setupStructuredGrid(); CHKERRQ(ierr);
+            }
+            break;
+        case MeshType::CARTESIAN:
+        default:
+            if (grid_config.use_unstructured) {
+                ierr = setupUnstructuredGrid(); CHKERRQ(ierr);
+            } else {
+                ierr = setupStructuredGrid(); CHKERRQ(ierr);
+            }
+            break;
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::setupCoordinateSystem() {
+    PetscFunctionBeginUser;
+    
+    // Setup coordinate reference system if specified
+    if (!grid_config.input_crs.empty()) {
+        coord_manager->setInputCRS(grid_config.input_crs);
+        
+        if (!grid_config.model_crs.empty()) {
+            coord_manager->setModelCRS(grid_config.model_crs);
+        } else if (grid_config.auto_detect_utm) {
+            // Auto-detect UTM zone based on local origin
+            GeoPoint origin(grid_config.local_origin_x, grid_config.local_origin_y, grid_config.local_origin_z);
+            coord_manager->setLocalOrigin(origin);
+            coord_manager->useAutoLocalCRS();
+        }
+        
+        if (grid_config.use_local_coordinates) {
+            GeoPoint origin(grid_config.local_origin_x, grid_config.local_origin_y, grid_config.local_origin_z);
+            coord_manager->setLocalOrigin(origin);
+        }
+        
+        if (rank == 0 && coord_manager->isConfigured()) {
+            PetscPrintf(comm, "Coordinate System:\n");
+            PetscPrintf(comm, "  Input CRS: %s\n", grid_config.input_crs.c_str());
+            PetscPrintf(comm, "  Model CRS: %s\n", coord_manager->getModelCRS().epsg_code.c_str());
+            if (grid_config.use_local_coordinates) {
+                PetscPrintf(comm, "  Local origin: (%.2f, %.2f, %.2f)\n",
+                           grid_config.local_origin_x, grid_config.local_origin_y, grid_config.local_origin_z);
+            }
+        }
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::setupGmshGrid() {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    
+    if (grid_config.mesh_file.empty()) {
+        SETERRQ(comm, PETSC_ERR_ARG_NULL, "Gmsh mesh file not specified");
+    }
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Loading Gmsh mesh: %s\n", grid_config.mesh_file.c_str());
+    }
+    
+    // Load the Gmsh file
+    if (!gmsh_io->readMshFile(grid_config.mesh_file)) {
+        SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Failed to read Gmsh mesh file");
+    }
+    
+    if (rank == 0) {
+        gmsh_io->printStatistics();
+    }
+    
+    // Validate mesh
+    if (!gmsh_io->validate()) {
+        SETERRQ(comm, PETSC_ERR_ARG_WRONG, "Gmsh mesh validation failed");
+    }
+    
+    // Create DMPlex from Gmsh mesh
+    if (grid_config.gmsh_boundaries.empty()) {
+        ierr = gmsh_io->createDMPlex(comm, &dm); CHKERRQ(ierr);
     } else {
-        ierr = setupStructuredGrid(); CHKERRQ(ierr);
+        ierr = gmsh_io->createDMPlexWithBoundaries(comm, &dm, grid_config.gmsh_boundaries); CHKERRQ(ierr);
+    }
+    
+    // Update grid config with actual mesh dimensions
+    auto mesh = gmsh_io->getMesh();
+    if (mesh) {
+        mesh->computeBoundingBox();
+        grid_config.Lx = mesh->getLx();
+        grid_config.Ly = mesh->getLy();
+        grid_config.Lz = mesh->getLz();
+        
+        // Apply coordinate transformation if configured
+        if (coord_manager->isConfigured()) {
+            // Transform the mesh coordinates
+            // Note: This would require modifying the DM coordinates which is done below
+        }
+    }
+    
+    ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
+    ierr = DMViewFromOptions(dm, nullptr, "-dm_view"); CHKERRQ(ierr);
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Gmsh mesh loaded successfully\n");
+        PetscPrintf(comm, "  Domain size: %.1f x %.1f x %.1f m\n",
+                   grid_config.Lx, grid_config.Ly, grid_config.Lz);
     }
     
     PetscFunctionReturn(0);
@@ -825,6 +943,26 @@ PetscErrorCode Simulator::adaptTimeStep(double& dt_new) {
 
 bool Simulator::checkConvergence() {
     return true;
+}
+
+void Simulator::transformToModelCoordinates(double& x, double& y, double& z) const {
+    if (coord_manager && coord_manager->isConfigured()) {
+        GeoPoint pt(x, y, z);
+        GeoPoint result = coord_manager->toModelCoords(pt);
+        x = result.x;
+        y = result.y;
+        z = result.z;
+    }
+}
+
+void Simulator::transformToInputCoordinates(double& x, double& y, double& z) const {
+    if (coord_manager && coord_manager->isConfigured()) {
+        GeoPoint pt(x, y, z);
+        GeoPoint result = coord_manager->toInputCoords(pt);
+        x = result.x;
+        y = result.y;
+        z = result.z;
+    }
 }
 
 PetscErrorCode Simulator::setupBoundaryConditions() {

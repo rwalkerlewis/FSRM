@@ -16,12 +16,19 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 ### Key Capabilities
 - Fully coupled multi-physics (THM - Thermo-Hydro-Mechanical)
 - Eclipse format I/O (DATA files)
-- User-editable configuration files
-- Structured and unstructured grids
+- **Configuration-driven simulations** - no C++ coding required
+- Structured and unstructured grids (Gmsh, Corner-Point, Exodus)
+- **EPSG coordinate systems** with PROJ library integration
 - Advanced well models (vertical, horizontal, multilateral)
 - Stochastic reservoir modeling
 - Comprehensive testing framework (MMS, analytical solutions)
 - Parallel scalability (MPI)
+
+### Mesh & Coordinate Features
+- **Gmsh Integration**: Load `.msh` files (v2.2 and v4.x) for complex geometries
+- **Coordinate Transformations**: EPSG codes, UTM zones, local origins
+- **Physical Groups**: Reference Gmsh regions for materials and boundaries
+- **Auto UTM Detection**: Automatically determine UTM zone from GPS coordinates
 
 ## Building
 
@@ -40,6 +47,8 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - ParaView (for 3D visualization)
 - CUDA Toolkit >= 11.0 (for GPU acceleration)
 - ROCm/HIP (for AMD GPU support)
+- PROJ >= 6.0 (for coordinate transformations)
+- Gmsh (for mesh generation)
 ```
 
 ### GPU Support
@@ -79,6 +88,21 @@ make test
 
 # Install
 sudo make install
+```
+
+**With coordinate transformation support (PROJ)**:
+```bash
+# Install PROJ library first
+sudo apt install libproj-dev   # Debian/Ubuntu
+# brew install proj            # macOS
+
+# Configure with PROJ support
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release \
+         -DENABLE_PROJ=ON
+
+# Build
+make -j4
 ```
 
 **GPU-accelerated build (NVIDIA CUDA)**:
@@ -327,46 +351,68 @@ permeability_x = 0.001
 
 ## Examples
 
-### Basic Examples
-- `ex01_single_phase.cpp` - Single-phase Darcy flow
-- `ex02_black_oil.cpp` - Three-phase black oil
-- `ex03_compositional.cpp` - Multi-component compositional
-- `ex04_geomechanics.cpp` - Coupled geomechanics
+All examples are **configuration-driven** - no C++ coding required to run simulations. Each example simply loads a configuration file and executes the simulation.
 
-### SPE Benchmarks
-- `spe1.cpp` - SPE1 comparative solution project
-- `spe3.cpp` - SPE3 gas cycling
-- `spe9.cpp` - SPE9 waterflood
-- `spe10.cpp` - SPE10 upscaling
+### Configuration Files
 
-### Advanced Examples
-- `ex_hydraulic_fracturing.cpp` - Frac design with proppant
-- `ex_induced_seismicity.cpp` - Fault reactivation
-- `ex_thermal_recovery.cpp` - Steam injection
-- `ex_stochastic_reservoir.cpp` - Monte Carlo uncertainty
-- `ex_lefm_fracture_growth.cpp` - LEFM-based fracture propagation
+Configuration files define all simulation parameters:
+
+| Config File | Description |
+|-------------|-------------|
+| `config/buckley_leverett_2d.config` | 2D waterflooding with Buckley-Leverett |
+| `config/coupled_reservoir_2d.config` | Coupled flow-geomechanics |
+| `config/spe1_benchmark.config` | SPE1 benchmark problem |
+| `config/unstructured_gmsh_example.config` | Gmsh mesh with EPSG coordinates |
+| `config/elastodynamic_waves.config` | Elastic wave propagation |
+| `config/poroelastodynamic_waves.config` | Poroelastic wave propagation |
+| `config/shale_reservoir.config` | Shale reservoir with fractures |
+| `config/geothermal.config` | Enhanced geothermal system |
+| `config/induced_seismicity.config` | Fault reactivation |
+| `config/co2_storage.config` | CO₂ geological storage |
+
+### Example Executables
+
+| Executable | Purpose | Config File |
+|------------|---------|-------------|
+| `ex_config_driven` | Generic config-driven runner | Any config file |
+| `ex_buckley_leverett_2d` | Two-phase waterflooding | `buckley_leverett_2d.config` |
+| `ex_coupled_reservoir_2d` | Coupled flow-geomechanics | `coupled_reservoir_2d.config` |
+| `ex_wave_propagation` | Wave physics | Wave config files |
+| `spe1` | SPE1 benchmark | `spe1_benchmark.config` |
+| `ex_stochastic_reservoir` | Monte Carlo uncertainty | Custom config |
+| `ex_hydraulic_fracturing` | Frac design | `hydraulic_fracturing.config` |
 
 ### Running Examples
+
 ```bash
 cd build/examples
 
-# Basic single-phase flow
-./ex01_single_phase
+# Run any simulation with the generic config-driven executable
+./ex_config_driven ../config/buckley_leverett_2d.config
 
-# SPE1 benchmark
-./spe1
+# Run specific examples
+./ex_buckley_leverett_2d ../config/buckley_leverett_2d.config
+./ex_coupled_reservoir_2d ../config/coupled_reservoir_2d.config
+./spe1 ../config/spe1_benchmark.config
+./ex_wave_propagation ../config/elastodynamic_waves.config
 
-# Hydraulic fracturing
-mpirun -np 4 ./ex_hydraulic_fracturing
-
-# LEFM fracture growth (shows K_I evolution)
-mpirun -np 4 ./ex_lefm_fracture_growth
-# Or with config:
-mpirun -np 4 fsrm -c config/lefm_fracture_growth.config
-
-# Induced seismicity
-mpirun -np 8 ./ex_induced_seismicity
+# Parallel execution
+mpirun -np 4 ./ex_buckley_leverett_2d ../config/buckley_leverett_2d.config
+mpirun -np 8 ./ex_induced_seismicity ../config/induced_seismicity.config
 ```
+
+### Using Gmsh Meshes with Coordinates
+
+```bash
+# Example with unstructured mesh and coordinate transformation
+./ex_config_driven ../config/unstructured_gmsh_example.config
+```
+
+The unstructured Gmsh example demonstrates:
+- Loading a `.msh` file for complex geometries
+- EPSG coordinate system (WGS84 input → UTM model)
+- Local origin for numerical precision
+- Physical group names for boundaries
 
 ## Testing
 
@@ -599,7 +645,11 @@ MIT License - see LICENSE file
 
 ## Support
 
-- Documentation: See `docs/` directory
+- **Documentation**: See `docs/` directory
+  - [Configuration Reference](docs/CONFIGURATION.md) - Complete config file guide
+  - [Unstructured Meshes](docs/UNSTRUCTURED_MESHES.md) - Gmsh integration
+  - [Coordinate Systems](docs/COORDINATE_SYSTEMS.md) - EPSG and PROJ support
+  - [Cloud Deployment](docs/CLOUD_DEPLOYMENT.md) - AWS/GCP setup
 - Issues: GitHub issue tracker
 - Examples: `examples/` directory
 - Configs: `config/` directory

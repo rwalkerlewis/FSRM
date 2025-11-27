@@ -1,571 +1,387 @@
-# FSRM Configuration Reference
+# Configuration Reference
 
-Complete reference for all configuration file options.
-
----
+FSRM simulations are driven entirely by configuration files, eliminating the need to write custom C++ code for most use cases. This document provides a complete reference for all configuration options.
 
 ## File Format
 
-FSRM uses INI-style configuration files:
+Configuration files use INI-style syntax with sections and key-value pairs:
 
 ```ini
-# Comments start with # or ;
+# Comment
 [SECTION_NAME]
 key = value
-numeric = 1.5e6           # Scientific notation
-array = 1.0, 2.0, 3.0     # Comma-separated
-string = myfile.txt       # Plain strings
-bool = true               # true/false
+string_key = "quoted string"
+list_key = value1, value2, value3
 ```
 
----
+## Core Sections
 
-## [SIMULATION] Section
+### [SIMULATION]
 
-Core simulation parameters.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `name` | string | "simulation" | Simulation identifier |
-| `start_time` | float | 0.0 | Start time (s) |
-| `end_time` | float | 1.0 | End time (s) |
-| `dt_initial` | float | 0.001 | Initial timestep (s) |
-| `dt_min` | float | 1e-10 | Minimum timestep (s) |
-| `dt_max` | float | 1e6 | Maximum timestep (s) |
-| `adaptive_dt` | bool | true | Enable adaptive timestepping |
-
-### Physics Flags
+Controls overall simulation behavior.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `fluid_model` | enum | SINGLE_COMPONENT | Fluid model type |
-| `solid_model` | enum | ELASTIC | Solid model type |
-| `enable_geomechanics` | bool | false | Enable geomechanics coupling |
-| `enable_thermal` | bool | false | Enable thermal effects |
-| `enable_fractures` | bool | false | Enable fracture modeling |
-| `enable_faults` | bool | false | Enable fault mechanics |
-| `enable_elastodynamics` | bool | false | Enable wave propagation |
-| `enable_poroelastodynamics` | bool | false | Enable coupled poro-wave |
+| `name` | string | "Simulation" | Simulation identifier |
+| `type` | enum | RESERVOIR | RESERVOIR, GEOMECHANICS, WAVE_PROPAGATION, COUPLED |
+| `start_time` | double | 0.0 | Start time (seconds or days) |
+| `end_time` | double | 1.0 | End time |
+| `dt` | double | 0.001 | Initial time step |
+| `max_timesteps` | int | 1000 | Maximum time steps |
+| `output_frequency` | int | 10 | Steps between outputs |
 
-### Solver Settings
+### [TIME]
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `rtol` | float | 1e-6 | Relative tolerance |
-| `atol` | float | 1e-8 | Absolute tolerance |
-| `max_nonlinear_iterations` | int | 50 | Max SNES iterations |
-| `max_linear_iterations` | int | 1000 | Max KSP iterations |
-| `solver_type` | string | "gmres" | Linear solver (gmres, cg) |
-| `preconditioner` | string | "ilu" | Preconditioner (ilu, jacobi, asm, hypre) |
-
-### GPU Settings
+Advanced time stepping options.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `use_gpu` | bool | false | Enable GPU acceleration |
-| `gpu_mode` | enum | CPU_FALLBACK | GPU_ONLY, CPU_FALLBACK, AUTO |
-| `gpu_device_id` | int | 0 | GPU device index |
-| `gpu_memory_fraction` | float | 0.8 | Max GPU memory fraction |
+| `method` | enum | BACKWARD_EULER | FORWARD_EULER, BACKWARD_EULER, CRANK_NICOLSON, BDF2 |
+| `adaptive` | bool | true | Enable adaptive time stepping |
+| `min_dt` | double | 1e-10 | Minimum time step |
+| `max_dt` | double | 1e6 | Maximum time step |
+| `cfl` | double | 0.5 | CFL number (explicit methods) |
+| `dt_growth_factor` | double | 1.2 | Max dt increase per step |
+| `dt_reduction_factor` | double | 0.5 | dt reduction on failure |
 
-### Fluid Model Types
+### [GRID]
 
-| Value | Description |
-|-------|-------------|
-| `SINGLE_COMPONENT` | Single-phase compressible |
-| `BLACK_OIL` | Three-phase black oil |
-| `COMPOSITIONAL` | Multi-component with EOS |
-| `BRINE` | Saline water |
-| `CO2` | Supercritical CO2 |
-
-### Solid Model Types
-
-| Value | Description |
-|-------|-------------|
-| `ELASTIC` | Linear elastic |
-| `VISCOELASTIC` | Viscoelastic (Maxwell/Kelvin-Voigt/SLS) |
-| `POROELASTIC` | Biot poroelastic |
-| `ELASTOPLASTIC` | With plasticity (Mohr-Coulomb/Drucker-Prager) |
-| `VTI` | Vertical transverse isotropy |
-| `HTI` | Horizontal transverse isotropy |
-
----
-
-## [GRID] Section
-
-Domain and mesh configuration.
+Mesh and domain definition.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `nx` | int | 10 | Grid cells in X |
-| `ny` | int | 10 | Grid cells in Y |
-| `nz` | int | 1 | Grid cells in Z |
-| `Lx` | float | 1000.0 | Domain length X (m) |
-| `Ly` | float | 1000.0 | Domain length Y (m) |
-| `Lz` | float | 100.0 | Domain length Z (m) |
-| `origin_x` | float | 0.0 | Domain origin X (m) |
-| `origin_y` | float | 0.0 | Domain origin Y (m) |
-| `origin_z` | float | 0.0 | Domain origin Z (m) |
-| `grid_type` | enum | CARTESIAN | CARTESIAN, CORNER_POINT |
-| `refinement_level` | int | 0 | Mesh refinement (0=none) |
+| `nx`, `ny`, `nz` | int | 10 | Grid cells in each direction |
+| `Lx`, `Ly`, `Lz` | double | 1000.0 | Domain size (meters) |
+| `origin_x`, `origin_y`, `origin_z` | double | 0.0 | Domain origin |
+| `mesh_type` | enum | CARTESIAN | CARTESIAN, GMSH, CORNER_POINT, EXODUS |
+| `mesh_file` | string | "" | External mesh file path |
+| `use_unstructured` | bool | false | Use unstructured grid |
+| `input_crs` | string | "" | Input coordinate system (EPSG) |
+| `model_crs` | string | "" | Model coordinate system (EPSG) |
+| `use_local_coordinates` | bool | true | Apply local origin offset |
+| `local_origin_x`, `local_origin_y`, `local_origin_z` | double | 0.0 | Local origin |
+| `auto_detect_utm` | bool | false | Auto-detect UTM zone |
 
----
+### [PHYSICS]
 
-## [ROCK] Section
-
-Default rock/material properties. Use `[ROCK1]`, `[ROCK2]`, etc. for heterogeneous materials.
-
-### Basic Properties
+Enable/disable physics modules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `porosity` | float | 0.2 | Porosity (-) |
-| `permeability_x` | float | 100.0 | Permeability X (mD) |
-| `permeability_y` | float | 100.0 | Permeability Y (mD) |
-| `permeability_z` | float | 10.0 | Permeability Z (mD) |
-| `density` | float | 2650.0 | Grain density (kg/m³) |
-| `compressibility` | float | 1e-9 | Rock compressibility (1/Pa) |
+| `enable_flow` | bool | true | Enable fluid flow |
+| `enable_transport` | bool | false | Enable species transport |
+| `enable_geomechanics` | bool | false | Enable geomechanics |
+| `enable_thermal` | bool | false | Enable heat transfer |
+| `enable_fractures` | bool | false | Enable discrete fractures |
+| `enable_faults` | bool | false | Enable fault slip |
 
-### Elastic Properties
+## Material Sections
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `constitutive_model` | enum | LINEAR_ELASTIC | Constitutive model |
-| `youngs_modulus` | float | 20e9 | Young's modulus (Pa) |
-| `poisson_ratio` | float | 0.25 | Poisson's ratio (-) |
-| `bulk_modulus` | float | - | Bulk modulus (Pa) |
-| `shear_modulus` | float | - | Shear modulus (Pa) |
+### [FLUID]
 
-### Poroelastic Properties
+Fluid properties.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `biot_coefficient` | float | 1.0 | Biot coefficient (-) |
-| `biot_modulus` | float | 1e10 | Biot modulus (Pa) |
-| `undrained_poisson` | float | - | Undrained Poisson ratio |
-| `skempton` | float | - | Skempton coefficient |
+| `type` | enum | SINGLE_COMPONENT | SINGLE_COMPONENT, BLACK_OIL, COMPOSITIONAL |
+| `density` | double | 1000.0 | Reference density (kg/m³) |
+| `viscosity` | double | 0.001 | Viscosity (Pa·s) |
+| `compressibility` | double | 4.5e-10 | Compressibility (1/Pa) |
+| `Bo` | double | 1.0 | Oil formation volume factor |
+| `Bw` | double | 1.0 | Water formation volume factor |
+| `Bg` | double | 1.0 | Gas formation volume factor |
+| `Rs` | double | 0.0 | Solution gas-oil ratio |
+| `mu_o` | double | 0.001 | Oil viscosity |
+| `mu_w` | double | 0.001 | Water viscosity |
+| `mu_g` | double | 0.00001 | Gas viscosity |
+| `relperm_model` | enum | COREY | LINEAR, COREY, BROOKS_COREY |
+| `n_w` | double | 2.0 | Water Corey exponent |
+| `n_o` | double | 2.0 | Oil Corey exponent |
+| `S_wc` | double | 0.2 | Connate water saturation |
+| `S_or` | double | 0.2 | Residual oil saturation |
+| `k_rw_max` | double | 0.3 | Max water relative perm |
+| `k_ro_max` | double | 1.0 | Max oil relative perm |
 
-### Viscoelastic Properties
+### [ROCK]
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `viscoelastic_type` | enum | MAXWELL | MAXWELL, KELVIN_VOIGT, SLS |
-| `viscosity` | float | 1e18 | Viscosity (Pa·s) |
-| `relaxation_time` | float | - | Relaxation time (s) |
-
-### Plasticity Properties
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `failure_criterion` | enum | MOHR_COULOMB | MOHR_COULOMB, DRUCKER_PRAGER |
-| `cohesion` | float | 1e6 | Cohesion (Pa) |
-| `friction_angle` | float | 30.0 | Friction angle (degrees) |
-| `dilation_angle` | float | 0.0 | Dilation angle (degrees) |
-| `tensile_strength` | float | 0.0 | Tensile strength (Pa) |
-
-### Anisotropic Properties (VTI/HTI)
+Rock/matrix properties.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `c11` | float | - | Stiffness C11 (Pa) |
-| `c12` | float | - | Stiffness C12 (Pa) |
-| `c13` | float | - | Stiffness C13 (Pa) |
-| `c33` | float | - | Stiffness C33 (Pa) |
-| `c44` | float | - | Stiffness C44 (Pa) |
-| `thomsen_epsilon` | float | - | Thomsen epsilon (-) |
-| `thomsen_delta` | float | - | Thomsen delta (-) |
-| `thomsen_gamma` | float | - | Thomsen gamma (-) |
+| `porosity` | double | 0.2 | Porosity |
+| `permeability` | double | 1e-13 | Isotropic permeability (m²) |
+| `permeability_x`, `permeability_y`, `permeability_z` | double | 1e-13 | Anisotropic permeability |
+| `compressibility` | double | 1e-10 | Rock compressibility (1/Pa) |
+| `density` | double | 2650 | Grain density (kg/m³) |
+| `thermal_conductivity` | double | 2.5 | Thermal conductivity (W/m·K) |
+| `specific_heat` | double | 800 | Specific heat (J/kg·K) |
 
-### Thermal Properties
+### [SOLID]
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `thermal_conductivity` | float | 2.5 | Conductivity (W/m·K) |
-| `specific_heat` | float | 800.0 | Specific heat (J/kg·K) |
-| `thermal_expansion` | float | 1e-5 | Expansion coefficient (1/K) |
-
-### Permeability Model
+Geomechanical properties.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `permeability_model` | enum | CONSTANT | CONSTANT, KOZENY_CARMAN, EXPONENTIAL, CUBIC_LAW |
-| `permeability_reference` | float | 100.0 | Reference permeability (mD) |
-| `permeability_exponent` | float | 3.0 | Exponential factor |
-
----
-
-## [FLUID] Section
-
-Fluid model configuration.
-
-### Common Properties
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `type` | enum | SINGLE_PHASE | Fluid type |
-| `density` | float | 1000.0 | Reference density (kg/m³) |
-| `viscosity` | float | 0.001 | Viscosity (Pa·s) |
-| `compressibility` | float | 4.5e-10 | Compressibility (1/Pa) |
-| `reference_pressure` | float | 1e5 | Reference pressure (Pa) |
-
-### Black Oil Properties
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `oil_density_std` | float | 850.0 | Oil density at std (kg/m³) |
-| `gas_density_std` | float | 0.9 | Gas density at std (kg/m³) |
-| `water_density_std` | float | 1000.0 | Water density at std (kg/m³) |
-| `solution_gor` | float | 100.0 | Solution GOR (scf/stb) |
-| `bubble_point` | float | 15e6 | Bubble point (Pa) |
-| `pvt_correlation` | enum | STANDING | PVT correlation |
-
-### PVT Correlations
-
-| Value | Description |
-|-------|-------------|
-| `STANDING` | Standing correlation |
-| `VASQUEZ_BEGGS` | Vazquez-Beggs correlation |
-| `GLASO` | Glasø correlation |
-| `AL_MARHOUN` | Al-Marhoun correlation |
-
-### Compositional Properties
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `num_components` | int | 3 | Number of components |
-| `component_names` | array | - | Component names |
-| `critical_temperatures` | array | - | Tc values (K) |
-| `critical_pressures` | array | - | Pc values (Pa) |
-| `acentric_factors` | array | - | Acentric factors |
-| `molar_weights` | array | - | Molar weights (kg/kmol) |
-| `eos_type` | enum | PENG_ROBINSON | Equation of state |
-
-### EOS Types
-
-| Value | Description |
-|-------|-------------|
-| `PENG_ROBINSON` | Peng-Robinson cubic EOS |
-| `SRK` | Soave-Redlich-Kwong EOS |
-| `VAN_DER_WAALS` | van der Waals EOS |
-| `IDEAL` | Ideal gas law |
-
-### Brine Properties
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `salinity` | float | 0.0 | Salinity (ppm or kg/kg) |
-| `salt_type` | string | "NaCl" | Salt composition |
-
-### CO2 Properties
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `co2_model` | enum | SPAN_WAGNER | CO2 property model |
-
----
-
-## [WELLn] Sections
-
-Well definitions. Use `[WELL1]`, `[WELL2]`, etc.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `name` | string | - | Well identifier (required) |
-| `type` | enum | PRODUCER | Well type |
-| `i` | int | - | Grid index I (required) |
-| `j` | int | - | Grid index J (required) |
-| `k` | int | - | Grid index K (required) |
-| `control_mode` | enum | BHP | Control type |
-| `target_value` | float | - | Target (rate or pressure) |
-| `max_rate` | float | - | Max rate constraint (m³/s) |
-| `min_bhp` | float | - | Min BHP constraint (Pa) |
-| `max_bhp` | float | - | Max BHP constraint (Pa) |
-| `diameter` | float | 0.1 | Wellbore diameter (m) |
-| `skin` | float | 0.0 | Skin factor (-) |
-| `wellbore_storage` | float | 0.0 | Wellbore storage (m³/Pa) |
-| `fluid` | enum | OIL | Injection fluid type |
-| `temperature` | float | - | Injection temperature (K) |
-
-### Well Types
-
-| Value | Description |
-|-------|-------------|
-| `PRODUCER` | Production well |
-| `INJECTOR` | Injection well |
-| `OBSERVATION` | Monitoring only |
-
-### Control Modes
-
-| Value | Description |
-|-------|-------------|
-| `RATE` | Constant surface rate |
-| `BHP` | Constant bottomhole pressure |
-| `THP` | Constant tubing head pressure |
-
----
-
-## [FRACTUREn] Sections
-
-Fracture definitions.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `type` | enum | NATURAL | NATURAL, HYDRAULIC |
-| `location` | array | - | x, y, z, nx, ny, nz |
-| `aperture` | float | 1e-4 | Aperture (m) |
-| `permeability` | float | 1e-12 | Permeability (m²) |
-| `half_length` | float | - | Half-length (m) |
-| `height` | float | - | Height (m) |
-| `conductivity` | float | - | Conductivity (m³) |
-| `enable_propagation` | bool | false | Enable growth |
-| `toughness` | float | 1e6 | Fracture toughness (Pa·√m) |
-| `energy` | float | 100 | Fracture energy (J/m²) |
-| `enable_proppant` | bool | false | Track proppant |
-| `proppant_density` | float | 2650 | Proppant density (kg/m³) |
-| `proppant_diameter` | float | 0.001 | Proppant diameter (m) |
-
----
-
-## [FAULTn] Sections
-
-Fault definitions.
-
-### Geometry
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `name` | string | - | Fault identifier |
-| `x` | float | - | Center X (m) |
-| `y` | float | - | Center Y (m) |
-| `z` | float | - | Center depth (m) |
-| `strike` | float | 0.0 | Strike (degrees N) |
-| `dip` | float | 90.0 | Dip (degrees) |
-| `length` | float | 1000.0 | Along-strike length (m) |
-| `width` | float | 500.0 | Down-dip width (m) |
-| `rake` | float | 0.0 | Slip direction (degrees) |
-
-### Friction
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `friction_law` | enum | COULOMB | Friction model |
-| `static_friction` | float | 0.6 | Static coefficient |
-| `dynamic_friction` | float | 0.4 | Dynamic coefficient |
-| `cohesion` | float | 0.0 | Cohesion (Pa) |
-
-### Rate-State Friction
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `rate_state_a` | float | 0.01 | Direct effect a |
-| `rate_state_b` | float | 0.015 | Evolution effect b |
-| `rate_state_dc` | float | 1e-5 | Critical slip Dc (m) |
-| `rate_state_v0` | float | 1e-6 | Reference velocity (m/s) |
-| `rate_state_f0` | float | 0.6 | Reference friction |
-
-### Friction Laws
-
-| Value | Description |
-|-------|-------------|
-| `COULOMB` | Static/dynamic Coulomb |
-| `RATE_STATE_AGING` | RS with aging law |
-| `RATE_STATE_SLIP` | RS with slip law |
-| `SLIP_WEAKENING` | Linear slip weakening |
-
----
-
-## [BCn] Sections
-
-Boundary conditions.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `type` | enum | DIRICHLET | BC type |
-| `field` | enum | - | Field to apply (required) |
-| `location` | enum | - | Face/region (required) |
-| `value` | float | - | BC value |
-| `time_function` | string | - | Time-dependent function |
-
-### BC Types
-
-| Value | Description |
-|-------|-------------|
-| `DIRICHLET` | Fixed value |
-| `NEUMANN` | Fixed flux |
-| `ROBIN` | Mixed type |
-| `PERIODIC` | Periodic |
-
-### Fields
-
-| Value | Description |
-|-------|-------------|
-| `PRESSURE` | Pore pressure |
-| `TEMPERATURE` | Temperature |
-| `DISPLACEMENT` | Displacement |
-| `SATURATION` | Saturation |
-| `CONCENTRATION` | Species concentration |
-
-### Locations
-
-| Value | Description |
-|-------|-------------|
-| `XMIN` | Left face (X=0) |
-| `XMAX` | Right face (X=Lx) |
-| `YMIN` | Front face (Y=0) |
-| `YMAX` | Back face (Y=Ly) |
-| `ZMIN` | Bottom (Z=0) |
-| `ZMAX` | Top (Z=Lz) |
-| `ALL` | All boundaries |
-
----
-
-## [ICn] Sections
-
-Initial conditions.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `field` | enum | - | Field (required) |
-| `distribution` | enum | UNIFORM | Distribution type |
-| `value` | float | - | Base/uniform value |
-| `gradient` | array | - | Gradient (dx, dy, dz) |
-| `file` | string | - | Data file path |
-
-### Distribution Types
-
-| Value | Description |
-|-------|-------------|
-| `UNIFORM` | Constant value |
-| `GRADIENT` | Linear gradient |
-| `FUNCTION` | Analytic function |
-| `FILE` | From external file |
-
----
-
-## [DYNAMICS] Section
-
-Wave propagation and dynamics settings.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enable` | bool | false | Enable dynamics |
-| `wave_type` | enum | ELASTIC | Wave physics type |
-| `cfl_number` | float | 0.5 | CFL stability factor |
-| `absorbing_layers` | int | 10 | PML thickness (cells) |
-| `absorbing_strength` | float | 100.0 | PML damping coefficient |
-| `source_type` | enum | MOMENT_TENSOR | Source mechanism |
-| `source_location` | array | - | Source x, y, z (m) |
-| `source_time_function` | enum | RICKER | Source wavelet |
-| `source_frequency` | float | 10.0 | Peak frequency (Hz) |
-| `source_amplitude` | float | 1.0 | Source amplitude |
-| `dynamic_permeability` | bool | false | Perm changes with wave |
-| `permeability_model` | enum | - | Dynamic perm model |
-
-### Wave Types
-
-| Value | Description |
-|-------|-------------|
-| `ELASTIC` | Elastic wave propagation |
-| `POROELASTIC` | Biot's poroelastic waves |
-| `ACOUSTIC` | Acoustic (pressure only) |
-
-### Source Types
-
-| Value | Description |
-|-------|-------------|
-| `MOMENT_TENSOR` | Full moment tensor |
-| `POINT_FORCE` | Point force |
-| `EXPLOSIVE` | Isotropic expansion |
-| `DOUBLE_COUPLE` | Shear dislocation |
-
----
-
-## [SEISMICITY] Section
-
-Fault mechanics and induced seismicity.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enable` | bool | false | Enable seismicity |
-| `friction_law` | enum | COULOMB | Default friction |
-| `nucleation_size` | float | 1.0 | Critical patch (m) |
-| `seismic_slip_rate` | float | 1e-3 | Seismic threshold (m/s) |
-| `b_value` | float | 1.0 | Gutenberg-Richter b |
-| `aftershocks` | bool | true | Enable aftershocks |
-| `stress_transfer` | bool | true | Coulomb stress changes |
-| `max_magnitude` | float | 6.0 | Maximum allowed M |
-| `catalog_file` | string | - | Output catalog path |
-
----
-
-## [OUTPUT] Section
-
-Output configuration.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `format` | enum | VTK | Output format |
-| `path` | string | "output" | Output directory |
-| `frequency` | int | 1 | Output every N steps |
-| `time_interval` | float | - | Output time interval (s) |
-
-### Field Output Flags
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `pressure` | bool | true | Output pressure |
-| `displacement` | bool | false | Output displacement |
-| `velocity` | bool | false | Output velocity |
-| `stress` | bool | false | Output stress tensor |
-| `strain` | bool | false | Output strain tensor |
-| `permeability` | bool | false | Output permeability |
-| `temperature` | bool | false | Output temperature |
-| `saturation` | bool | false | Output saturation |
-| `fault_slip` | bool | false | Output fault slip |
-| `seismic_catalog` | bool | false | Write event catalog |
-
-### Output Formats
-
-| Value | Description |
-|-------|-------------|
-| `VTK` | VTK XML format (.vtu) |
-| `HDF5` | HDF5 format |
-| `ECLIPSE` | Eclipse restart format |
-| `ASCII` | Plain text |
-
----
-
-## Including Other Files
-
-Configuration files can include other files:
-
+| `model` | enum | ELASTIC | ELASTIC, POROELASTIC, VISCOELASTIC |
+| `E` | double | 30e9 | Young's modulus (Pa) |
+| `nu` | double | 0.25 | Poisson's ratio |
+| `density` | double | 2650 | Solid density (kg/m³) |
+| `biot_coefficient` | double | 0.8 | Biot coefficient |
+| `lambda` | double | - | Lamé's first parameter |
+| `mu` | double | - | Shear modulus |
+| `Vp` | double | - | P-wave velocity (m/s) |
+| `Vs` | double | - | S-wave velocity (m/s) |
+
+## Wells
+
+Define wells using numbered sections `[WELL1]`, `[WELL2]`, etc.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `name` | string | Well identifier |
+| `type` | enum | INJECTOR, PRODUCER |
+| `x`, `y`, `z` | double | Well location |
+| `i`, `j`, `k` | int | Well cell indices (alternative) |
+| `radius` | double | Wellbore radius |
+| `skin` | double | Skin factor |
+| `control_mode` | enum | RATE, BHP |
+| `target_value` | double | Rate (m³/s) or BHP (Pa) |
+| `fluid` | enum | OIL, WATER, GAS |
+| `perforation_start` | double | Top of perforation |
+| `perforation_end` | double | Bottom of perforation |
+
+Example:
 ```ini
-# Include another config
-@include "base_settings.config"
+[WELL1]
+name = INJECTOR-1
+type = INJECTOR
+x = 100.0
+y = 250.0
+z = -1500.0
+radius = 0.1
+control_mode = RATE
+target_value = 0.001
+fluid = WATER
 
-# Override specific values
-[SIMULATION]
-end_time = 86400.0
+[WELL2]
+name = PRODUCER-1
+type = PRODUCER
+x = 900.0
+y = 250.0
+z = -1500.0
+control_mode = BHP
+target_value = 10.0e6
+fluid = OIL
 ```
 
----
+## Boundary Conditions
 
-## Environment Variables
+Define BCs using numbered sections `[BC1]`, `[BC2]`, etc.
 
-Reference environment variables:
+| Key | Type | Description |
+|-----|------|-------------|
+| `type` | enum | DIRICHLET, NEUMANN, ROBIN |
+| `field` | enum | PRESSURE, TEMPERATURE, DISPLACEMENT, SATURATION |
+| `location` | string | XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX, or physical group name |
+| `value` | double | BC value |
+| `component` | int | Vector component (0=x, 1=y, 2=z) |
 
+Example:
+```ini
+[BC1]
+type = DIRICHLET
+field = PRESSURE
+location = XMIN
+value = 20.0e6
+
+[BC2]
+type = NEUMANN
+field = PRESSURE
+location = XMAX, YMIN, YMAX
+value = 0.0
+
+[BC3]
+type = DIRICHLET
+field = DISPLACEMENT
+location = ZMIN
+value = 0.0
+component = 2
+```
+
+## Initial Conditions
+
+Define ICs using numbered sections `[IC1]`, `[IC2]`, etc.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `field` | enum | PRESSURE, SATURATION_WATER, SATURATION_OIL, TEMPERATURE, etc. |
+| `type` | enum | CONSTANT, LINEAR, FUNCTION |
+| `value` | double | Constant value |
+| `gradient_x`, `gradient_y`, `gradient_z` | double | Gradient components |
+
+Example:
+```ini
+[IC1]
+field = PRESSURE
+type = CONSTANT
+value = 15.0e6
+
+[IC2]
+field = SATURATION_WATER
+type = CONSTANT
+value = 0.2
+
+[IC3]
+field = TEMPERATURE
+type = LINEAR
+value = 60.0           # At reference point
+gradient_z = 0.03      # 30°C/km geothermal gradient
+```
+
+## Solver Settings
+
+### [SOLVER]
+
+Linear and nonlinear solver configuration.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `linear_solver` | enum | GMRES | CG, GMRES, BICGSTAB, DIRECT |
+| `preconditioner` | enum | ILU | JACOBI, ILU, ASM, GAMG, HYPRE |
+| `max_linear_iterations` | int | 1000 | Max linear iterations |
+| `linear_tolerance` | double | 1e-8 | Linear solver tolerance |
+| `nonlinear_solver` | enum | NEWTON | NEWTON, PICARD |
+| `max_nonlinear_iterations` | int | 20 | Max Newton iterations |
+| `nonlinear_tolerance` | double | 1e-6 | Nonlinear tolerance |
+| `line_search` | bool | true | Enable line search |
+
+### [GPU]
+
+GPU acceleration settings.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enable` | bool | false | Enable GPU |
+| `device_id` | int | 0 | GPU device index |
+| `streams` | int | 4 | CUDA streams |
+
+## Output Settings
+
+### [OUTPUT]
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `format` | enum | VTK | VTK, HDF5, ECLIPSE |
+| `directory` | string | "output" | Output directory |
+| `prefix` | string | "solution" | File prefix |
+| `fields` | list | all | Fields to output |
+| `binary` | bool | true | Binary output |
+| `compression` | bool | false | Enable compression |
+
+Example:
 ```ini
 [OUTPUT]
-path = ${HOME}/simulations/output
+format = VTK
+directory = results
+prefix = reservoir_sim
+fields = PRESSURE, SATURATION, VELOCITY
+binary = true
 ```
 
----
+## Example Configurations
 
-## Generating Templates
+### Single-Phase Flow
 
-Generate a complete template with all options:
+```ini
+[SIMULATION]
+name = SinglePhaseReservoir
+type = RESERVOIR
+end_time = 86400
+output_frequency = 100
+
+[GRID]
+nx = 50
+ny = 50
+nz = 10
+Lx = 1000
+Ly = 500
+Lz = 50
+
+[FLUID]
+type = SINGLE_COMPONENT
+density = 800
+viscosity = 0.001
+compressibility = 5e-10
+
+[ROCK]
+porosity = 0.2
+permeability = 1e-13
+
+[WELL1]
+name = INJECTOR
+type = INJECTOR
+x = 100
+y = 250
+z = -25
+control_mode = RATE
+target_value = 0.001
+
+[WELL2]
+name = PRODUCER
+type = PRODUCER
+x = 900
+y = 250
+z = -25
+control_mode = BHP
+target_value = 10e6
+
+[BC1]
+type = NEUMANN
+field = PRESSURE
+location = XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX
+value = 0.0
+
+[IC1]
+field = PRESSURE
+type = CONSTANT
+value = 20e6
+
+[OUTPUT]
+format = VTK
+directory = output/single_phase
+```
+
+### Two-Phase Waterflooding
+
+See `/workspace/config/buckley_leverett_2d.config`
+
+### Coupled Flow-Geomechanics
+
+See `/workspace/config/coupled_reservoir_2d.config`
+
+### Unstructured Mesh with Coordinates
+
+See `/workspace/config/unstructured_gmsh_example.config`
+
+## Running Simulations
+
+All examples are driven by configuration files:
 
 ```bash
-fsrm -generate_config complete_template.config
+# Run with default config location
+./ex_config_driven config/my_simulation.config
+
+# Run specific examples
+./ex_buckley_leverett_2d config/buckley_leverett_2d.config
+./ex_coupled_reservoir_2d config/coupled_reservoir_2d.config
+./spe1 config/spe1_benchmark.config
+
+# Run in parallel
+mpirun -np 4 ./ex_config_driven config/large_simulation.config
 ```
 
-This creates a documented template with default values.
+## See Also
+
+- [Unstructured Meshes](UNSTRUCTURED_MESHES.md)
+- [Coordinate Systems](COORDINATE_SYSTEMS.md)
+- [Physics Models](PHYSICS.md)
