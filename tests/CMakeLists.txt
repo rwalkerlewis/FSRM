@@ -54,6 +54,9 @@ set(PERFORMANCE_TEST_SOURCES
     performance/test_thermal_eor_benchmarks.cpp
     performance/test_solver_convergence_benchmarks.cpp
     performance/test_welltest_benchmarks.cpp
+    performance/test_explosion_source_benchmarks.cpp
+    performance/test_uncertainty_quantification_benchmarks.cpp
+    performance/test_machine_learning_benchmarks.cpp
 )
 
 # Legacy Tests (kept for backward compatibility)
@@ -242,6 +245,12 @@ if(GTest_FOUND)
         COMMAND run_performance_tests --gtest_filter=SolverConvergenceBenchmark.*)
     add_test(NAME Performance.WellTest
         COMMAND run_performance_tests --gtest_filter=WellTestBenchmark.*)
+    add_test(NAME Performance.ExplosionSource
+        COMMAND run_performance_tests --gtest_filter=ExplosionSourceBenchmark.*)
+    add_test(NAME Performance.UncertaintyQuantification
+        COMMAND run_performance_tests --gtest_filter=UncertaintyQuantificationBenchmark.*)
+    add_test(NAME Performance.MachineLearning
+        COMMAND run_performance_tests --gtest_filter=MachineLearningBenchmark.*)
     
     # ============================================================================
     # Set Test Properties (Timeouts, Labels)
@@ -337,6 +346,26 @@ if(GTest_FOUND)
         PROPERTIES 
             TIMEOUT 600
             LABELS "performance"
+    )
+    
+    # Advanced benchmarks - UQ and ML may take longer
+    set_tests_properties(
+        Performance.ExplosionSource
+        PROPERTIES 
+            TIMEOUT 300
+            LABELS "performance;explosion;seismic"
+    )
+    set_tests_properties(
+        Performance.UncertaintyQuantification
+        PROPERTIES 
+            TIMEOUT 900
+            LABELS "performance;uq;stochastic"
+    )
+    set_tests_properties(
+        Performance.MachineLearning
+        PROPERTIES 
+            TIMEOUT 900
+            LABELS "performance;ml;ai"
     )
     
 else()
