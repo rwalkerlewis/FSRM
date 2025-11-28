@@ -16,6 +16,13 @@ set(UNIT_TEST_SOURCES
     unit/test_eclipse_io.cpp
     unit/test_fluid_model.cpp
     unit/test_material_model.cpp
+    unit/test_discontinuous_galerkin.cpp
+    unit/test_seismic_source.cpp
+    unit/test_boundary_conditions.cpp
+    unit/test_plasticity_model.cpp
+    unit/test_viscoelastic_attenuation.cpp
+    unit/test_friction_laws.cpp
+    unit/test_fourier_neural_operator.cpp
 )
 
 # Functional Tests - Test features working correctly
@@ -38,6 +45,7 @@ set(PHYSICS_TEST_SOURCES
 set(INTEGRATION_TEST_SOURCES
     integration/test_full_simulation.cpp
     integration/test_restart.cpp
+    integration/test_scec_tpv_benchmarks.cpp
 )
 
 # Performance Tests - Benchmarks and scaling tests
@@ -193,6 +201,20 @@ if(GTest_FOUND)
         COMMAND run_unit_tests --gtest_filter=FluidModelTest.*)
     add_test(NAME Unit.MaterialModel
         COMMAND run_unit_tests --gtest_filter=MaterialModelTest.*)
+    add_test(NAME Unit.DiscontinuousGalerkin
+        COMMAND run_unit_tests --gtest_filter=*DG*.*)
+    add_test(NAME Unit.SeismicSource
+        COMMAND run_unit_tests --gtest_filter=*SeismicSource*.*:*MomentTensor*.*:*Receiver*.*)
+    add_test(NAME Unit.BoundaryConditions
+        COMMAND run_unit_tests --gtest_filter=*BoundaryCondition*.*)
+    add_test(NAME Unit.PlasticityModel
+        COMMAND run_unit_tests --gtest_filter=*Plasticity*.*:*DruckerPrager*.*:*VonMises*.*)
+    add_test(NAME Unit.ViscoelasticAttenuation
+        COMMAND run_unit_tests --gtest_filter=*Viscoelastic*.*:*Attenuation*.*)
+    add_test(NAME Unit.FrictionLaws
+        COMMAND run_unit_tests --gtest_filter=*Friction*.*:*RateState*.*)
+    add_test(NAME Unit.FourierNeuralOperator
+        COMMAND run_unit_tests --gtest_filter=*FNO*.*:*Tensor*.*:*FFT*.*)
     
     # Functional tests
     add_test(NAME Functional.SimulatorInit 
@@ -219,6 +241,8 @@ if(GTest_FOUND)
         COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
     add_test(NAME Integration.Restart 
         COMMAND run_integration_tests --gtest_filter=RestartTest.*)
+    add_test(NAME Integration.SCEC_TPV
+        COMMAND run_integration_tests --gtest_filter=*TPV*.*:*LOH*.*)
     
     # Performance tests
     add_test(NAME Performance.Benchmarks 
@@ -265,6 +289,13 @@ if(GTest_FOUND)
         Unit.EclipseIO
         Unit.FluidModel
         Unit.MaterialModel
+        Unit.DiscontinuousGalerkin
+        Unit.SeismicSource
+        Unit.BoundaryConditions
+        Unit.PlasticityModel
+        Unit.ViscoelasticAttenuation
+        Unit.FrictionLaws
+        Unit.FourierNeuralOperator
         PROPERTIES 
             TIMEOUT 60
             LABELS "unit;quick"
@@ -296,6 +327,7 @@ if(GTest_FOUND)
     set_tests_properties(
         Integration.FullSimulation
         Integration.Restart
+        Integration.SCEC_TPV
         PROPERTIES 
             TIMEOUT 600
             LABELS "integration;slow"
