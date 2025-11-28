@@ -22,6 +22,7 @@ set(UNIT_TEST_SOURCES
     unit/test_plasticity_model.cpp
     unit/test_viscoelastic_attenuation.cpp
     unit/test_friction_laws.cpp
+    unit/test_fourier_neural_operator.cpp
 )
 
 # Functional Tests - Test features working correctly
@@ -212,6 +213,8 @@ if(GTest_FOUND)
         COMMAND run_unit_tests --gtest_filter=*Viscoelastic*.*:*Attenuation*.*)
     add_test(NAME Unit.FrictionLaws
         COMMAND run_unit_tests --gtest_filter=*Friction*.*:*RateState*.*)
+    add_test(NAME Unit.FourierNeuralOperator
+        COMMAND run_unit_tests --gtest_filter=*FNO*.*:*Tensor*.*:*FFT*.*)
     
     # Functional tests
     add_test(NAME Functional.SimulatorInit 
@@ -292,6 +295,7 @@ if(GTest_FOUND)
         Unit.PlasticityModel
         Unit.ViscoelasticAttenuation
         Unit.FrictionLaws
+        Unit.FourierNeuralOperator
         PROPERTIES 
             TIMEOUT 60
             LABELS "unit;quick"

@@ -30,10 +30,20 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - **Off-fault Plasticity**: Drucker-Prager, von Mises, Mohr-Coulomb, Cap models
 - **Viscoelastic Attenuation**: Multi-mechanism Q-factor modeling
 
+### Machine Learning Solvers
+- **Fourier Neural Operator (FNO)**: Neural network-based PDE solver
+  - 100-1000x faster inference after training
+  - Mesh-independent learning
+  - Multiple solver modes: Pure FNO, Hybrid, Ensemble
+  - Physics-informed training options
+  - GPU-accelerated training and inference
+  - Pre-trained model loading/saving
+
 ### Key Capabilities
 - Fully coupled multi-physics (THM - Thermo-Hydro-Mechanical)
 - Eclipse format I/O (DATA files)
 - **Configuration-driven simulations** - no C++ coding required
+- **Solver method selection**: Numerical, FNO, or Hybrid modes
 - Structured and unstructured grids (Gmsh, Corner-Point, Exodus)
 - **EPSG coordinate systems** with PROJ library integration
 - Advanced well models (vertical, horizontal, multilateral)
@@ -252,6 +262,21 @@ gradient = 0, 0, 10000    # Hydrostatic
 mpirun -np 4 fsrm -c my_simulation.config
 ```
 
+**FNO (Neural Operator) execution**:
+```bash
+# Pure FNO solver (requires trained model)
+fsrm -c my_simulation.config --solver-method fno
+
+# Hybrid: FNO prediction + numerical refinement
+fsrm -c my_simulation.config --solver-method hybrid_refine
+
+# Ensemble: Weighted average of FNO and numerical
+fsrm -c my_simulation.config --solver-method ensemble
+
+# Train FNO from scratch
+fsrm -c my_simulation.config --train-fno --fno-epochs 100
+```
+
 **GPU execution**:
 ```bash
 # Single GPU
@@ -366,6 +391,33 @@ porosity = 0.05
 permeability_x = 0.001
 ```
 
+### [FNO] - Fourier Neural Operator Settings
+Configure the neural network-based solver:
+```ini
+[FNO]
+enabled = true
+input_channels = 3          # Number of input fields
+output_channels = 3         # Number of output fields  
+hidden_channels = 64        # Network width
+num_layers = 4              # Number of FNO layers
+num_modes = 16              # Fourier modes to keep
+activation = gelu           # gelu, relu, tanh, silu
+
+[FNO_TRAINING]
+learning_rate = 1e-3
+batch_size = 16
+epochs = 100
+early_stopping = true
+
+[FNO_MODEL]
+model_path = models/fno_trained.bin
+load_pretrained = true
+
+[FNO_HYBRID]
+ensemble_weight = 0.8       # FNO weight in ensemble mode
+refinement_iterations = 3   # Numerical refinement steps
+```
+
 ## Examples
 
 All examples are **configuration-driven** - no C++ coding required to run simulations. Each example simply loads a configuration file and executes the simulation.
@@ -386,6 +438,7 @@ Configuration files define all simulation parameters:
 | `config/geothermal.config` | Enhanced geothermal system |
 | `config/induced_seismicity.config` | Fault reactivation |
 | `config/co2_storage.config` | CO₂ geological storage |
+| `config/fno_solver.config` | FNO neural operator solver |
 
 ### Example Executables
 
@@ -459,6 +512,7 @@ cd build
 ./tests/unit/test_plasticity_model           # Plasticity tests
 ./tests/unit/test_viscoelastic_attenuation   # Attenuation tests
 ./tests/unit/test_friction_laws              # Friction law tests
+./tests/unit/test_fourier_neural_operator    # FNO solver tests
 ```
 
 ### Integration Tests
@@ -722,6 +776,7 @@ Complete documentation is available in the `docs/` directory:
   - [Coordinate Systems](docs/COORDINATE_SYSTEMS.md) - Geographic transformations
   - [Unstructured Meshes](docs/UNSTRUCTURED_MESHES.md) - Gmsh integration
   - [SeisSol Comparison](docs/SEISSOL_COMPARISON.md) - Earthquake simulator comparison
+  - [Fourier Neural Operator](docs/FOURIER_NEURAL_OPERATOR.md) - Neural network solver guide
 
 ## Support
 
