@@ -44,6 +44,19 @@ set(INTEGRATION_TEST_SOURCES
 set(PERFORMANCE_TEST_SOURCES
     performance/test_benchmarks.cpp
     performance/test_scaling.cpp
+    performance/test_physics_benchmarks.cpp
+    performance/test_gpu_benchmarks.cpp
+    performance/test_memory_io_benchmarks.cpp
+    performance/test_scenario_benchmarks.cpp
+    performance/test_scec_benchmarks.cpp
+    performance/test_analytical_benchmarks.cpp
+    performance/test_multiphase_benchmarks.cpp
+    performance/test_thermal_eor_benchmarks.cpp
+    performance/test_solver_convergence_benchmarks.cpp
+    performance/test_welltest_benchmarks.cpp
+    performance/test_explosion_source_benchmarks.cpp
+    performance/test_uncertainty_quantification_benchmarks.cpp
+    performance/test_machine_learning_benchmarks.cpp
 )
 
 # Legacy Tests (kept for backward compatibility)
@@ -212,6 +225,32 @@ if(GTest_FOUND)
         COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
     add_test(NAME Performance.Scaling 
         COMMAND run_performance_tests --gtest_filter=ScalingTest.*)
+    add_test(NAME Performance.PhysicsBenchmarks
+        COMMAND run_performance_tests --gtest_filter=PhysicsBenchmark.*)
+    add_test(NAME Performance.GPUBenchmarks
+        COMMAND run_performance_tests --gtest_filter=GPUBenchmark.*)
+    add_test(NAME Performance.MemoryIO
+        COMMAND run_performance_tests --gtest_filter=MemoryIOBenchmark.*)
+    add_test(NAME Performance.Scenarios
+        COMMAND run_performance_tests --gtest_filter=ScenarioBenchmark.*)
+    add_test(NAME Performance.SCEC
+        COMMAND run_performance_tests --gtest_filter=SCECBenchmark.*)
+    add_test(NAME Performance.Analytical
+        COMMAND run_performance_tests --gtest_filter=AnalyticalBenchmark.*)
+    add_test(NAME Performance.Multiphase
+        COMMAND run_performance_tests --gtest_filter=MultiphaseBenchmark.*)
+    add_test(NAME Performance.ThermalEOR
+        COMMAND run_performance_tests --gtest_filter=ThermalEORBenchmark.*)
+    add_test(NAME Performance.SolverConvergence
+        COMMAND run_performance_tests --gtest_filter=SolverConvergenceBenchmark.*)
+    add_test(NAME Performance.WellTest
+        COMMAND run_performance_tests --gtest_filter=WellTestBenchmark.*)
+    add_test(NAME Performance.ExplosionSource
+        COMMAND run_performance_tests --gtest_filter=ExplosionSourceBenchmark.*)
+    add_test(NAME Performance.UncertaintyQuantification
+        COMMAND run_performance_tests --gtest_filter=UncertaintyQuantificationBenchmark.*)
+    add_test(NAME Performance.MachineLearning
+        COMMAND run_performance_tests --gtest_filter=MachineLearningBenchmark.*)
     
     # ============================================================================
     # Set Test Properties (Timeouts, Labels)
@@ -266,9 +305,67 @@ if(GTest_FOUND)
     set_tests_properties(
         Performance.Benchmarks
         Performance.Scaling
+        Performance.PhysicsBenchmarks
+        Performance.MemoryIO
         PROPERTIES 
             TIMEOUT 900
             LABELS "performance;slow"
+    )
+    
+    # GPU benchmarks - require GPU
+    set_tests_properties(
+        Performance.GPUBenchmarks
+        PROPERTIES 
+            TIMEOUT 1200
+            LABELS "performance;gpu;slow"
+    )
+    
+    # Scenario benchmarks - very long running
+    set_tests_properties(
+        Performance.Scenarios
+        PROPERTIES 
+            TIMEOUT 1800
+            LABELS "performance;scenario;slow"
+    )
+    
+    # SCEC benchmarks - moderate time
+    set_tests_properties(
+        Performance.SCEC
+        PROPERTIES 
+            TIMEOUT 900
+            LABELS "performance;scec;earthquake"
+    )
+    
+    # Additional performance benchmarks - moderate time
+    set_tests_properties(
+        Performance.Analytical
+        Performance.Multiphase
+        Performance.ThermalEOR
+        Performance.SolverConvergence
+        Performance.WellTest
+        PROPERTIES 
+            TIMEOUT 600
+            LABELS "performance"
+    )
+    
+    # Advanced benchmarks - UQ and ML may take longer
+    set_tests_properties(
+        Performance.ExplosionSource
+        PROPERTIES 
+            TIMEOUT 300
+            LABELS "performance;explosion;seismic"
+    )
+    set_tests_properties(
+        Performance.UncertaintyQuantification
+        PROPERTIES 
+            TIMEOUT 900
+            LABELS "performance;uq;stochastic"
+    )
+    set_tests_properties(
+        Performance.MachineLearning
+        PROPERTIES 
+            TIMEOUT 900
+            LABELS "performance;ml;ai"
     )
     
 else()

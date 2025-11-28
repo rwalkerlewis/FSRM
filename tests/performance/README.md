@@ -1,0 +1,477 @@
+# FSRM Performance Benchmarks
+
+This directory contains comprehensive performance benchmarks for the FSRM reservoir simulator.
+
+## Overview
+
+The benchmark suite tests performance across multiple dimensions:
+
+### 1. **Kernel Benchmarks** (`test_benchmarks.cpp`)
+- Single-phase flow kernel performance
+- Geomechanics kernel performance
+- Mathematical operations (matrix-vector multiply, Lame parameters)
+- Wave speed calculations
+- Memory access patterns
+- DOF counting
+
+### 2. **Physics Benchmarks** (`test_physics_benchmarks.cpp`)
+- **Poroelasticity**: Biot coefficient, coupled flow-mechanics
+- **Fracture Mechanics**: Stress intensity factors, crack propagation
+- **Wave Propagation**: Elastic waves, poroelastic waves
+- **Two-Phase Flow**: Relative permeability, capillary pressure
+- **Thermal**: Heat diffusion
+- **Grid Size Scalability**: Performance vs problem size
+
+### 3. **GPU Benchmarks** (`test_gpu_benchmarks.cpp`)
+- Memory bandwidth (host-device, device-host)
+- Kernel performance (vector operations, physics kernels)
+- CPU vs GPU speedup comparisons
+- GPU strong scaling
+- Single-phase and poroelastic kernels on GPU
+
+### 4. **Memory & I/O Benchmarks** (`test_memory_io_benchmarks.cpp`)
+- Memory allocation/deallocation
+- Vector reallocation strategies
+- Cache performance (stride patterns, matrix access)
+- Binary file I/O
+- HDF5 I/O performance
+- Memory bandwidth (copy, STREAM triad)
+
+### 5. **Parallel Scaling** (`test_scaling.cpp`)
+- MPI operations (broadcast, reduce, allreduce)
+- Domain decomposition
+- Load balancing
+- Communication overhead
+- Global reduction performance
+
+### 6. **Scenario Benchmarks** (`test_scenario_benchmarks.cpp`)
+Real-world simulation scenarios:
+- **Hydraulic Fracturing**: Small (4k cells) and Medium (50k cells)
+- **Geothermal Systems**: THM coupling (27k cells)
+- **CO2 Storage**: Two-phase flow (32k cells)
+- **Wave Propagation**: Elastodynamics (125k cells)
+- **Parallel Scaling**: Strong scaling tests
+- **Problem Size Scaling**: Weak scaling tests
+
+### 7. **Analytical Solution Benchmarks** (`test_analytical_benchmarks.cpp`)
+Verification against analytical solutions:
+- **Theis Solution**: Radial flow to well (transient pressure)
+- **Mandel-Cryer Effect**: Poroelastic consolidation with overpressure
+- **Terzaghi Consolidation**: 1D vertical consolidation
+- **Buckley-Leverett**: Two-phase immiscible displacement
+- **Heat Conduction**: 1D thermal diffusion (error function solution)
+- **Performance Comparison**: Analytical vs numerical evaluation speed
+
+### 8. **Multiphase Flow Benchmarks** (`test_multiphase_benchmarks.cpp`)
+Advanced multiphase flow phenomena:
+- **Gravity Segregation**: Oil-water separation by density
+- **Counter-Current Imbibition**: Spontaneous capillary imbibition
+- **Viscous Fingering**: Saffman-Taylor instability analysis
+- **Three-Phase Relative Permeability**: Stone's Model II
+- **Capillary Pressure Hysteresis**: Drainage vs imbibition curves
+- **Rel Perm Models**: Corey, Brooks-Corey, LET, van Genuchten comparison
+- **Saturation Front Tracking**: Method of characteristics
+- **Fractional Flow Analysis**: Mobility ratio effects
+
+### 9. **Thermal & EOR Benchmarks** (`test_thermal_eor_benchmarks.cpp`)
+Enhanced oil recovery and thermal processes:
+- **Steam Flooding**: Marx-Langenheim analytical solution
+- **SAGD Performance**: Butler's theory for gravity drainage
+- **Cyclic Steam Stimulation**: Huff-and-puff cycles
+- **In-Situ Combustion**: Front propagation
+- **Polymer Flooding**: Viscosity models (Flory-Huggins, Carreau, Power-law)
+- **Surfactant Flooding**: IFT reduction and capillary number
+- **CO2 Flooding**: Minimum miscibility pressure (MMP)
+- **Thermal Conductivity**: Effective properties in porous media
+
+### 10. **Solver & Convergence Benchmarks** (`test_solver_convergence_benchmarks.cpp`)
+Numerical methods analysis:
+- **Linear Solvers**: Jacobi vs Gauss-Seidel comparison
+- **Preconditioners**: Jacobi, ILU, AMG performance
+- **Mesh Convergence**: Spatial discretization error analysis
+- **Time Step Convergence**: Temporal discretization error
+- **Newton-Raphson**: Nonlinear solver convergence rates
+- **Iterative Solver Scaling**: Performance vs problem size
+
+### 11. **Well Test Analysis Benchmarks** (`test_welltest_benchmarks.cpp`)
+Pressure transient analysis:
+- **Pressure Drawdown**: Flow regime identification
+- **Pressure Buildup**: Horner plot analysis
+- **Wellbore Storage & Skin**: Productivity index effects
+- **Reservoir Boundaries**: No-flow and constant pressure boundaries
+- **Interference Testing**: Multi-well response
+- **Type Curve Matching**: Infinite, closed, constant pressure
+- **Fractured Wells**: Hydraulic fracture performance
+
+## Industry-Standard Benchmarks
+
+### SPE Benchmarks
+
+Society of Petroleum Engineers (SPE) benchmarks for reservoir simulation:
+
+### SPE1 (`../examples/spe1.cpp`)
+- **Problem**: 3-phase black oil with gas dissolution
+- **Grid**: 10×10×3 (300 cells)
+- **Purpose**: Validation of black oil formulation
+- **Reference**: Odeh (1981)
+
+### SPE3 (`../examples/spe3.cpp`)
+- **Problem**: Gas cycling of retrograde condensate
+- **Grid**: 9×9×4 (324 cells)
+- **Purpose**: Compositional modeling with 4 components
+- **Reference**: Kenyon & Behie (1987)
+
+### SPE9 (`../examples/spe9.cpp`)
+- **Problem**: North Sea reservoir model
+- **Grid**: 24×25×15 (9,000 cells)
+- **Purpose**: Complex heterogeneous black oil simulation
+- **Reference**: Killough (1995)
+
+### SPE10 (`../examples/spe10.cpp`)
+- **Problem**: Large-scale heterogeneous reservoir
+- **Grid**: 60×220×85 (1.1 million cells)
+- **Purpose**: Scalability with extreme permeability variations
+- **Reference**: Christie & Blunt (2001)
+
+### SCEC Benchmarks
+
+Southern California Earthquake Center (SCEC) benchmarks for earthquake/seismicity:
+
+#### TPV5 (`../examples/scec_tpv5.cpp`)
+- **Problem**: Strike-slip dynamic rupture
+- **Grid**: 192×192×96 (48×48×24 km domain)
+- **Purpose**: Validate spontaneous rupture propagation
+- **Reference**: Harris et al. (2009)
+
+#### TPV10 (`../examples/scec_tpv10.cpp`)
+- **Problem**: Branching fault dynamic rupture
+- **Grid**: 192×192×96 with refinement
+- **Purpose**: Test complex fault geometry
+- **Reference**: Harris et al. (2009)
+
+#### TPV16 (`../examples/scec_tpv16.cpp`)
+- **Problem**: Rough fault surface
+- **Grid**: 240×240×120 (high resolution)
+- **Purpose**: Geometric complexity effects
+- **Reference**: Dunham et al. (2011)
+
+#### LOH.1 (`../examples/scec_loh1.cpp`)
+- **Problem**: Layer over halfspace wave propagation
+- **Grid**: 150×150×85 (30×30×17 km domain)
+- **Purpose**: Verify wave propagation accuracy
+- **Reference**: Olsen et al. (2006)
+
+## Running Benchmarks
+
+### Quick Start
+
+```bash
+# Run all benchmarks with default settings (4 processes)
+cd tests
+./run_benchmarks.sh
+
+# Run specific benchmark categories
+./run_benchmarks.sh --kernel      # Kernel benchmarks only
+./run_benchmarks.sh --physics     # Physics benchmarks only
+./run_benchmarks.sh --gpu         # GPU benchmarks only
+./run_benchmarks.sh --memory      # Memory/IO benchmarks only
+./run_benchmarks.sh --scaling     # Parallel scaling tests
+./run_benchmarks.sh --scenario    # Scenario benchmarks (long)
+./run_benchmarks.sh --spe         # SPE benchmarks (very long)
+./run_benchmarks.sh --scec        # SCEC benchmarks
+
+# Run NEW benchmark categories
+./run_benchmarks.sh --analytical  # Analytical solution benchmarks
+./run_benchmarks.sh --multiphase  # Multiphase flow benchmarks
+./run_benchmarks.sh --thermal     # Thermal & EOR benchmarks
+./run_benchmarks.sh --solver      # Solver & convergence benchmarks
+./run_benchmarks.sh --welltest    # Well test analysis benchmarks
+
+# Specify number of MPI processes
+./run_benchmarks.sh --physics -n 8
+./run_benchmarks.sh --scec -n 16  # SCEC benchmarks need more cores
+
+# Verbose output
+./run_benchmarks.sh --kernel -v
+
+# Custom output directory
+./run_benchmarks.sh -o my_results
+```
+
+### Using CTest
+
+```bash
+cd build
+
+# Run all performance tests
+ctest -L performance
+
+# Run specific test categories
+ctest -R "Performance.Benchmarks"
+ctest -R "Performance.PhysicsBenchmarks"
+ctest -R "Performance.GPUBenchmarks"
+ctest -R "Performance.MemoryIO"
+ctest -R "Performance.Scenarios"
+ctest -R "Performance.SCEC"
+ctest -R "Performance.Analytical"
+ctest -R "Performance.Multiphase"
+ctest -R "Performance.ThermalEOR"
+ctest -R "Performance.SolverConvergence"
+ctest -R "Performance.WellTest"
+
+# Run with verbose output
+ctest -L performance -V
+
+# Run only GPU benchmarks
+ctest -L gpu
+```
+
+### Direct Execution
+
+```bash
+cd build/tests
+
+# Run all performance tests
+mpirun -np 4 ./run_performance_tests
+
+# Run specific benchmark groups
+mpirun -np 4 ./run_performance_tests --gtest_filter=BenchmarkTest.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=PhysicsBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=GPUBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=MemoryIOBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=ScalingTest.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=ScenarioBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=SCECBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=AnalyticalBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=MultiphaseBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=ThermalEORBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=SolverConvergenceBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=WellTestBenchmark.*
+```
+
+### Running Industry Benchmarks
+
+```bash
+cd build/examples
+
+# SPE Benchmarks (Reservoir Flow)
+mpirun -np 4 ./spe1 -c config/spe1_benchmark.config      # SPE1
+mpirun -np 4 ./spe3 -c config/spe3_benchmark.config      # SPE3
+mpirun -np 8 ./spe9 -c config/spe9_benchmark.config      # SPE9
+mpirun -np 32 ./spe10 -c config/spe10_benchmark.config   # SPE10
+
+# SCEC Benchmarks (Earthquake Physics)
+mpirun -np 8 ./scec_tpv5 -c config/scec_tpv5.config      # TPV5
+mpirun -np 16 ./scec_tpv10 -c config/scec_tpv10.config   # TPV10
+mpirun -np 16 ./scec_tpv16 -c config/scec_tpv16.config   # TPV16
+mpirun -np 8 ./scec_loh1 -c config/scec_loh1.config      # LOH.1
+```
+
+## Expected Performance
+
+### Kernel Performance (typical workstation)
+| Kernel | Time per eval | Throughput |
+|--------|--------------|------------|
+| Single-phase flow | ~10-50 μs | 20k-100k eval/s |
+| Geomechanics | ~20-80 μs | 12k-50k eval/s |
+| Poroelasticity | ~50-200 μs | 5k-20k eval/s |
+| Friction laws | ~100-1000 ns | 1-10M eval/s |
+| Stress rotation | ~500 ns | > 1M rotations/s |
+| Exponential integral | ~1-10 μs | 100k-1M eval/s |
+
+### GPU Speedup (NVIDIA A100)
+| Physics Model | CPU Time | GPU Time | Speedup |
+|--------------|----------|----------|---------|
+| Single-phase | 100 ms | 5 ms | 20x |
+| Elastodynamics | 200 ms | 5 ms | 40x |
+| Poroelasticity | 300 ms | 15 ms | 20x |
+
+### Memory Bandwidth
+| Operation | Expected Performance |
+|-----------|---------------------|
+| Memory copy | 10-50 GB/s |
+| STREAM triad | 10-40 GB/s |
+| GPU memory (H2D) | 10-15 GB/s |
+| GPU memory (D2H) | 10-15 GB/s |
+
+### Parallel Scaling Efficiency
+| Processes | Expected Efficiency |
+|-----------|-------------------|
+| 1-4 | > 90% |
+| 4-16 | > 80% |
+| 16-64 | > 70% |
+| 64-256 | > 60% |
+
+## Interpreting Results
+
+### Kernel Benchmarks
+- **Time per eval**: Lower is better
+- **Typical values**: 10-200 μs depending on complexity
+- **Watch for**: Significant increases may indicate optimization opportunities
+
+### GPU Benchmarks
+- **Speedup**: GPU time / CPU time
+- **Good speedup**: > 10x for large problems
+- **Poor speedup**: < 2x may indicate:
+  - Problem too small
+  - Memory bandwidth limited
+  - Excessive data transfer
+
+### Memory Benchmarks
+- **Cache performance**: Row-major should be faster than column-major
+- **Memory bandwidth**: Compare to theoretical peak (check specs)
+- **I/O performance**: 
+  - HDF5: 100-500 MB/s typical
+  - Binary: 200-1000 MB/s typical
+
+### Scaling Benchmarks
+- **Parallel efficiency** = (Speedup / # processes)
+- **Good efficiency**: > 80%
+- **Poor efficiency**: < 50% indicates:
+  - Communication overhead
+  - Load imbalance
+  - Serial bottlenecks
+
+## Benchmark Configuration
+
+Benchmarks can be configured through:
+
+1. **Command-line options** (via run_benchmarks.sh)
+2. **Environment variables**:
+   ```bash
+   export OMP_NUM_THREADS=8       # OpenMP threads
+   export CUDA_VISIBLE_DEVICES=0  # GPU device selection
+   ```
+3. **Config files** (for scenario benchmarks)
+
+## Output Files
+
+Benchmark results are saved to `benchmark_results/` directory:
+
+```
+benchmark_results/
+├── kernel_benchmarks_YYYYMMDD_HHMMSS.log
+├── physics_benchmarks_YYYYMMDD_HHMMSS.log
+├── gpu_benchmarks_YYYYMMDD_HHMMSS.log
+├── memory_io_benchmarks_YYYYMMDD_HHMMSS.log
+├── scaling_tests_YYYYMMDD_HHMMSS.log
+├── scenario_benchmarks_YYYYMMDD_HHMMSS.log
+├── scec_benchmarks_YYYYMMDD_HHMMSS.log
+├── analytical_benchmarks_YYYYMMDD_HHMMSS.log
+├── multiphase_benchmarks_YYYYMMDD_HHMMSS.log
+├── thermal_eor_benchmarks_YYYYMMDD_HHMMSS.log
+├── solver_convergence_benchmarks_YYYYMMDD_HHMMSS.log
+├── welltest_benchmarks_YYYYMMDD_HHMMSS.log
+├── spe1_YYYYMMDD_HHMMSS.log
+├── spe3_YYYYMMDD_HHMMSS.log
+├── spe9_YYYYMMDD_HHMMSS.log
+├── spe10_YYYYMMDD_HHMMSS.log
+├── scec_tpv5_YYYYMMDD_HHMMSS.log
+├── scec_tpv10_YYYYMMDD_HHMMSS.log
+├── scec_tpv16_YYYYMMDD_HHMMSS.log
+├── scec_loh1_YYYYMMDD_HHMMSS.log
+└── summary_YYYYMMDD_HHMMSS.txt
+```
+
+## Troubleshooting
+
+### GPU benchmarks fail
+- **Check**: `nvidia-smi` shows GPU
+- **Solution**: Rebuild with `-DENABLE_CUDA=ON`
+
+### MPI errors
+- **Check**: Proper MPI installation
+- **Solution**: Verify with `mpirun --version`
+
+### Out of memory
+- **For SPE10**: Use >= 32 GB RAM
+- **Solution**: Reduce problem size or use more processes
+
+### Poor performance
+1. Check CPU frequency scaling
+2. Disable turbo boost for consistent results
+3. Run on dedicated node (no other jobs)
+4. Check for thermal throttling
+
+## Performance Regression Testing
+
+To track performance over time:
+
+```bash
+# Run benchmarks and save results
+./run_benchmarks.sh -o results_v1.0
+./run_benchmarks.sh -o results_v1.1
+
+# Compare results
+diff results_v1.0/summary_*.txt results_v1.1/summary_*.txt
+```
+
+## Contributing
+
+When adding new benchmarks:
+
+1. Add test to appropriate file (or create new file)
+2. Update CMakeLists.txt
+3. Update this README
+4. Verify with `./run_benchmarks.sh`
+5. Document expected performance
+
+## Benchmark Summary Statistics
+
+### Total Benchmarks: 100+
+
+| Category | Test File | Number of Benchmarks | Runtime |
+|----------|-----------|---------------------|---------|
+| Kernel | test_benchmarks.cpp | 6 | 1-2 min |
+| Physics | test_physics_benchmarks.cpp | 13 | 2-5 min |
+| GPU | test_gpu_benchmarks.cpp | 7 | 2-3 min |
+| Memory/IO | test_memory_io_benchmarks.cpp | 8 | 2-3 min |
+| Scaling | test_scaling.cpp | 6 | 1-2 min |
+| Scenarios | test_scenario_benchmarks.cpp | 7 | 1-2 hrs |
+| SCEC | test_scec_benchmarks.cpp | 9 | 1-2 min |
+| Analytical | test_analytical_benchmarks.cpp | 7 | 2-3 min |
+| Multiphase | test_multiphase_benchmarks.cpp | 8 | 2-4 min |
+| Thermal/EOR | test_thermal_eor_benchmarks.cpp | 8 | 2-3 min |
+| Solver/Conv | test_solver_convergence_benchmarks.cpp | 6 | 2-3 min |
+| Well Test | test_welltest_benchmarks.cpp | 7 | 2-3 min |
+| **Micro-benchmarks** | **12 files** | **92 tests** | **~30 min** |
+| SPE | 4 executables | 4 benchmarks | 5-15 hrs |
+| SCEC | 4 executables | 4 benchmarks | 5-15 hrs |
+| **Industry standards** | **8 executables** | **8 benchmarks** | **10-30 hrs** |
+| **GRAND TOTAL** | **20 files** | **100+ benchmarks** | **~30 hrs** |
+
+## References
+
+### SPE Benchmarks
+- **SPE1**: Odeh, A.S., JPT (1981)
+- **SPE3**: Kenyon & Behie, JPT (1987)
+- **SPE9**: Killough, SPE 29110 (1995)
+- **SPE10**: Christie & Blunt, SPE 66599 (2001)
+
+### SCEC Benchmarks
+- **TPV5, TPV10, TPV16**: Harris et al., Seismological Research Letters (2009)
+- **LOH.1**: Olsen et al., BSSA (2006)
+
+### Analytical Solutions
+- **Theis**: Theis, C.V., Trans. AGU (1935)
+- **Mandel-Cryer**: Mandel, J., Géotechnique (1953)
+- **Terzaghi**: Terzaghi, K., Theoretical Soil Mechanics (1943)
+- **Buckley-Leverett**: Buckley & Leverett, Trans. AIME (1942)
+
+### EOR Methods
+- **Marx-Langenheim**: Marx & Langenheim, Trans. AIME (1959)
+- **Butler (SAGD)**: Butler, R.M., JPT (1981)
+- **Stone's Model**: Stone, H.L., SPE Journal (1970)
+
+### Computational
+- **STREAM**: McCalpin, https://www.cs.virginia.edu/stream/
+
+## Support
+
+For issues or questions about benchmarks:
+- Check existing documentation
+- Review log files in benchmark_results/
+- Open GitHub issue with:
+  - System specifications
+  - Benchmark command used
+  - Complete log file
