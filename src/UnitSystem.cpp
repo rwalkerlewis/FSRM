@@ -266,7 +266,7 @@ void UnitSystem::addForceUnits() {
 // =============================================================================
 
 void UnitSystem::addPressureUnits() {
-    Dimension pressure(−1, 1, -2);
+    Dimension pressure(-1, 1, -2);
     
     // SI
     registerUnit(Unit("pascal", "Pa", pressure, 1.0, "pressure"));
@@ -340,7 +340,7 @@ void UnitSystem::addPowerUnits() {
 // =============================================================================
 
 void UnitSystem::addDensityUnits() {
-    Dimension density(−3, 1, 0);
+    Dimension density(-3, 1, 0);
     
     // SI
     registerUnit(Unit("kilogram per cubic meter", "kg/m3", density, 1.0, "density"));
@@ -359,7 +359,7 @@ void UnitSystem::addDensityUnits() {
 // =============================================================================
 
 void UnitSystem::addViscosityUnits() {
-    Dimension viscosity(−1, 1, -1);
+    Dimension viscosity(-1, 1, -1);
     
     // Dynamic viscosity
     registerUnit(Unit("pascal second", "Pa-s", viscosity, 1.0, "viscosity"));
@@ -481,7 +481,7 @@ void UnitSystem::addThermalUnits() {
 
 void UnitSystem::addStressUnits() {
     // Stress has same dimension as pressure
-    Dimension stress(−1, 1, -2);
+    Dimension stress(-1, 1, -2);
     
     registerUnit(Unit("pascal stress", "Pa", stress, 1.0, "stress"));
     registerUnit(Unit("kilopascal stress", "kPa", stress, 1000.0, "stress"));
@@ -493,7 +493,7 @@ void UnitSystem::addStressUnits() {
 
 void UnitSystem::addModulusUnits() {
     // Modulus has same dimension as pressure/stress
-    Dimension modulus(−1, 1, -2);
+    Dimension modulus(-1, 1, -2);
     
     registerUnit(Unit("pascal modulus", "Pa", modulus, 1.0, "modulus"));
     registerUnit(Unit("kilopascal modulus", "kPa", modulus, 1000.0, "modulus"));

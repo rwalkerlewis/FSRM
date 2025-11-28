@@ -19,6 +19,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <complex>
 
 namespace FSRM {
 

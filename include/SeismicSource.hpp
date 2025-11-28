@@ -499,6 +499,7 @@ public:
     // Get receivers
     size_t getNumReceivers() const { return receivers.size(); }
     size_t getNumFaultReceivers() const { return fault_receivers.size(); }
+    const std::vector<std::unique_ptr<SeismicReceiver>>& getReceivers() const { return receivers; }
     
     // Time range
     double getSourceStartTime() const;
