@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
         char config_file[PETSC_MAX_PATH_LEN] = "";
         char input_file[PETSC_MAX_PATH_LEN] = "";
         char output_file[PETSC_MAX_PATH_LEN] = "output";
-        char output_format[256] = "VTK";
+        char output_format[256] = "HDF5";  // HDF5 default, VTK secondary
         PetscBool config_provided = PETSC_FALSE;
         PetscBool input_provided = PETSC_FALSE;
         

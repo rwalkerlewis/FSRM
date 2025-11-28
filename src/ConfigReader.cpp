@@ -222,7 +222,7 @@ bool ConfigReader::parseSimulationConfig(SimulationConfig& config) {
     else if (solid_model == "POROELASTIC") config.solid_model = SolidModelType::POROELASTIC;
     
     // Output format
-    config.output_format = getString("SIMULATION", "output_format", "VTK");
+    config.output_format = getString("SIMULATION", "output_format", "HDF5");
     
     return true;
 }
@@ -547,7 +547,7 @@ void ConfigReader::generateTemplate(const std::string& filename) {
     
     file << "# Output control\n";
     file << "output_frequency = 10\n";
-    file << "output_format = VTK                   # VTK, HDF5, or ECLIPSE\n";
+    file << "output_format = HDF5                  # HDF5 (default), VTK (secondary), or ECLIPSE\n";
     file << "enable_checkpointing = true\n";
     file << "checkpoint_frequency = 100\n\n";
     
@@ -820,7 +820,7 @@ bool ConfigReader::parseSeismicityConfig(SeismicityConfig& config) {
 bool ConfigReader::parseOutputConfig(OutputConfig& config) {
     if (!hasSection("OUTPUT")) {
         // Use defaults
-        config.format = "VTK";
+        config.format = "HDF5";
         config.base_path = "output";
         config.frequency = 10;
         config.write_pressure = true;

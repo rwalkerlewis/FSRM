@@ -133,7 +133,11 @@ mpirun -np 8 ./fsrm -c ../config/co2_storage.config
 ## View Results
 
 ```bash
-# Results are in VTK format by default
+# Results are in HDF5 format by default (more efficient)
+python scripts/hdf5_to_xdmf.py output/
+paraview output/solution.xdmf
+
+# Or if using VTK output format:
 paraview output/*.vtu
 ```
 
