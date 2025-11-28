@@ -53,6 +53,56 @@ Real-world simulation scenarios:
 - **Parallel Scaling**: Strong scaling tests
 - **Problem Size Scaling**: Weak scaling tests
 
+### 7. **Analytical Solution Benchmarks** (`test_analytical_benchmarks.cpp`)
+Verification against analytical solutions:
+- **Theis Solution**: Radial flow to well (transient pressure)
+- **Mandel-Cryer Effect**: Poroelastic consolidation with overpressure
+- **Terzaghi Consolidation**: 1D vertical consolidation
+- **Buckley-Leverett**: Two-phase immiscible displacement
+- **Heat Conduction**: 1D thermal diffusion (error function solution)
+- **Performance Comparison**: Analytical vs numerical evaluation speed
+
+### 8. **Multiphase Flow Benchmarks** (`test_multiphase_benchmarks.cpp`)
+Advanced multiphase flow phenomena:
+- **Gravity Segregation**: Oil-water separation by density
+- **Counter-Current Imbibition**: Spontaneous capillary imbibition
+- **Viscous Fingering**: Saffman-Taylor instability analysis
+- **Three-Phase Relative Permeability**: Stone's Model II
+- **Capillary Pressure Hysteresis**: Drainage vs imbibition curves
+- **Rel Perm Models**: Corey, Brooks-Corey, LET, van Genuchten comparison
+- **Saturation Front Tracking**: Method of characteristics
+- **Fractional Flow Analysis**: Mobility ratio effects
+
+### 9. **Thermal & EOR Benchmarks** (`test_thermal_eor_benchmarks.cpp`)
+Enhanced oil recovery and thermal processes:
+- **Steam Flooding**: Marx-Langenheim analytical solution
+- **SAGD Performance**: Butler's theory for gravity drainage
+- **Cyclic Steam Stimulation**: Huff-and-puff cycles
+- **In-Situ Combustion**: Front propagation
+- **Polymer Flooding**: Viscosity models (Flory-Huggins, Carreau, Power-law)
+- **Surfactant Flooding**: IFT reduction and capillary number
+- **CO2 Flooding**: Minimum miscibility pressure (MMP)
+- **Thermal Conductivity**: Effective properties in porous media
+
+### 10. **Solver & Convergence Benchmarks** (`test_solver_convergence_benchmarks.cpp`)
+Numerical methods analysis:
+- **Linear Solvers**: Jacobi vs Gauss-Seidel comparison
+- **Preconditioners**: Jacobi, ILU, AMG performance
+- **Mesh Convergence**: Spatial discretization error analysis
+- **Time Step Convergence**: Temporal discretization error
+- **Newton-Raphson**: Nonlinear solver convergence rates
+- **Iterative Solver Scaling**: Performance vs problem size
+
+### 11. **Well Test Analysis Benchmarks** (`test_welltest_benchmarks.cpp`)
+Pressure transient analysis:
+- **Pressure Drawdown**: Flow regime identification
+- **Pressure Buildup**: Horner plot analysis
+- **Wellbore Storage & Skin**: Productivity index effects
+- **Reservoir Boundaries**: No-flow and constant pressure boundaries
+- **Interference Testing**: Multi-well response
+- **Type Curve Matching**: Infinite, closed, constant pressure
+- **Fractured Wells**: Hydraulic fracture performance
+
 ## Industry-Standard Benchmarks
 
 ### SPE Benchmarks
@@ -130,6 +180,13 @@ cd tests
 ./run_benchmarks.sh --spe         # SPE benchmarks (very long)
 ./run_benchmarks.sh --scec        # SCEC benchmarks
 
+# Run NEW benchmark categories
+./run_benchmarks.sh --analytical  # Analytical solution benchmarks
+./run_benchmarks.sh --multiphase  # Multiphase flow benchmarks
+./run_benchmarks.sh --thermal     # Thermal & EOR benchmarks
+./run_benchmarks.sh --solver      # Solver & convergence benchmarks
+./run_benchmarks.sh --welltest    # Well test analysis benchmarks
+
 # Specify number of MPI processes
 ./run_benchmarks.sh --physics -n 8
 ./run_benchmarks.sh --scec -n 16  # SCEC benchmarks need more cores
@@ -155,6 +212,12 @@ ctest -R "Performance.PhysicsBenchmarks"
 ctest -R "Performance.GPUBenchmarks"
 ctest -R "Performance.MemoryIO"
 ctest -R "Performance.Scenarios"
+ctest -R "Performance.SCEC"
+ctest -R "Performance.Analytical"
+ctest -R "Performance.Multiphase"
+ctest -R "Performance.ThermalEOR"
+ctest -R "Performance.SolverConvergence"
+ctest -R "Performance.WellTest"
 
 # Run with verbose output
 ctest -L performance -V
@@ -178,6 +241,12 @@ mpirun -np 4 ./run_performance_tests --gtest_filter=GPUBenchmark.*
 mpirun -np 4 ./run_performance_tests --gtest_filter=MemoryIOBenchmark.*
 mpirun -np 4 ./run_performance_tests --gtest_filter=ScalingTest.*
 mpirun -np 4 ./run_performance_tests --gtest_filter=ScenarioBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=SCECBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=AnalyticalBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=MultiphaseBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=ThermalEORBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=SolverConvergenceBenchmark.*
+mpirun -np 4 ./run_performance_tests --gtest_filter=WellTestBenchmark.*
 ```
 
 ### Running Industry Benchmarks
@@ -206,6 +275,9 @@ mpirun -np 8 ./scec_loh1 -c config/scec_loh1.config      # LOH.1
 | Single-phase flow | ~10-50 μs | 20k-100k eval/s |
 | Geomechanics | ~20-80 μs | 12k-50k eval/s |
 | Poroelasticity | ~50-200 μs | 5k-20k eval/s |
+| Friction laws | ~100-1000 ns | 1-10M eval/s |
+| Stress rotation | ~500 ns | > 1M rotations/s |
+| Exponential integral | ~1-10 μs | 100k-1M eval/s |
 
 ### GPU Speedup (NVIDIA A100)
 | Physics Model | CPU Time | GPU Time | Speedup |
@@ -284,10 +356,20 @@ benchmark_results/
 ├── memory_io_benchmarks_YYYYMMDD_HHMMSS.log
 ├── scaling_tests_YYYYMMDD_HHMMSS.log
 ├── scenario_benchmarks_YYYYMMDD_HHMMSS.log
+├── scec_benchmarks_YYYYMMDD_HHMMSS.log
+├── analytical_benchmarks_YYYYMMDD_HHMMSS.log
+├── multiphase_benchmarks_YYYYMMDD_HHMMSS.log
+├── thermal_eor_benchmarks_YYYYMMDD_HHMMSS.log
+├── solver_convergence_benchmarks_YYYYMMDD_HHMMSS.log
+├── welltest_benchmarks_YYYYMMDD_HHMMSS.log
 ├── spe1_YYYYMMDD_HHMMSS.log
 ├── spe3_YYYYMMDD_HHMMSS.log
 ├── spe9_YYYYMMDD_HHMMSS.log
 ├── spe10_YYYYMMDD_HHMMSS.log
+├── scec_tpv5_YYYYMMDD_HHMMSS.log
+├── scec_tpv10_YYYYMMDD_HHMMSS.log
+├── scec_tpv16_YYYYMMDD_HHMMSS.log
+├── scec_loh1_YYYYMMDD_HHMMSS.log
 └── summary_YYYYMMDD_HHMMSS.txt
 ```
 
@@ -334,12 +416,54 @@ When adding new benchmarks:
 4. Verify with `./run_benchmarks.sh`
 5. Document expected performance
 
+## Benchmark Summary Statistics
+
+### Total Benchmarks: 100+
+
+| Category | Test File | Number of Benchmarks | Runtime |
+|----------|-----------|---------------------|---------|
+| Kernel | test_benchmarks.cpp | 6 | 1-2 min |
+| Physics | test_physics_benchmarks.cpp | 13 | 2-5 min |
+| GPU | test_gpu_benchmarks.cpp | 7 | 2-3 min |
+| Memory/IO | test_memory_io_benchmarks.cpp | 8 | 2-3 min |
+| Scaling | test_scaling.cpp | 6 | 1-2 min |
+| Scenarios | test_scenario_benchmarks.cpp | 7 | 1-2 hrs |
+| SCEC | test_scec_benchmarks.cpp | 9 | 1-2 min |
+| Analytical | test_analytical_benchmarks.cpp | 7 | 2-3 min |
+| Multiphase | test_multiphase_benchmarks.cpp | 8 | 2-4 min |
+| Thermal/EOR | test_thermal_eor_benchmarks.cpp | 8 | 2-3 min |
+| Solver/Conv | test_solver_convergence_benchmarks.cpp | 6 | 2-3 min |
+| Well Test | test_welltest_benchmarks.cpp | 7 | 2-3 min |
+| **Micro-benchmarks** | **12 files** | **92 tests** | **~30 min** |
+| SPE | 4 executables | 4 benchmarks | 5-15 hrs |
+| SCEC | 4 executables | 4 benchmarks | 5-15 hrs |
+| **Industry standards** | **8 executables** | **8 benchmarks** | **10-30 hrs** |
+| **GRAND TOTAL** | **20 files** | **100+ benchmarks** | **~30 hrs** |
+
 ## References
 
+### SPE Benchmarks
 - **SPE1**: Odeh, A.S., JPT (1981)
 - **SPE3**: Kenyon & Behie, JPT (1987)
 - **SPE9**: Killough, SPE 29110 (1995)
 - **SPE10**: Christie & Blunt, SPE 66599 (2001)
+
+### SCEC Benchmarks
+- **TPV5, TPV10, TPV16**: Harris et al., Seismological Research Letters (2009)
+- **LOH.1**: Olsen et al., BSSA (2006)
+
+### Analytical Solutions
+- **Theis**: Theis, C.V., Trans. AGU (1935)
+- **Mandel-Cryer**: Mandel, J., Géotechnique (1953)
+- **Terzaghi**: Terzaghi, K., Theoretical Soil Mechanics (1943)
+- **Buckley-Leverett**: Buckley & Leverett, Trans. AIME (1942)
+
+### EOR Methods
+- **Marx-Langenheim**: Marx & Langenheim, Trans. AIME (1959)
+- **Butler (SAGD)**: Butler, R.M., JPT (1981)
+- **Stone's Model**: Stone, H.L., SPE Journal (1970)
+
+### Computational
 - **STREAM**: McCalpin, https://www.cs.virginia.edu/stream/
 
 ## Support

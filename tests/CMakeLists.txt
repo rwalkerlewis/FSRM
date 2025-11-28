@@ -49,6 +49,11 @@ set(PERFORMANCE_TEST_SOURCES
     performance/test_memory_io_benchmarks.cpp
     performance/test_scenario_benchmarks.cpp
     performance/test_scec_benchmarks.cpp
+    performance/test_analytical_benchmarks.cpp
+    performance/test_multiphase_benchmarks.cpp
+    performance/test_thermal_eor_benchmarks.cpp
+    performance/test_solver_convergence_benchmarks.cpp
+    performance/test_welltest_benchmarks.cpp
 )
 
 # Legacy Tests (kept for backward compatibility)
@@ -227,6 +232,16 @@ if(GTest_FOUND)
         COMMAND run_performance_tests --gtest_filter=ScenarioBenchmark.*)
     add_test(NAME Performance.SCEC
         COMMAND run_performance_tests --gtest_filter=SCECBenchmark.*)
+    add_test(NAME Performance.Analytical
+        COMMAND run_performance_tests --gtest_filter=AnalyticalBenchmark.*)
+    add_test(NAME Performance.Multiphase
+        COMMAND run_performance_tests --gtest_filter=MultiphaseBenchmark.*)
+    add_test(NAME Performance.ThermalEOR
+        COMMAND run_performance_tests --gtest_filter=ThermalEORBenchmark.*)
+    add_test(NAME Performance.SolverConvergence
+        COMMAND run_performance_tests --gtest_filter=SolverConvergenceBenchmark.*)
+    add_test(NAME Performance.WellTest
+        COMMAND run_performance_tests --gtest_filter=WellTestBenchmark.*)
     
     # ============================================================================
     # Set Test Properties (Timeouts, Labels)
@@ -310,6 +325,18 @@ if(GTest_FOUND)
         PROPERTIES 
             TIMEOUT 900
             LABELS "performance;scec;earthquake"
+    )
+    
+    # Additional performance benchmarks - moderate time
+    set_tests_properties(
+        Performance.Analytical
+        Performance.Multiphase
+        Performance.ThermalEOR
+        Performance.SolverConvergence
+        Performance.WellTest
+        PROPERTIES 
+            TIMEOUT 600
+            LABELS "performance"
     )
     
 else()
