@@ -8,6 +8,8 @@
 #include <numeric>
 #include <cstring>
 #include <iostream>
+#include <map>
+#include <iomanip>
 
 namespace FSRM {
 namespace Performance {
@@ -421,7 +423,6 @@ class Profiler {
 public:
     void start(const std::string& name) {
         auto& entry = entries[name];
-        entry.name = name;
         entry.timer.start();
     }
     

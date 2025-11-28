@@ -30,6 +30,7 @@
 #include <functional>
 #include <random>
 #include <fstream>
+#include <map>
 
 namespace FSRM {
 namespace ML {

@@ -16,12 +16,12 @@
 #include <cmath>
 #include <fstream>
 #include <random>
+#include <mpi.h>
+#include <petsc.h>
 
 #ifdef HAVE_HDF5
 #include <hdf5.h>
 #endif
-
-using namespace FSRM;
 
 class MemoryIOBenchmark : public ::testing::Test {
 protected:

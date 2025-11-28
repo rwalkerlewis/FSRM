@@ -16,6 +16,8 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cmath>
+#include <algorithm>
 #include <vector>
 #include <array>
 #include <memory>
@@ -27,18 +29,23 @@
 #include <atomic>
 
 // SIMD headers
-#ifdef __AVX2__
-#include <immintrin.h>
-#define FSRM_SIMD_WIDTH 4  // 4 doubles in AVX2
-#define FSRM_SIMD_ALIGN 32
-#elif defined(__AVX512F__)
+#ifdef __AVX512F__
 #include <immintrin.h>
 #define FSRM_SIMD_WIDTH 8  // 8 doubles in AVX-512
 #define FSRM_SIMD_ALIGN 64
+#elif defined(__AVX2__)
+#include <immintrin.h>
+#define FSRM_SIMD_WIDTH 4  // 4 doubles in AVX2
+#define FSRM_SIMD_ALIGN 32
 #elif defined(__ARM_NEON)
 #include <arm_neon.h>
 #define FSRM_SIMD_WIDTH 2  // 2 doubles in NEON
 #define FSRM_SIMD_ALIGN 16
+#elif defined(__x86_64__) || defined(_M_X64)
+// Include basic SSE header for x86_64 prefetch support
+#include <xmmintrin.h>
+#define FSRM_SIMD_WIDTH 1
+#define FSRM_SIMD_ALIGN 8
 #else
 #define FSRM_SIMD_WIDTH 1
 #define FSRM_SIMD_ALIGN 8

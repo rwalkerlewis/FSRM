@@ -13,14 +13,15 @@
 #include <chrono>
 #include <vector>
 #include <cmath>
+#include <mpi.h>
+#include <petsc.h>
 
 #ifdef ENABLE_CUDA
 #include "GPUManager.hpp"
 #include "GPUKernels.cuh"
 #include "PhysicsKernel_GPU.hpp"
-#endif
-
 using namespace FSRM;
+#endif
 
 class GPUBenchmark : public ::testing::Test {
 protected:
