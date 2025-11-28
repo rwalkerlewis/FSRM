@@ -44,6 +44,10 @@ set(INTEGRATION_TEST_SOURCES
 set(PERFORMANCE_TEST_SOURCES
     performance/test_benchmarks.cpp
     performance/test_scaling.cpp
+    performance/test_physics_benchmarks.cpp
+    performance/test_gpu_benchmarks.cpp
+    performance/test_memory_io_benchmarks.cpp
+    performance/test_scenario_benchmarks.cpp
 )
 
 # Legacy Tests (kept for backward compatibility)
@@ -212,6 +216,14 @@ if(GTest_FOUND)
         COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
     add_test(NAME Performance.Scaling 
         COMMAND run_performance_tests --gtest_filter=ScalingTest.*)
+    add_test(NAME Performance.PhysicsBenchmarks
+        COMMAND run_performance_tests --gtest_filter=PhysicsBenchmark.*)
+    add_test(NAME Performance.GPUBenchmarks
+        COMMAND run_performance_tests --gtest_filter=GPUBenchmark.*)
+    add_test(NAME Performance.MemoryIO
+        COMMAND run_performance_tests --gtest_filter=MemoryIOBenchmark.*)
+    add_test(NAME Performance.Scenarios
+        COMMAND run_performance_tests --gtest_filter=ScenarioBenchmark.*)
     
     # ============================================================================
     # Set Test Properties (Timeouts, Labels)
@@ -266,9 +278,27 @@ if(GTest_FOUND)
     set_tests_properties(
         Performance.Benchmarks
         Performance.Scaling
+        Performance.PhysicsBenchmarks
+        Performance.MemoryIO
         PROPERTIES 
             TIMEOUT 900
             LABELS "performance;slow"
+    )
+    
+    # GPU benchmarks - require GPU
+    set_tests_properties(
+        Performance.GPUBenchmarks
+        PROPERTIES 
+            TIMEOUT 1200
+            LABELS "performance;gpu;slow"
+    )
+    
+    # Scenario benchmarks - very long running
+    set_tests_properties(
+        Performance.Scenarios
+        PROPERTIES 
+            TIMEOUT 1800
+            LABELS "performance;scenario;slow"
     )
     
 else()
