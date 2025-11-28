@@ -48,6 +48,7 @@ set(PERFORMANCE_TEST_SOURCES
     performance/test_gpu_benchmarks.cpp
     performance/test_memory_io_benchmarks.cpp
     performance/test_scenario_benchmarks.cpp
+    performance/test_scec_benchmarks.cpp
 )
 
 # Legacy Tests (kept for backward compatibility)
@@ -224,6 +225,8 @@ if(GTest_FOUND)
         COMMAND run_performance_tests --gtest_filter=MemoryIOBenchmark.*)
     add_test(NAME Performance.Scenarios
         COMMAND run_performance_tests --gtest_filter=ScenarioBenchmark.*)
+    add_test(NAME Performance.SCEC
+        COMMAND run_performance_tests --gtest_filter=SCECBenchmark.*)
     
     # ============================================================================
     # Set Test Properties (Timeouts, Labels)
@@ -299,6 +302,14 @@ if(GTest_FOUND)
         PROPERTIES 
             TIMEOUT 1800
             LABELS "performance;scenario;slow"
+    )
+    
+    # SCEC benchmarks - moderate time
+    set_tests_properties(
+        Performance.SCEC
+        PROPERTIES 
+            TIMEOUT 900
+            LABELS "performance;scec;earthquake"
     )
     
 else()

@@ -53,9 +53,11 @@ Real-world simulation scenarios:
 - **Parallel Scaling**: Strong scaling tests
 - **Problem Size Scaling**: Weak scaling tests
 
-## SPE Benchmarks
+## Industry-Standard Benchmarks
 
-Industry-standard SPE (Society of Petroleum Engineers) benchmarks:
+### SPE Benchmarks
+
+Society of Petroleum Engineers (SPE) benchmarks for reservoir simulation:
 
 ### SPE1 (`../examples/spe1.cpp`)
 - **Problem**: 3-phase black oil with gas dissolution
@@ -81,6 +83,34 @@ Industry-standard SPE (Society of Petroleum Engineers) benchmarks:
 - **Purpose**: Scalability with extreme permeability variations
 - **Reference**: Christie & Blunt (2001)
 
+### SCEC Benchmarks
+
+Southern California Earthquake Center (SCEC) benchmarks for earthquake/seismicity:
+
+#### TPV5 (`../examples/scec_tpv5.cpp`)
+- **Problem**: Strike-slip dynamic rupture
+- **Grid**: 192×192×96 (48×48×24 km domain)
+- **Purpose**: Validate spontaneous rupture propagation
+- **Reference**: Harris et al. (2009)
+
+#### TPV10 (`../examples/scec_tpv10.cpp`)
+- **Problem**: Branching fault dynamic rupture
+- **Grid**: 192×192×96 with refinement
+- **Purpose**: Test complex fault geometry
+- **Reference**: Harris et al. (2009)
+
+#### TPV16 (`../examples/scec_tpv16.cpp`)
+- **Problem**: Rough fault surface
+- **Grid**: 240×240×120 (high resolution)
+- **Purpose**: Geometric complexity effects
+- **Reference**: Dunham et al. (2011)
+
+#### LOH.1 (`../examples/scec_loh1.cpp`)
+- **Problem**: Layer over halfspace wave propagation
+- **Grid**: 150×150×85 (30×30×17 km domain)
+- **Purpose**: Verify wave propagation accuracy
+- **Reference**: Olsen et al. (2006)
+
 ## Running Benchmarks
 
 ### Quick Start
@@ -98,9 +128,11 @@ cd tests
 ./run_benchmarks.sh --scaling     # Parallel scaling tests
 ./run_benchmarks.sh --scenario    # Scenario benchmarks (long)
 ./run_benchmarks.sh --spe         # SPE benchmarks (very long)
+./run_benchmarks.sh --scec        # SCEC benchmarks
 
 # Specify number of MPI processes
 ./run_benchmarks.sh --physics -n 8
+./run_benchmarks.sh --scec -n 16  # SCEC benchmarks need more cores
 
 # Verbose output
 ./run_benchmarks.sh --kernel -v
@@ -148,22 +180,22 @@ mpirun -np 4 ./run_performance_tests --gtest_filter=ScalingTest.*
 mpirun -np 4 ./run_performance_tests --gtest_filter=ScenarioBenchmark.*
 ```
 
-### Running SPE Benchmarks
+### Running Industry Benchmarks
 
 ```bash
 cd build/examples
 
-# SPE1 - Small benchmark (quick)
-mpirun -np 4 ./spe1 -c config/spe1_benchmark.config
+# SPE Benchmarks (Reservoir Flow)
+mpirun -np 4 ./spe1 -c config/spe1_benchmark.config      # SPE1
+mpirun -np 4 ./spe3 -c config/spe3_benchmark.config      # SPE3
+mpirun -np 8 ./spe9 -c config/spe9_benchmark.config      # SPE9
+mpirun -np 32 ./spe10 -c config/spe10_benchmark.config   # SPE10
 
-# SPE3 - Compositional model
-mpirun -np 4 ./spe3 -c config/spe3_benchmark.config
-
-# SPE9 - Medium-scale benchmark
-mpirun -np 8 ./spe9 -c config/spe9_benchmark.config
-
-# SPE10 - Large-scale benchmark (requires >= 16 processes)
-mpirun -np 32 ./spe10 -c config/spe10_benchmark.config
+# SCEC Benchmarks (Earthquake Physics)
+mpirun -np 8 ./scec_tpv5 -c config/scec_tpv5.config      # TPV5
+mpirun -np 16 ./scec_tpv10 -c config/scec_tpv10.config   # TPV10
+mpirun -np 16 ./scec_tpv16 -c config/scec_tpv16.config   # TPV16
+mpirun -np 8 ./scec_loh1 -c config/scec_loh1.config      # LOH.1
 ```
 
 ## Expected Performance

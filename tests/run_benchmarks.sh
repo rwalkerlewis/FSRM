@@ -41,6 +41,7 @@ RUN_GPU=0
 RUN_MEMORY=0
 RUN_SCENARIO=0
 RUN_SPE=0
+RUN_SCEC=0
 RUN_SCALING=0
 
 # Colors for output
@@ -104,6 +105,11 @@ while [[ $# -gt 0 ]]; do
         -e|--spe)
             RUN_ALL=0
             RUN_SPE=1
+            shift
+            ;;
+        --scec)
+            RUN_ALL=0
+            RUN_SCEC=1
             shift
             ;;
         --scaling)
@@ -227,11 +233,88 @@ if [ $RUN_ALL -eq 1 ] || [ $RUN_SCALING -eq 1 ]; then
     run_benchmark "scaling_tests" "ScalingTest.*"
 fi
 
+# SCEC Benchmarks
+if [ $RUN_ALL -eq 1 ] || [ $RUN_SCEC -eq 1 ]; then
+    print_header "SCEC Benchmarks"
+    run_benchmark "scec_benchmarks" "SCECBenchmark.*"
+fi
+
 # Scenario Benchmarks (long running)
 if [ $RUN_SCENARIO -eq 1 ]; then
     print_header "Scenario Benchmarks"
     print_warning "These benchmarks may take a long time to complete"
     run_benchmark "scenario_benchmarks" "ScenarioBenchmark.*"
+fi
+
+# SCEC Full Simulation Benchmarks (if --scec flag given)
+if [ $RUN_SCEC -eq 1 ]; then
+    print_header "SCEC Full Simulation Benchmarks"
+    print_warning "These simulations may take several hours"
+    
+    # TPV5 - Strike-slip rupture
+    if [ -f "$BUILD_DIR/examples/scec_tpv5" ]; then
+        print_info "Running SCEC TPV5 (strike-slip dynamic rupture)..."
+        output_file="${OUTPUT_DIR}/scec_tpv5_${TIMESTAMP}.log"
+        if [ $VERBOSE -eq 1 ]; then
+            mpirun -np $NPROC "$BUILD_DIR/examples/scec_tpv5" -c config/scec_tpv5.config | tee "$output_file"
+        else
+            mpirun -np $NPROC "$BUILD_DIR/examples/scec_tpv5" -c config/scec_tpv5.config > "$output_file" 2>&1
+        fi
+        print_info "SCEC TPV5 completed"
+    else
+        print_warning "SCEC TPV5 executable not found"
+    fi
+    echo ""
+    
+    # TPV10 - Branching fault
+    if [ -f "$BUILD_DIR/examples/scec_tpv10" ]; then
+        print_info "Running SCEC TPV10 (branching fault)..."
+        output_file="${OUTPUT_DIR}/scec_tpv10_${TIMESTAMP}.log"
+        if [ $VERBOSE -eq 1 ]; then
+            mpirun -np $NPROC "$BUILD_DIR/examples/scec_tpv10" -c config/scec_tpv10.config | tee "$output_file"
+        else
+            mpirun -np $NPROC "$BUILD_DIR/examples/scec_tpv10" -c config/scec_tpv10.config > "$output_file" 2>&1
+        fi
+        print_info "SCEC TPV10 completed"
+    else
+        print_warning "SCEC TPV10 executable not found"
+    fi
+    echo ""
+    
+    # LOH.1 - Wave propagation
+    if [ -f "$BUILD_DIR/examples/scec_loh1" ]; then
+        print_info "Running SCEC LOH.1 (wave propagation)..."
+        output_file="${OUTPUT_DIR}/scec_loh1_${TIMESTAMP}.log"
+        if [ $VERBOSE -eq 1 ]; then
+            mpirun -np $NPROC "$BUILD_DIR/examples/scec_loh1" -c config/scec_loh1.config | tee "$output_file"
+        else
+            mpirun -np $NPROC "$BUILD_DIR/examples/scec_loh1" -c config/scec_loh1.config > "$output_file" 2>&1
+        fi
+        print_info "SCEC LOH.1 completed"
+    else
+        print_warning "SCEC LOH.1 executable not found"
+    fi
+    echo ""
+    
+    # TPV16 - Rough fault (most demanding, skip if < 16 processes)
+    if [ $NPROC -lt 16 ]; then
+        print_warning "SCEC TPV16 (rough fault) recommended with >= 16 MPI processes"
+        print_warning "Skipping TPV16 (current: $NPROC processes). Use -n 16 or more to run."
+    else
+        if [ -f "$BUILD_DIR/examples/scec_tpv16" ]; then
+            print_info "Running SCEC TPV16 (rough fault - high resolution)..."
+            output_file="${OUTPUT_DIR}/scec_tpv16_${TIMESTAMP}.log"
+            if [ $VERBOSE -eq 1 ]; then
+                mpirun -np $NPROC "$BUILD_DIR/examples/scec_tpv16" -c config/scec_tpv16.config | tee "$output_file"
+            else
+                mpirun -np $NPROC "$BUILD_DIR/examples/scec_tpv16" -c config/scec_tpv16.config > "$output_file" 2>&1
+            fi
+            print_info "SCEC TPV16 completed"
+        else
+            print_warning "SCEC TPV16 executable not found"
+        fi
+    fi
+    echo ""
 fi
 
 # SPE Benchmarks (very long running)
