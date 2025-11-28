@@ -657,16 +657,35 @@ If you use FSRM in your research, please cite:
 
 MIT License - see LICENSE file
 
+## Documentation
+
+Complete documentation is available in the `docs/` directory:
+
+- **Getting Started**
+  - [Quick Start Guide](docs/QUICK_START.md) - Get running in 5 minutes
+  - [User Guide](docs/USER_GUIDE.md) - Complete user manual
+  - [Configuration Reference](docs/CONFIGURATION.md) - All configuration options
+
+- **Development**
+  - [Development Guide](docs/DEVELOPMENT.md) - Building, testing, contributing
+  - [Benchmarks](docs/BENCHMARKS.md) - Validation and performance
+  - [API Reference](docs/API_REFERENCE.md) - C++ API documentation
+
+- **Advanced Topics**
+  - [Physics Models](docs/PHYSICS_MODELS.md) - Mathematical formulations
+  - [Numerical Methods](docs/NUMERICAL_METHODS.md) - Discretization and solvers
+  - [Deployment Guide](docs/DEPLOYMENT.md) - Cloud, HPC, and GPU setup
+  - [Unit System](docs/UNIT_SYSTEM.md) - Unit conversion and specifications
+  - [Coordinate Systems](docs/COORDINATE_SYSTEMS.md) - Geographic transformations
+  - [Unstructured Meshes](docs/UNSTRUCTURED_MESHES.md) - Gmsh integration
+  - [SeisSol Comparison](docs/SEISSOL_COMPARISON.md) - Earthquake simulator comparison
+
 ## Support
 
 - **Documentation**: See `docs/` directory
-  - [Configuration Reference](docs/CONFIGURATION.md) - Complete config file guide
-  - [Unstructured Meshes](docs/UNSTRUCTURED_MESHES.md) - Gmsh integration
-  - [Coordinate Systems](docs/COORDINATE_SYSTEMS.md) - EPSG and PROJ support
-  - [Cloud Deployment](docs/CLOUD_DEPLOYMENT.md) - AWS/GCP setup
-- Issues: GitHub issue tracker
-- Examples: `examples/` directory
-- Configs: `config/` directory
+- **Issues**: GitHub issue tracker
+- **Examples**: `examples/` directory with source code
+- **Configurations**: `config/` directory with ready-to-run examples
 
 ## Acknowledgments
 

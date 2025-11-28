@@ -13,15 +13,32 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md) | Numerical approaches and algorithms |
 | [API_REFERENCE.md](API_REFERENCE.md) | C++ API documentation |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Cloud, HPC, and GPU deployment |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Building, testing, and contributing |
+| [BENCHMARKS.md](BENCHMARKS.md) | Validation and benchmark results |
+| [UNIT_SYSTEM.md](UNIT_SYSTEM.md) | Unit conversion and specifications |
+| [COORDINATE_SYSTEMS.md](COORDINATE_SYSTEMS.md) | Geographic coordinate transformations |
+| [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md) | Gmsh and unstructured mesh support |
+| [SEISSOL_COMPARISON.md](SEISSOL_COMPARISON.md) | Comparison with SeisSol earthquake simulator |
 
 ## Quick Links
 
-- **New Users**: Start with [QUICK_START.md](QUICK_START.md)
-- **Running Simulations**: See [USER_GUIDE.md](USER_GUIDE.md)
-- **Configuration Options**: See [CONFIGURATION.md](CONFIGURATION.md)
-- **Physics Background**: See [PHYSICS_MODELS.md](PHYSICS_MODELS.md)
-- **Numerical Methods**: See [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md)
-- **Cloud Deployment**: See [DEPLOYMENT.md](DEPLOYMENT.md)
+### For New Users
+- **Start Here**: [QUICK_START.md](QUICK_START.md)
+- **Running Simulations**: [USER_GUIDE.md](USER_GUIDE.md)
+- **Configuration Options**: [CONFIGURATION.md](CONFIGURATION.md)
+
+### For Developers
+- **Building**: [DEVELOPMENT.md](DEVELOPMENT.md)
+- **Testing**: [BENCHMARKS.md](BENCHMARKS.md)
+- **API Reference**: [API_REFERENCE.md](API_REFERENCE.md)
+
+### By Topic
+- **Physics**: [PHYSICS_MODELS.md](PHYSICS_MODELS.md)
+- **Numerical Methods**: [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md)
+- **GPU Acceleration**: [DEPLOYMENT.md](DEPLOYMENT.md#gpu-deployment)
+- **Units**: [UNIT_SYSTEM.md](UNIT_SYSTEM.md)
+- **Coordinates**: [COORDINATE_SYSTEMS.md](COORDINATE_SYSTEMS.md)
+- **Meshes**: [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md)
 
 ## Key Concepts
 
@@ -33,6 +50,7 @@ FSRM is designed so that **all simulation parameters can be specified in text co
 - Set up wells, fractures, and faults
 - Configure physics models and solver options
 - Specify boundary and initial conditions
+- Select input/output units
 
 Example:
 ```bash
@@ -45,13 +63,23 @@ mpirun -np 4 fsrm -c config/my_simulation.config
 1. **Fluid Flow**: Single-phase, black oil, compositional
 2. **Geomechanics**: Elastic, viscoelastic, poroelastic, plasticity
 3. **Thermal**: Heat conduction and convection
-4. **Fractures**: Natural and hydraulic, with propagation
+4. **Fractures**: Natural fractures (DFN), hydraulic fracturing (PKN/KGD/P3D)
 5. **Faults**: Coulomb and rate-state friction, induced seismicity
-6. **Dynamics**: Wave propagation, static triggering
+6. **Dynamics**: Wave propagation, static triggering, dynamic rupture
 7. **Coupling**: Full THM (Thermo-Hydro-Mechanical) coupling
 
 ### Output Formats
 
+- HDF5 (efficient large-scale data) - **Default**
 - VTK (ParaView visualization)
-- HDF5 (efficient large-scale data)
 - Eclipse (industry-compatible)
+
+### GPU Acceleration
+
+FSRM supports GPU acceleration for 5-50x speedup on large problems:
+- NVIDIA CUDA (11.0+)
+- AMD ROCm/HIP (5.0+)
+- Multi-GPU with MPI
+- Automatic CPU fallback
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
