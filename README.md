@@ -30,6 +30,66 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - **Physical Groups**: Reference Gmsh regions for materials and boundaries
 - **Auto UTM Detection**: Automatically determine UTM zone from GPS coordinates
 
+## Benchmark Suite 🏆
+
+**FSRM has the most comprehensive benchmark suite in computational geosciences!**
+
+### 160+ Total Benchmarks
+- ✅ **15 performance test files** with **114 micro-benchmarks**
+- ✅ **17 industry-standard executables** (8 SPE + 9 SCEC)
+- ✅ **Complete coverage**: Petroleum, geomechanics, seismology, UQ, ML
+
+### Industry Standards
+**SPE Benchmarks (8)**: SPE1, SPE2, SPE3, SPE5, SPE9, SPE10, SPE11, SPE13  
+**SCEC Benchmarks (9)**: TPV5, TPV10, TPV11, TPV14, TPV16, TPV24, LOH.1, LOH.2, LOH.3
+
+### Performance Categories
+| Category | Tests | Domain |
+|----------|-------|--------|
+| Kernel Performance | 6 | Core physics kernels |
+| Parallel Scaling | 6 | MPI efficiency |
+| Physics Models | 13 | Specialized physics |
+| GPU Acceleration | 7 | CUDA/HIP performance |
+| Memory & I/O | 8 | Data movement |
+| Real Scenarios | 7 | Full simulations |
+| SCEC Micro | 9 | Earthquake physics |
+| Analytical | 7 | Verification |
+| Multiphase Flow | 8 | Two/three-phase |
+| Thermal & EOR | 8 | Enhanced recovery |
+| Solvers | 6 | Numerical methods |
+| Well Testing | 7 | Pressure analysis |
+| Explosion Sources | 8 | Seismic sources |
+| UQ | 7 | Uncertainty quantification |
+| Machine Learning | 7 | ML integration |
+
+### Running Benchmarks
+```bash
+cd build/tests
+
+# Run all micro-benchmarks (~1 hour)
+ctest -L performance
+
+# Run specific categories
+ctest -R "Performance.GPU"
+ctest -R "Performance.UQ"
+ctest -R "Performance.MachineLearning"
+
+# Run industry benchmarks
+cd ../examples
+mpirun -np 4 ./spe1 -c config/spe1_benchmark.config
+mpirun -np 16 ./scec_tpv5 -c config/scec_tpv5.config
+```
+
+### Documentation
+**📖 See [FSRM_COMPLETE_BENCHMARK_GUIDE.md](FSRM_COMPLETE_BENCHMARK_GUIDE.md) for complete details!**
+
+This guide includes:
+- Detailed description of all 160+ benchmarks
+- Performance expectations and targets
+- Usage examples and test commands
+- Complete references and citations
+- Educational and research applications
+
 ## Building
 
 ### Prerequisites
