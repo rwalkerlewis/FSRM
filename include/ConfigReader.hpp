@@ -5,6 +5,7 @@
 #include "FluidModel.hpp"
 #include "MaterialModel.hpp"
 #include "FaultModel.hpp"
+#include "UnitSystem.hpp"
 #include <string>
 #include <map>
 #include <vector>
@@ -63,6 +64,9 @@ public:
         bool write_saturation;
         bool write_fault_slip;
         bool write_seismic_catalog;
+        
+        // Output unit preferences
+        std::map<std::string, std::string> output_units;
     };
     
     struct WellConfig {
@@ -205,6 +209,29 @@ public:
                                        const std::string& key) const;
     
     // =========================================================================
+    // Unit-Aware Value Accessors (converts to SI base units)
+    // =========================================================================
+    
+    /**
+     * @brief Get double value with automatic unit conversion to SI
+     * @param section Config section
+     * @param key Config key
+     * @param default_val Default value (in SI units)
+     * @param default_unit Default unit if no unit specified in value
+     * @return Value converted to SI base units (m, kg, s)
+     */
+    double getDoubleWithUnit(const std::string& section, const std::string& key,
+                            double default_val = 0.0, 
+                            const std::string& default_unit = "") const;
+    
+    /**
+     * @brief Get array of doubles with automatic unit conversion
+     */
+    std::vector<double> getDoubleArrayWithUnit(const std::string& section,
+                                               const std::string& key,
+                                               const std::string& default_unit = "") const;
+    
+    // =========================================================================
     // Section/Key Query Methods
     // =========================================================================
     
@@ -231,6 +258,7 @@ public:
     
 private:
     std::map<std::string, std::map<std::string, std::string>> data;
+    UnitSystem unit_system_;
     
     std::string trim(const std::string& str) const;
     std::vector<std::string> split(const std::string& str, char delim) const;

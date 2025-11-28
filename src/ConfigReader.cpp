@@ -151,6 +151,94 @@ std::vector<double> ConfigReader::getDoubleArray(const std::string& section,
     return result;
 }
 
+// =============================================================================
+// Unit-Aware Value Accessors
+// =============================================================================
+
+double ConfigReader::getDoubleWithUnit(const std::string& section, const std::string& key,
+                                       double default_val, const std::string& default_unit) const {
+    std::string val = getString(section, key);
+    if (val.empty()) {
+        return default_val;
+    }
+    
+    // Try to parse as value with unit
+    double parsed_value;
+    std::string parsed_unit;
+    
+    if (unit_system_.parseValueWithUnit(val, parsed_value, parsed_unit)) {
+        // Value has unit specified
+        if (!parsed_unit.empty()) {
+            try {
+                return unit_system_.toBase(parsed_value, parsed_unit);
+            } catch (const std::exception& e) {
+                std::cerr << "Warning: Unit conversion error for [" << section 
+                         << "]:" << key << " - " << e.what() << std::endl;
+                return default_val;
+            }
+        } else if (!default_unit.empty()) {
+            // No unit specified, use default unit
+            try {
+                return unit_system_.toBase(parsed_value, default_unit);
+            } catch (const std::exception& e) {
+                std::cerr << "Warning: Unit conversion error for [" << section 
+                         << "]:" << key << " - " << e.what() << std::endl;
+                return default_val;
+            }
+        } else {
+            // No unit specified and no default, assume already in SI
+            return parsed_value;
+        }
+    }
+    
+    // Fallback: try to parse as plain double
+    try {
+        double value = std::stod(val);
+        if (!default_unit.empty()) {
+            return unit_system_.toBase(value, default_unit);
+        }
+        return value;
+    } catch (...) {
+        return default_val;
+    }
+}
+
+std::vector<double> ConfigReader::getDoubleArrayWithUnit(const std::string& section,
+                                                         const std::string& key,
+                                                         const std::string& default_unit) const {
+    std::vector<double> result;
+    std::string val = getString(section, key);
+    if (val.empty()) return result;
+    
+    auto tokens = split(val, ',');
+    for (const auto& token : tokens) {
+        double parsed_value;
+        std::string parsed_unit;
+        
+        if (unit_system_.parseValueWithUnit(token, parsed_value, parsed_unit)) {
+            if (!parsed_unit.empty()) {
+                try {
+                    result.push_back(unit_system_.toBase(parsed_value, parsed_unit));
+                } catch (const std::exception& e) {
+                    std::cerr << "Warning: Cannot convert '" << token << "': " 
+                             << e.what() << std::endl;
+                }
+            } else if (!default_unit.empty()) {
+                try {
+                    result.push_back(unit_system_.toBase(parsed_value, default_unit));
+                } catch (const std::exception& e) {
+                    std::cerr << "Warning: Cannot convert '" << token << "': " 
+                             << e.what() << std::endl;
+                }
+            } else {
+                result.push_back(parsed_value);
+            }
+        }
+    }
+    
+    return result;
+}
+
 bool ConfigReader::hasSection(const std::string& section) const {
     return data.find(section) != data.end();
 }
@@ -310,31 +398,31 @@ bool ConfigReader::parseMaterialProperties(std::vector<MaterialProperties>& prop
     for (const auto& section : rock_sections) {
         MaterialProperties mat;
         
-        // Rock properties
-        mat.porosity = getDouble(section, "porosity", 0.2);
-        mat.permeability_x = getDouble(section, "permeability_x", 100.0) * 1e-15; // mD to m²
-        mat.permeability_y = getDouble(section, "permeability_y", 100.0) * 1e-15;
-        mat.permeability_z = getDouble(section, "permeability_z", 10.0) * 1e-15;
-        mat.compressibility = getDouble(section, "compressibility", 1e-9); // 1/Pa
+        // Rock properties (with automatic unit conversion)
+        mat.porosity = getDouble(section, "porosity", 0.2);  // Dimensionless
+        mat.permeability_x = getDoubleWithUnit(section, "permeability_x", 100.0e-15, "mD");
+        mat.permeability_y = getDoubleWithUnit(section, "permeability_y", 100.0e-15, "mD");
+        mat.permeability_z = getDoubleWithUnit(section, "permeability_z", 10.0e-15, "mD");
+        mat.compressibility = getDoubleWithUnit(section, "compressibility", 1e-9, "1/Pa");
         
         // Mechanical properties
-        mat.youngs_modulus = getDouble(section, "youngs_modulus", 10e9); // Pa
-        mat.poisson_ratio = getDouble(section, "poisson_ratio", 0.25);
-        mat.density = getDouble(section, "density", 2500.0); // kg/m³
-        mat.biot_coefficient = getDouble(section, "biot_coefficient", 1.0);
+        mat.youngs_modulus = getDoubleWithUnit(section, "youngs_modulus", 10e9, "Pa");
+        mat.poisson_ratio = getDouble(section, "poisson_ratio", 0.25);  // Dimensionless
+        mat.density = getDoubleWithUnit(section, "density", 2500.0, "kg/m3");
+        mat.biot_coefficient = getDouble(section, "biot_coefficient", 1.0);  // Dimensionless
         
         // Viscoelastic properties
-        mat.relaxation_time = getDouble(section, "relaxation_time", 1e6); // seconds
-        mat.viscosity = getDouble(section, "viscosity", 1e19); // Pa·s
+        mat.relaxation_time = getDoubleWithUnit(section, "relaxation_time", 1e6, "s");
+        mat.viscosity = getDoubleWithUnit(section, "viscosity", 1e19, "Pa-s");
         
         // Thermal properties
-        mat.thermal_conductivity = getDouble(section, "thermal_conductivity", 2.5); // W/(m·K)
-        mat.heat_capacity = getDouble(section, "heat_capacity", 900.0); // J/(kg·K)
-        mat.thermal_expansion = getDouble(section, "thermal_expansion", 1e-5); // 1/K
+        mat.thermal_conductivity = getDoubleWithUnit(section, "thermal_conductivity", 2.5, "W/(m-K)");
+        mat.heat_capacity = getDoubleWithUnit(section, "heat_capacity", 900.0, "J/(kg-K)");
+        mat.thermal_expansion = getDoubleWithUnit(section, "thermal_expansion", 1e-5, "1/K");
         
         // Fracture properties
-        mat.fracture_toughness = getDouble(section, "fracture_toughness", 1e6); // Pa·m^0.5
-        mat.fracture_energy = getDouble(section, "fracture_energy", 100.0); // J/m²
+        mat.fracture_toughness = getDoubleWithUnit(section, "fracture_toughness", 1e6, "Pa-m0.5");
+        mat.fracture_energy = getDoubleWithUnit(section, "fracture_energy", 100.0, "J/m2");
         
         props.push_back(mat);
     }
@@ -345,27 +433,27 @@ bool ConfigReader::parseMaterialProperties(std::vector<MaterialProperties>& prop
 bool ConfigReader::parseFluidProperties(FluidProperties& props) {
     if (!hasSection("FLUID")) return false;
     
-    // Single phase properties
-    props.density = getDouble("FLUID", "density", 1000.0); // kg/m³
-    props.viscosity = getDouble("FLUID", "viscosity", 0.001); // Pa·s
-    props.compressibility = getDouble("FLUID", "compressibility", 1e-9); // 1/Pa
+    // Single phase properties (with automatic unit conversion)
+    props.density = getDoubleWithUnit("FLUID", "density", 1000.0, "kg/m3");
+    props.viscosity = getDoubleWithUnit("FLUID", "viscosity", 0.001, "Pa-s");
+    props.compressibility = getDoubleWithUnit("FLUID", "compressibility", 1e-9, "1/Pa");
     
     // Black oil properties
-    props.oil_density_std = getDouble("FLUID", "oil_density_std", 800.0);
-    props.gas_density_std = getDouble("FLUID", "gas_density_std", 1.0);
-    props.water_density_std = getDouble("FLUID", "water_density_std", 1000.0);
+    props.oil_density_std = getDoubleWithUnit("FLUID", "oil_density_std", 800.0, "kg/m3");
+    props.gas_density_std = getDoubleWithUnit("FLUID", "gas_density_std", 1.0, "kg/m3");
+    props.water_density_std = getDoubleWithUnit("FLUID", "water_density_std", 1000.0, "kg/m3");
     
-    props.oil_viscosity = getDouble("FLUID", "oil_viscosity", 0.005);
-    props.gas_viscosity = getDouble("FLUID", "gas_viscosity", 0.00001);
-    props.water_viscosity = getDouble("FLUID", "water_viscosity", 0.001);
+    props.oil_viscosity = getDoubleWithUnit("FLUID", "oil_viscosity", 0.005, "Pa-s");
+    props.gas_viscosity = getDoubleWithUnit("FLUID", "gas_viscosity", 0.00001, "Pa-s");
+    props.water_viscosity = getDoubleWithUnit("FLUID", "water_viscosity", 0.001, "Pa-s");
     
-    props.solution_GOR = getDouble("FLUID", "solution_GOR", 100.0); // scf/stb
+    props.solution_GOR = getDouble("FLUID", "solution_GOR", 100.0); // Dimensionless ratio
     
     // Compositional properties
-    props.component_mw = getDoubleArray("FLUID", "component_mw");
-    props.component_Tc = getDoubleArray("FLUID", "component_Tc");
-    props.component_Pc = getDoubleArray("FLUID", "component_Pc");
-    props.component_omega = getDoubleArray("FLUID", "component_omega");
+    props.component_mw = getDoubleArrayWithUnit("FLUID", "component_mw", "g");
+    props.component_Tc = getDoubleArrayWithUnit("FLUID", "component_Tc", "K");
+    props.component_Pc = getDoubleArrayWithUnit("FLUID", "component_Pc", "Pa");
+    props.component_omega = getDoubleArray("FLUID", "component_omega");  // Dimensionless
     
     return true;
 }
@@ -849,6 +937,17 @@ bool ConfigReader::parseOutputConfig(OutputConfig& config) {
     config.write_saturation = getBool("OUTPUT", "saturation", false);
     config.write_fault_slip = getBool("OUTPUT", "fault_slip", false);
     config.write_seismic_catalog = getBool("OUTPUT", "seismic_catalog", false);
+    
+    // Parse output unit preferences
+    config.output_units["pressure"] = getString("OUTPUT", "pressure_unit", "MPa");
+    config.output_units["displacement"] = getString("OUTPUT", "displacement_unit", "m");
+    config.output_units["stress"] = getString("OUTPUT", "stress_unit", "MPa");
+    config.output_units["permeability"] = getString("OUTPUT", "permeability_unit", "mD");
+    config.output_units["temperature"] = getString("OUTPUT", "temperature_unit", "degC");
+    config.output_units["density"] = getString("OUTPUT", "density_unit", "kg/m3");
+    config.output_units["viscosity"] = getString("OUTPUT", "viscosity_unit", "cP");
+    config.output_units["length"] = getString("OUTPUT", "length_unit", "m");
+    config.output_units["time"] = getString("OUTPUT", "time_unit", "s");
     
     return true;
 }
