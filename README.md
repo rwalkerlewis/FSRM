@@ -372,33 +372,47 @@ Configuration files define all simulation parameters:
 
 ### Example Executables
 
-| Executable | Purpose | Config File |
-|------------|---------|-------------|
-| `ex_config_driven` | Generic config-driven runner | Any config file |
-| `ex_buckley_leverett_2d` | Two-phase waterflooding | `buckley_leverett_2d.config` |
-| `ex_coupled_reservoir_2d` | Coupled flow-geomechanics | `coupled_reservoir_2d.config` |
-| `ex_wave_propagation` | Wave physics | Wave config files |
-| `spe1` | SPE1 benchmark | `spe1_benchmark.config` |
-| `ex_stochastic_reservoir` | Monte Carlo uncertainty | Custom config |
-| `ex_hydraulic_fracturing` | Frac design | `hydraulic_fracturing.config` |
+**All examples now use a unified config-driven approach:**
+
+| Executable | Purpose | Config Files |
+|------------|---------|--------------|
+| `simulator` | Main config-driven executable | Any `.config` file |
+| `spe1` | SPE1 benchmark validation | `spe1_benchmark.config` |
+
+**Previously separate executables have been replaced with config files.** This means no recompilation needed to run different examples!
 
 ### Running Examples
 
 ```bash
 cd build/examples
 
-# Run any simulation with the generic config-driven executable
-./ex_config_driven ../config/buckley_leverett_2d.config
-
-# Run specific examples
-./ex_buckley_leverett_2d ../config/buckley_leverett_2d.config
-./ex_coupled_reservoir_2d ../config/coupled_reservoir_2d.config
-./spe1 ../config/spe1_benchmark.config
-./ex_wave_propagation ../config/elastodynamic_waves.config
+# Run any example with the unified simulator
+./simulator -c config/lefm_fracture_growth.config
+./simulator -c config/hydraulic_fracturing.config
+./simulator -c config/induced_seismicity.config
+./simulator -c config/wave_propagation.config
+./simulator -c config/single_phase.config
 
 # Parallel execution
-mpirun -np 4 ./ex_buckley_leverett_2d ../config/buckley_leverett_2d.config
-mpirun -np 8 ./ex_induced_seismicity ../config/induced_seismicity.config
+mpirun -np 4 ./simulator -c config/hydraulic_fracturing.config
+mpirun -np 8 ./simulator -c config/induced_seismicity.config
+
+# SPE1 benchmark (kept separate for validation)
+./spe1 config/spe1_benchmark.config
+```
+
+### Output Format
+
+**HDF5 is now the default output format** (more efficient than VTK):
+
+```bash
+# Visualize HDF5 outputs
+python scripts/hdf5_to_xdmf.py output/
+paraview output/solution.xdmf
+
+# Or use VTK (secondary option) by setting in config:
+# output_format = VTK
+paraview output/*.vtu
 ```
 
 ### Using Gmsh Meshes with Coordinates

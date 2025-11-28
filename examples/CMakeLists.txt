@@ -1,4 +1,5 @@
 # Examples CMakeLists
+# All examples now run through config-driven executable with different config files
 
 # Helper function to create examples
 function(add_reservoir_example NAME SOURCE)
@@ -12,31 +13,18 @@ function(add_reservoir_example NAME SOURCE)
     endif()
 endfunction()
 
-# Basic examples
-add_reservoir_example(ex01_single_phase ex01_single_phase.cpp)
-# add_reservoir_example(ex02_black_oil ex02_black_oil.cpp)  # TODO: Create
-# add_reservoir_example(ex03_compositional ex03_compositional.cpp)  # TODO: Create
-# add_reservoir_example(ex04_geomechanics ex04_geomechanics.cpp)  # TODO: Create
+# Main config-driven executable - ALL examples run through this
+add_reservoir_example(simulator ex_config_driven.cpp)
 
-# SPE benchmarks
+# SPE benchmark (kept for validation/comparison)
 add_reservoir_example(spe1 spe1.cpp)
-# add_reservoir_example(spe3 spe3.cpp)  # TODO: Create
-# add_reservoir_example(spe9 spe9.cpp)  # TODO: Create
-# add_reservoir_example(spe10 spe10.cpp)  # TODO: Create
 
-# Advanced examples
-add_reservoir_example(ex_hydraulic_fracturing ex_hydraulic_fracturing.cpp)
-add_reservoir_example(ex_induced_seismicity ex_induced_seismicity.cpp)
-# add_reservoir_example(ex_thermal_recovery ex_thermal_recovery.cpp)  # TODO: Create
-add_reservoir_example(ex_stochastic_reservoir ex_stochastic_reservoir.cpp)
-add_reservoir_example(ex_config_driven ex_config_driven.cpp)
-add_reservoir_example(ex_lefm_fracture_growth ex_lefm_fracture_growth.cpp)
-add_reservoir_example(ex_wave_propagation ex_wave_propagation.cpp)
-add_reservoir_example(ex_buckley_leverett_2d ex_buckley_leverett_2d.cpp)
-add_reservoir_example(ex_coupled_reservoir_2d ex_coupled_reservoir_2d.cpp)
-add_reservoir_example(ex_reservoir_2d_vertical ex_reservoir_2d_vertical.cpp)
-add_reservoir_example(ex_reservoir_2d_vertical_enhanced ex_reservoir_2d_vertical_enhanced.cpp)
-add_reservoir_example(ex_gnuplot_solver ex_gnuplot_solver.cpp)
+# Copy all config files to build directory
+file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*.config")
+foreach(CONFIG_FILE ${CONFIG_FILES})
+    get_filename_component(FILENAME ${CONFIG_FILE} NAME)
+    configure_file(${CONFIG_FILE} ${CMAKE_CURRENT_BINARY_DIR}/config/${FILENAME} COPYONLY)
+endforeach()
 
 # Copy data files
 file(GLOB DATA_FILES "*.DATA" "*.INC")
@@ -44,3 +32,27 @@ foreach(DATA_FILE ${DATA_FILES})
     get_filename_component(FILENAME ${DATA_FILE} NAME)
     configure_file(${DATA_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILENAME} COPYONLY)
 endforeach()
+
+# Display usage message
+message(STATUS "===========================================================")
+message(STATUS "Examples Build Configuration")
+message(STATUS "===========================================================")
+message(STATUS "Building config-driven simulator executable")
+message(STATUS "")
+message(STATUS "Usage:")
+message(STATUS "  ./simulator -c config/<example>.config")
+message(STATUS "")
+message(STATUS "Available example configs:")
+message(STATUS "  - config/single_phase.config")
+message(STATUS "  - config/hydraulic_fracturing.config")
+message(STATUS "  - config/lefm_fracture_growth.config")
+message(STATUS "  - config/induced_seismicity.config")
+message(STATUS "  - config/wave_propagation.config")
+message(STATUS "  - config/geothermal.config")
+message(STATUS "  - config/co2_storage.config")
+message(STATUS "  - config/shale_reservoir.config")
+message(STATUS "  - config/default.config")
+message(STATUS "")
+message(STATUS "All examples now use HDF5 output by default")
+message(STATUS "Use VTK for legacy visualization if needed")
+message(STATUS "===========================================================")

@@ -200,7 +200,7 @@ PlotGenerator2D::PlotGenerator2D(int width, int height, int margin_left,
 }
 
 Visualization::Visualization() 
-    : format(OutputFormat::VTK), output_dir("output") {}
+    : format(OutputFormat::HDF5), output_dir("output") {}
 
 Visualization::~Visualization() {}
 
