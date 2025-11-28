@@ -244,6 +244,460 @@ double RateStateFriction::getCriticalStiffness(double sigma_n_eff) const {
 }
 
 // =============================================================================
+// FlashHeatingFriction Implementation
+// =============================================================================
+
+/**
+ * @class FlashHeatingFriction
+ * @brief Flash heating friction law with thermal weakening
+ * 
+ * Based on Rice (2006) and Noda & Shimamoto (2005):
+ * - At low slip rates: standard rate-state friction
+ * - At high slip rates: severe weakening due to flash heating
+ * - Weakening velocity: V_w = (π * α_th * ρ * c / (τ * D))^2
+ * - Weakened friction: f_w + (f - f_w) / (1 + (V/V_w)^m)
+ */
+class FlashHeatingFriction : public FrictionModelBase {
+public:
+    // Flash heating parameters
+    struct FlashHeatingParams {
+        // Base rate-state parameters
+        double a;           // Direct effect coefficient
+        double b;           // Evolution effect coefficient
+        double Dc;          // Critical slip distance [m]
+        double V0;          // Reference slip rate [m/s]
+        double f0;          // Reference friction coefficient
+        double theta0;      // Initial state variable
+        
+        // Flash heating specific
+        double fw;          // Fully weakened friction coefficient
+        double Vw;          // Weakening velocity [m/s]
+        double m;           // Weakening exponent (usually 1)
+        
+        // Thermal properties
+        double alpha_th;    // Thermal diffusivity [m^2/s]
+        double rho_c;       // ρ*c heat capacity [J/(m^3*K)]
+        double contact_diameter;  // Asperity contact diameter [m]
+        double Tw;          // Weakening temperature [K]
+        double T_ambient;   // Ambient temperature [K]
+        
+        FlashHeatingParams()
+            : a(0.01), b(0.015), Dc(1e-4), V0(1e-6), f0(0.6), theta0(1e6),
+              fw(0.1), Vw(0.1), m(1.0),
+              alpha_th(1e-6), rho_c(2.7e6), contact_diameter(10e-6),
+              Tw(1200.0), T_ambient(300.0) {}
+        
+        void configure(const std::map<std::string, std::string>& config) {
+            a = parseDouble(config, "rate_state_a", 0.01);
+            b = parseDouble(config, "rate_state_b", 0.015);
+            Dc = parseDouble(config, "rate_state_dc", 1e-4);
+            V0 = parseDouble(config, "rate_state_v0", 1e-6);
+            f0 = parseDouble(config, "rate_state_f0", 0.6);
+            theta0 = parseDouble(config, "rate_state_theta0", Dc / V0);
+            
+            fw = parseDouble(config, "flash_heating_fw", 0.1);
+            Vw = parseDouble(config, "flash_heating_vw", 0.1);
+            m = parseDouble(config, "flash_heating_m", 1.0);
+            
+            alpha_th = parseDouble(config, "thermal_diffusivity", 1e-6);
+            rho_c = parseDouble(config, "heat_capacity_vol", 2.7e6);
+            contact_diameter = parseDouble(config, "contact_diameter", 10e-6);
+            Tw = parseDouble(config, "weakening_temperature", 1200.0);
+            T_ambient = parseDouble(config, "ambient_temperature", 300.0);
+        }
+    };
+    
+    FlashHeatingParams params;
+    
+    FlashHeatingFriction() 
+        : FrictionModelBase(FrictionLaw::FLASH_HEATING) {}
+    
+    double getFriction(double slip_rate, double state_var, 
+                      double sigma_n_eff) const override {
+        // Get rate-state friction at low velocity
+        double V = std::max(slip_rate, 1e-20);
+        double theta = std::max(state_var, 1e-10);
+        
+        double f_rs = params.f0 + 
+                     params.a * std::log(V / params.V0) + 
+                     params.b * std::log(theta * params.V0 / params.Dc);
+        f_rs = std::max(0.01, f_rs);
+        
+        // Apply flash heating weakening
+        double V_ratio = V / params.Vw;
+        double weakening_factor = 1.0 / (1.0 + std::pow(V_ratio, params.m));
+        
+        double f = params.fw + (f_rs - params.fw) * weakening_factor;
+        
+        return std::max(0.01, f);
+    }
+    
+    double getStateEvolutionRate(double slip_rate, double state_var) const override {
+        // Standard aging law for state evolution
+        double V = std::max(std::abs(slip_rate), 1e-20);
+        double theta = std::max(state_var, 1e-10);
+        
+        return 1.0 - V * theta / params.Dc;
+    }
+    
+    void configure(const std::map<std::string, std::string>& config) override {
+        params.configure(config);
+    }
+    
+    /**
+     * @brief Compute weakening velocity from thermal properties
+     */
+    double computeWeakeningVelocity(double tau, double sigma_n_eff) const {
+        // V_w = (π * α_th * ρ_c * (T_w - T_a) / (τ * D))^2
+        double tau_eff = std::max(tau, 1.0);  // Avoid division by zero
+        double delta_T = params.Tw - params.T_ambient;
+        
+        double numerator = M_PI * params.alpha_th * params.rho_c * delta_T;
+        double denominator = tau_eff * params.contact_diameter;
+        
+        return std::pow(numerator / denominator, 2);
+    }
+    
+    /**
+     * @brief Get flash temperature at contact
+     */
+    double getFlashTemperature(double slip_rate, double tau) const {
+        // T_flash = T_a + τ * V * D / (π * α_th * ρ_c)
+        double V = std::abs(slip_rate);
+        return params.T_ambient + 
+               tau * V * params.contact_diameter / (M_PI * params.alpha_th * params.rho_c);
+    }
+    
+    /**
+     * @brief Get derivative of friction w.r.t. slip rate (for Jacobian)
+     */
+    double getFrictionVelocityDerivative(double slip_rate, double state_var,
+                                         double sigma_n_eff) const {
+        double V = std::max(slip_rate, 1e-20);
+        double theta = std::max(state_var, 1e-10);
+        
+        // Rate-state part: df_rs/dV = a/V
+        double df_rs_dV = params.a / V;
+        
+        // Flash heating part
+        double V_ratio = V / params.Vw;
+        double weakening = 1.0 / (1.0 + std::pow(V_ratio, params.m));
+        
+        double f_rs = params.f0 + params.a * std::log(V / params.V0) + 
+                     params.b * std::log(theta * params.V0 / params.Dc);
+        
+        // d/dV[(f_rs - fw) * weakening]
+        double dweaken_dV = -params.m * std::pow(V_ratio, params.m - 1) / 
+                           (params.Vw * std::pow(1.0 + std::pow(V_ratio, params.m), 2));
+        
+        return weakening * df_rs_dV + (f_rs - params.fw) * dweaken_dV;
+    }
+};
+
+// =============================================================================
+// StrongVelocityWeakeningFriction Implementation  
+// =============================================================================
+
+/**
+ * @class StrongVelocityWeakeningFriction
+ * @brief Strong velocity weakening friction (Dunham et al., 2011)
+ * 
+ * Regularized version of slip-weakening that includes:
+ * - Direct velocity effect
+ * - Thermal weakening at high slip rates
+ * - Smooth transition between regimes
+ */
+class StrongVelocityWeakeningFriction : public FrictionModelBase {
+public:
+    struct SVWParams {
+        // Basic parameters
+        double f_s;         // Static friction
+        double f_d;         // Dynamic friction (fully weakened)
+        double Dc;          // Critical slip distance [m]
+        
+        // Velocity weakening
+        double V0;          // Reference velocity [m/s]
+        double Vw;          // Weakening velocity [m/s]
+        double gamma;       // Velocity weakening exponent
+        
+        // Optional thermal component
+        bool use_thermal;   // Enable thermal weakening
+        double alpha_th;    // Thermal diffusivity
+        double L_th;        // Thermal length scale
+        
+        SVWParams()
+            : f_s(0.7), f_d(0.3), Dc(0.5),
+              V0(1e-6), Vw(0.1), gamma(1.0),
+              use_thermal(false), alpha_th(1e-6), L_th(0.001) {}
+        
+        void configure(const std::map<std::string, std::string>& config) {
+            f_s = parseDouble(config, "static_friction", 0.7);
+            f_d = parseDouble(config, "dynamic_friction", 0.3);
+            Dc = parseDouble(config, "slip_weakening_dc", 0.5);
+            V0 = parseDouble(config, "reference_velocity", 1e-6);
+            Vw = parseDouble(config, "weakening_velocity", 0.1);
+            gamma = parseDouble(config, "weakening_exponent", 1.0);
+            use_thermal = parseString(config, "use_thermal_weakening", "false") == "true";
+            alpha_th = parseDouble(config, "thermal_diffusivity", 1e-6);
+            L_th = parseDouble(config, "thermal_length", 0.001);
+        }
+    };
+    
+    SVWParams params;
+    
+    StrongVelocityWeakeningFriction()
+        : FrictionModelBase(FrictionLaw::STRONG_VELOCITY_WEAKENING) {}
+    
+    double getFriction(double slip_rate, double state_var,
+                      double sigma_n_eff) const override {
+        // State variable = cumulative slip
+        double slip = state_var;
+        double V = std::max(std::abs(slip_rate), 1e-20);
+        
+        // Slip weakening component
+        double f_slip;
+        if (slip >= params.Dc) {
+            f_slip = params.f_d;
+        } else if (slip <= 0.0) {
+            f_slip = params.f_s;
+        } else {
+            // Linear slip weakening
+            f_slip = params.f_s - (params.f_s - params.f_d) * slip / params.Dc;
+        }
+        
+        // Velocity weakening component
+        double f_vel = params.f_d + (f_slip - params.f_d) / 
+                      (1.0 + std::pow(V / params.Vw, params.gamma));
+        
+        // Thermal weakening (optional)
+        if (params.use_thermal) {
+            // Additional weakening at high slip rates due to thermal effects
+            double thermal_factor = 1.0 / (1.0 + V * params.L_th / params.alpha_th);
+            f_vel = params.f_d + (f_vel - params.f_d) * thermal_factor;
+        }
+        
+        return std::max(0.01, f_vel);
+    }
+    
+    double getStateEvolutionRate(double slip_rate, double state_var) const override {
+        // State = cumulative slip
+        return std::abs(slip_rate);
+    }
+    
+    void configure(const std::map<std::string, std::string>& config) override {
+        params.configure(config);
+    }
+    
+    /**
+     * @brief Get slip-weakening distance
+     */
+    double getSlipWeakeningDistance() const {
+        return params.Dc;
+    }
+    
+    /**
+     * @brief Get fracture energy
+     */
+    double getFractureEnergy(double sigma_n_eff) const {
+        // G_c = 0.5 * (f_s - f_d) * σ_n * D_c
+        return 0.5 * (params.f_s - params.f_d) * sigma_n_eff * params.Dc;
+    }
+    
+    /**
+     * @brief Compute critical nucleation length (Day, 1982)
+     */
+    double getNucleationLength(double shear_modulus, double sigma_n_eff) const {
+        // L_c ≈ μ * D_c / ((f_s - f_d) * σ_n)
+        double delta_f = params.f_s - params.f_d;
+        if (delta_f < 0.01) delta_f = 0.01;  // Prevent division by zero
+        
+        return shear_modulus * params.Dc / (delta_f * sigma_n_eff);
+    }
+};
+
+// =============================================================================
+// ThermalPressurizationFriction Implementation
+// =============================================================================
+
+/**
+ * @class ThermalPressurizationFriction
+ * @brief Friction with pore pressure evolution from shear heating
+ * 
+ * Implements thermal pressurization (TP) during slip:
+ * - Frictional heating raises temperature
+ * - Temperature increase causes pore pressure rise
+ * - Effective stress decreases, reducing friction
+ */
+class ThermalPressurizationFriction : public FrictionModelBase {
+public:
+    struct TPParams {
+        // Base friction
+        double f0;          // Base friction coefficient
+        double a;           // Rate-state direct effect (optional)
+        double b;           // Rate-state evolution effect (optional)
+        double Dc;          // Critical slip distance
+        double V0;          // Reference velocity
+        
+        // Thermal properties
+        double rho_c;       // Volumetric heat capacity [J/(m^3·K)]
+        double k_th;        // Thermal conductivity [W/(m·K)]
+        double alpha_th;    // Thermal diffusivity [m^2/s]
+        
+        // Hydraulic properties  
+        double beta;        // Pore compressibility [1/Pa]
+        double lambda_f;    // Fluid thermal expansion [1/K]
+        double k_perm;      // Permeability [m^2]
+        double eta_f;       // Fluid viscosity [Pa·s]
+        double alpha_hy;    // Hydraulic diffusivity [m^2/s]
+        
+        // Layer properties
+        double w;           // Slip zone half-thickness [m]
+        
+        // Initial conditions
+        double T0;          // Initial temperature [K]
+        double p0;          // Initial pore pressure [Pa]
+        
+        TPParams()
+            : f0(0.6), a(0.01), b(0.015), Dc(1e-4), V0(1e-6),
+              rho_c(2.7e6), k_th(3.0), alpha_th(1e-6),
+              beta(1e-9), lambda_f(3e-4), k_perm(1e-18), eta_f(1e-3),
+              alpha_hy(1e-5), w(0.001), T0(300.0), p0(0.0) {}
+        
+        void configure(const std::map<std::string, std::string>& config) {
+            f0 = parseDouble(config, "reference_friction", 0.6);
+            a = parseDouble(config, "rate_state_a", 0.01);
+            b = parseDouble(config, "rate_state_b", 0.015);
+            Dc = parseDouble(config, "critical_slip_distance", 1e-4);
+            V0 = parseDouble(config, "reference_velocity", 1e-6);
+            
+            rho_c = parseDouble(config, "heat_capacity_vol", 2.7e6);
+            k_th = parseDouble(config, "thermal_conductivity", 3.0);
+            alpha_th = parseDouble(config, "thermal_diffusivity", 1e-6);
+            
+            beta = parseDouble(config, "pore_compressibility", 1e-9);
+            lambda_f = parseDouble(config, "fluid_thermal_expansion", 3e-4);
+            k_perm = parseDouble(config, "permeability", 1e-18);
+            eta_f = parseDouble(config, "fluid_viscosity", 1e-3);
+            alpha_hy = parseDouble(config, "hydraulic_diffusivity", 1e-5);
+            
+            w = parseDouble(config, "slip_zone_thickness", 0.001);
+            T0 = parseDouble(config, "initial_temperature", 300.0);
+            p0 = parseDouble(config, "initial_pore_pressure", 0.0);
+        }
+    };
+    
+    TPParams params;
+    
+    // State: cumulative slip, temperature, pore pressure
+    mutable double current_T;
+    mutable double current_p;
+    
+    ThermalPressurizationFriction()
+        : FrictionModelBase(FrictionLaw::THERMAL_PRESSURIZATION),
+          current_T(300.0), current_p(0.0) {}
+    
+    double getFriction(double slip_rate, double state_var,
+                      double sigma_n_eff) const override {
+        // Effective normal stress including TP-induced pore pressure
+        double sigma_eff = sigma_n_eff - current_p;
+        sigma_eff = std::max(0.0, sigma_eff);
+        
+        // Base friction (could be rate-state)
+        double V = std::max(std::abs(slip_rate), 1e-20);
+        double f = params.f0;
+        
+        // Add rate-state effects if enabled
+        if (params.a > 0) {
+            double theta = state_var;
+            f = params.f0 + params.a * std::log(V / params.V0) +
+                params.b * std::log(theta * params.V0 / params.Dc);
+        }
+        
+        return std::max(0.01, f);
+    }
+    
+    double getStateEvolutionRate(double slip_rate, double state_var) const override {
+        // Aging law for rate-state component
+        double V = std::max(std::abs(slip_rate), 1e-20);
+        double theta = std::max(state_var, 1e-10);
+        return 1.0 - V * theta / params.Dc;
+    }
+    
+    void configure(const std::map<std::string, std::string>& config) override {
+        params.configure(config);
+        current_T = params.T0;
+        current_p = params.p0;
+    }
+    
+    /**
+     * @brief Evolve thermal pressurization state
+     * @param slip_rate Current slip rate [m/s]
+     * @param tau Current shear stress [Pa]
+     * @param dt Time step [s]
+     */
+    void evolveTPState(double slip_rate, double tau, double dt) {
+        double V = std::abs(slip_rate);
+        
+        // Heating rate: q = τ * V / (2w)
+        double heating_rate = tau * V / (2.0 * params.w * params.rho_c);
+        
+        // Thermal diffusion time scale
+        double t_th = params.w * params.w / params.alpha_th;
+        
+        // Simple evolution (adiabatic limit for short times)
+        // dT/dt = τ*V / (ρc * 2w) - α_th * T'' / w²
+        double dT_dt = heating_rate - params.alpha_th * (current_T - params.T0) / 
+                      (params.w * params.w);
+        
+        // Pore pressure evolution  
+        // dp/dt = λ_f/β * dT/dt - α_hy * p'' / w²
+        double dp_dt = params.lambda_f / params.beta * dT_dt - 
+                      params.alpha_hy * current_p / (params.w * params.w);
+        
+        // Update
+        current_T += dT_dt * dt;
+        current_p += dp_dt * dt;
+        
+        // Bounds
+        current_T = std::max(params.T0, current_T);
+        current_p = std::max(0.0, current_p);
+    }
+    
+    /**
+     * @brief Get current effective pore pressure change
+     */
+    double getPorePressureChange() const {
+        return current_p - params.p0;
+    }
+    
+    /**
+     * @brief Get current temperature rise
+     */
+    double getTemperatureRise() const {
+        return current_T - params.T0;
+    }
+    
+    /**
+     * @brief Reset TP state
+     */
+    void resetTPState() {
+        current_T = params.T0;
+        current_p = params.p0;
+    }
+    
+    /**
+     * @brief Get characteristic weakening slip (Platt et al., 2014)
+     */
+    double getCharacteristicSlip(double tau0, double sigma_n) const {
+        // L* = (ρc * σ_n * α_th) / (λ_f * τ0² / β)
+        double factor = params.lambda_f * tau0 * tau0 / params.beta;
+        if (factor < 1e-10) return 1e10;  // Very large if no TP effect
+        
+        return params.rho_c * sigma_n * params.alpha_th / factor;
+    }
+};
+
+// =============================================================================
 // SeismicFaultModel Implementation
 // =============================================================================
 
@@ -631,6 +1085,15 @@ std::unique_ptr<FrictionModelBase> createFrictionModel(
         case FrictionLaw::RATE_STATE_SLIP:
             model = std::make_unique<RateStateFriction>(RateStateFriction::EvolutionLaw::SLIP);
             break;
+        case FrictionLaw::FLASH_HEATING:
+            model = std::make_unique<FlashHeatingFriction>();
+            break;
+        case FrictionLaw::THERMAL_PRESSURIZATION:
+            model = std::make_unique<ThermalPressurizationFriction>();
+            break;
+        case FrictionLaw::STRONG_VELOCITY_WEAKENING:
+            model = std::make_unique<StrongVelocityWeakeningFriction>();
+            break;
         default:
             model = std::make_unique<CoulombFriction>();
     }
@@ -654,10 +1117,12 @@ FrictionLaw parseFrictionLaw(const std::string& str) {
         return FrictionLaw::RATE_STATE_SLIP;
     } else if (s == "SLIP_WEAKENING" || s == "SW") {
         return FrictionLaw::SLIP_WEAKENING;
-    } else if (s == "FLASH_HEATING") {
+    } else if (s == "FLASH_HEATING" || s == "FH") {
         return FrictionLaw::FLASH_HEATING;
-    } else if (s == "THERMAL_PRESSURIZATION") {
+    } else if (s == "THERMAL_PRESSURIZATION" || s == "TP") {
         return FrictionLaw::THERMAL_PRESSURIZATION;
+    } else if (s == "STRONG_VELOCITY_WEAKENING" || s == "SVW") {
+        return FrictionLaw::STRONG_VELOCITY_WEAKENING;
     }
     
     return FrictionLaw::COULOMB;

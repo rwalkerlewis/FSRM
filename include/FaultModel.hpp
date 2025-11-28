@@ -15,12 +15,13 @@ namespace FSRM {
  * @brief Types of friction laws for fault mechanics
  */
 enum class FrictionLaw {
-    COULOMB,                // Static/dynamic Coulomb friction
-    RATE_STATE_AGING,       // Rate-and-state with aging law
-    RATE_STATE_SLIP,        // Rate-and-state with slip law
-    SLIP_WEAKENING,         // Linear slip-weakening
-    FLASH_HEATING,          // Flash heating at high slip rates
-    THERMAL_PRESSURIZATION  // Pore pressure effects
+    COULOMB,                    // Static/dynamic Coulomb friction
+    RATE_STATE_AGING,           // Rate-and-state with aging law
+    RATE_STATE_SLIP,            // Rate-and-state with slip law
+    SLIP_WEAKENING,             // Linear slip-weakening
+    FLASH_HEATING,              // Flash heating at high slip rates
+    THERMAL_PRESSURIZATION,     // Pore pressure effects
+    STRONG_VELOCITY_WEAKENING   // Strong velocity weakening (SVW)
 };
 
 /**
