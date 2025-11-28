@@ -13,6 +13,23 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - **Faults**: Rate-and-state friction, induced seismicity
 - **Tidal Forces**: Earth tides effect on reservoirs
 
+### Earthquake Simulation (SeisSol-Compatible)
+- **Discontinuous Galerkin (DG)**: High-order (O1-O10) ADER-DG spatial discretization
+- **ADER Time Integration**: Arbitrary high-order time stepping with optimal CFL
+- **Local Time Stepping (LTS)**: Adaptive timesteps per element for efficiency
+- **Dynamic Rupture**: Full fault mechanics with spontaneous rupture propagation
+- **Friction Laws**:
+  - Coulomb (linear slip-weakening)
+  - Rate-and-State (aging/slip laws)
+  - Flash Heating
+  - Thermal Pressurization
+  - Strong Velocity Weakening
+- **Absorbing Boundaries**: PML, Clayton-Engquist, Lysmer-Kuhlemeyer
+- **Seismic Sources**: Moment tensor, kinematic fault, single force
+- **Receivers**: Surface/volume waveforms, fault slip/traction output
+- **Off-fault Plasticity**: Drucker-Prager, von Mises, Mohr-Coulomb, Cap models
+- **Viscoelastic Attenuation**: Multi-mechanism Q-factor modeling
+
 ### Key Capabilities
 - Fully coupled multi-physics (THM - Thermo-Hydro-Mechanical)
 - Eclipse format I/O (DATA files)
@@ -434,7 +451,31 @@ The unstructured Gmsh example demonstrates:
 ```bash
 cd build
 ./tests/run_tests
+
+# Run specific test suites
+./tests/unit/test_discontinuous_galerkin     # DG solver tests
+./tests/unit/test_seismic_source             # Source/receiver tests
+./tests/unit/test_boundary_conditions        # BC tests
+./tests/unit/test_plasticity_model           # Plasticity tests
+./tests/unit/test_viscoelastic_attenuation   # Attenuation tests
+./tests/unit/test_friction_laws              # Friction law tests
 ```
+
+### Integration Tests
+```bash
+# SCEC benchmark validation
+./tests/integration/test_scec_tpv_benchmarks
+
+# Full simulation tests
+./tests/integration/test_full_simulation
+```
+
+### SCEC Benchmarks
+Validated against SCEC (Southern California Earthquake Center) benchmark problems:
+- **TPV5**: 2D strike-slip fault with slip-weakening friction
+- **TPV10**: 60-degree dipping normal fault
+- **TPV16**: 3D heterogeneous stress fault
+- **LOH1**: Layer over halfspace wave propagation
 
 ### Method of Manufactured Solutions
 ```bash
@@ -448,6 +489,8 @@ cd tests
 - Buckley-Leverett (two-phase)
 - Mandel-Cryer (poroelasticity)
 - Terzaghi (consolidation)
+- Lamb's problem (point force in halfspace)
+- Garvin's problem (buried explosion)
 
 ## Visualization
 
