@@ -1057,6 +1057,126 @@ std::vector<std::string> ConfigReader::parseStringArray(const std::string& value
     return split(value, ',');
 }
 
+bool ConfigReader::parseAMRConfig(AMRConfig& config) {
+    // Main AMR section
+    if (!hasSection("amr")) {
+        return false;  // AMR not configured
+    }
+    
+    config.enabled = getBool("amr", "enabled", false);
+    config.method = getString("amr", "method", "plex_adapt");
+    config.adapt_every = getInt("amr", "adapt_every", 5);
+    config.adapt_on_change = getBool("amr", "adapt_on_change", true);
+    
+    // Criterion subsection
+    config.criterion_type = getString("amr.criterion", "type", "gradient");
+    config.weight_pressure = getDouble("amr.criterion", "weight_pressure", 1.0);
+    config.weight_saturation = getDouble("amr.criterion", "weight_saturation", 1.0);
+    config.weight_velocity = getDouble("amr.criterion", "weight_velocity", 0.5);
+    config.weight_temperature = getDouble("amr.criterion", "weight_temperature", 0.5);
+    
+    // Strategy subsection
+    config.strategy = getString("amr.strategy", "type", "fixed_fraction");
+    config.refine_fraction = getDouble("amr.strategy", "refine_fraction", 0.2);
+    config.coarsen_fraction = getDouble("amr.strategy", "coarsen_fraction", 0.05);
+    config.refine_threshold = getDouble("amr.strategy", "refine_threshold", 0.5);
+    config.coarsen_threshold = getDouble("amr.strategy", "coarsen_threshold", 0.05);
+    
+    // Limits subsection
+    config.max_level = getInt("amr.limits", "max_refinement_level", 5);
+    config.min_level = getInt("amr.limits", "min_refinement_level", 0);
+    config.max_cells = getInt("amr.limits", "max_cells", 1000000);
+    config.min_cells = getInt("amr.limits", "min_cells", 100);
+    config.min_cell_size = getDouble("amr.limits", "min_cell_size", 1e-6);
+    config.max_cell_size = getDouble("amr.limits", "max_cell_size", 1e6);
+    
+    // Quality subsection
+    config.min_quality = getDouble("amr.quality", "min_quality", 0.1);
+    config.max_aspect_ratio = getDouble("amr.quality", "max_aspect_ratio", 10.0);
+    
+    // Features subsection
+    config.preserve_boundaries = getBool("amr.features", "preserve_boundaries", true);
+    config.preserve_wells = getBool("amr.features", "preserve_wells", true);
+    config.preserve_faults = getBool("amr.features", "preserve_faults", true);
+    config.buffer_layers = getInt("amr.features", "buffer_layers", 1);
+    
+    // Parse well features (amr.features.wells.WELLNAME sections)
+    auto well_sections = getSectionsMatching("amr.features.wells.");
+    for (const auto& sec : well_sections) {
+        AMRFeatureWell well;
+        well.name = getString(sec, "name", "");
+        well.x = getDouble(sec, "x", 0.0);
+        well.y = getDouble(sec, "y", 0.0);
+        well.z = getDouble(sec, "z", 0.0);
+        well.radius = getDouble(sec, "radius", 10.0);
+        well.level = getInt(sec, "level", 2);
+        
+        if (!well.name.empty() || well.radius > 0) {
+            config.wells.push_back(well);
+        }
+    }
+    
+    // Parse fault features
+    auto fault_sections = getSectionsMatching("amr.features.faults.");
+    for (const auto& sec : fault_sections) {
+        AMRFeatureFault fault;
+        fault.name = getString(sec, "name", "");
+        fault.width = getDouble(sec, "width", 10.0);
+        fault.level = getInt(sec, "level", 2);
+        
+        // Parse trace points (format: x1,y1,z1;x2,y2,z2;...)
+        std::string trace_str = getString(sec, "trace", "");
+        if (!trace_str.empty()) {
+            auto points = split(trace_str, ';');
+            for (const auto& pt : points) {
+                auto coords = parseDoubleArray(pt);
+                if (coords.size() >= 3) {
+                    fault.trace.push_back({coords[0], coords[1], coords[2]});
+                }
+            }
+        }
+        
+        if (!fault.trace.empty()) {
+            config.faults.push_back(fault);
+        }
+    }
+    
+    // Parse box features
+    auto box_sections = getSectionsMatching("amr.features.boxes.");
+    for (const auto& sec : box_sections) {
+        AMRFeatureBox box;
+        box.name = getString(sec, "name", "");
+        box.xmin = getDouble(sec, "xmin", 0.0);
+        box.xmax = getDouble(sec, "xmax", 0.0);
+        box.ymin = getDouble(sec, "ymin", 0.0);
+        box.ymax = getDouble(sec, "ymax", 0.0);
+        box.zmin = getDouble(sec, "zmin", 0.0);
+        box.zmax = getDouble(sec, "zmax", 0.0);
+        box.level = getInt(sec, "level", 2);
+        
+        if (box.xmax > box.xmin || box.ymax > box.ymin || box.zmax > box.zmin) {
+            config.boxes.push_back(box);
+        }
+    }
+    
+    // Transfer subsection
+    config.transfer_method = getString("amr.transfer", "method", "interpolation");
+    config.conservative = getBool("amr.transfer", "conservative", true);
+    
+    // Balance subsection
+    config.balance_enabled = getBool("amr.balance", "enabled", true);
+    config.balance_method = getString("amr.balance", "method", "parmetis");
+    config.rebalance_threshold = getDouble("amr.balance", "rebalance_threshold", 0.2);
+    
+    // Output subsection
+    config.write_mesh = getBool("amr.output", "write_mesh", true);
+    config.write_errors = getBool("amr.output", "write_errors", true);
+    config.output_format = getString("amr.output", "format", "vtk");
+    config.output_prefix = getString("amr.output", "prefix", "amr_output");
+    
+    return true;
+}
+
 void ConfigReader::generateCompleteTemplate(const std::string& filename) {
     std::ofstream file(filename);
     
@@ -1255,6 +1375,83 @@ void ConfigReader::generateCompleteTemplate(const std::string& filename) {
     file << "saturation = false                    # Write saturation fields\n";
     file << "fault_slip = false                    # Write fault slip history\n";
     file << "seismic_catalog = false               # Write earthquake catalog\n\n";
+    
+    file << "# ============================================================================\n";
+    file << "# ADAPTIVE MESH REFINEMENT (AMR)\n";
+    file << "# ============================================================================\n\n";
+    
+    file << "[amr]\n";
+    file << "enabled = false                       # Enable AMR\n";
+    file << "method = plex_adapt                   # plex_refine, plex_adapt, forest_p4est\n";
+    file << "adapt_every = 5                       # Time steps between adaptations\n";
+    file << "adapt_on_change = true                # Adapt when solution changes significantly\n\n";
+    
+    file << "[amr.criterion]\n";
+    file << "type = gradient                       # gradient, hessian, residual, jump, feature, combined\n";
+    file << "weight_pressure = 1.0                 # Weight for pressure error\n";
+    file << "weight_saturation = 1.0               # Weight for saturation error\n";
+    file << "weight_velocity = 0.5                 # Weight for velocity error\n";
+    file << "weight_temperature = 0.5              # Weight for temperature error\n\n";
+    
+    file << "[amr.strategy]\n";
+    file << "type = fixed_fraction                 # fixed_fraction, threshold, equilibration\n";
+    file << "refine_fraction = 0.2                 # Fraction of cells to refine\n";
+    file << "coarsen_fraction = 0.05               # Fraction of cells to coarsen\n";
+    file << "refine_threshold = 0.5                # Threshold for refinement (threshold mode)\n";
+    file << "coarsen_threshold = 0.05              # Threshold for coarsening (threshold mode)\n\n";
+    
+    file << "[amr.limits]\n";
+    file << "max_refinement_level = 4              # Maximum refinement depth\n";
+    file << "min_refinement_level = 0              # Minimum refinement level\n";
+    file << "max_cells = 100000                    # Maximum number of cells\n";
+    file << "min_cells = 100                       # Minimum number of cells\n";
+    file << "min_cell_size = 1.0                   # Minimum cell dimension [m]\n";
+    file << "max_cell_size = 100.0                 # Maximum cell dimension [m]\n\n";
+    
+    file << "[amr.quality]\n";
+    file << "min_quality = 0.2                     # Minimum cell quality (0-1)\n";
+    file << "max_aspect_ratio = 5.0                # Maximum aspect ratio\n\n";
+    
+    file << "[amr.features]\n";
+    file << "preserve_boundaries = true            # Preserve boundary resolution\n";
+    file << "preserve_wells = true                 # Preserve well resolution\n";
+    file << "preserve_faults = true                # Preserve fault resolution\n";
+    file << "buffer_layers = 2                     # Buffer layers around refined cells\n\n";
+    
+    file << "# Well refinement features (add more sections as needed)\n";
+    file << "[amr.features.wells.PROD1]\n";
+    file << "name = PROD1\n";
+    file << "x = 50.0                              # Well X coordinate [m]\n";
+    file << "y = 50.0                              # Well Y coordinate [m]\n";
+    file << "z = 0.0                               # Well Z coordinate [m]\n";
+    file << "radius = 20.0                         # Refinement radius [m]\n";
+    file << "level = 3                             # Target refinement level\n\n";
+    
+    file << "# Box refinement regions\n";
+    file << "[amr.features.boxes.region1]\n";
+    file << "name = high_res_region\n";
+    file << "xmin = 0.0\n";
+    file << "xmax = 100.0\n";
+    file << "ymin = 0.0\n";
+    file << "ymax = 100.0\n";
+    file << "zmin = 0.0\n";
+    file << "zmax = 50.0\n";
+    file << "level = 2\n\n";
+    
+    file << "[amr.transfer]\n";
+    file << "method = interpolation                # interpolation, projection, injection, conservative\n";
+    file << "conservative = true                   # Ensure mass conservation\n\n";
+    
+    file << "[amr.balance]\n";
+    file << "enabled = true                        # Enable load balancing\n";
+    file << "method = parmetis                     # parmetis, ptscotch, simple\n";
+    file << "rebalance_threshold = 0.2             # Rebalance if imbalance > threshold\n\n";
+    
+    file << "[amr.output]\n";
+    file << "write_mesh = true                     # Output adapted mesh\n";
+    file << "write_errors = true                   # Output error field\n";
+    file << "format = vtk                          # vtk, hdf5, exodusii\n";
+    file << "prefix = amr_output                   # Output file prefix\n\n";
     
     file << "[WELL1]\n";
     file << "name = PROD1\n";

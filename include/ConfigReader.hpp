@@ -9,6 +9,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <array>
 #include <fstream>
 #include <sstream>
 #include <memory>
@@ -153,6 +154,108 @@ public:
     };
     
     // =========================================================================
+    // Adaptive Mesh Refinement Configuration
+    // =========================================================================
+    
+    struct AMRFeatureWell {
+        std::string name;
+        double x, y, z;
+        double radius;
+        int level;
+    };
+    
+    struct AMRFeatureFault {
+        std::string name;
+        std::vector<std::array<double, 3>> trace;
+        double width;
+        int level;
+    };
+    
+    struct AMRFeatureBox {
+        std::string name;
+        double xmin, xmax;
+        double ymin, ymax;
+        double zmin, zmax;
+        int level;
+    };
+    
+    struct AMRConfig {
+        bool enabled;
+        std::string method;           // plex_refine, plex_adapt, forest_p4est, pragmatic, mmg
+        int adapt_every;              // Time steps between adaptations
+        bool adapt_on_change;
+        
+        // Criterion
+        std::string criterion_type;   // gradient, hessian, residual, jump, feature, combined
+        double weight_pressure;
+        double weight_saturation;
+        double weight_velocity;
+        double weight_temperature;
+        
+        // Strategy
+        std::string strategy;         // fixed_fraction, threshold, equilibration
+        double refine_fraction;
+        double coarsen_fraction;
+        double refine_threshold;
+        double coarsen_threshold;
+        
+        // Limits
+        int max_level;
+        int min_level;
+        int max_cells;
+        int min_cells;
+        double min_cell_size;
+        double max_cell_size;
+        
+        // Quality
+        double min_quality;
+        double max_aspect_ratio;
+        
+        // Features
+        bool preserve_boundaries;
+        bool preserve_wells;
+        bool preserve_faults;
+        int buffer_layers;
+        std::vector<AMRFeatureWell> wells;
+        std::vector<AMRFeatureFault> faults;
+        std::vector<AMRFeatureBox> boxes;
+        
+        // Transfer
+        std::string transfer_method;  // interpolation, projection, injection, conservative
+        bool conservative;
+        
+        // Load balancing
+        bool balance_enabled;
+        std::string balance_method;   // parmetis, ptscotch, simple
+        double rebalance_threshold;
+        
+        // Output
+        bool write_mesh;
+        bool write_errors;
+        std::string output_format;
+        std::string output_prefix;
+        
+        // Default constructor with sensible defaults
+        AMRConfig() : enabled(false), method("plex_adapt"), adapt_every(5),
+                     adapt_on_change(true), criterion_type("gradient"),
+                     weight_pressure(1.0), weight_saturation(1.0),
+                     weight_velocity(0.5), weight_temperature(0.5),
+                     strategy("fixed_fraction"), refine_fraction(0.2),
+                     coarsen_fraction(0.05), refine_threshold(0.5),
+                     coarsen_threshold(0.05), max_level(5), min_level(0),
+                     max_cells(1000000), min_cells(100),
+                     min_cell_size(1e-6), max_cell_size(1e6),
+                     min_quality(0.1), max_aspect_ratio(10.0),
+                     preserve_boundaries(true), preserve_wells(true),
+                     preserve_faults(true), buffer_layers(1),
+                     transfer_method("interpolation"), conservative(true),
+                     balance_enabled(true), balance_method("parmetis"),
+                     rebalance_threshold(0.2), write_mesh(true),
+                     write_errors(true), output_format("vtk"),
+                     output_prefix("amr_output") {}
+    };
+    
+    // =========================================================================
     // Constructor/Destructor
     // =========================================================================
     
@@ -192,6 +295,13 @@ public:
     bool parseParticleProperties(ParticleConfig& config);
     std::vector<BoundaryCondition> parseBoundaryConditions();
     std::vector<InitialCondition> parseInitialConditions();
+    
+    /**
+     * @brief Parse Adaptive Mesh Refinement configuration
+     * @param config Output AMR configuration
+     * @return true if AMR section exists and was parsed successfully
+     */
+    bool parseAMRConfig(AMRConfig& config);
     
     // =========================================================================
     // Value Accessors

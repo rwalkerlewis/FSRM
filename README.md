@@ -45,6 +45,7 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - **Configuration-driven simulations** - no C++ coding required
 - **Solver method selection**: Numerical, FNO, or Hybrid modes
 - Structured and unstructured grids (Gmsh, Corner-Point, Exodus)
+- **Adaptive Mesh Refinement (AMR)** for unstructured grids using PETSc DMPlex/DMForest
 - **EPSG coordinate systems** with PROJ library integration
 - Advanced well models (vertical, horizontal, multilateral)
 - Stochastic reservoir modeling
@@ -56,6 +57,12 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - **Coordinate Transformations**: EPSG codes, UTM zones, local origins
 - **Physical Groups**: Reference Gmsh regions for materials and boundaries
 - **Auto UTM Detection**: Automatically determine UTM zone from GPS coordinates
+- **Adaptive Mesh Refinement**:
+  - Local h-refinement based on error estimators (gradient, Hessian, residual)
+  - Feature-based refinement (wells, faults, saturation fronts)
+  - PETSc DMPlex and DMForest (p4est) backends
+  - Conservative solution transfer between meshes
+  - Dynamic load balancing for parallel efficiency
 
 ## Building
 
@@ -418,6 +425,46 @@ ensemble_weight = 0.8       # FNO weight in ensemble mode
 refinement_iterations = 3   # Numerical refinement steps
 ```
 
+### [amr] - Adaptive Mesh Refinement
+Configure dynamic mesh adaptation for unstructured grids:
+```ini
+[amr]
+enabled = true
+method = plex_adapt         # plex_refine, plex_adapt, forest_p4est
+
+[amr.criterion]
+type = combined             # gradient, hessian, jump, feature, combined
+weight_saturation = 1.0     # Prioritize saturation front tracking
+weight_pressure = 0.3
+
+[amr.strategy]
+type = fixed_fraction
+refine_fraction = 0.2
+coarsen_fraction = 0.05
+
+[amr.limits]
+max_refinement_level = 4
+max_cells = 100000
+min_cell_size = 1.0
+
+[amr.features]
+buffer_layers = 2
+
+# Feature-based refinement around wells
+[amr.features.wells.PROD1]
+x = 50.0
+y = 50.0
+radius = 20.0
+level = 3
+
+[amr.transfer]
+conservative = true         # Mass-conserving solution transfer
+
+[amr.balance]
+enabled = true
+method = parmetis           # Parallel mesh partitioning
+```
+
 ## Examples
 
 All examples are **configuration-driven** - no C++ coding required to run simulations. Each example simply loads a configuration file and executes the simulation.
@@ -439,6 +486,7 @@ Configuration files define all simulation parameters:
 | `config/induced_seismicity.config` | Fault reactivation |
 | `config/co2_storage.config` | CO₂ geological storage |
 | `config/fno_solver.config` | FNO neural operator solver |
+| `config/amr_unstructured.config` | AMR for two-phase flow on unstructured grids |
 
 ### Example Executables
 
@@ -775,6 +823,7 @@ Complete documentation is available in the `docs/` directory:
   - [Unit System](docs/UNIT_SYSTEM.md) - Unit conversion and specifications
   - [Coordinate Systems](docs/COORDINATE_SYSTEMS.md) - Geographic transformations
   - [Unstructured Meshes](docs/UNSTRUCTURED_MESHES.md) - Gmsh integration
+  - [Adaptive Mesh Refinement](docs/ADAPTIVE_MESH_REFINEMENT.md) - AMR for unstructured grids
   - [SeisSol Comparison](docs/SEISSOL_COMPARISON.md) - Earthquake simulator comparison
   - [Fourier Neural Operator](docs/FOURIER_NEURAL_OPERATOR.md) - Neural network solver guide
 
