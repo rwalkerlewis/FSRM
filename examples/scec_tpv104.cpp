@@ -30,15 +30,16 @@ int main(int argc, char** argv) {
     
     FSRM::Simulator sim(comm);
     
-    sim.initializeFromConfigFile(config_file);
-    sim.setupDM();
-    sim.setupFields();
-    sim.setupPhysics();
-    sim.setMaterialProperties();
-    sim.setInitialConditions();
-    sim.setupTimeStepper();
-    sim.setupSolvers();
-    sim.run();
+    PetscErrorCode ierr = sim.initializeFromConfigFile(config_file);
+    CHKERRQ(ierr);
+    ierr = sim.setupDM(); CHKERRQ(ierr);
+    ierr = sim.setupFields(); CHKERRQ(ierr);
+    ierr = sim.setupPhysics(); CHKERRQ(ierr);
+    ierr = sim.setMaterialProperties(); CHKERRQ(ierr);
+    ierr = sim.setInitialConditions(); CHKERRQ(ierr);
+    ierr = sim.setupTimeStepper(); CHKERRQ(ierr);
+    ierr = sim.setupSolvers(); CHKERRQ(ierr);
+    ierr = sim.run(); CHKERRQ(ierr);
     sim.computePerformanceMetrics();
     
     PetscFinalize();
