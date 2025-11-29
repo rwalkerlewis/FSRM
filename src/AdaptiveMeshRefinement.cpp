@@ -1221,7 +1221,19 @@ PetscErrorCode AdaptiveMeshRefinement::applyPlexAdapt(Vec metric, DM* dm_new) {
     // Use metric-based adaptation
     // PETSc 3.19+ signature: DMPlexAdapt(DM, Vec, const char*, DM*)
     // Pass nullptr for label name to use default adaptation
+    // Note: DMPlexAdapt requires PETSc to be configured with external mesh
+    // adaptation libraries (mmg, parmmg, or pragmatic). If not available,
+    // fall back to uniform refinement.
+#if defined(PETSC_HAVE_MMG) || defined(PETSC_HAVE_PARMMG) || defined(PETSC_HAVE_PRAGMATIC)
     PetscCall(DMPlexAdapt(dm_, metric, nullptr, dm_new));
+#else
+    // Fallback: Use uniform refinement when metric-based adaptation is unavailable
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD, 
+        "Warning: DMPlexAdapt not available (PETSc not configured with mmg/parmmg/pragmatic). "
+        "Using uniform refinement instead.\n"));
+    PetscCall(DMRefine(dm_, PETSC_COMM_WORLD, dm_new));
+    (void)metric; // Suppress unused parameter warning
+#endif
     
     PetscFunctionReturn(PETSC_SUCCESS);
 }
