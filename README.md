@@ -60,8 +60,8 @@ Complete unconventional completions simulation:
 - Eclipse format I/O (DATA files)
 - **Configuration-driven simulations** - no C++ coding required
 - **Solver method selection**: Numerical, FNO, or Hybrid modes
-- Structured and unstructured grids (Gmsh, Corner-Point, Exodus)
-- **Adaptive Mesh Refinement (AMR)** for unstructured grids using PETSc DMPlex/DMForest
+- **All grids use DMPlex** unstructured mesh representation (Cartesian, Gmsh, Corner-Point, Exodus)
+- **Adaptive Mesh Refinement (AMR)** using PETSc DMPlex/DMForest
 - **EPSG coordinate systems** with PROJ library integration
 - Advanced well models (vertical, horizontal, multilateral)
 - Stochastic reservoir modeling

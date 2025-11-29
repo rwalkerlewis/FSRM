@@ -48,10 +48,12 @@ Adaptive Mesh Refinement (AMR) automatically adjusts grid resolution where neede
 
 ### AMR Methods in FSRM
 
+All spatial domains use DMPlex unstructured mesh representation, enabling consistent AMR across all grid types:
+
 | Method | Description | Best For |
 |--------|-------------|----------|
-| `PLEX_REFINE` | DMPlex uniform refinement | Structured meshes |
-| `PLEX_ADAPT` | Metric-based adaptation | Unstructured meshes |
+| `PLEX_REFINE` | DMPlex uniform refinement | Box meshes (hex/tet cells) |
+| `PLEX_ADAPT` | Metric-based adaptation | General unstructured meshes |
 | `FOREST_P4EST` | Octree/quadtree (p4est) | Large-scale AMR |
 | `PRAGMATIC` | Anisotropic adaptation | Complex geometries |
 | `MMG` | Remeshing library | Quality-focused |
