@@ -595,8 +595,9 @@ PetscErrorCode SolutionTransfer::transfer(DM dm_old, DM dm_new,
     } else {
         // Use DMPlexTransferVecTree for forest-based adaptation
         // or interpolation for Plex adaptation
+        // PETSc 3.19+ signature: DMPlexTransferVecTree(DM, Vec, DM, Vec, PetscSF, PetscSF, PetscInt*, PetscInt*, PetscBool, PetscReal)
         PetscCall(DMPlexTransferVecTree(dm_old, solution_old, dm_new, solution_new,
-                                        PETSC_TRUE, PETSC_FALSE));
+                                        nullptr, nullptr, nullptr, nullptr, PETSC_FALSE, 0.0));
     }
     
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -1217,13 +1218,10 @@ PetscErrorCode AdaptiveMeshRefinement::createMetricFromErrors(
 PetscErrorCode AdaptiveMeshRefinement::applyPlexAdapt(Vec metric, DM* dm_new) {
     PetscFunctionBeginUser;
     
-    DMLabel adapt_label;
-    PetscCall(DMLabelCreate(PETSC_COMM_SELF, "adapt", &adapt_label));
-    
     // Use metric-based adaptation
-    PetscCall(DMPlexAdapt(dm_, metric, dm_new));
-    
-    PetscCall(DMLabelDestroy(&adapt_label));
+    // PETSc 3.19+ signature: DMPlexAdapt(DM, Vec, const char*, DM*)
+    // Pass nullptr for label name to use default adaptation
+    PetscCall(DMPlexAdapt(dm_, metric, nullptr, dm_new));
     
     PetscFunctionReturn(PETSC_SUCCESS);
 }
