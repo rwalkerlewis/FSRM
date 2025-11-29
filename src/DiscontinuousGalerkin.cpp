@@ -1009,12 +1009,12 @@ PetscErrorCode DiscontinuousGalerkin::assembleSurfaceIntegrals(Vec U, Vec R) {
             
             // Quadrature over face
             for (int qp = 0; qp < n_face_qpts; ++qp) {
-                double weight = face_quad.getWeight(qp);
+                double weight = face_quad.weights[qp];
                 
                 // Evaluate solution at quadrature point
                 double u_L = 0.0;
                 for (int i = 0; i < num_dofs_per_elem; ++i) {
-                    double phi = basis_functions[elem]->evaluate(i, face_quad.getPoint(qp));
+                    double phi = basis_functions[elem]->evaluate(i, face_quad.points[qp]);
                     u_L += u_elem[i] * phi;
                 }
                 
@@ -1026,13 +1026,13 @@ PetscErrorCode DiscontinuousGalerkin::assembleSurfaceIntegrals(Vec U, Vec R) {
                 // Use normal direction for advection velocity
                 double wave_speed = normal[0] + normal[1] + normal[2];  // Simplified advection
                 double flux = 0.5 * (u_L + u_R);  // Central flux
-                if (flux_method == FluxMethod::Upwind) {
+                if (flux_method == FluxMethod::RUSANOV) {
                     flux = 0.5 * (u_L + u_R) - 0.5 * std::abs(wave_speed) * (u_R - u_L);
                 }
                 
                 // Add to residual
                 for (int i = 0; i < num_dofs_per_elem; ++i) {
-                    double phi = basis_functions[elem]->evaluate(i, face_quad.getPoint(qp));
+                    double phi = basis_functions[elem]->evaluate(i, face_quad.points[qp]);
                     r[elem * num_dofs_per_elem + i] -= flux * phi * face_jac * weight;
                 }
             }
