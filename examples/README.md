@@ -140,13 +140,133 @@ All example configs are in the `config/` directory:
 - **Runtime**: ~25 minutes
 - **Use case**: Carbon sequestration
 
-### Benchmarks
+### SPE Benchmarks (Complete Suite)
 
 #### `spe1_benchmark.config`
-- **Physics**: Black oil model
-- **Features**: Industry standard SPE1 comparative solution
+- **Physics**: Black oil model (3-phase)
+- **Features**: 10×10×3 grid, gas injection, industry standard
 - **Runtime**: ~3 minutes
-- **Use case**: Code validation
+- **Use case**: Basic black oil validation
+
+#### `spe2_benchmark.config`
+- **Physics**: Three-phase coning
+- **Features**: Radial grid, gas cap, aquifer, critical rate analysis
+- **Runtime**: ~10 minutes
+- **Use case**: Coning validation
+
+#### `spe3_benchmark.config`
+- **Physics**: Compositional (gas cycling)
+- **Features**: 9×9×4 grid, 4-component model, pressure maintenance
+- **Runtime**: ~15 minutes
+- **Use case**: Compositional validation
+
+#### `spe4_benchmark.config`
+- **Physics**: Equation of State testing
+- **Features**: Peng-Robinson EOS, multi-component flash, phase envelope
+- **Runtime**: ~5 minutes
+- **Use case**: EOS implementation validation
+
+#### `spe5_benchmark.config`
+- **Physics**: Miscible CO2 flooding
+- **Features**: 7×7×3 grid, 6-component, first-contact miscibility
+- **Runtime**: ~20 minutes
+- **Use case**: Miscible flood validation
+
+#### `spe6_benchmark.config`
+- **Physics**: Dual-porosity / dual-permeability
+- **Features**: Matrix-fracture transfer, Kazemi shape factor
+- **Runtime**: ~10 minutes
+- **Use case**: Naturally fractured reservoir validation
+
+#### `spe7_benchmark.config`
+- **Physics**: Horizontal well modeling
+- **Features**: 9×9×6 grid, horizontal trajectory, Peaceman PI
+- **Runtime**: ~15 minutes
+- **Use case**: Horizontal well validation
+
+#### `spe8_benchmark.config`
+- **Physics**: Gridding and upscaling
+- **Features**: 40×40×3 fine grid, channel heterogeneity, 5-spot
+- **Runtime**: ~20 minutes
+- **Use case**: Grid sensitivity analysis
+
+#### `spe9_benchmark.config`
+- **Physics**: North Sea reservoir model
+- **Features**: 24×25×15 grid (9,000 cells), multiple wells
+- **Runtime**: ~30 minutes
+- **Use case**: Large-scale black oil validation
+
+#### `spe10_benchmark.config`
+- **Physics**: Large heterogeneous problem
+- **Features**: 60×220×85 grid (1.1M cells), extreme permeability contrast
+- **Runtime**: ~2-4 hours (parallel recommended)
+- **Use case**: Scalability and upscaling validation
+
+### SCEC Benchmarks (Complete Suite)
+
+#### `scec_tpv3.config`
+- **Physics**: 2D in-plane strike-slip dynamic rupture
+- **Features**: Linear slip-weakening, forced nucleation
+- **Runtime**: ~10 minutes
+- **Reference**: https://strike.scec.org/cvws/tpv3docs.html
+
+#### `scec_tpv4.config`
+- **Physics**: 3D strike-slip with rate-state friction
+- **Features**: VW/VS zones, aging law, velocity perturbation
+- **Runtime**: ~30 minutes
+- **Reference**: https://strike.scec.org/cvws/tpv4docs.html
+
+#### `scec_tpv5.config`
+- **Physics**: 3D vertical strike-slip dynamic rupture
+- **Features**: Heterogeneous stress, slip-weakening friction
+- **Runtime**: ~20 minutes
+- **Reference**: https://strike.scec.org/cvws/tpv5docs.html
+
+#### `scec_tpv10.config`
+- **Physics**: Branching fault rupture
+- **Features**: Main fault + 30° branch, rate-state friction
+- **Runtime**: ~45 minutes
+- **Reference**: https://strike.scec.org/cvws/
+
+#### `scec_tpv12.config` / `scec_tpv13.config`
+- **Physics**: 60° dipping normal fault
+- **Features**: Hanging wall/footwall asymmetry, free surface
+- **TPV12**: Slip-weakening friction
+- **TPV13**: Rate-state friction
+- **Runtime**: ~30 minutes
+- **Reference**: https://strike.scec.org/cvws/tpv12_13docs.html
+
+#### `scec_tpv16.config`
+- **Physics**: Rough fault surface rupture
+- **Features**: Self-similar roughness, geometric complexity
+- **Runtime**: ~45 minutes
+- **Reference**: https://strike.scec.org/cvws/
+
+#### `scec_tpv24.config` / `scec_tpv25.config`
+- **Physics**: Japan benchmark with rate-state friction
+- **Features**: Strong velocity weakening, flash heating
+- **TPV24**: Homogeneous stress
+- **TPV25**: Heterogeneous stress
+- **Runtime**: ~1 hour
+- **Reference**: https://strike.scec.org/cvws/tpv24_25docs.html
+
+#### `scec_tpv101.config`
+- **Physics**: Viscoelastic off-fault plasticity
+- **Features**: Drucker-Prager plasticity, Q-factor attenuation
+- **Runtime**: ~1 hour
+- **Reference**: https://strike.scec.org/cvws/tpv101docs.html
+
+#### `scec_loh1.config`
+- **Physics**: Layer over halfspace wave propagation
+- **Features**: 1 km layer, point explosion source
+- **Runtime**: ~15 minutes
+- **Reference**: https://strike.scec.org/scecpedia/LOH.1
+
+#### `scec_loh2.config`
+- **Physics**: Heterogeneous layer over halfspace
+- **Features**: Double-couple source, surface waves, Love waves
+- **Runtime**: ~20 minutes
+- **Reference**: https://strike.scec.org/scecpedia/LOH.2
 
 ### GPU-Accelerated Examples
 
