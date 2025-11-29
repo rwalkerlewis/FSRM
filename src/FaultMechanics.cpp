@@ -706,6 +706,7 @@ SeismicFaultModel::SeismicFaultModel()
       current_slip(0.0),
       current_state_var(1e6),
       current_slip_rate(1e-12),
+      cached_stress_state{},  // Zero-initialize stress state
       b_value(1.0),
       nucleation_size(1.0),
       seismic_slip_rate(1e-3) {
@@ -795,6 +796,9 @@ FaultStressState SeismicFaultModel::computeStressState(double sxx, double syy, d
     double G = 30e9;  // Approximate shear modulus (would need to be passed)
     state.moment = G * geometry.area() * current_slip;
     state.stress_drop = state.is_slipping ? state.tau - state.tau_strength : 0.0;
+    
+    // Cache the computed stress state for later retrieval
+    cached_stress_state = state;
     
     return state;
 }
@@ -936,6 +940,61 @@ double SeismicFaultModel::getSeismicityRate(double stressing_rate, double sigma_
     
     // Steady-state rate
     return stressing_rate / Asigma;
+}
+
+void SeismicFaultModel::okadaGreen(double x, double y, double z,
+                                   double strike, double dip, double slip,
+                                   double L, double W, double depth,
+                                   double& dux, double& duy, double& duz) const {
+    // Simplified Okada (1985) Green's function for static displacement
+    // from a rectangular dislocation in an elastic half-space
+    // 
+    // Full implementation would include:
+    // - Chinnery's notation for the integrals I1-I5
+    // - Proper handling of free surface (image source)
+    // - Both strike-slip and dip-slip components
+    //
+    // This simplified version provides the leading-order behavior
+    
+    // Transform to fault-centered coordinates
+    double cos_s = std::cos(strike);
+    double sin_s = std::sin(strike);
+    double cos_d = std::cos(dip);
+    double sin_d = std::sin(dip);
+    
+    // Distance from observation point to fault center
+    double dx = x - geometry.x;
+    double dy = y - geometry.y;
+    double dz = z - geometry.z;
+    
+    // Rotate to fault coordinates (x' along strike, y' perpendicular, z' down)
+    double xp = dx * sin_s + dy * cos_s;
+    double yp = -dx * cos_s * cos_d + dy * sin_s * cos_d - dz * sin_d;
+    double zp = -dx * cos_s * sin_d + dy * sin_s * sin_d + dz * cos_d;
+    
+    // Distance from fault plane
+    double r = std::sqrt(xp * xp + yp * yp + zp * zp);
+    
+    // Prevent singularity at fault
+    if (r < 1.0) r = 1.0;
+    
+    // Poisson's ratio (typical for rock)
+    double nu = 0.25;
+    // Note: shear modulus would be used in full Okada implementation
+    (void)depth;  // Suppress unused parameter warning
+    
+    // Simplified displacement field (1/r^2 decay, strike-slip only)
+    // For more accuracy, would use full Okada solution
+    double factor = slip * L * W / (4.0 * M_PI * r * r);
+    
+    // Approximate displacement components (simplified)
+    double ur = factor * (1.0 - nu) / r;  // Radial
+    double ut = factor * (1.0 - 2.0 * nu) / r;  // Tangential
+    
+    // Transform back to global coordinates
+    dux = ur * sin_s + ut * cos_s;
+    duy = ur * cos_s - ut * sin_s;
+    duz = factor * sin_d / r;
 }
 
 // =============================================================================

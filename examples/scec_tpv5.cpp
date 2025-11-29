@@ -4,7 +4,10 @@
  * Configuration-driven simulation of SCEC TPV5 benchmark problem.
  * Tests spontaneous dynamic rupture propagation on a vertical strike-slip fault.
  * 
- * Key Features:
+ * All physics, materials, and boundary conditions are specified in the config file.
+ * See config/scec_tpv5.config for the complete parameter set.
+ * 
+ * Key Features (from config):
  * - 3D elastic half-space
  * - Vertical planar fault (strike-slip)
  * - Heterogeneous initial stress with asperity
@@ -14,11 +17,6 @@
  * Reference: SCEC Dynamic Rupture Code Verification Exercise
  *            Harris et al., Seism. Res. Lett. (2009)
  *            https://strike.scec.org/cvws/
- * 
- * Domain:
- * - 48 km × 48 km × 24 km (along-strike × across-fault × depth)
- * - Fault: 30 km × 15 km in center
- * - Nucleation zone: 3 km × 3 km square asperity
  * 
  * Usage:
  *   mpirun -np 8 ./scec_tpv5 -c config/scec_tpv5.config
@@ -48,65 +46,41 @@ int main(int argc, char** argv) {
         std::cout << "  Dynamic Rupture on Strike-Slip Fault\n";
         std::cout << "========================================\n\n";
         std::cout << "Config file: " << config_file << "\n\n";
-        std::cout << "Problem Description:\n";
-        std::cout << "  • 3D elastic half-space\n";
-        std::cout << "  • Vertical strike-slip fault (30 km × 15 km)\n";
-        std::cout << "  • Heterogeneous initial stress\n";
-        std::cout << "  • Linear slip-weakening friction\n";
-        std::cout << "  • Spontaneous rupture nucleation\n\n";
-        
-        std::cout << "Physics:\n";
-        std::cout << "  • V_p = 6000 m/s (P-wave velocity)\n";
-        std::cout << "  • V_s = 3464 m/s (S-wave velocity)\n";
-        std::cout << "  • ρ = 2670 kg/m³ (density)\n";
-        std::cout << "  • μ_s = 0.677 (static friction)\n";
-        std::cout << "  • μ_d = 0.525 (dynamic friction)\n";
-        std::cout << "  • D_c = 0.40 m (slip-weakening distance)\n\n";
+        std::cout << "All parameters loaded from configuration file.\n";
+        std::cout << "Edit the config file to modify simulation settings.\n\n";
     }
     
-    // Create and run simulation from config
+    // Create and run simulation entirely from config
     FSRM::Simulator sim(comm);
     
     PetscErrorCode ierr = sim.initializeFromConfigFile(config_file);
     CHKERRQ(ierr);
     
+    // Setup (fault, initial stress, etc. configured from file)
     ierr = sim.setupDM(); CHKERRQ(ierr);
     ierr = sim.setupFields(); CHKERRQ(ierr);
     ierr = sim.setupPhysics(); CHKERRQ(ierr);
     ierr = sim.setMaterialProperties(); CHKERRQ(ierr);
-    
-    // Set heterogeneous initial stress with nucleation asperity
-    ierr = sim.setInitialStress(); CHKERRQ(ierr);
-    
-    // Setup fault with slip-weakening friction
-    ierr = sim.setupFault(); CHKERRQ(ierr);
-    
     ierr = sim.setInitialConditions(); CHKERRQ(ierr);
     ierr = sim.setupTimeStepper(); CHKERRQ(ierr);
     ierr = sim.setupSolvers(); CHKERRQ(ierr);
     
     if (rank == 0) {
-        std::cout << "Running SCEC TPV5 simulation...\n";
-        std::cout << "Simulating 12 seconds of rupture propagation\n\n";
+        std::cout << "Running SCEC TPV5 simulation...\n\n";
     }
     
     ierr = sim.run(); CHKERRQ(ierr);
     
-    // Post-processing specific to dynamic rupture
+    // Post-processing
     sim.writeSummary();
-    sim.computeRuptureMetrics();  // Rupture speed, slip distribution, etc.
-    sim.computeSeismograms();     // Synthetic seismograms at stations
+    sim.computePerformanceMetrics();
     sim.generatePlots();
     
     if (rank == 0) {
         std::cout << "\n========================================\n";
         std::cout << "  SCEC TPV5 Completed Successfully\n";
         std::cout << "========================================\n\n";
-        std::cout << "Results available in: output/scec_tpv5/\n";
-        std::cout << "  • Slip distribution: tpv5_slip_*.vtu\n";
-        std::cout << "  • Rupture time: tpv5_rupture_time.vtu\n";
-        std::cout << "  • Seismograms: tpv5_stations.txt\n";
-        std::cout << "  • Summary data: tpv5_SUMMARY.txt\n\n";
+        std::cout << "Results available in output directory.\n";
         std::cout << "Compare with SCEC reference solutions:\n";
         std::cout << "  https://strike.scec.org/cvws/tpv5docs.html\n\n";
     }

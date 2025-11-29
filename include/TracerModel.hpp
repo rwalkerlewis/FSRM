@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <map>
+#include <tuple>
 #include <cmath>
 #include <functional>
 
@@ -174,6 +175,9 @@ public:
     TracerBreakthroughCurve getBreakthroughCurve(const std::string& tracer_name,
                                                   const std::string& well_name) const;
     
+    // Well registration for injection/production
+    void registerWell(const std::string& name, int i, int j, int k);
+    
     // Output
     void writeVTK(const std::string& filename, int step) const;
     void writeSummary(const std::string& filename) const;
@@ -209,10 +213,14 @@ protected:
     // Time tracking
     double time_;
     
+    // Well locations for injection lookup
+    std::map<std::string, std::tuple<int, int, int>> well_locations_;
+    
     // Helper functions
     int idx(int i, int j, int k) const { return i + j * nx_ + k * nx_ * ny_; }
     void applyInjections(double t, double dt);
     void recordObservations();
+    int findWellIndex(const std::string& well_name) const;
 };
 
 /**

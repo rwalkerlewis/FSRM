@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
+#include <cstdio>
 
 namespace FSRM {
 
@@ -173,28 +174,58 @@ void TracerSolver::applyInjections(double t, double dt) {
             // Check if injection is active
             if (t < inj.start_time || t > inj.end_time) continue;
             
-            // Find well location (simplified - assume index 0)
-            // In real implementation, would look up well location
-            int well_idx = 0;  // Placeholder
+            // Find well location from well name
+            int well_idx = findWellIndex(inj.well_name);
+            if (well_idx < 0 || well_idx >= ncells_) continue;
             
             auto& conc = concentrations_[tracer_name];
-            if (well_idx < ncells_) {
-                if (inj.use_mass_rate) {
-                    // Add mass
-                    double cell_volume = dx_ * dy_ * dz_ * porosity_[well_idx];
-                    double S = 1.0;  // Assume water tracer for simplicity
-                    if (tracer_props_[tracer_name].phase == TracerPhase::WATER) {
-                        S = Sw_[well_idx];
-                    }
-                    double added_conc = inj.mass_rate * dt / (cell_volume * S);
-                    conc[well_idx] += added_conc;
-                } else {
-                    // Set concentration
-                    conc[well_idx] = inj.concentration;
+            if (inj.use_mass_rate) {
+                // Add mass: dm = rate * dt, dC = dm / (V * phi * S)
+                double cell_volume = dx_ * dy_ * dz_ * porosity_[well_idx];
+                double S = 1.0;
+                if (tracer_props_[tracer_name].phase == TracerPhase::WATER) {
+                    S = std::max(0.01, Sw_[well_idx]);  // Avoid division by zero
+                } else if (tracer_props_[tracer_name].phase == TracerPhase::OIL) {
+                    S = std::max(0.01, So_[well_idx]);
+                } else if (tracer_props_[tracer_name].phase == TracerPhase::GAS) {
+                    S = std::max(0.01, Sg_[well_idx]);
                 }
+                double added_conc = inj.mass_rate * dt / (cell_volume * S);
+                conc[well_idx] += added_conc;
+            } else {
+                // Set concentration directly
+                conc[well_idx] = inj.concentration;
             }
         }
     }
+}
+
+int TracerSolver::findWellIndex(const std::string& well_name) const {
+    // Look up well location from well registry
+    auto it = well_locations_.find(well_name);
+    if (it != well_locations_.end()) {
+        int i = std::get<0>(it->second);
+        int j = std::get<1>(it->second);
+        int k = std::get<2>(it->second);
+        if (i >= 0 && i < nx_ && j >= 0 && j < ny_ && k >= 0 && k < nz_) {
+            return idx(i, j, k);
+        }
+    }
+    
+    // Fallback: try to parse well name as coordinates "i_j_k"
+    int i = 0, j = 0, k = 0;
+    if (sscanf(well_name.c_str(), "%d_%d_%d", &i, &j, &k) == 3) {
+        if (i >= 0 && i < nx_ && j >= 0 && j < ny_ && k >= 0 && k < nz_) {
+            return idx(i, j, k);
+        }
+    }
+    
+    // Last fallback: center of domain
+    return idx(nx_ / 2, ny_ / 2, nz_ / 2);
+}
+
+void TracerSolver::registerWell(const std::string& name, int i, int j, int k) {
+    well_locations_[name] = std::make_tuple(i, j, k);
 }
 
 void TracerSolver::recordObservations() {

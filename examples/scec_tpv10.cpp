@@ -4,20 +4,12 @@
  * Configuration-driven simulation of SCEC TPV10 benchmark problem.
  * Tests rupture propagation onto a branching fault.
  * 
- * Key Features:
- * - Main strike-slip fault with 30° branch
- * - Tests whether rupture propagates onto branch
- * - Realistic stress conditions
- * - Rate-and-state friction on branch
+ * All physics, materials, and fault geometry are specified in the config file.
+ * See config/scec_tpv10.config for the complete parameter set.
  * 
  * Reference: SCEC Dynamic Rupture Code Verification Exercise
  *            Harris et al., Seism. Res. Lett. (2009)
  *            https://strike.scec.org/cvws/
- * 
- * Domain:
- * - 48 km × 48 km × 24 km
- * - Main fault: 30 km × 15 km
- * - Branch fault: 15 km × 15 km at 30° angle
  * 
  * Usage:
  *   mpirun -np 16 ./scec_tpv10 -c config/scec_tpv10.config
@@ -46,11 +38,7 @@ int main(int argc, char** argv) {
         std::cout << "  Branching Fault Dynamic Rupture\n";
         std::cout << "========================================\n\n";
         std::cout << "Config file: " << config_file << "\n\n";
-        std::cout << "Problem Description:\n";
-        std::cout << "  • Main fault + 30° branch fault\n";
-        std::cout << "  • Tests rupture branch jumping\n";
-        std::cout << "  • Rate-and-state friction\n";
-        std::cout << "  • Complex fault geometry\n\n";
+        std::cout << "All parameters loaded from configuration file.\n\n";
     }
     
     FSRM::Simulator sim(comm);
@@ -62,12 +50,6 @@ int main(int argc, char** argv) {
     ierr = sim.setupFields(); CHKERRQ(ierr);
     ierr = sim.setupPhysics(); CHKERRQ(ierr);
     ierr = sim.setMaterialProperties(); CHKERRQ(ierr);
-    ierr = sim.setInitialStress(); CHKERRQ(ierr);
-    
-    // Setup main fault and branch
-    ierr = sim.setupFault(); CHKERRQ(ierr);
-    ierr = sim.setupBranchFault(); CHKERRQ(ierr);
-    
     ierr = sim.setInitialConditions(); CHKERRQ(ierr);
     ierr = sim.setupTimeStepper(); CHKERRQ(ierr);
     ierr = sim.setupSolvers(); CHKERRQ(ierr);
@@ -79,15 +61,14 @@ int main(int argc, char** argv) {
     ierr = sim.run(); CHKERRQ(ierr);
     
     sim.writeSummary();
-    sim.computeRuptureMetrics();
-    sim.computeBranchingMetrics();  // Branch activation time, branch slip
+    sim.computePerformanceMetrics();
     sim.generatePlots();
     
     if (rank == 0) {
         std::cout << "\n========================================\n";
         std::cout << "  SCEC TPV10 Completed Successfully\n";
         std::cout << "========================================\n\n";
-        std::cout << "Results available in: output/scec_tpv10/\n";
+        std::cout << "Results available in output directory.\n";
     }
     
     PetscFinalize();
