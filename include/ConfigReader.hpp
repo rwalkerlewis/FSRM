@@ -41,6 +41,75 @@ public:
         double permeability_recovery_time;
     };
     
+    /**
+     * @brief Implicit-Explicit Time Integration Configuration
+     * 
+     * Enables automatic transition between implicit (quasi-static)
+     * and explicit (dynamic) time integration for induced seismicity.
+     */
+    struct IMEXConfig {
+        // Enable/disable
+        bool enabled = false;
+        std::string initial_mode = "IMPLICIT";   // IMPLICIT or EXPLICIT
+        
+        // Implicit mode settings
+        double implicit_dt_initial = 3600.0;     // Initial dt for implicit (s)
+        double implicit_dt_min = 1.0;            // Minimum dt for implicit (s)
+        double implicit_dt_max = 86400.0;        // Maximum dt for implicit (s)
+        std::string implicit_method = "BEULER";  // BEULER, BDF, ALPHA2
+        
+        // Explicit mode settings
+        double explicit_dt_initial = 1e-4;       // Initial dt for explicit (s)
+        double explicit_dt_min = 1e-8;           // Minimum dt for explicit (s)
+        double explicit_dt_max = 1e-2;           // Maximum dt for explicit (s)
+        double cfl_factor = 0.5;                 // CFL stability factor
+        std::string explicit_method = "EULER";   // EULER, RK, NEWMARK
+        
+        // Trigger settings (implicit -> explicit)
+        std::string trigger_type = "COULOMB_FAILURE";  // STRESS, COULOMB, SLIP_RATE, VELOCITY
+        double stress_threshold = 10.0e6;        // Pa (von Mises threshold)
+        double coulomb_threshold = 0.0;          // Pa (CFF threshold)
+        double slip_rate_threshold = 1e-3;       // m/s (seismic slip rate)
+        double velocity_threshold = 1e-4;        // m/s (particle velocity)
+        double acceleration_threshold = 1e-2;    // m/s² (particle acceleration)
+        double energy_rate_threshold = 1e3;      // J/s (kinetic energy rate)
+        
+        // Settling criteria (explicit -> implicit)
+        std::string settling_type = "COMBINED";  // TIME, VELOCITY, ENERGY, SLIP_RATE, COMBINED
+        double min_dynamic_duration = 1.0;       // Minimum time in explicit (s)
+        double max_dynamic_duration = 60.0;      // Maximum time in explicit (s)
+        double settling_velocity = 1e-6;         // Velocity threshold for settling (m/s)
+        double settling_energy_ratio = 0.01;     // Energy ratio to peak
+        double settling_slip_rate = 1e-9;        // Slip rate threshold (m/s)
+        double settling_observation_window = 0.1;// Time to observe settling (s)
+        
+        // Adaptive time stepping
+        bool adaptive_timestep = true;
+        double dt_growth_factor = 1.2;
+        double dt_shrink_factor = 0.5;
+        
+        // Solver settings
+        int implicit_max_iterations = 50;
+        int explicit_max_iterations = 10;
+        double implicit_rtol = 1e-6;
+        double explicit_rtol = 1e-8;
+        double implicit_atol = 1e-8;
+        double explicit_atol = 1e-10;
+        
+        // Mass matrix
+        bool use_lumped_mass = true;
+        
+        // Output
+        int implicit_output_frequency = 10;
+        int explicit_output_frequency = 100;
+        bool log_transitions = true;
+        std::string transition_log_file = "imex_transitions.log";
+        
+        // Smooth transition
+        bool smooth_transition = true;
+        double transition_ramp_time = 0.01;
+    };
+    
     struct SeismicityConfig {
         bool enable_seismicity;
         std::string friction_law;
@@ -288,6 +357,13 @@ public:
     bool parseDynamicsConfig(DynamicsConfig& config);
     bool parseSeismicityConfig(SeismicityConfig& config);
     bool parseOutputConfig(OutputConfig& config);
+    
+    /**
+     * @brief Parse Implicit-Explicit Time Integration configuration
+     * @param config Output IMEX configuration
+     * @return true if IMEX section exists and was parsed successfully
+     */
+    bool parseIMEXConfig(IMEXConfig& config);
     
     std::vector<WellConfig> parseWells();
     std::vector<FractureConfig> parseFractures();

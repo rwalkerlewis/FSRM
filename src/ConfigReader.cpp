@@ -905,6 +905,73 @@ bool ConfigReader::parseSeismicityConfig(SeismicityConfig& config) {
     return true;
 }
 
+bool ConfigReader::parseIMEXConfig(IMEXConfig& config) {
+    if (!hasSection("IMEX")) return false;
+    
+    // Enable/disable
+    config.enabled = getBool("IMEX", "enabled", false);
+    config.initial_mode = getString("IMEX", "initial_mode", "IMPLICIT");
+    
+    // Implicit mode settings
+    config.implicit_dt_initial = getDouble("IMEX", "implicit_dt_initial", 3600.0);
+    config.implicit_dt_min = getDouble("IMEX", "implicit_dt_min", 1.0);
+    config.implicit_dt_max = getDouble("IMEX", "implicit_dt_max", 86400.0);
+    config.implicit_method = getString("IMEX", "implicit_method", "BEULER");
+    
+    // Explicit mode settings
+    config.explicit_dt_initial = getDouble("IMEX", "explicit_dt_initial", 1e-4);
+    config.explicit_dt_min = getDouble("IMEX", "explicit_dt_min", 1e-8);
+    config.explicit_dt_max = getDouble("IMEX", "explicit_dt_max", 1e-2);
+    config.cfl_factor = getDouble("IMEX", "cfl_factor", 0.5);
+    config.explicit_method = getString("IMEX", "explicit_method", "EULER");
+    
+    // Trigger settings (implicit -> explicit)
+    config.trigger_type = getString("IMEX", "trigger_type", "COULOMB_FAILURE");
+    config.stress_threshold = getDouble("IMEX", "stress_threshold", 10.0e6);
+    config.coulomb_threshold = getDouble("IMEX", "coulomb_threshold", 0.0);
+    config.slip_rate_threshold = getDouble("IMEX", "slip_rate_threshold", 1e-3);
+    config.velocity_threshold = getDouble("IMEX", "velocity_threshold", 1e-4);
+    config.acceleration_threshold = getDouble("IMEX", "acceleration_threshold", 1e-2);
+    config.energy_rate_threshold = getDouble("IMEX", "energy_rate_threshold", 1e3);
+    
+    // Settling criteria (explicit -> implicit)
+    config.settling_type = getString("IMEX", "settling_type", "COMBINED");
+    config.min_dynamic_duration = getDouble("IMEX", "min_dynamic_duration", 1.0);
+    config.max_dynamic_duration = getDouble("IMEX", "max_dynamic_duration", 60.0);
+    config.settling_velocity = getDouble("IMEX", "settling_velocity", 1e-6);
+    config.settling_energy_ratio = getDouble("IMEX", "settling_energy_ratio", 0.01);
+    config.settling_slip_rate = getDouble("IMEX", "settling_slip_rate", 1e-9);
+    config.settling_observation_window = getDouble("IMEX", "settling_observation_window", 0.1);
+    
+    // Adaptive time stepping
+    config.adaptive_timestep = getBool("IMEX", "adaptive_timestep", true);
+    config.dt_growth_factor = getDouble("IMEX", "dt_growth_factor", 1.2);
+    config.dt_shrink_factor = getDouble("IMEX", "dt_shrink_factor", 0.5);
+    
+    // Solver settings
+    config.implicit_max_iterations = getInt("IMEX", "implicit_max_iterations", 50);
+    config.explicit_max_iterations = getInt("IMEX", "explicit_max_iterations", 10);
+    config.implicit_rtol = getDouble("IMEX", "implicit_rtol", 1e-6);
+    config.explicit_rtol = getDouble("IMEX", "explicit_rtol", 1e-8);
+    config.implicit_atol = getDouble("IMEX", "implicit_atol", 1e-8);
+    config.explicit_atol = getDouble("IMEX", "explicit_atol", 1e-10);
+    
+    // Mass matrix
+    config.use_lumped_mass = getBool("IMEX", "use_lumped_mass", true);
+    
+    // Output
+    config.implicit_output_frequency = getInt("IMEX", "implicit_output_frequency", 10);
+    config.explicit_output_frequency = getInt("IMEX", "explicit_output_frequency", 100);
+    config.log_transitions = getBool("IMEX", "log_transitions", true);
+    config.transition_log_file = getString("IMEX", "transition_log_file", "imex_transitions.log");
+    
+    // Smooth transition
+    config.smooth_transition = getBool("IMEX", "smooth_transition", true);
+    config.transition_ramp_time = getDouble("IMEX", "transition_ramp_time", 0.01);
+    
+    return true;
+}
+
 bool ConfigReader::parseOutputConfig(OutputConfig& config) {
     if (!hasSection("OUTPUT")) {
         // Use defaults
