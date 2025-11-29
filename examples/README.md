@@ -202,6 +202,17 @@ All example configs are in the `config/` directory:
 - **Runtime**: ~2-4 hours (parallel recommended)
 - **Use case**: Scalability and upscaling validation
 
+#### `spe11_benchmark.config` / `spe11a_benchmark.config` / `spe11c_benchmark.config`
+- **Physics**: CO2 geological storage
+- **Features**: CO2-brine two-phase flow, dissolution, density-driven convection, trapping mechanisms
+- **Case A** (`spe11a`): Small 2D test case (2.8 km × 1.2 km) - quick validation
+- **Case B** (`spe11`): Standard 2D case (8.4 km × 1.2 km) - default benchmark
+- **Case C** (`spe11c`): Full 3D model (8.4 km × 5 km × 1.2 km) - comprehensive testing
+- **Duration**: 1000-year simulation with 50-year injection period
+- **Runtime**: Case A: ~1 hour, Case B: ~4-8 hours, Case C: ~24+ hours (parallel required)
+- **Reference**: Nordbotten et al. SPE Journal (2024), https://spe11-group.github.io/
+- **Use case**: Carbon capture and storage (CCS) simulation validation
+
 ### SCEC Benchmarks (Complete Suite)
 
 #### `scec_tpv3.config`
