@@ -468,27 +468,40 @@ double ImplicitExplicitTransitionManager::computeMaxAcceleration(Vec velocity) {
     // Compute acceleration as (v_new - v_old) / dt
     PetscErrorCode ierr;
     Vec diff;
-    VecDuplicate(velocity, &diff);
-    VecCopy(velocity, diff);
-    VecAXPY(diff, -1.0, velocity_old);  // diff = v - v_old
+    ierr = VecDuplicate(velocity, &diff); CHKERRABORT(comm, ierr);
+    ierr = VecCopy(velocity, diff); CHKERRABORT(comm, ierr);
+    ierr = VecAXPY(diff, -1.0, velocity_old); CHKERRABORT(comm, ierr);  // diff = v - v_old
     if (current_dt > 0.0) {
-        VecScale(diff, 1.0 / current_dt);
+        ierr = VecScale(diff, 1.0 / current_dt); CHKERRABORT(comm, ierr);
     }
     
     PetscReal a_max;
-    VecNorm(diff, NORM_INFINITY, &a_max);
-    VecDestroy(&diff);
+    ierr = VecNorm(diff, NORM_INFINITY, &a_max); CHKERRABORT(comm, ierr);
+    ierr = VecDestroy(&diff); CHKERRABORT(comm, ierr);
     
     return static_cast<double>(a_max);
 }
 
 double ImplicitExplicitTransitionManager::computeKineticEnergy(Vec velocity) {
     // KE = 0.5 * v^T * M * v
-    // For simplicity, assume uniform mass and compute 0.5 * ||v||^2
-    // TODO: Use actual mass matrix
-    PetscReal v_norm;
-    VecNorm(velocity, NORM_2, &v_norm);
-    return 0.5 * v_norm * v_norm;
+    PetscErrorCode ierr;
+    
+    if (mass_matrix) {
+        // Proper kinetic energy computation with mass matrix
+        Vec temp;
+        PetscScalar ke;
+        ierr = VecDuplicate(velocity, &temp); CHKERRABORT(comm, ierr);
+        ierr = MatMult(mass_matrix, velocity, temp); CHKERRABORT(comm, ierr);
+        ierr = VecDot(velocity, temp, &ke); CHKERRABORT(comm, ierr);
+        ierr = VecDestroy(&temp); CHKERRABORT(comm, ierr);
+        return 0.5 * PetscRealPart(ke);
+    } else {
+        // Fallback: assume uniform mass density and compute 0.5 * ||v||^2
+        // This is only approximate and should be avoided for accurate simulations
+        PetscReal v_norm;
+        ierr = VecNorm(velocity, NORM_2, &v_norm); CHKERRABORT(comm, ierr);
+        return 0.5 * v_norm * v_norm;
+    }
 }
 
 double ImplicitExplicitTransitionManager::computeMaxSlipRate() {
@@ -537,6 +550,77 @@ double ImplicitExplicitTransitionManager::computeCFLTimeStep(
     return config.cfl_factor * min_cell_size / max_wave_speed;
 }
 
+void ImplicitExplicitTransitionManager::getGridAndMaterialParameters(
+    double& min_cell_size, double& max_wave_speed) {
+    
+    // Default values (used if DM doesn't provide mesh info)
+    min_cell_size = 10.0;   // meters
+    max_wave_speed = 5000.0; // m/s (typical P-wave velocity)
+    
+    if (!dm) return;
+    
+    PetscErrorCode ierr;
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRABORT(comm, ierr);
+    
+    // Try to get minimum cell size from DM
+    // For DMPlex, we can compute the minimum edge length
+    PetscReal h_min = PETSC_MAX_REAL;
+    
+    // Check if DM is a DMPlex
+    PetscBool is_plex;
+    ierr = PetscObjectTypeCompare((PetscObject)dm, DMPLEX, &is_plex); CHKERRABORT(comm, ierr);
+    
+    if (is_plex) {
+        // Get coordinate section and compute minimum element size
+        Vec coordinates;
+        ierr = DMGetCoordinatesLocal(dm, &coordinates); CHKERRABORT(comm, ierr);
+        if (coordinates) {
+            // Estimate minimum cell size from coordinate bounds divided by number of cells
+            PetscInt c_start, c_end;
+            ierr = DMPlexGetHeightStratum(dm, 0, &c_start, &c_end); CHKERRABORT(comm, ierr);
+            PetscInt num_cells = c_end - c_start;
+            
+            if (num_cells > 0) {
+                const PetscScalar* coords;
+                PetscInt n;
+                ierr = VecGetArrayRead(coordinates, &coords); CHKERRABORT(comm, ierr);
+                ierr = VecGetLocalSize(coordinates, &n); CHKERRABORT(comm, ierr);
+                
+                // Compute bounding box
+                PetscReal min_coord[3] = {PETSC_MAX_REAL, PETSC_MAX_REAL, PETSC_MAX_REAL};
+                PetscReal max_coord[3] = {PETSC_MIN_REAL, PETSC_MIN_REAL, PETSC_MIN_REAL};
+                
+                for (PetscInt i = 0; i < n/dim; i++) {
+                    for (PetscInt d = 0; d < dim; d++) {
+                        min_coord[d] = std::min(min_coord[d], PetscRealPart(coords[i*dim + d]));
+                        max_coord[d] = std::max(max_coord[d], PetscRealPart(coords[i*dim + d]));
+                    }
+                }
+                
+                ierr = VecRestoreArrayRead(coordinates, &coords); CHKERRABORT(comm, ierr);
+                
+                // Estimate cell size as domain size / num_cells^(1/dim)
+                PetscReal domain_size = 0.0;
+                for (PetscInt d = 0; d < dim; d++) {
+                    domain_size = std::max(domain_size, max_coord[d] - min_coord[d]);
+                }
+                
+                h_min = domain_size / std::pow(static_cast<double>(num_cells), 1.0/dim);
+                if (h_min > 0.0 && h_min < PETSC_MAX_REAL) {
+                    min_cell_size = h_min;
+                }
+            }
+        }
+    }
+    
+    // Wave speed should ideally come from material properties
+    // For now, use P-wave velocity: Vp = sqrt((lambda + 2*mu) / rho)
+    // With typical rock values: E=50 GPa, nu=0.25, rho=2500 kg/m³
+    // This gives Vp ≈ 5000 m/s
+    // TODO: Get actual material properties from physics kernel
+}
+
 double ImplicitExplicitTransitionManager::getRecommendedDt(Vec solution, Vec velocity) {
     if (current_mode == IntegrationMode::IMPLICIT) {
         // For implicit, use error-based adaptation
@@ -544,9 +628,8 @@ double ImplicitExplicitTransitionManager::getRecommendedDt(Vec solution, Vec vel
         return current_dt;
     } else {
         // For explicit, use CFL condition
-        // TODO: Get actual cell size and wave speed from DM
-        double min_cell_size = 10.0;  // meters (placeholder)
-        double max_wave_speed = 5000.0;  // m/s (placeholder)
+        double min_cell_size, max_wave_speed;
+        getGridAndMaterialParameters(min_cell_size, max_wave_speed);
         double cfl_dt = computeCFLTimeStep(min_cell_size, max_wave_speed);
         return std::min(cfl_dt, config.explicit_dt_max);
     }
@@ -807,13 +890,14 @@ PetscErrorCode IMEXAdapt(TS ts, PetscReal* dt, PetscBool* accept, void* ctx) {
     
     double recommended_dt = manager->getRecommendedDt(U, velocity);
     
-    // Clamp to mode-appropriate bounds
+    // Clamp to mode-appropriate bounds using getter for encapsulation
+    const auto& cfg = manager->getConfig();
     if (manager->getCurrentMode() == IntegrationMode::IMPLICIT) {
-        *dt = std::min(std::max(recommended_dt, manager->config.implicit_dt_min),
-                      manager->config.implicit_dt_max);
+        *dt = std::min(std::max(recommended_dt, cfg.implicit_dt_min),
+                      cfg.implicit_dt_max);
     } else {
-        *dt = std::min(std::max(recommended_dt, manager->config.explicit_dt_min),
-                      manager->config.explicit_dt_max);
+        *dt = std::min(std::max(recommended_dt, cfg.explicit_dt_min),
+                      cfg.explicit_dt_max);
     }
     
     *accept = PETSC_TRUE;
@@ -916,29 +1000,66 @@ PetscErrorCode ExplicitDynamicsHelper::explicitNewmarkStep(
     // a_{n+1} = M^{-1} * (f_ext - f_int(u_{n+1}))
     // v_{n+1} = v_n + 0.5*dt*(a_n + a_{n+1})
     
+    // Save a_n before it gets overwritten
+    Vec a_old;
+    ierr = VecDuplicate(a, &a_old); CHKERRQ(ierr);
+    ierr = VecCopy(a, a_old); CHKERRQ(ierr);
+    
     // Predict u_{n+1}
     ierr = VecCopy(u, u_new); CHKERRQ(ierr);
     ierr = VecAXPY(u_new, dt, v); CHKERRQ(ierr);
-    ierr = VecAXPY(u_new, 0.5 * dt * dt, a); CHKERRQ(ierr);
+    ierr = VecAXPY(u_new, 0.5 * dt * dt, a_old); CHKERRQ(ierr);
     
-    // Compute new acceleration
+    // Compute new acceleration a_{n+1}
     ierr = computeInternalForce(u_new, work1); CHKERRQ(ierr);
     ierr = VecWAXPY(work2, -1.0, work1, f_ext); CHKERRQ(ierr);
-    ierr = VecPointwiseMult(a, mass_inv, work2); CHKERRQ(ierr);  // a_{n+1}
+    ierr = VecPointwiseMult(a, mass_inv, work2); CHKERRQ(ierr);  // a now contains a_{n+1}
     
-    // Update velocity (v_{n+1} = v_n + dt*a_{n+1} for γ=1/2 with central diff assumption)
-    ierr = VecAXPY(v, dt, a); CHKERRQ(ierr);
+    // Update velocity: v_{n+1} = v_n + 0.5*dt*(a_n + a_{n+1}) for γ=1/2
+    ierr = VecAXPY(a_old, 1.0, a); CHKERRQ(ierr);  // a_old = a_n + a_{n+1}
+    ierr = VecAXPY(v, 0.5 * dt, a_old); CHKERRQ(ierr);  // v = v + 0.5*dt*(a_n + a_{n+1})
+    
+    ierr = VecDestroy(&a_old); CHKERRQ(ierr);
     
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode ExplicitDynamicsHelper::computeVelocity(Vec v, Vec u_new, Vec u_old, double dt) {
+PetscErrorCode ExplicitDynamicsHelper::computeVelocity(
+    Vec v, Vec u_new, Vec u_old, Vec v_old, Vec a_old, Vec a_new, 
+    double dt, ExplicitSchemeType scheme) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
-    // v = (u_new - u_old) / (2*dt) for central difference
-    ierr = VecWAXPY(v, -1.0, u_old, u_new); CHKERRQ(ierr);
-    ierr = VecScale(v, 0.5 / dt); CHKERRQ(ierr);
+    switch (scheme) {
+        case ExplicitSchemeType::CENTRAL_DIFFERENCE:
+            // v = (u_new - u_old) / (2*dt) for central difference
+            ierr = VecWAXPY(v, -1.0, u_old, u_new); CHKERRQ(ierr);
+            ierr = VecScale(v, 0.5 / dt); CHKERRQ(ierr);
+            break;
+            
+        case ExplicitSchemeType::NEWMARK:
+            // v_{n+1} = v_n + 0.5*dt*(a_n + a_{n+1}) for γ=1/2 Newmark
+            if (v_old && a_old && a_new) {
+                ierr = VecCopy(v_old, v); CHKERRQ(ierr);
+                ierr = VecAXPY(v, 0.5 * dt, a_old); CHKERRQ(ierr);
+                ierr = VecAXPY(v, 0.5 * dt, a_new); CHKERRQ(ierr);
+            } else {
+                // Fallback to central difference if vectors not available
+                ierr = VecWAXPY(v, -1.0, u_old, u_new); CHKERRQ(ierr);
+                ierr = VecScale(v, 0.5 / dt); CHKERRQ(ierr);
+            }
+            break;
+            
+        case ExplicitSchemeType::FORWARD_EULER:
+            // v = (u_new - u_old) / dt for forward Euler
+            ierr = VecWAXPY(v, -1.0, u_old, u_new); CHKERRQ(ierr);
+            ierr = VecScale(v, 1.0 / dt); CHKERRQ(ierr);
+            break;
+            
+        default:
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, 
+                    "Unknown explicit scheme type for velocity computation");
+    }
     
     PetscFunctionReturn(0);
 }
@@ -956,19 +1077,22 @@ PetscErrorCode ExplicitDynamicsHelper::computeAcceleration(Vec a, Vec f_ext, Vec
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode ExplicitDynamicsHelper::applyDamping(Vec f_damp, Vec v, double alpha, double beta) {
+PetscErrorCode ExplicitDynamicsHelper::applyDamping(Vec f_damp, Vec v, double alpha) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
-    // Rayleigh damping: f_damp = (α*M + β*K) * v
-    // For lumped mass: f_damp ≈ α*M*v (mass-proportional part only)
+    // Rayleigh damping: f_damp = α*M*v (mass-proportional part only)
+    // 
+    // Note: Stiffness-proportional damping (β*K*v) is intentionally omitted because:
+    // 1. It requires computing K*v which is expensive for explicit methods
+    // 2. It reduces the stable CFL time step
+    // 3. Mass-proportional damping is generally sufficient for numerical stability
+    // 
+    // If stiffness-proportional damping is needed, consider using implicit integration.
     
-    // Mass-proportional damping
+    // Mass-proportional damping (simplified with uniform density)
     ierr = VecCopy(v, f_damp); CHKERRQ(ierr);
-    ierr = VecScale(f_damp, alpha * density); CHKERRQ(ierr);  // Simplified
-    
-    // Stiffness-proportional damping would require K*v, which is expensive
-    // Often omitted for explicit methods
+    ierr = VecScale(f_damp, alpha * density); CHKERRQ(ierr);
     
     PetscFunctionReturn(0);
 }
@@ -1014,7 +1138,7 @@ void SeismicEventDetector::update(const FaultStressState& state, double time, do
         // Accumulate during event
         double slip_increment = state.slip_rate * dt;
         total_slip += slip_increment;
-        total_moment += state.moment;  // Should be moment rate * dt
+        total_moment += state.moment * dt;  // Moment rate * dt
         peak_slip_rate = std::max(peak_slip_rate, state.slip_rate);
         
         if (!is_seismic) {
@@ -1075,7 +1199,12 @@ bool KineticEnergyMonitor::isDecaying(double decay_rate_threshold) const {
         sum_t2 += sample.first * sample.first;
     }
     
-    double slope = (n * sum_te - sum_t * sum_e) / (n * sum_t2 - sum_t * sum_t);
+    double denominator = n * sum_t2 - sum_t * sum_t;
+    if (denominator == 0.0) {
+        // All time values are identical; cannot compute slope
+        return false;
+    }
+    double slope = (n * sum_te - sum_t * sum_e) / denominator;
     
     return slope < -decay_rate_threshold;
 }

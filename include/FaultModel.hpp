@@ -303,6 +303,31 @@ public:
     const FaultGeometry& getGeometry() const { return geometry; }
     const std::vector<SeismicEvent>& getEventCatalog() const { return events; }
     
+    /**
+     * @brief Get hypocenter coordinates for dynamic event
+     * 
+     * If events have occurred, returns the hypocenter of the most recent event.
+     * Otherwise, returns the center of the fault geometry as an approximation.
+     * 
+     * @param[out] hypo_x X coordinate of hypocenter
+     * @param[out] hypo_y Y coordinate of hypocenter  
+     * @param[out] hypo_z Z coordinate of hypocenter
+     */
+    void getHypocenterCoordinates(double& hypo_x, double& hypo_y, double& hypo_z) const {
+        if (!events.empty()) {
+            // Use hypocenter of most recent event
+            const auto& last_event = events.back();
+            hypo_x = last_event.hypo_x;
+            hypo_y = last_event.hypo_y;
+            hypo_z = last_event.hypo_z;
+        } else {
+            // Use center of fault geometry as approximation
+            hypo_x = geometry.x;
+            hypo_y = geometry.y;
+            hypo_z = geometry.z;
+        }
+    }
+    
     // Event tracking
     void addEvent(const SeismicEvent& event);
     void clearCatalog();

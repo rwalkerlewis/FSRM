@@ -53,6 +53,15 @@ enum class SettlingCriterion {
 };
 
 /**
+ * @brief Explicit time integration scheme type for velocity computation
+ */
+enum class ExplicitSchemeType {
+    CENTRAL_DIFFERENCE,     // v = (u_new - u_old) / (2*dt)
+    NEWMARK,                // v_{n+1} = v_n + 0.5*dt*(a_n + a_{n+1})
+    FORWARD_EULER           // v = (u_new - u_old) / dt
+};
+
+/**
  * @brief Internal configuration for implicit-explicit transition
  * 
  * This is the internal representation used by the IMEX manager.
@@ -253,6 +262,11 @@ public:
     double computeCFLTimeStep(double min_cell_size, double max_wave_speed);
     
     /**
+     * @brief Get the IMEX configuration (read-only access for callbacks)
+     */
+    const IMEXInternalConfig& getConfig() const { return config; }
+    
+    /**
      * @brief Get phase statistics
      */
     const std::vector<PhaseStatistics>& getPhaseHistory() const { return phase_history; }
@@ -336,6 +350,8 @@ private:
     double computeCoulombFailure(Vec solution);
     double computeVonMisesStress(Vec solution);
     
+    void getGridAndMaterialParameters(double& min_cell_size, double& max_wave_speed);
+    
     PetscErrorCode interpolateSolution(double old_dt, double new_dt);
     PetscErrorCode adjustDamping(double ramp_factor);
     
@@ -411,8 +427,19 @@ public:
     
     /**
      * @brief Compute velocity from displacement history
+     * 
+     * @param v Output velocity vector
+     * @param u_new Current displacement
+     * @param u_old Previous displacement
+     * @param v_old Previous velocity (for Newmark scheme, can be nullptr)
+     * @param a_old Previous acceleration (for Newmark scheme, can be nullptr)
+     * @param a_new Current acceleration (for Newmark scheme, can be nullptr)
+     * @param dt Time step
+     * @param scheme Integration scheme type
      */
-    PetscErrorCode computeVelocity(Vec v, Vec u_new, Vec u_old, double dt);
+    PetscErrorCode computeVelocity(Vec v, Vec u_new, Vec u_old, Vec v_old, 
+                                   Vec a_old, Vec a_new, double dt,
+                                   ExplicitSchemeType scheme = ExplicitSchemeType::CENTRAL_DIFFERENCE);
     
     /**
      * @brief Compute acceleration from force balance
@@ -420,9 +447,16 @@ public:
     PetscErrorCode computeAcceleration(Vec a, Vec f_ext, Vec f_int, Vec f_damp);
     
     /**
-     * @brief Apply damping forces
+     * @brief Apply damping forces (mass-proportional Rayleigh damping)
+     * 
+     * Note: Stiffness-proportional damping (β*K*v) is intentionally omitted for
+     * explicit methods as it is expensive to compute and reduces the stable time step.
+     * 
+     * @param f_damp Output damping force vector
+     * @param v Velocity vector
+     * @param alpha Mass-proportional damping coefficient
      */
-    PetscErrorCode applyDamping(Vec f_damp, Vec v, double alpha, double beta);
+    PetscErrorCode applyDamping(Vec f_damp, Vec v, double alpha);
     
 private:
     MPI_Comm comm;
