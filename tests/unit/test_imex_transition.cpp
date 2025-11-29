@@ -20,6 +20,11 @@
 namespace FSRM {
 namespace Testing {
 
+// Tolerance constants for floating point comparisons
+constexpr double TOL_STRICT = 1e-10;    // For exact numerical comparisons
+constexpr double TOL_MAGNITUDE = 0.05;  // For magnitude calculations (0.05 units)
+constexpr double TOL_RELATIVE = 0.01;   // For relative comparisons (1%)
+
 // =============================================================================
 // IMEXInternalConfig Tests
 // =============================================================================
@@ -96,7 +101,7 @@ bool test_imex_custom_config() {
         return false;
     }
     
-    if (std::abs(config.implicit_dt_initial - 1800.0) > 1e-10) {
+    if (std::abs(config.implicit_dt_initial - 1800.0) > TOL_STRICT) {
         std::cerr << "  FAIL: implicit_dt_initial not set correctly" << std::endl;
         return false;
     }
@@ -143,7 +148,7 @@ bool test_phase_statistics_init() {
         return false;
     }
     
-    if (std::abs(phase.duration - 100.0) > 1e-10) {
+    if (std::abs(phase.duration - 100.0) > TOL_STRICT) {
         std::cerr << "  FAIL: Duration not calculated correctly" << std::endl;
         return false;
     }
@@ -188,12 +193,12 @@ bool test_dynamic_event_recording() {
     event.moment_rate_history.push_back(1e16);
     event.moment_rate_history.push_back(3e15);
     
-    if (std::abs(event.duration - 2.0) > 1e-10) {
+    if (std::abs(event.duration - 2.0) > TOL_STRICT) {
         std::cerr << "  FAIL: Duration not correct" << std::endl;
         return false;
     }
     
-    if (std::abs(event.magnitude - 5.3) > 1e-10) {
+    if (std::abs(event.magnitude - 5.3) > TOL_STRICT) {
         std::cerr << "  FAIL: Magnitude not correct" << std::endl;
         return false;
     }
@@ -213,8 +218,6 @@ bool test_dynamic_event_recording() {
 bool test_magnitude_from_moment() {
     std::cout << "Testing magnitude calculation from moment..." << std::endl;
     
-    double tol = 0.05;  // 0.05 magnitude units tolerance
-    
     // Test cases: (M0 in N·m, expected Mw)
     std::vector<std::pair<double, double>> test_cases = {
         {1e14, 3.3},
@@ -230,7 +233,7 @@ bool test_magnitude_from_moment() {
         // Mw = 2/3 * log10(M0) - 6.07
         double computed_Mw = (2.0/3.0) * std::log10(M0) - 6.07;
         
-        if (std::abs(computed_Mw - expected_Mw) > tol) {
+        if (std::abs(computed_Mw - expected_Mw) > TOL_MAGNITUDE) {
             std::cerr << "  FAIL: M0=" << M0 << ", Mw=" << computed_Mw 
                       << ", expected~" << expected_Mw << std::endl;
             return false;
@@ -283,13 +286,13 @@ bool test_kinetic_energy_sampling() {
     monitor.addSample(0.3, 100.0);
     
     // Peak should be 200
-    if (std::abs(monitor.getPeakEnergy() - 200.0) > 1e-10) {
+    if (std::abs(monitor.getPeakEnergy() - 200.0) > TOL_STRICT) {
         std::cerr << "  FAIL: Peak energy should be 200, got " << monitor.getPeakEnergy() << std::endl;
         return false;
     }
     
     // Current should be 100 (last sample)
-    if (std::abs(monitor.getCurrentEnergy() - 100.0) > 1e-10) {
+    if (std::abs(monitor.getCurrentEnergy() - 100.0) > TOL_STRICT) {
         std::cerr << "  FAIL: Current energy should be 100, got " << monitor.getCurrentEnergy() << std::endl;
         return false;
     }
@@ -661,8 +664,6 @@ bool test_settling_criterion_enum() {
 bool test_cfl_timestep_calculation() {
     std::cout << "Testing CFL time step calculation..." << std::endl;
     
-    double tol = 1e-10;
-    
     // Test parameters
     double cfl_factor = 0.5;
     double min_cell_size = 100.0;  // 100 m
@@ -671,7 +672,7 @@ bool test_cfl_timestep_calculation() {
     // Expected: dt = CFL * dx / v = 0.5 * 100 / 5000 = 0.01 s
     double expected_dt = cfl_factor * min_cell_size / max_wave_speed;
     
-    if (std::abs(expected_dt - 0.01) > tol) {
+    if (std::abs(expected_dt - 0.01) > TOL_STRICT) {
         std::cerr << "  FAIL: Expected dt=0.01, got " << expected_dt << std::endl;
         return false;
     }
@@ -683,7 +684,7 @@ bool test_cfl_timestep_calculation() {
     expected_dt = cfl_factor * min_cell_size / max_wave_speed;
     
     // Expected: 0.8 * 50 / 4000 = 0.01 s
-    if (std::abs(expected_dt - 0.01) > tol) {
+    if (std::abs(expected_dt - 0.01) > TOL_STRICT) {
         std::cerr << "  FAIL: Expected dt=0.01, got " << expected_dt << std::endl;
         return false;
     }
@@ -713,21 +714,21 @@ bool test_timestep_bounds() {
     // Test bounds
     double test_dt = 5.0;  // Below implicit min
     double clamped = std::max(config.implicit_dt_min, std::min(test_dt, config.implicit_dt_max));
-    if (std::abs(clamped - 10.0) > 1e-10) {
+    if (std::abs(clamped - 10.0) > TOL_STRICT) {
         std::cerr << "  FAIL: dt should be clamped to min" << std::endl;
         return false;
     }
     
     test_dt = 200000.0;  // Above implicit max
     clamped = std::max(config.implicit_dt_min, std::min(test_dt, config.implicit_dt_max));
-    if (std::abs(clamped - 100000.0) > 1e-10) {
+    if (std::abs(clamped - 100000.0) > TOL_STRICT) {
         std::cerr << "  FAIL: dt should be clamped to max" << std::endl;
         return false;
     }
     
     test_dt = 1000.0;  // Within bounds
     clamped = std::max(config.implicit_dt_min, std::min(test_dt, config.implicit_dt_max));
-    if (std::abs(clamped - 1000.0) > 1e-10) {
+    if (std::abs(clamped - 1000.0) > TOL_STRICT) {
         std::cerr << "  FAIL: dt should not be modified when within bounds" << std::endl;
         return false;
     }
@@ -938,14 +939,14 @@ bool test_adaptive_timestep_factors() {
     
     // Test growth
     double new_dt = current_dt * config.dt_growth_factor;
-    if (std::abs(new_dt - 1.2) > 1e-10) {
+    if (std::abs(new_dt - 1.2) > TOL_STRICT) {
         std::cerr << "  FAIL: Growth factor not applied correctly" << std::endl;
         return false;
     }
     
     // Test shrink
     new_dt = current_dt * config.dt_shrink_factor;
-    if (std::abs(new_dt - 0.5) > 1e-10) {
+    if (std::abs(new_dt - 0.5) > TOL_STRICT) {
         std::cerr << "  FAIL: Shrink factor not applied correctly" << std::endl;
         return false;
     }
