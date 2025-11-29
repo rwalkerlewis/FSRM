@@ -13,6 +13,22 @@ A fully coupled, physics-based simulator for petroleum reservoirs and earth syst
 - **Faults**: Rate-and-state friction, induced seismicity
 - **Tidal Forces**: Earth tides effect on reservoirs
 
+### ResFrac-Equivalent Hydraulic Fracturing ⭐ NEW
+Complete unconventional completions simulation:
+- **Multi-Stage Fracturing**: Unlimited stages/clusters, plug-and-perf, sliding sleeves
+- **Limited-Entry Design**: Automatic perforation optimization for uniform flow
+- **Stress Shadowing**: DDM-based inter-fracture stress calculation
+- **2D Proppant Transport**: Settling, convection, bank formation, screenout prediction
+- **Wellbore Hydraulics**: Friction, temperature, perforation erosion
+- **Diversion Modeling**: Degradable diverters, ball sealers, chemical diversion
+- **Real-Time Analysis**: ISIP, closure pressure, net pressure, Nolte-Smith interpretation
+- **Flowback Simulation**: Water recovery, cleanup efficiency
+- **Production Forecasting**: Decline analysis, EUR estimation, type curves
+- **Rate Transient Analysis**: Full RTA diagnostics, DFIT analysis
+- **Economic Analysis**: NPV optimization, Monte Carlo uncertainty
+- **Fiber Optic Integration**: DAS/DTS cluster efficiency, flow allocation
+- **Parent-Child Interactions**: Frac hits, depletion effects
+
 ### Earthquake Simulation (SeisSol-Compatible)
 - **Discontinuous Galerkin (DG)**: High-order (O1-O10) ADER-DG spatial discretization
 - **ADER Time Integration**: Arbitrary high-order time stepping with optimal CFL
@@ -475,12 +491,14 @@ Configuration files define all simulation parameters:
 
 | Config File | Description |
 |-------------|-------------|
+| `config/multistage_frac_complete.config` | **Complete multi-stage fracturing (ResFrac-equivalent)** |
 | `config/buckley_leverett_2d.config` | 2D waterflooding with Buckley-Leverett |
 | `config/coupled_reservoir_2d.config` | Coupled flow-geomechanics |
 | `config/spe1_benchmark.config` | SPE1 benchmark problem |
 | `config/unstructured_gmsh_example.config` | Gmsh mesh with EPSG coordinates |
 | `config/elastodynamic_waves.config` | Elastic wave propagation |
 | `config/poroelastodynamic_waves.config` | Poroelastic wave propagation |
+| `config/hydraulic_fracturing.config` | Hydraulic fracturing simulation |
 | `config/shale_reservoir.config` | Shale reservoir with fractures |
 | `config/geothermal.config` | Enhanced geothermal system |
 | `config/induced_seismicity.config` | Fault reactivation |
@@ -826,6 +844,7 @@ Complete documentation is available in the `docs/` directory:
   - [Adaptive Mesh Refinement](docs/ADAPTIVE_MESH_REFINEMENT.md) - AMR for unstructured grids
   - [SeisSol Comparison](docs/SEISSOL_COMPARISON.md) - Earthquake simulator comparison
   - [Fourier Neural Operator](docs/FOURIER_NEURAL_OPERATOR.md) - Neural network solver guide
+  - [**ResFrac-Equivalent Capabilities**](docs/RESFRAC_EQUIVALENT_CAPABILITIES.md) - Complete hydraulic fracturing guide
 
 ## Support
 
