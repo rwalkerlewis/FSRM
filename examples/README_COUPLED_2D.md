@@ -2,12 +2,22 @@
 
 ## Overview
 
-`ex_coupled_reservoir_2d.cpp` demonstrates a fully integrated reservoir simulation combining:
+This example demonstrates a fully integrated reservoir simulation combining:
 
 - **Fluid Flow**: Two-phase (oil-water) flow with Darcy's law
 - **Well Operations**: 1 water injector + 2 oil producers
 - **Geomechanics**: Pressure-dependent subsidence and stress-strain coupling
 - **Property Coupling**: Dynamic porosity and permeability from geomechanics
+
+## Config-Driven Approach
+
+All parameters are now specified in the configuration file:
+
+```bash
+./simulator -c config/coupled_reservoir_2d.config
+```
+
+See `config/coupled_reservoir_2d.config` for the complete parameter set.
 
 ## Features
 

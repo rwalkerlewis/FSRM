@@ -239,6 +239,9 @@ struct Proppant {
     
     // Get conductivity (k*w)
     double getConductivity(double closure_stress, double width) const;
+    
+    // Get pack porosity based on sphericity
+    double getPackPorosity() const;
 };
 
 /**

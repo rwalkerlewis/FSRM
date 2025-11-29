@@ -288,6 +288,21 @@ public:
                              double& total_implicit_time, double& total_explicit_time,
                              int& num_events, double& total_moment);
     
+    /**
+     * @brief Get previous solution for velocity computation
+     * 
+     * Used by IMEXMonitor to compute velocity via finite differences.
+     * Returns nullptr if no previous solution has been stored.
+     */
+    Vec getPreviousSolution() const { return solution_prev; }
+    
+    /**
+     * @brief Store current solution as previous for next step
+     * 
+     * @param U Current solution to copy
+     */
+    PetscErrorCode storePreviousSolution(Vec U);
+    
     // ========================================================================
     // Internal helper methods
     // ========================================================================
@@ -303,6 +318,7 @@ private:
     TS ts;
     DM dm;
     Vec solution;
+    Vec solution_prev;      // Previous solution for velocity computation
     Vec velocity_old;       // For velocity-based criteria
     Vec acceleration;       // For acceleration-based criteria  
     Mat mass_matrix;

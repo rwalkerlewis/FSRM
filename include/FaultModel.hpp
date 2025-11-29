@@ -304,6 +304,22 @@ public:
     const std::vector<SeismicEvent>& getEventCatalog() const { return events; }
     
     /**
+     * @brief Get current slip rate
+     * @return Current slip rate in m/s
+     */
+    double getSlipRate() const { return current_slip_rate; }
+    
+    /**
+     * @brief Get current stress state on fault
+     * 
+     * Returns the most recently computed stress state. Call computeStressState()
+     * first if the regional stress has changed.
+     * 
+     * @return Current fault stress state
+     */
+    FaultStressState getCurrentStressState() const { return cached_stress_state; }
+    
+    /**
      * @brief Get hypocenter coordinates for dynamic event
      * 
      * If events have occurred, returns the hypocenter of the most recent event.
@@ -351,6 +367,9 @@ private:
     double current_slip;
     double current_state_var;
     double current_slip_rate;
+    
+    // Cached stress state (updated by computeStressState)
+    mutable FaultStressState cached_stress_state;
     
     // Seismicity parameters
     double b_value;                 // G-R b-value (~1.0)

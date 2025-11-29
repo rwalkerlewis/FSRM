@@ -4,20 +4,12 @@
  * Configuration-driven simulation of SCEC TPV16 benchmark problem.
  * Tests rupture propagation on a fault with random surface roughness.
  * 
- * Key Features:
- * - Vertical strike-slip fault with rough surface
- * - Self-similar random roughness (fractal dimension)
- * - Tests effect of geometric complexity on rupture
- * - Slip-weakening friction
+ * All physics, materials, and roughness parameters are in the config file.
+ * See config/scec_tpv16.config for the complete parameter set.
  * 
  * Reference: SCEC Dynamic Rupture Code Verification Exercise
  *            Dunham et al. (2011)
  *            https://strike.scec.org/cvws/
- * 
- * Domain:
- * - Same as TPV5 but with rough fault geometry
- * - RMS roughness amplitude: 100-500 m
- * - Correlation length: 1-2 km
  * 
  * Usage:
  *   mpirun -np 16 ./scec_tpv16 -c config/scec_tpv16.config
@@ -46,11 +38,7 @@ int main(int argc, char** argv) {
         std::cout << "  Rough Fault Surface Dynamic Rupture\n";
         std::cout << "========================================\n\n";
         std::cout << "Config file: " << config_file << "\n\n";
-        std::cout << "Problem Description:\n";
-        std::cout << "  • Fault with random surface roughness\n";
-        std::cout << "  • Self-similar fractal geometry\n";
-        std::cout << "  • Tests geometric complexity effects\n";
-        std::cout << "  • High-resolution mesh required\n\n";
+        std::cout << "All parameters loaded from configuration file.\n\n";
     }
     
     FSRM::Simulator sim(comm);
@@ -62,11 +50,6 @@ int main(int argc, char** argv) {
     ierr = sim.setupFields(); CHKERRQ(ierr);
     ierr = sim.setupPhysics(); CHKERRQ(ierr);
     ierr = sim.setMaterialProperties(); CHKERRQ(ierr);
-    ierr = sim.setInitialStress(); CHKERRQ(ierr);
-    
-    // Setup rough fault geometry
-    ierr = sim.setupRoughFault(); CHKERRQ(ierr);
-    
     ierr = sim.setInitialConditions(); CHKERRQ(ierr);
     ierr = sim.setupTimeStepper(); CHKERRQ(ierr);
     ierr = sim.setupSolvers(); CHKERRQ(ierr);
@@ -78,15 +61,14 @@ int main(int argc, char** argv) {
     ierr = sim.run(); CHKERRQ(ierr);
     
     sim.writeSummary();
-    sim.computeRuptureMetrics();
-    sim.analyzeRoughnessEffects();
+    sim.computePerformanceMetrics();
     sim.generatePlots();
     
     if (rank == 0) {
         std::cout << "\n========================================\n";
         std::cout << "  SCEC TPV16 Completed Successfully\n";
         std::cout << "========================================\n\n";
-        std::cout << "Results available in: output/scec_tpv16/\n";
+        std::cout << "Results available in output directory.\n";
     }
     
     PetscFinalize();

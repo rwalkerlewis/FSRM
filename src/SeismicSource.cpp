@@ -909,8 +909,80 @@ void SeismicReceiver::writeSAC(const std::string& filename) const {
 }
 
 void SeismicReceiver::writeHDF5(const std::string& filename) const {
-    // HDF5 output - placeholder
-    writeASCII(filename + ".txt");
+#ifdef HDF5_FOUND
+    // HDF5 output implementation
+    hid_t file_id = H5Fcreate(filename.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    if (file_id < 0) {
+        writeASCII(filename + ".txt");  // Fallback
+        return;
+    }
+    
+    // Write metadata as attributes
+    hid_t attr_space = H5Screate(H5S_SCALAR);
+    
+    // Write receiver name
+    hid_t str_type = H5Tcopy(H5T_C_S1);
+    H5Tset_size(str_type, name.size() + 1);
+    hid_t attr_id = H5Acreate(file_id, "name", str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+    H5Awrite(attr_id, str_type, name.c_str());
+    H5Aclose(attr_id);
+    H5Tclose(str_type);
+    
+    // Write location
+    double location[3] = {loc_x, loc_y, loc_z};
+    hsize_t loc_dims[1] = {3};
+    hid_t loc_space = H5Screate_simple(1, loc_dims, nullptr);
+    hid_t loc_dset = H5Dcreate(file_id, "location", H5T_NATIVE_DOUBLE, loc_space, 
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    H5Dwrite(loc_dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, location);
+    H5Dclose(loc_dset);
+    H5Sclose(loc_space);
+    
+    // Write time series
+    if (!times.empty()) {
+        hsize_t time_dims[1] = {times.size()};
+        hid_t time_space = H5Screate_simple(1, time_dims, nullptr);
+        hid_t time_dset = H5Dcreate(file_id, "time", H5T_NATIVE_DOUBLE, time_space,
+                                    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(time_dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, times.data());
+        H5Dclose(time_dset);
+        H5Sclose(time_space);
+    }
+    
+    // Write data (3-component velocity/displacement)
+    if (!data.empty()) {
+        hsize_t data_dims[2] = {data.size(), 3};
+        hid_t data_space = H5Screate_simple(2, data_dims, nullptr);
+        
+        // Flatten data to contiguous array
+        std::vector<double> flat_data;
+        flat_data.reserve(data.size() * 3);
+        for (const auto& d : data) {
+            flat_data.push_back(d[0]);
+            flat_data.push_back(d[1]);
+            flat_data.push_back(d[2]);
+        }
+        
+        hid_t data_dset = H5Dcreate(file_id, "data", H5T_NATIVE_DOUBLE, data_space,
+                                    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(data_dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, flat_data.data());
+        H5Dclose(data_dset);
+        H5Sclose(data_space);
+    }
+    
+    H5Sclose(attr_space);
+    H5Fclose(file_id);
+#else
+    // HDF5 not available - use ASCII format with .h5 extension replaced
+    std::string ascii_filename = filename;
+    size_t pos = ascii_filename.rfind(".h5");
+    if (pos != std::string::npos) {
+        ascii_filename = ascii_filename.substr(0, pos) + ".txt";
+    } else {
+        ascii_filename += ".txt";
+    }
+    writeASCII(ascii_filename);
+#endif
 }
 
 double SeismicReceiver::getPeakValue(int component) const {
