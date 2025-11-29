@@ -41,7 +41,7 @@ ImplicitExplicitTransitionManager::~ImplicitExplicitTransitionManager() {
     if (mass_lumped) MatDestroy(&mass_lumped);
 }
 
-PetscErrorCode ImplicitExplicitTransitionManager::initialize(const IMEXConfig& config_in) {
+PetscErrorCode ImplicitExplicitTransitionManager::initialize(const IMEXInternalConfig& config_in) {
     PetscFunctionBeginUser;
     
     config = config_in;

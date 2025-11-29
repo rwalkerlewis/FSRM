@@ -6,9 +6,6 @@
 #include <fstream>
 #include <cmath>
 
-// Type alias for config reader's IMEXConfig
-using IMEXConfig = FSRM::ConfigReader::IMEXConfig;
-
 namespace FSRM {
 
 Simulator::Simulator(MPI_Comm comm_in) 
@@ -627,7 +624,7 @@ PetscErrorCode Simulator::setupSolvers() {
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode Simulator::setupIMEXTransition(const IMEXConfig& imex_cfg) {
+PetscErrorCode Simulator::setupIMEXTransition(const ConfigReader::IMEXConfig& imex_cfg) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
@@ -652,7 +649,7 @@ PetscErrorCode Simulator::setupIMEXTransition(const IMEXConfig& imex_cfg) {
     imex_manager = std::make_unique<ImplicitExplicitTransitionManager>(comm);
     
     // Convert string config to internal IMEX config structure
-    FSRM::IMEXConfig internal_config;
+    IMEXInternalConfig internal_config;
     internal_config.enabled = imex_cfg.enabled;
     internal_config.initial_mode = (imex_cfg.initial_mode == "EXPLICIT") 
                                    ? IntegrationMode::EXPLICIT 

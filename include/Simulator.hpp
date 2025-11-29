@@ -10,13 +10,11 @@
 #include "GmshIO.hpp"
 #include "CoordinateSystem.hpp"
 #include "ImplicitExplicitTransition.hpp"
+#include "ConfigReader.hpp"
 #include <memory>
 #include <vector>
 
 namespace FSRM {
-
-// Forward declaration
-class ConfigReader;
 
 class Simulator {
 public:
@@ -33,7 +31,7 @@ public:
     PetscErrorCode setupSolvers();
     
     // IMEX transition setup for induced seismicity modeling
-    PetscErrorCode setupIMEXTransition(const IMEXConfig& imex_config);
+    PetscErrorCode setupIMEXTransition(const ConfigReader::IMEXConfig& imex_config);
     PetscErrorCode setupFaultNetwork();
     
     // Load input
@@ -113,7 +111,7 @@ private:
     
     // IMEX transition manager for induced seismicity
     std::unique_ptr<ImplicitExplicitTransitionManager> imex_manager;
-    IMEXConfig imex_config;
+    ConfigReader::IMEXConfig imex_config;
     
     // Fault models for induced seismicity
     std::unique_ptr<FaultNetwork> fault_network;

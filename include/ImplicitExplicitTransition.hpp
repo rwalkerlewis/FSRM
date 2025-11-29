@@ -53,9 +53,12 @@ enum class SettlingCriterion {
 };
 
 /**
- * @brief Configuration for implicit-explicit transition
+ * @brief Internal configuration for implicit-explicit transition
+ * 
+ * This is the internal representation used by the IMEX manager.
+ * For user-facing configuration, see ConfigReader::IMEXConfig.
  */
-struct IMEXConfig {
+struct IMEXInternalConfig {
     // Enable/disable
     bool enabled = false;
     IntegrationMode initial_mode = IntegrationMode::IMPLICIT;
@@ -184,7 +187,7 @@ public:
     /**
      * @brief Initialize with configuration
      */
-    PetscErrorCode initialize(const IMEXConfig& config);
+    PetscErrorCode initialize(const IMEXInternalConfig& config);
     
     /**
      * @brief Setup with PETSc TS and solution vectors
@@ -280,7 +283,7 @@ private:
     int rank, size;
     
     // Configuration
-    IMEXConfig config;
+    IMEXInternalConfig config;
     
     // PETSc objects
     TS ts;
