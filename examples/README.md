@@ -213,71 +213,89 @@ All example configs are in the `config/` directory:
 - **Reference**: Nordbotten et al. SPE Journal (2024), https://spe11-group.github.io/
 - **Use case**: Carbon capture and storage (CCS) simulation validation
 
-### SCEC Benchmarks (Complete Suite)
+### SCEC Benchmarks (Complete CVWS Suite)
 
-#### `scec_tpv3.config`
-- **Physics**: 2D in-plane strike-slip dynamic rupture
-- **Features**: Linear slip-weakening, forced nucleation
-- **Runtime**: ~10 minutes
-- **Reference**: https://strike.scec.org/cvws/tpv3docs.html
+The complete SCEC Code Verification Workshop Series (CVWS) benchmark suite is available.
+Reference: https://strike.scec.org/cvws/benchmark_descriptions.html
 
-#### `scec_tpv4.config`
-- **Physics**: 3D strike-slip with rate-state friction
-- **Features**: VW/VS zones, aging law, velocity perturbation
-- **Runtime**: ~30 minutes
-- **Reference**: https://strike.scec.org/cvws/tpv4docs.html
+#### TPV3-9: Basic Dynamic Rupture
 
-#### `scec_tpv5.config`
-- **Physics**: 3D vertical strike-slip dynamic rupture
-- **Features**: Heterogeneous stress, slip-weakening friction
-- **Runtime**: ~20 minutes
-- **Reference**: https://strike.scec.org/cvws/tpv5docs.html
+| Config | Physics | Key Features | Runtime |
+|--------|---------|--------------|---------|
+| `scec_tpv3.config` | 2D in-plane strike-slip | Linear slip-weakening, forced nucleation | ~10 min |
+| `scec_tpv4.config` | 3D strike-slip rate-state | VW/VS zones, aging law | ~30 min |
+| `scec_tpv5.config` | 3D vertical strike-slip | Heterogeneous stress, slip-weakening | ~20 min |
+| `scec_tpv6.config` | 3D bilateral rupture | Symmetric propagation | ~25 min |
+| `scec_tpv7.config` | VS barrier | Velocity-strengthening arrest | ~25 min |
+| `scec_tpv8.config` | Rate-dependent friction | VW/VS rate dependence | ~30 min |
+| `scec_tpv9.config` | Depth-dependent stress | Lithostatic gradient | ~25 min |
 
-#### `scec_tpv10.config`
-- **Physics**: Branching fault rupture
-- **Features**: Main fault + 30° branch, rate-state friction
-- **Runtime**: ~45 minutes
-- **Reference**: https://strike.scec.org/cvws/
+#### TPV10-15: Fault Geometry
 
-#### `scec_tpv12.config` / `scec_tpv13.config`
-- **Physics**: 60° dipping normal fault
-- **Features**: Hanging wall/footwall asymmetry, free surface
-- **TPV12**: Slip-weakening friction
-- **TPV13**: Rate-state friction
-- **Runtime**: ~30 minutes
-- **Reference**: https://strike.scec.org/cvws/tpv12_13docs.html
+| Config | Physics | Key Features | Runtime |
+|--------|---------|--------------|---------|
+| `scec_tpv10.config` | Branching fault | Main + 30° branch | ~45 min |
+| `scec_tpv11.config` | Normal faulting | Dip-slip mechanism | ~30 min |
+| `scec_tpv12.config` | 60° dipping (SW) | Slip-weakening friction | ~30 min |
+| `scec_tpv13.config` | 60° dipping (RS) | Rate-state friction | ~35 min |
+| `scec_tpv14.config` | Branch main-dominant | Stress favors main fault | ~45 min |
+| `scec_tpv15.config` | Branch branch-dominant | Stress favors branch | ~45 min |
 
-#### `scec_tpv16.config`
-- **Physics**: Rough fault surface rupture
-- **Features**: Self-similar roughness, geometric complexity
-- **Runtime**: ~45 minutes
-- **Reference**: https://strike.scec.org/cvws/
+#### TPV16-23: Advanced Physics
 
-#### `scec_tpv24.config` / `scec_tpv25.config`
-- **Physics**: Japan benchmark with rate-state friction
-- **Features**: Strong velocity weakening, flash heating
-- **TPV24**: Homogeneous stress
-- **TPV25**: Heterogeneous stress
-- **Runtime**: ~1 hour
-- **Reference**: https://strike.scec.org/cvws/tpv24_25docs.html
+| Config | Physics | Key Features | Runtime |
+|--------|---------|--------------|---------|
+| `scec_tpv16.config` | Rough fault | Self-similar roughness | ~45 min |
+| `scec_tpv17.config` | Supershear transition | Subshear → supershear | ~30 min |
+| `scec_tpv18.config` | Layered medium | Multiple velocity layers | ~35 min |
+| `scec_tpv19.config` | Self-healing pulse | Strong rate-weakening | ~40 min |
+| `scec_tpv20.config` | Shallow dip-slip (SW) | Surface rupture, SW friction | ~35 min |
+| `scec_tpv21.config` | Shallow dip-slip (RS) | Surface rupture, RS friction | ~40 min |
+| `scec_tpv22.config` | Bilateral (SW) | Centered nucleation, SW | ~30 min |
+| `scec_tpv23.config` | Bilateral (RS) | Centered nucleation, RS | ~35 min |
 
-#### `scec_tpv101.config`
-- **Physics**: Viscoelastic off-fault plasticity
-- **Features**: Drucker-Prager plasticity, Q-factor attenuation
-- **Runtime**: ~1 hour
-- **Reference**: https://strike.scec.org/cvws/tpv101docs.html
+#### TPV24-31: Japan & Complex Scenarios
 
-#### `scec_loh1.config`
-- **Physics**: Layer over halfspace wave propagation
-- **Features**: 1 km layer, point explosion source
-- **Runtime**: ~15 minutes
-- **Reference**: https://strike.scec.org/scecpedia/LOH.1
+| Config | Physics | Key Features | Runtime |
+|--------|---------|--------------|---------|
+| `scec_tpv24.config` | Japan homogeneous | Strong velocity weakening | ~1 hr |
+| `scec_tpv25.config` | Japan heterogeneous | Flash heating, stress variability | ~1 hr |
+| `scec_tpv26.config` | Thermal pressurization | Pore fluid heating | ~45 min |
+| `scec_tpv27.config` | TP heterogeneous | Thermal press. + hetero. stress | ~50 min |
+| `scec_tpv28.config` | T-junction | Perpendicular fault intersection | ~40 min |
+| `scec_tpv29.config` | Topography | Non-planar free surface | ~50 min |
+| `scec_tpv30.config` | Heterogeneous stress | Stochastic stress field | ~35 min |
+| `scec_tpv31.config` | Friction heterogeneity | Variable friction parameters | ~35 min |
 
-#### `scec_loh2.config`
-- **Physics**: Heterogeneous layer over halfspace
-- **Features**: Double-couple source, surface waves, Love waves
-- **Runtime**: ~20 minutes
-- **Reference**: https://strike.scec.org/scecpedia/LOH.2
+#### TPV32-37: Material Heterogeneity
+
+| Config | Physics | Key Features | Runtime |
+|--------|---------|--------------|---------|
+| `scec_tpv32.config` | Normal fault (SW) | Free surface, slip-weakening | ~35 min |
+| `scec_tpv33.config` | Normal fault (RS) | Free surface, rate-state | ~40 min |
+| `scec_tpv34.config` | Off-fault plasticity | Drucker-Prager, homogeneous | ~45 min |
+| `scec_tpv35.config` | Plasticity hetero. | Drucker-Prager, heterogeneous | ~50 min |
+| `scec_tpv36.config` | Bimaterial (SW) | Material contrast, SW friction | ~40 min |
+| `scec_tpv37.config` | Bimaterial (RS) | Material contrast, RS friction | ~45 min |
+
+#### TPV100+ Series: Inelastic Benchmarks
+
+| Config | Physics | Key Features | Runtime |
+|--------|---------|--------------|---------|
+| `scec_tpv101.config` | Viscoelastic plasticity | Q-factor attenuation, Drucker-Prager | ~1 hr |
+| `scec_tpv102.config` | Enhanced plasticity | Depth-dependent cohesion, softening | ~1 hr |
+| `scec_tpv103.config` | RS + plasticity | Rate-state friction + off-fault plastic | ~1 hr |
+| `scec_tpv104.config` | Viscoplasticity | Perzyna model, rate-dependent plastic | ~1.5 hr |
+| `scec_tpv105.config` | Damage mechanics | Lyakhovsky damage, stiffness degradation | ~1 hr |
+
+#### LOH Series: Wave Propagation
+
+| Config | Physics | Key Features | Runtime |
+|--------|---------|--------------|---------|
+| `scec_loh1.config` | Layer over halfspace | 1 km layer, explosion source | ~15 min |
+| `scec_loh2.config` | Heterogeneous layer | Double-couple, Love waves | ~20 min |
+| `scec_loh3.config` | Attenuation | Viscoelastic Q, anelastic effects | ~25 min |
+| `scec_loh4.config` | Multiple layers | Crustal velocity model | ~30 min |
 
 ### GPU-Accelerated Examples
 
