@@ -467,9 +467,14 @@ MultiStageFracManager::simulateStage(int stage_id, double dt) {
         
         double step_time = 0.0;
         while (step_time < step.duration) {
-            // Calculate flow distribution
+            // Calculate flow distribution - convert pointers to objects
+            std::vector<PerforationCluster> clusters_copy;
+            clusters_copy.reserve(stage_clusters.size());
+            for (const auto* ptr : stage_clusters) {
+                clusters_copy.push_back(*ptr);
+            }
             auto [efficiency, rates] = limited_entry_.predictClusterEfficiency(
-                std::vector<PerforationCluster>(stage_clusters.begin(), stage_clusters.end()),
+                clusters_copy,
                 step.rate, fluid);
             
             // Update each cluster
