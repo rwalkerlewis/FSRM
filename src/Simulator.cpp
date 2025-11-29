@@ -1,6 +1,7 @@
 #include "Simulator.hpp"
 #include "Visualization.hpp"
 #include "ConfigReader.hpp"
+#include "ImplicitExplicitTransition.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -619,6 +620,152 @@ PetscErrorCode Simulator::setupSolvers() {
     ierr = SNESSetFromOptions(snes); CHKERRQ(ierr);
     ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
     ierr = PCSetFromOptions(pc); CHKERRQ(ierr);
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::setupIMEXTransition(const ConfigReader::IMEXConfig& imex_cfg) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    
+    if (!imex_cfg.enabled) {
+        if (rank == 0) {
+            PetscPrintf(comm, "IMEX transition: disabled\n");
+        }
+        PetscFunctionReturn(0);
+    }
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Setting up IMEX (Implicit-Explicit) time integration transition...\n");
+        PetscPrintf(comm, "  Initial mode: %s\n", imex_cfg.initial_mode.c_str());
+        PetscPrintf(comm, "  Trigger type: %s\n", imex_cfg.trigger_type.c_str());
+        PetscPrintf(comm, "  Settling type: %s\n", imex_cfg.settling_type.c_str());
+    }
+    
+    // Store config
+    imex_config = imex_cfg;
+    
+    // Create IMEX manager
+    imex_manager = std::make_unique<ImplicitExplicitTransitionManager>(comm);
+    
+    // Convert string config to internal IMEX config structure
+    IMEXInternalConfig internal_config;
+    internal_config.enabled = imex_cfg.enabled;
+    internal_config.initial_mode = (imex_cfg.initial_mode == "EXPLICIT") 
+                                   ? IntegrationMode::EXPLICIT 
+                                   : IntegrationMode::IMPLICIT;
+    
+    // Time step settings
+    internal_config.implicit_dt_initial = imex_cfg.implicit_dt_initial;
+    internal_config.implicit_dt_min = imex_cfg.implicit_dt_min;
+    internal_config.implicit_dt_max = imex_cfg.implicit_dt_max;
+    internal_config.implicit_method = imex_cfg.implicit_method;
+    
+    internal_config.explicit_dt_initial = imex_cfg.explicit_dt_initial;
+    internal_config.explicit_dt_min = imex_cfg.explicit_dt_min;
+    internal_config.explicit_dt_max = imex_cfg.explicit_dt_max;
+    internal_config.explicit_method = imex_cfg.explicit_method;
+    internal_config.cfl_factor = imex_cfg.cfl_factor;
+    
+    // Trigger settings
+    if (imex_cfg.trigger_type == "STRESS_THRESHOLD" || imex_cfg.trigger_type == "STRESS") {
+        internal_config.trigger_type = TransitionTrigger::STRESS_THRESHOLD;
+    } else if (imex_cfg.trigger_type == "COULOMB_FAILURE" || imex_cfg.trigger_type == "COULOMB") {
+        internal_config.trigger_type = TransitionTrigger::COULOMB_FAILURE;
+    } else if (imex_cfg.trigger_type == "SLIP_RATE") {
+        internal_config.trigger_type = TransitionTrigger::SLIP_RATE;
+    } else if (imex_cfg.trigger_type == "VELOCITY") {
+        internal_config.trigger_type = TransitionTrigger::VELOCITY;
+    } else if (imex_cfg.trigger_type == "ACCELERATION") {
+        internal_config.trigger_type = TransitionTrigger::ACCELERATION;
+    } else if (imex_cfg.trigger_type == "ENERGY_RATE") {
+        internal_config.trigger_type = TransitionTrigger::ENERGY_RATE;
+    } else {
+        internal_config.trigger_type = TransitionTrigger::COULOMB_FAILURE;
+    }
+    
+    internal_config.stress_threshold = imex_cfg.stress_threshold;
+    internal_config.coulomb_threshold = imex_cfg.coulomb_threshold;
+    internal_config.slip_rate_threshold = imex_cfg.slip_rate_threshold;
+    internal_config.velocity_threshold = imex_cfg.velocity_threshold;
+    internal_config.acceleration_threshold = imex_cfg.acceleration_threshold;
+    internal_config.energy_rate_threshold = imex_cfg.energy_rate_threshold;
+    
+    // Settling settings
+    if (imex_cfg.settling_type == "TIME_ELAPSED" || imex_cfg.settling_type == "TIME") {
+        internal_config.settling_type = SettlingCriterion::TIME_ELAPSED;
+    } else if (imex_cfg.settling_type == "VELOCITY_DECAY" || imex_cfg.settling_type == "VELOCITY") {
+        internal_config.settling_type = SettlingCriterion::VELOCITY_DECAY;
+    } else if (imex_cfg.settling_type == "ENERGY_DECAY" || imex_cfg.settling_type == "ENERGY") {
+        internal_config.settling_type = SettlingCriterion::ENERGY_DECAY;
+    } else if (imex_cfg.settling_type == "SLIP_RATE_DECAY" || imex_cfg.settling_type == "SLIP_RATE") {
+        internal_config.settling_type = SettlingCriterion::SLIP_RATE_DECAY;
+    } else if (imex_cfg.settling_type == "COMBINED") {
+        internal_config.settling_type = SettlingCriterion::COMBINED;
+    } else {
+        internal_config.settling_type = SettlingCriterion::COMBINED;
+    }
+    
+    internal_config.min_dynamic_duration = imex_cfg.min_dynamic_duration;
+    internal_config.max_dynamic_duration = imex_cfg.max_dynamic_duration;
+    internal_config.settling_velocity = imex_cfg.settling_velocity;
+    internal_config.settling_energy_ratio = imex_cfg.settling_energy_ratio;
+    internal_config.settling_slip_rate = imex_cfg.settling_slip_rate;
+    internal_config.settling_observation_window = imex_cfg.settling_observation_window;
+    
+    // Solver settings
+    internal_config.adaptive_timestep = imex_cfg.adaptive_timestep;
+    internal_config.dt_growth_factor = imex_cfg.dt_growth_factor;
+    internal_config.dt_shrink_factor = imex_cfg.dt_shrink_factor;
+    internal_config.implicit_max_iterations = imex_cfg.implicit_max_iterations;
+    internal_config.explicit_max_iterations = imex_cfg.explicit_max_iterations;
+    internal_config.implicit_rtol = imex_cfg.implicit_rtol;
+    internal_config.explicit_rtol = imex_cfg.explicit_rtol;
+    internal_config.implicit_atol = imex_cfg.implicit_atol;
+    internal_config.explicit_atol = imex_cfg.explicit_atol;
+    
+    // Output settings
+    internal_config.use_lumped_mass = imex_cfg.use_lumped_mass;
+    internal_config.implicit_output_frequency = imex_cfg.implicit_output_frequency;
+    internal_config.explicit_output_frequency = imex_cfg.explicit_output_frequency;
+    internal_config.log_transitions = imex_cfg.log_transitions;
+    internal_config.transition_log_file = imex_cfg.transition_log_file;
+    internal_config.smooth_transition = imex_cfg.smooth_transition;
+    internal_config.transition_ramp_time = imex_cfg.transition_ramp_time;
+    
+    // Initialize IMEX manager
+    ierr = imex_manager->initialize(internal_config); CHKERRQ(ierr);
+    
+    // Setup with TS and solution
+    ierr = imex_manager->setup(ts, dm, solution, nullptr); CHKERRQ(ierr);
+    
+    // Connect fault network if available
+    if (fault_network) {
+        imex_manager->setFaultNetwork(fault_network.get());
+    }
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "IMEX transition manager initialized successfully\n");
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::setupFaultNetwork() {
+    PetscFunctionBeginUser;
+    
+    if (!config.enable_faults) {
+        PetscFunctionReturn(0);
+    }
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Setting up fault network for induced seismicity...\n");
+    }
+    
+    fault_network = std::make_unique<FaultNetwork>();
+    
+    // Fault network will be populated from config file parsing
+    // This is called after config parsing to finalize setup
     
     PetscFunctionReturn(0);
 }

@@ -132,6 +132,13 @@ struct SimulationConfig {
     double permeability_sensitivity = 1.0;         // Sensitivity to strain/stress
     double permeability_recovery_time = 100.0;     // Recovery time constant (s)
     
+    // Implicit-Explicit Time Integration Transition
+    bool enable_imex_transition = false;           // Enable IMEX mode switching
+    std::string imex_trigger_type = "COULOMB_FAILURE";  // Trigger condition
+    std::string imex_settling_type = "COMBINED";   // Settling condition
+    double imex_min_dynamic_duration = 1.0;        // Min explicit duration (s)
+    double imex_max_dynamic_duration = 60.0;       // Max explicit duration (s)
+    
     FluidModelType fluid_model = FluidModelType::SINGLE_COMPONENT;
     SolidModelType solid_model = SolidModelType::ELASTIC;
 };

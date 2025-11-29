@@ -6,15 +6,15 @@
 #include "EclipseIO.hpp"
 #include "WellModel.hpp"
 #include "FractureModel.hpp"
+#include "FaultModel.hpp"
 #include "GmshIO.hpp"
 #include "CoordinateSystem.hpp"
+#include "ImplicitExplicitTransition.hpp"
+#include "ConfigReader.hpp"
 #include <memory>
 #include <vector>
 
 namespace FSRM {
-
-// Forward declaration
-class ConfigReader;
 
 class Simulator {
 public:
@@ -29,6 +29,10 @@ public:
     PetscErrorCode setupPhysics();
     PetscErrorCode setupTimeStepper();
     PetscErrorCode setupSolvers();
+    
+    // IMEX transition setup for induced seismicity modeling
+    PetscErrorCode setupIMEXTransition(const ConfigReader::IMEXConfig& imex_config);
+    PetscErrorCode setupFaultNetwork();
     
     // Load input
     PetscErrorCode loadEclipseInput(const std::string& filename);
@@ -104,6 +108,13 @@ private:
     
     // Coordinate system manager
     std::unique_ptr<CoordinateSystemManager> coord_manager;
+    
+    // IMEX transition manager for induced seismicity
+    std::unique_ptr<ImplicitExplicitTransitionManager> imex_manager;
+    ConfigReader::IMEXConfig imex_config;
+    
+    // Fault models for induced seismicity
+    std::unique_ptr<FaultNetwork> fault_network;
     
     // Material properties (per cell or per region)
     std::vector<MaterialProperties> material_props;

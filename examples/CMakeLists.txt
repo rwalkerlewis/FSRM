@@ -30,6 +30,9 @@ add_reservoir_example(spe10 spe10.cpp)
 # add_reservoir_example(scec_tpv16 scec_tpv16.cpp)  # Disabled: API mismatch
 # add_reservoir_example(scec_loh1 scec_loh1.cpp)  # Disabled: API mismatch
 
+# Induced seismicity with IMEX transition
+add_reservoir_example(induced_seismicity_imex induced_seismicity_imex.cpp)
+
 # Copy all config files to build directory
 file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*.config")
 foreach(CONFIG_FILE ${CONFIG_FILES})
@@ -58,6 +61,7 @@ message(STATUS "  - config/single_phase.config")
 message(STATUS "  - config/hydraulic_fracturing.config")
 message(STATUS "  - config/lefm_fracture_growth.config")
 message(STATUS "  - config/induced_seismicity.config")
+message(STATUS "  - config/induced_seismicity_imex.config  (IMEX transition)")
 message(STATUS "  - config/wave_propagation.config")
 message(STATUS "  - config/geothermal.config")
 message(STATUS "  - config/co2_storage.config")
