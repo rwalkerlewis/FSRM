@@ -234,8 +234,16 @@ PetscErrorCode ImplicitExplicitTransitionManager::checkAndTransition(
             endCurrentPhase(time, config.trigger_type, SettlingCriterion::TIME_ELAPSED);
             
             // Start dynamic event tracking
-            // TODO: Extract hypocenter from fault model
-            startDynamicEvent(time, 0.0, 0.0, 0.0);
+            // Extract hypocenter from fault model if available
+            double hypo_x = 0.0, hypo_y = 0.0, hypo_z = 0.0;
+            if (fault_model) {
+                // Assumes fault_model has a getHypocenterCoordinates(double&, double&, double&) method
+                fault_model->getHypocenterCoordinates(hypo_x, hypo_y, hypo_z);
+            } else {
+                // Log warning if fault_model is not available
+                std::cerr << "[Warning] Fault model not available; using (0,0,0) for hypocenter coordinates." << std::endl;
+            }
+            startDynamicEvent(time, hypo_x, hypo_y, hypo_z);
             
             // Configure explicit mode
             ierr = configureExplicitMode(); CHKERRQ(ierr);
