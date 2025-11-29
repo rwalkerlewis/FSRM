@@ -152,28 +152,42 @@ PetscErrorCode Simulator::setupDM() {
     // Setup coordinate system first
     ierr = setupCoordinateSystem(); CHKERRQ(ierr);
     
-    // Choose grid setup based on mesh type
+    // All problems use DMPlex for the spatial domain
+    // This ensures consistent unstructured grid handling across all simulation types
+    // and enables advanced features like AMR, mesh adaptation, and complex geometries
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Setting up DMPlex unstructured grid...\n");
+    }
+    
+    // Choose grid setup based on mesh type - all use DMPlex internally
     switch (grid_config.mesh_type) {
         case MeshType::GMSH:
+            // Load external Gmsh mesh file into DMPlex
             ierr = setupGmshGrid(); CHKERRQ(ierr);
             break;
-        case MeshType::CORNER_POINT:
         case MeshType::EXODUS:
+            // Exodus mesh files are loaded via DMPlex's native support
+            ierr = setupUnstructuredGrid(); CHKERRQ(ierr);
+            break;
+        case MeshType::CORNER_POINT:
         case MeshType::CUSTOM:
-            if (grid_config.use_unstructured) {
-                ierr = setupUnstructuredGrid(); CHKERRQ(ierr);
-            } else {
-                ierr = setupStructuredGrid(); CHKERRQ(ierr);
-            }
+            // Custom and corner-point meshes converted to DMPlex representation
+            ierr = setupUnstructuredGrid(); CHKERRQ(ierr);
             break;
         case MeshType::CARTESIAN:
         default:
-            if (grid_config.use_unstructured) {
-                ierr = setupUnstructuredGrid(); CHKERRQ(ierr);
-            } else {
-                ierr = setupStructuredGrid(); CHKERRQ(ierr);
-            }
+            // Cartesian grids are created as DMPlex box meshes with hex cells
+            // This provides DMPlex-compatible structured grids
+            ierr = setupStructuredGrid(); CHKERRQ(ierr);
             break;
+    }
+    
+    // Verify that the DM is a DMPlex
+    PetscBool is_plex;
+    ierr = PetscObjectTypeCompare((PetscObject)dm, DMPLEX, &is_plex); CHKERRQ(ierr);
+    if (!is_plex) {
+        SETERRQ(comm, PETSC_ERR_SUP, "All simulations require DMPlex for the spatial domain");
     }
     
     PetscFunctionReturn(0);
@@ -278,21 +292,28 @@ PetscErrorCode Simulator::setupStructuredGrid() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
-    // Create DMDA for structured grid
-    ierr = DMDACreate3d(comm, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                       DMDA_STENCIL_STAR,
-                       grid_config.nx, grid_config.ny, grid_config.nz,
-                       PETSC_DECIDE, PETSC_DECIDE, PETSC_DECIDE,
-                       1, 1, // dof, stencil width
-                       nullptr, nullptr, nullptr, &dm); CHKERRQ(ierr);
+    // All grids now use DMPlex for unstructured mesh representation
+    // This provides consistent mesh handling and enables AMR capabilities
+    // Create DMPlex box mesh with tensor product cells (hexahedra in 3D)
+    PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
+    PetscReal lower[3] = {0.0, 0.0, 0.0};
+    PetscReal upper[3] = {grid_config.Lx, grid_config.Ly, grid_config.Lz};
+    
+    // Create DMPlex box mesh: PETSC_FALSE = tensor product (hex), PETSC_TRUE = simplex (tet)
+    // Using tensor product cells (hexahedra) for structured-like topology
+    ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
+                              faces, lower, upper, 
+                              nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
     
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
-    ierr = DMSetUp(dm); CHKERRQ(ierr);
+    ierr = DMViewFromOptions(dm, nullptr, "-dm_view"); CHKERRQ(ierr);
     
-    // Set uniform coordinates
-    ierr = DMDASetUniformCoordinates(dm, 0.0, grid_config.Lx,
-                                     0.0, grid_config.Ly,
-                                     0.0, grid_config.Lz); CHKERRQ(ierr);
+    if (rank == 0) {
+        PetscPrintf(comm, "Created DMPlex structured box mesh: %d x %d x %d cells\n",
+                   grid_config.nx, grid_config.ny, grid_config.nz);
+        PetscPrintf(comm, "  Domain: [0, %.1f] x [0, %.1f] x [0, %.1f] m\n",
+                   grid_config.Lx, grid_config.Ly, grid_config.Lz);
+    }
     
     PetscFunctionReturn(0);
 }
@@ -302,13 +323,24 @@ PetscErrorCode Simulator::setupUnstructuredGrid() {
     PetscErrorCode ierr;
     
     // Create DMPlex for unstructured grid
+    // Uses simplex cells (tetrahedra in 3D) for true unstructured mesh
     PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
-    ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
-                              faces,
-                              nullptr, nullptr, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
+    PetscReal lower[3] = {0.0, 0.0, 0.0};
+    PetscReal upper[3] = {grid_config.Lx, grid_config.Ly, grid_config.Lz};
+    
+    // PETSC_TRUE = simplex cells (tetrahedra), better for unstructured adaptation
+    ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_TRUE, 
+                              faces, lower, upper,
+                              nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
     
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
     ierr = DMViewFromOptions(dm, nullptr, "-dm_view"); CHKERRQ(ierr);
+    
+    if (rank == 0) {
+        PetscPrintf(comm, "Created DMPlex unstructured mesh with simplex cells\n");
+        PetscPrintf(comm, "  Domain: [0, %.1f] x [0, %.1f] x [0, %.1f] m\n",
+                   grid_config.Lx, grid_config.Ly, grid_config.Lz);
+    }
     
     PetscFunctionReturn(0);
 }

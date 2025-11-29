@@ -4,7 +4,6 @@
 #include <petsc.h>
 #include <petscts.h>
 #include <petscdm.h>
-#include <petscdmda.h>
 #include <petscdmplex.h>
 #include <petscfe.h>
 
@@ -155,7 +154,8 @@ enum class MeshType {
 };
 
 struct GridConfig {
-    // Grid dimensions (for structured grids)
+    // Grid dimensions (number of cells in each direction)
+    // Used for both DMPlex box meshes and as subdivision counts for external meshes
     int nx = 10, ny = 10, nz = 10;
     double Lx = 1000.0, Ly = 1000.0, Lz = 100.0; // meters
     
@@ -164,9 +164,9 @@ struct GridConfig {
     double origin_y = 0.0;
     double origin_z = 0.0;
     
-    // Mesh type
+    // Mesh type - all mesh types use DMPlex internally for unstructured representation
     MeshType mesh_type = MeshType::CARTESIAN;
-    bool use_unstructured = false;
+    bool use_unstructured = true;  ///< Default true: all grids use DMPlex
     std::string mesh_file;
     
     // Gmsh-specific options

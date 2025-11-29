@@ -155,10 +155,13 @@ Define the computational domain and mesh.
 
 ```ini
 [GRID]
-# Grid type
-grid_type = CARTESIAN          # CARTESIAN or CORNER_POINT
+# All grids use DMPlex for unstructured mesh representation
+# This enables consistent mesh operations and AMR capabilities
 
-# Number of cells in each direction
+# Grid type (defines how the mesh is created/loaded)
+grid_type = CARTESIAN          # CARTESIAN, GMSH, CORNER_POINT, EXODUS
+
+# Number of cells in each direction (for box meshes)
 nx = 50                        # X cells
 ny = 50                        # Y cells
 nz = 20                        # Z cells
@@ -173,17 +176,22 @@ origin_x = 0.0
 origin_y = 0.0
 origin_z = 0.0
 
+# All grids use DMPlex internally (required for all simulations)
+use_unstructured = true
+
 # Uniform refinement (0 = no refinement)
 refinement_level = 0
 ```
 
-### Unstructured Grid
+> **Important:** All problems use DMPlex for the spatial domain. This ensures consistent unstructured mesh handling across all simulation types.
+
+### External Mesh File
 
 ```ini
 [GRID]
-grid_type = UNSTRUCTURED       # Use external mesh
-mesh_file = mesh/reservoir.msh # Gmsh format file
-mesh_format = GMSH             # GMSH, EXODUS, VTK
+grid_type = GMSH               # Use external Gmsh mesh
+mesh_file = mesh/reservoir.msh # Path to mesh file
+use_unstructured = true        # Required for all grids
 
 # Coordinate transformations
 coordinate_system = CARTESIAN  # CARTESIAN, CYLINDRICAL, SPHERICAL
@@ -795,7 +803,7 @@ rtol = 1.0e-6
 atol = 1.0e-8
 
 # ------------------------------------------------------------------------------
-# Domain Definition
+# Domain Definition (all grids use DMPlex internally)
 # ------------------------------------------------------------------------------
 [GRID]
 grid_type = CARTESIAN
@@ -805,6 +813,7 @@ nz = 10
 Lx = 2000.0                    # 2 km × 2 km × 100 m domain
 Ly = 2000.0
 Lz = 100.0
+use_unstructured = true        # All grids use DMPlex
 
 # ------------------------------------------------------------------------------
 # Rock Properties

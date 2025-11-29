@@ -145,12 +145,14 @@ TEST_F(FullSimulationTest, GridConfigComplete) {
     grid.Lx = 500.0;
     grid.Ly = 500.0;
     grid.Lz = 200.0;
-    grid.use_unstructured = false;
+    // All grids use DMPlex unstructured representation
+    grid.use_unstructured = true;
     
     EXPECT_EQ(grid.nx, 50);
     EXPECT_EQ(grid.ny, 50);
     EXPECT_EQ(grid.nz, 20);
     EXPECT_DOUBLE_EQ(grid.Lx, 500.0);
+    EXPECT_TRUE(grid.use_unstructured);
 }
 
 TEST_F(FullSimulationTest, MaterialPropertiesComplete) {

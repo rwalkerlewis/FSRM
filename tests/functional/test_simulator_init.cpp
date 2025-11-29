@@ -68,7 +68,8 @@ TEST_F(SimulatorInitTest, GridConfigDefaults) {
     EXPECT_DOUBLE_EQ(grid.Lx, 1000.0);
     EXPECT_DOUBLE_EQ(grid.Ly, 1000.0);
     EXPECT_DOUBLE_EQ(grid.Lz, 100.0);
-    EXPECT_FALSE(grid.use_unstructured);
+    // All grids now use DMPlex unstructured representation by default
+    EXPECT_TRUE(grid.use_unstructured);
 }
 
 TEST_F(SimulatorInitTest, MaterialPropertiesDefaults) {

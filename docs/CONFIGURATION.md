@@ -50,17 +50,20 @@ Mesh and domain definition.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `nx`, `ny`, `nz` | int | 10 | Grid cells in each direction |
+| `nx`, `ny`, `nz` | int | 10 | Grid cells in each direction (for DMPlex box mesh) |
 | `Lx`, `Ly`, `Lz` | double | 1000.0 | Domain size (meters) |
 | `origin_x`, `origin_y`, `origin_z` | double | 0.0 | Domain origin |
 | `mesh_type` | enum | CARTESIAN | CARTESIAN, GMSH, CORNER_POINT, EXODUS |
 | `mesh_file` | string | "" | External mesh file path |
-| `use_unstructured` | bool | false | Use unstructured grid |
+| `use_unstructured` | bool | **true** | All grids use DMPlex unstructured representation |
 | `input_crs` | string | "" | Input coordinate system (EPSG) |
 | `model_crs` | string | "" | Model coordinate system (EPSG) |
 | `use_local_coordinates` | bool | true | Apply local origin offset |
 | `local_origin_x`, `local_origin_y`, `local_origin_z` | double | 0.0 | Local origin |
 | `auto_detect_utm` | bool | false | Auto-detect UTM zone |
+
+> **Note:** All spatial domains are represented using PETSc's DMPlex for unstructured mesh handling.
+> This ensures consistent mesh operations and enables advanced features like adaptive mesh refinement (AMR).
 
 ### [PHYSICS]
 

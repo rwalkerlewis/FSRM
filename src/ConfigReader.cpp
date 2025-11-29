@@ -340,7 +340,8 @@ bool ConfigReader::parseGridConfig(GridConfig& config) {
     else if (mesh_type_str == "EXODUS") config.mesh_type = MeshType::EXODUS;
     else if (mesh_type_str == "CUSTOM") config.mesh_type = MeshType::CUSTOM;
     
-    config.use_unstructured = getBool("GRID", "use_unstructured", false);
+    // All grids use DMPlex for unstructured representation by default
+    config.use_unstructured = getBool("GRID", "use_unstructured", true);
     config.mesh_file = getString("GRID", "mesh_file", "");
     
     // Auto-detect mesh type from file extension
@@ -669,9 +670,9 @@ void ConfigReader::generateTemplate(const std::string& filename) {
     file << "Ly = 1000.0\n";
     file << "Lz = 100.0\n\n";
     
-    file << "# Mesh type\n";
-    file << "use_unstructured = false\n";
-    file << "mesh_file =                           # Path to mesh file if unstructured\n\n";
+    file << "# Mesh type - all grids use DMPlex unstructured representation\n";
+    file << "use_unstructured = true               # All grids use DMPlex by default\n";
+    file << "mesh_file =                           # Path to external mesh file (optional)\n\n";
     
     file << "[ROCK]\n";
     file << "# Rock properties\n";
@@ -1306,14 +1307,16 @@ void ConfigReader::generateCompleteTemplate(const std::string& filename) {
     file << "gpu_memory_fraction = 0.8\n\n";
     
     file << "[GRID]\n";
+    file << "# Grid dimensions (for DMPlex box mesh)\n";
     file << "nx = 20\n";
     file << "ny = 20\n";
     file << "nz = 5\n";
     file << "Lx = 1000.0                           # meters\n";
     file << "Ly = 1000.0\n";
     file << "Lz = 100.0\n";
-    file << "use_unstructured = false\n";
-    file << "mesh_file = \n\n";
+    file << "# All grids use DMPlex unstructured representation for spatial domain\n";
+    file << "use_unstructured = true               # Required: all grids use DMPlex\n";
+    file << "mesh_file =                           # Optional: external mesh file\n\n";
     
     file << "[ROCK]\n";
     file << "# Constitutive model\n";

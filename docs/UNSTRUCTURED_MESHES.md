@@ -1,8 +1,13 @@
-# Unstructured Mesh Support with Gmsh
+# Unstructured Mesh Support with DMPlex
 
-FSRM supports unstructured meshes using the Gmsh format, enabling complex reservoir geometries that cannot be represented with structured grids.
+FSRM uses PETSc's DMPlex for all spatial domain representation. This provides consistent unstructured mesh handling across all simulation types, enabling complex geometries, adaptive mesh refinement, and advanced mesh operations.
 
 ## Overview
+
+All problems in FSRM use DMPlex-based unstructured grids for the spatial domain:
+- **Cartesian grids** are created as DMPlex box meshes (hexahedral or tetrahedral cells)
+- **External meshes** (Gmsh, Exodus) are loaded directly into DMPlex
+- **Adaptive mesh refinement** is supported through DMPlex's native capabilities
 
 Gmsh is an open-source finite element mesh generator that produces high-quality tetrahedral, hexahedral, and mixed-element meshes. FSRM can directly load Gmsh `.msh` files and convert them to PETSc DMPlex for simulation.
 
