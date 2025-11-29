@@ -12,10 +12,12 @@
  */
 
 #include "ImplicitExplicitTransition.hpp"
+#include "FaultModel.hpp"
 #include "Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>
+#include <deque>
 
 namespace FSRM {
 namespace Testing {
@@ -414,7 +416,10 @@ bool test_seismic_event_detector_init() {
     
     SeismicEventDetector detector;
     
-    // Configure
+    // Configure detector with:
+    //   slip_rate_threshold = 1e-3 m/s (1 mm/s, seismic slip rate)
+    //   min_magnitude = -2.0 (detect microseismic events)
+    //   min_duration = 1e-4 s (0.1 ms minimum event duration)
     detector.configure(1e-3, -2.0, 1e-4);
     
     // Initially no event should be active
@@ -444,22 +449,23 @@ bool test_seismic_event_detection() {
     std::cout << "Testing seismic event detection..." << std::endl;
     
     SeismicEventDetector detector;
-    detector.configure(1e-3, -2.0, 1e-4);  // 1 mm/s threshold
+    // Configure: 1 mm/s slip rate threshold, -2.0 min magnitude, 0.1 ms min duration
+    detector.configure(1e-3, -2.0, 1e-4);
     
-    // Create fault stress states
+    // Create fault stress states for different phases
     FaultStressState state_interseismic;
-    state_interseismic.slip_rate = 1e-9;  // Very slow, interseismic
+    state_interseismic.slip_rate = 1e-9;  // Very slow, interseismic (~30 mm/year)
     state_interseismic.moment = 0.0;
     
     FaultStressState state_coseismic;
-    state_coseismic.slip_rate = 1.0;  // 1 m/s, seismic
-    state_coseismic.moment = 1e15;
+    state_coseismic.slip_rate = 1.0;  // 1 m/s, seismic (dynamic rupture)
+    state_coseismic.moment = 1e15;    // Seismic moment rate
     
     FaultStressState state_postseismic;
     state_postseismic.slip_rate = 1e-6;  // Post-seismic, below threshold
     state_postseismic.moment = 1e10;
     
-    double dt = 0.001;
+    double dt = 0.001;  // 1 ms time step
     
     // Update with interseismic state - no event
     detector.update(state_interseismic, 0.0, dt);
@@ -508,17 +514,21 @@ bool test_event_catalog() {
     std::cout << "Testing event catalog..." << std::endl;
     
     SeismicEventDetector detector;
-    detector.configure(1e-3, -5.0, 1e-5);  // Low magnitude threshold
+    // Configure with low thresholds to detect small events:
+    //   1 mm/s slip rate threshold
+    //   M -5.0 minimum magnitude (very small microseismic events)
+    //   10 μs minimum duration
+    detector.configure(1e-3, -5.0, 1e-5);
     
     FaultStressState seismic_state;
-    seismic_state.slip_rate = 0.5;
-    seismic_state.moment = 1e14;
+    seismic_state.slip_rate = 0.5;   // 0.5 m/s slip rate
+    seismic_state.moment = 1e14;     // Seismic moment rate
     
     FaultStressState interseismic_state;
-    interseismic_state.slip_rate = 1e-10;
+    interseismic_state.slip_rate = 1e-10;  // Background creep rate
     interseismic_state.moment = 0.0;
     
-    double dt = 0.001;
+    double dt = 0.001;  // 1 ms time step
     
     // Simulate first event
     detector.update(interseismic_state, 0.0, dt);
