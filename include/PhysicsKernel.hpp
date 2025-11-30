@@ -234,6 +234,8 @@ public:
     void setParticleProperties(double diameter, double density, double diffusivity);
     void enableGravitationalSettling(bool enable);
     void enableBridging(bool enable);
+    void setDispersivity(double alpha_L, double alpha_T);
+    void setMediumProperties(double phi, double k);
     
 private:
     double particle_diameter;
@@ -243,6 +245,8 @@ private:
     bool enable_bridging;
     double porosity;
     double permeability;
+    double longitudinal_dispersivity;   // Longitudinal dispersivity [m]
+    double transverse_dispersivity;     // Transverse dispersivity [m]
 };
 
 // Fracture propagation kernel (cohesive zone model)
