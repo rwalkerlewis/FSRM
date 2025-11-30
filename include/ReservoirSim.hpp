@@ -251,6 +251,11 @@ struct FluidProperties {
     double water_viscosity = 0.001;
     double solution_GOR = 100.0; // scf/stb
     
+    // Residual saturations for relative permeability calculations
+    double residual_saturation = 0.2;         // Oil residual saturation
+    double water_residual_saturation = 0.2;   // Water residual saturation
+    double gas_residual_saturation = 0.05;    // Gas residual saturation
+    
     // Compositional properties
     std::vector<double> component_mw; // Molecular weights
     std::vector<double> component_Tc; // Critical temperatures

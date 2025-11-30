@@ -147,6 +147,10 @@ CoulombFriction::CoulombFriction()
 
 double CoulombFriction::getFriction(double slip_rate, double state_var,
                                     double sigma_n_eff) const {
+    // Suppress unused parameter warnings - part of standard interface
+    (void)slip_rate;
+    (void)sigma_n_eff;
+    
     // Use state_var as cumulative slip for slip-weakening
     double slip = state_var;
     
@@ -166,7 +170,7 @@ double CoulombFriction::getFriction(double slip_rate, double state_var,
 }
 
 double CoulombFriction::getStateEvolutionRate(double slip_rate, double state_var) const {
-    // For Coulomb with slip-weakening, state = cumulative slip
+    (void)state_var;  // For Coulomb with slip-weakening, state = cumulative slip
     return slip_rate;
 }
 
@@ -185,6 +189,8 @@ RateStateFriction::RateStateFriction(EvolutionLaw law)
 
 double RateStateFriction::getFriction(double slip_rate, double state_var,
                                       double sigma_n_eff) const {
+    (void)sigma_n_eff;  // Part of standard interface - not used in rate-state law
+    
     // Rate-and-state friction: f = f0 + a*ln(V/V0) + b*ln(θ*V0/Dc)
     
     // Regularize slip rate for zero/negative values
@@ -314,6 +320,8 @@ public:
     
     double getFriction(double slip_rate, double state_var, 
                       double sigma_n_eff) const override {
+        (void)sigma_n_eff;  // Part of standard interface
+        
         // Get rate-state friction at low velocity
         double V = std::max(slip_rate, 1e-20);
         double theta = std::max(state_var, 1e-10);
@@ -348,6 +356,8 @@ public:
      * @brief Compute weakening velocity from thermal properties
      */
     double computeWeakeningVelocity(double tau, double sigma_n_eff) const {
+        (void)sigma_n_eff;  // Part of interface - used in alternative formulations
+        
         // V_w = (π * α_th * ρ_c * (T_w - T_a) / (τ * D))^2
         double tau_eff = std::max(tau, 1.0);  // Avoid division by zero
         double delta_T = params.Tw - params.T_ambient;
@@ -450,6 +460,8 @@ public:
     
     double getFriction(double slip_rate, double state_var,
                       double sigma_n_eff) const override {
+        (void)sigma_n_eff;  // Part of standard interface
+        
         // State variable = cumulative slip
         double slip = state_var;
         double V = std::max(std::abs(slip_rate), 1e-20);
@@ -926,6 +938,8 @@ void SeismicFaultModel::clearCatalog() {
 
 double SeismicFaultModel::getSeismicityRate(double stressing_rate, double sigma_n_eff,
                                      double temperature) const {
+    (void)temperature;  // Used in temperature-dependent extensions
+    
     // Dieterich (1994) seismicity rate model
     // R/r = 1 / (1 - (Δτ/(A*σ))*γ)
     // where γ evolves with time and stressing
@@ -1269,6 +1283,8 @@ ETASParams fitETAS(const std::vector<SeismicEvent>& events) {
 
 double rateChange(double stress_change, double stressing_rate,
                   double Asigma, double temperature) {
+    (void)temperature;  // Used in temperature-dependent extensions
+    
     // Dieterich (1994) rate change model
     // R/r = 1 / (1 - γ*Δτ/(A*σ))
     // where γ = 1/(stress rate * t_a)
@@ -1925,6 +1941,7 @@ void SplitNodeFault::nitscheTerms(const SplitNodePair& pair,
     
     double gap_n, gap_s, gap_d;
     computeGapVector(pair, displacement, gap_n, gap_s, gap_d);
+    (void)gap_s; (void)gap_d;  // Used in full implementation for tangential terms
     
     // Penalty term
     double h = std::cbrt(pair.weight);  // Characteristic length
@@ -1937,6 +1954,8 @@ void SplitNodeFault::nitscheTerms(const SplitNodePair& pair,
 
 void SplitNodeFault::augmentedLagrangianUpdate(double& lambda, double gap,
                                                double penalty) const {
+    (void)penalty;  // Optional parameter for adaptive penalty updates
+    
     // Update Lagrange multiplier for augmented Lagrangian method
     // λ_new = λ_old + r * g  (for equality constraint g = 0)
     // For contact: λ_new = max(0, λ_old + r * g)
