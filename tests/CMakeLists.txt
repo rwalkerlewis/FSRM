@@ -40,6 +40,7 @@ set(PHYSICS_TEST_SOURCES
     physics/test_mms_elasticity.cpp
     physics/test_mms_wave_propagation.cpp
     physics/test_analytical_solutions.cpp
+    physics/test_thermoporoelastic_consolidation.cpp
 )
 
 # Integration Tests - Full-scale end-to-end tests
@@ -244,6 +245,8 @@ if(GTest_FOUND)
         COMMAND run_physics_tests --gtest_filter=MMSWavePropagationTest.*)
     add_test(NAME Physics.AnalyticalSolutions 
         COMMAND run_physics_tests --gtest_filter=AnalyticalSolutionsTest.*)
+    add_test(NAME Physics.ThermoporoelasticConsolidation 
+        COMMAND run_physics_tests --gtest_filter=ThermoporoelasticConsolidationTest.*)
     
     # Integration tests (longer running)
     add_test(NAME Integration.FullSimulation 
@@ -327,6 +330,7 @@ if(GTest_FOUND)
         Physics.MMS.Elasticity
         Physics.MMS.WavePropagation
         Physics.AnalyticalSolutions
+        Physics.ThermoporoelasticConsolidation
         PROPERTIES 
             TIMEOUT 180
             LABELS "physics;mms"
