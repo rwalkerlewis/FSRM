@@ -173,6 +173,7 @@ void BlackOilKernel::jacobian(const PetscScalar u[], const PetscScalar u_t[],
     
     // Compute relative permeabilities and their derivatives
     // Using Corey-type model: kr_alpha = kr_alpha_max * (S_alpha - S_alpha_r)^n / (1 - S_r_total)^n
+    // All parameters are user-configurable via fluid_props
     double Sor = fluid_props.residual_saturation;
     double Swr = fluid_props.water_residual_saturation;
     double Sgr = fluid_props.gas_residual_saturation;
@@ -181,8 +182,13 @@ void BlackOilKernel::jacobian(const PetscScalar u[], const PetscScalar u_t[],
     double Sw_norm = std::max(0.0, (Sw - Swr) / (1.0 - Sor - Swr - Sgr));
     double Sg_norm = std::max(0.0, (Sg - Sgr) / (1.0 - Sor - Swr - Sgr));
     
-    double n_o = 2.0, n_w = 2.0, n_g = 2.0;  // Corey exponents
-    double kro_max = 1.0, krw_max = 0.5, krg_max = 0.8;
+    // Use user-configurable Corey exponents and max relative permeabilities
+    double n_o = fluid_props.corey_exponent_oil;
+    double n_w = fluid_props.corey_exponent_water;
+    double n_g = fluid_props.corey_exponent_gas;
+    double kro_max = fluid_props.kr_max_oil;
+    double krw_max = fluid_props.kr_max_water;
+    double krg_max = fluid_props.kr_max_gas;
     
     double kro = kro_max * std::pow(So_norm, n_o);
     double krw = krw_max * std::pow(Sw_norm, n_w);
@@ -295,9 +301,10 @@ double BlackOilKernel::oilDensity(double P, double Rs) const {
 
 double BlackOilKernel::gasDensity(double P) const {
     // Ideal gas law: rho = P*MW/(R*T)
-    double T = 300.0;  // K
-    double R = 8.314;  // J/(mol·K)
-    double MW = 0.016; // kg/mol for methane
+    // Use user-configurable parameters from fluid_props
+    double T = fluid_props.reservoir_temperature;    // Reservoir temperature [K]
+    double R = 8.314;                                 // Universal gas constant [J/(mol·K)]
+    double MW = fluid_props.gas_molecular_weight;    // Molecular weight [kg/mol]
     return P * MW / (R * T);
 }
 
@@ -331,29 +338,50 @@ double BlackOilKernel::solutionGOR(double P) const {
 
 // Relative permeability (Corey correlations)
 double BlackOilKernel::krw(double Sw) const {
-    double Swc = 0.2;  // connate water
-    double Swmax = 0.8;
+    // Use user-configurable parameters from fluid_props
+    double Swc = fluid_props.water_residual_saturation;  // Connate water saturation
+    double Swmax = fluid_props.water_saturation_max;     // Maximum water saturation
+    double nw = fluid_props.corey_exponent_water;        // Corey exponent for water
+    double krw_max = fluid_props.kr_max_water;           // Max water relative permeability
+    
     if (Sw < Swc) return 0.0;
-    if (Sw > Swmax) return 1.0;
+    if (Sw > Swmax) return krw_max;
     
     double Sw_norm = (Sw - Swc) / (Swmax - Swc);
-    return std::pow(Sw_norm, 4.0);
+    return krw_max * std::pow(Sw_norm, nw);
 }
 
 double BlackOilKernel::kro(double So, double Sg) const {
-    double Sor = 0.2;  // residual oil
+    // Use user-configurable parameters from fluid_props
+    double Sor = fluid_props.residual_saturation;        // Residual oil saturation
+    double Swr = fluid_props.water_residual_saturation;  // Connate water saturation
+    double Sgc = fluid_props.gas_residual_saturation;    // Critical gas saturation
+    double no = fluid_props.corey_exponent_oil;          // Corey exponent for oil
+    double kro_max = fluid_props.kr_max_oil;             // Max oil relative permeability
+    
+    (void)Sg;  // Used in three-phase models with Stone's method
     if (So < Sor) return 0.0;
     
-    double So_norm = (So - Sor) / (1.0 - Sor - 0.2);
-    return std::pow(So_norm, 2.0);
+    double So_norm = (So - Sor) / (1.0 - Sor - Swr - Sgc);
+    if (So_norm > 1.0) So_norm = 1.0;
+    if (So_norm < 0.0) return 0.0;
+    
+    return kro_max * std::pow(So_norm, no);
 }
 
 double BlackOilKernel::krg(double Sg) const {
-    double Sgc = 0.05;
-    if (Sg < Sgc) return 0.0;
+    // Use user-configurable parameters from fluid_props
+    double Sgc = fluid_props.gas_residual_saturation;    // Critical gas saturation
+    double Swr = fluid_props.water_residual_saturation;  // Connate water saturation
+    double Sor = fluid_props.residual_saturation;        // Residual oil saturation
+    double ng = fluid_props.corey_exponent_gas;          // Corey exponent for gas
+    double krg_max = fluid_props.kr_max_gas;             // Max gas relative permeability
     
-    double Sg_norm = (Sg - Sgc) / (1.0 - Sgc - 0.2);
-    return std::pow(Sg_norm, 2.0);
+    if (Sg < Sgc) return 0.0;
+    if (Sg >= 1.0 - Swr - Sor) return krg_max;
+    
+    double Sg_norm = (Sg - Sgc) / (1.0 - Sgc - Swr - Sor);
+    return krg_max * std::pow(Sg_norm, ng);
 }
 
 double BlackOilKernel::Pcow(double Sw) const {
@@ -928,7 +956,8 @@ ParticleTransportKernel::ParticleTransportKernel()
     : PhysicsKernel(PhysicsType::PARTICLE_TRANSPORT),
       particle_diameter(1e-3), particle_density(2650.0), diffusivity(1e-9),
       gravity_settling(true), enable_bridging(false),
-      porosity(0.2), permeability(100e-15) {}
+      porosity(0.2), permeability(100e-15),
+      longitudinal_dispersivity(0.1), transverse_dispersivity(0.01) {}
 
 PetscErrorCode ParticleTransportKernel::setup(DM dm, PetscFE fe) {
     (void)dm;
@@ -1033,8 +1062,9 @@ void ParticleTransportKernel::jacobian(const PetscScalar u[], const PetscScalar 
     // Mechanical dispersion (Taylor dispersion in porous media)
     // D_total = D_molecular + α_L * |v| (longitudinal)
     //                       + α_T * |v| (transverse)
-    double alpha_L = 0.1;  // Longitudinal dispersivity [m]
-    double alpha_T = 0.01; // Transverse dispersivity [m]
+    // Use user-configurable dispersivity values
+    double alpha_L = longitudinal_dispersivity;  // Longitudinal dispersivity [m]
+    double alpha_T = transverse_dispersivity;    // Transverse dispersivity [m]
     
     // Add dispersion contribution (isotropic approximation)
     double dispersion = (alpha_L + 2.0 * alpha_T) / 3.0 * darcy_velocity_mag;
@@ -1070,6 +1100,16 @@ void ParticleTransportKernel::enableGravitationalSettling(bool enable) {
 
 void ParticleTransportKernel::enableBridging(bool enable) {
     enable_bridging = enable;
+}
+
+void ParticleTransportKernel::setDispersivity(double alpha_L, double alpha_T) {
+    longitudinal_dispersivity = alpha_L;
+    transverse_dispersivity = alpha_T;
+}
+
+void ParticleTransportKernel::setMediumProperties(double phi, double k) {
+    porosity = phi;
+    permeability = k;
 }
 
 // ============================================================================

@@ -144,10 +144,23 @@ private:
     bool enable_leakoff_model;
     double leakoff_coefficient;
     
+    // Formation/rock properties for fracture mechanics
+    double youngs_modulus;        // Formation Young's modulus [Pa]
+    double poisson_ratio;         // Formation Poisson's ratio
+    double fluid_density;         // Fracturing fluid density [kg/m³]
+    double fluid_viscosity;       // Fracturing fluid viscosity [Pa·s]
+    double proppant_pack_porosity; // Proppant pack porosity
+    
     // Propagation models
     void propagatePKN(double pressure, double dt);
     void propagateKGD(double pressure, double dt);
     void propagateP3D(double pressure, double dt);
+    
+public:
+    // Setters for formation properties
+    void setFormationProperties(double E, double nu);
+    void setFluidProperties(double rho, double mu);
+    void setProppantPackPorosity(double phi);
 };
 
 // Fault model

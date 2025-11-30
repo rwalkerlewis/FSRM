@@ -252,9 +252,33 @@ struct FluidProperties {
     double solution_GOR = 100.0; // scf/stb
     
     // Residual saturations for relative permeability calculations
-    double residual_saturation = 0.2;         // Oil residual saturation
-    double water_residual_saturation = 0.2;   // Water residual saturation
-    double gas_residual_saturation = 0.05;    // Gas residual saturation
+    double residual_saturation = 0.2;         // Oil residual saturation (Sor)
+    double water_residual_saturation = 0.2;   // Water residual/connate saturation (Swc/Swr)
+    double gas_residual_saturation = 0.05;    // Critical gas saturation (Sgc)
+    double water_saturation_max = 0.8;        // Maximum water saturation (1 - Sor)
+    
+    // Corey relative permeability model parameters
+    double corey_exponent_oil = 2.0;          // Corey exponent for oil (no)
+    double corey_exponent_water = 2.0;        // Corey exponent for water (nw)
+    double corey_exponent_gas = 2.0;          // Corey exponent for gas (ng)
+    double kr_max_oil = 1.0;                  // Maximum oil relative permeability
+    double kr_max_water = 0.5;                // Maximum water relative permeability (endpoint)
+    double kr_max_gas = 0.8;                  // Maximum gas relative permeability (endpoint)
+    
+    // Phase compressibilities
+    double oil_compressibility = 1.5e-9;      // Oil compressibility [1/Pa]
+    double water_compressibility = 4.5e-10;   // Water compressibility [1/Pa]
+    double gas_compressibility = 1e-8;        // Gas compressibility [1/Pa]
+    
+    // Temperature for PVT calculations
+    double reservoir_temperature = 350.0;     // Reservoir temperature [K]
+    
+    // Gas properties
+    double gas_molecular_weight = 0.016;      // Molecular weight [kg/mol] (methane default)
+    
+    // Transport properties
+    double longitudinal_dispersivity = 0.1;   // Longitudinal dispersivity [m]
+    double transverse_dispersivity = 0.01;    // Transverse dispersivity [m]
     
     // Compositional properties
     std::vector<double> component_mw; // Molecular weights

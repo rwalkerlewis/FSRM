@@ -1420,13 +1420,30 @@ void ConfigReader::generateCompleteTemplate(const std::string& filename) {
     file << "bubble_point_pressure = 15.0e6        # Pa\n";
     file << "pvt_correlation = STANDING            # STANDING, VASQUEZ_BEGGS\n\n";
     
-    file << "# Relative permeability (Corey)\n";
-    file << "swc = 0.2                             # Connate water saturation\n";
-    file << "sor = 0.2                             # Residual oil saturation\n";
-    file << "sgc = 0.05                            # Critical gas saturation\n";
+    file << "# Relative permeability (Corey model)\n";
+    file << "swc = 0.2                             # Connate water saturation (Swr)\n";
+    file << "sor = 0.2                             # Residual oil saturation (Sor)\n";
+    file << "sgc = 0.05                            # Critical gas saturation (Sgc)\n";
+    file << "sw_max = 0.8                          # Maximum water saturation (1 - Sor)\n";
     file << "corey_nw = 3.0                        # Water Corey exponent\n";
     file << "corey_no = 2.0                        # Oil Corey exponent\n";
-    file << "corey_ng = 2.0                        # Gas Corey exponent\n\n";
+    file << "corey_ng = 2.0                        # Gas Corey exponent\n";
+    file << "krw_max = 0.5                         # Maximum water relative permeability\n";
+    file << "kro_max = 1.0                         # Maximum oil relative permeability\n";
+    file << "krg_max = 0.8                         # Maximum gas relative permeability\n\n";
+    
+    file << "# Phase compressibilities\n";
+    file << "oil_compressibility = 1.5e-9          # 1/Pa\n";
+    file << "water_compressibility = 4.5e-10       # 1/Pa\n";
+    file << "gas_compressibility = 1.0e-8          # 1/Pa\n\n";
+    
+    file << "# Reservoir temperature\n";
+    file << "reservoir_temperature = 350.0         # K (for PVT calculations)\n";
+    file << "gas_molecular_weight = 0.016          # kg/mol (methane default)\n\n";
+    
+    file << "# Transport properties (for particle/solute transport)\n";
+    file << "longitudinal_dispersivity = 0.1       # m\n";
+    file << "transverse_dispersivity = 0.01        # m\n\n";
     
     file << "# Compositional properties (comma-separated)\n";
     file << "eos = PENG_ROBINSON                   # PENG_ROBINSON, SRK\n";
@@ -1587,6 +1604,17 @@ void ConfigReader::generateCompleteTemplate(const std::string& filename) {
     file << "aperture = 0.001                      # meters\n";
     file << "permeability = 1.0e-10                # m²\n";
     file << "toughness = 1.0e6                     # Pa·m^0.5\n";
+    file << "# Formation properties for hydraulic fracture mechanics\n";
+    file << "youngs_modulus = 10.0e9               # Pa (formation E for width calculation)\n";
+    file << "poissons_ratio = 0.25                 # Formation Poisson's ratio\n";
+    file << "min_horizontal_stress = 20.0e6        # Pa (closure stress)\n";
+    file << "# Fracturing fluid properties\n";
+    file << "fluid_density = 1000.0                # kg/m³ (slurry density)\n";
+    file << "fluid_viscosity = 0.001               # Pa·s (slurry viscosity)\n";
+    file << "# Proppant properties\n";
+    file << "proppant_diameter = 0.0003            # m (300 microns, 40/70 mesh)\n";
+    file << "proppant_density = 2650.0             # kg/m³\n";
+    file << "proppant_pack_porosity = 0.35         # typical proppant pack porosity\n";
     file << "energy = 100.0                        # J/m²\n";
     file << "enable_propagation = true\n";
     file << "enable_proppant = true\n\n";

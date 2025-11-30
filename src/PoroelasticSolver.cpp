@@ -73,6 +73,34 @@ PetscErrorCode PoroelasticSolver::setupFields() {
     ierr = DMCreateDS(dm_); CHKERRQ(ierr);
     ierr = DMGetDS(dm_, &prob_); CHKERRQ(ierr);
     
+    // Set up constants array with user-configurable physics parameters
+    // Constants layout:
+    // [0] = total compressibility
+    // [1] = Biot coefficient
+    // [2] = permeability_x
+    // [3] = permeability_z
+    // [4] = fluid viscosity
+    // [5] = water compressibility
+    // [6] = oil compressibility
+    // [7] = water residual saturation (Swr)
+    // [8] = oil residual saturation (Sor)
+    // [9] = Corey exponent
+    // [10] = max relative permeability
+    PetscScalar constants[11];
+    constants[0] = params_.fluid_compressibility;
+    constants[1] = params_.biot_coefficient;
+    constants[2] = params_.permeability_x;
+    constants[3] = params_.permeability_z;
+    constants[4] = params_.water_viscosity;
+    constants[5] = params_.water_compressibility;
+    constants[6] = params_.oil_compressibility;
+    constants[7] = params_.water_residual_saturation;
+    constants[8] = params_.oil_residual_saturation;
+    constants[9] = params_.corey_exponent;
+    constants[10] = params_.kr_max_water;
+    
+    ierr = PetscDSSetConstants(prob_, 11, constants); CHKERRQ(ierr);
+    
     // Set up residual forms (f0 = time derivative, f1 = flux)
     ierr = PetscDSSetResidual(prob_, 0, f0_pressure, f1_pressure); CHKERRQ(ierr);
     
@@ -198,7 +226,6 @@ void PoroelasticSolver::f0_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)aOff; (void)aOff_x;
     (void)a; (void)a_t; (void)a_x;
     (void)t; (void)x;
-    (void)numConstants; (void)constants;
     
     // f0 = phi * ct * dP/dt
     // u[0] = P, u[4] = phi, u_t[0] = dP/dt
@@ -209,8 +236,9 @@ void PoroelasticSolver::f0_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscScalar P_t   = u_t[uOff[0]];
     (void)P; (void)Sw;  // Used in full implementation
     
-    // Total compressibility (approximation)
-    const PetscScalar ct = 1e-9;  // Should get from constants
+    // Total compressibility from user-configurable constants
+    // Constants layout: [0] = total compressibility
+    const PetscScalar ct = (numConstants > 0) ? constants[0] : 1e-9;
     
     f0[0] = phi * ct * P_t;
 }
@@ -228,7 +256,6 @@ void PoroelasticSolver::f1_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)aOff; (void)aOff_x;
     (void)a; (void)a_t; (void)a_x;
     (void)t; (void)x;
-    (void)numConstants; (void)constants;
     
     // f1 = -k/mu * grad(P)
     // u_x[0] = dP/dx, u_x[1] = dP/dz (for 2D)
@@ -236,12 +263,17 @@ void PoroelasticSolver::f1_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscScalar P_x = u_x[uOff_x[0] + 0];
     const PetscScalar P_z = u_x[uOff_x[0] + 1];
     
-    const PetscScalar k = 100e-15;   // Should get from constants
-    const PetscScalar mu = 1e-3;
-    const PetscScalar mob = k / mu;
+    // Get permeability and viscosity from user-configurable constants
+    // Constants layout: [2] = permeability_x, [3] = permeability_z, [4] = viscosity
+    const PetscScalar kx = (numConstants > 2) ? constants[2] : 100e-15;
+    const PetscScalar kz = (numConstants > 3) ? constants[3] : 10e-15;
+    const PetscScalar mu = (numConstants > 4) ? constants[4] : 1e-3;
     
-    f1[0] = -mob * P_x;
-    f1[1] = -mob * P_z;
+    const PetscScalar mob_x = kx / mu;
+    const PetscScalar mob_z = kz / mu;
+    
+    f1[0] = -mob_x * P_x;
+    f1[1] = -mob_z * P_z;
 }
 
 // ============================================================================
@@ -284,14 +316,20 @@ void PoroelasticSolver::g0_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscScalar S = u[uOff[1]];
     const PetscScalar phi = u[uOff[4]];
     
-    // Material parameters from constants or defaults
+    // Material parameters from user-configurable constants
+    // Constants layout:
+    // [0] = total compressibility, [1] = Biot coefficient
+    // [2] = permeability_x, [3] = permeability_z, [4] = viscosity
+    // [5] = water compressibility, [6] = oil compressibility
+    // [7] = water residual saturation (Swr), [8] = oil residual saturation (Sor)
+    // [9] = Corey exponent, [10] = max relative permeability
     PetscScalar ct = (numConstants > 0) ? constants[0] : 1e-9;      // Total compressibility [1/Pa]
     PetscScalar alpha = (numConstants > 1) ? constants[1] : 1.0;    // Biot coefficient
     
     // Saturation-dependent compressibility (if two-phase)
     // ct_eff = S*cw + (1-S)*co where cw, co are phase compressibilities
-    PetscScalar cw = 4.5e-10;  // Water compressibility
-    PetscScalar co = 1.5e-9;   // Oil compressibility
+    PetscScalar cw = (numConstants > 5) ? constants[5] : 4.5e-10;  // Water compressibility
+    PetscScalar co = (numConstants > 6) ? constants[6] : 1.5e-9;   // Oil compressibility
     PetscScalar ct_eff = S * cw + (1.0 - S) * co;
     
     // ∂ct/∂S for saturation Jacobian contribution
@@ -305,23 +343,29 @@ void PoroelasticSolver::g0_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     
     // ∂f0/∂S: saturation coupling (through compressibility and relative permeability)
     if (Nf > 1) {
+        // Get relative permeability parameters from constants
+        PetscScalar Swr = (numConstants > 7) ? constants[7] : 0.2;   // Water residual saturation
+        PetscScalar Sor = (numConstants > 8) ? constants[8] : 0.2;   // Oil residual saturation
+        PetscScalar n_corey = (numConstants > 9) ? constants[9] : 4.0;  // Corey exponent
+        PetscScalar kx = (numConstants > 2) ? constants[2] : 100e-15;   // Permeability
+        PetscScalar mu = (numConstants > 4) ? constants[4] : 1e-3;      // Viscosity
+        
         // Compressibility change with saturation
         g0[1] = phi * dct_dS * P * u_tShift;
         
         // Relative permeability derivative effect on flux
         // d(kr)/dS affects the transmissibility
-        PetscScalar Sw_norm = std::max(0.0, std::min(1.0, (S - 0.2) / 0.6));
-        PetscScalar dkr_dS = (Sw_norm > 0.0 && Sw_norm < 1.0) ? 4.0 * std::pow(Sw_norm, 3.0) / 0.6 : 0.0;
+        PetscScalar S_denom = 1.0 - Swr - Sor;
+        PetscScalar Sw_norm = std::max(0.0, std::min(1.0, (S - Swr) / S_denom));
+        PetscScalar dkr_dS = (Sw_norm > 0.0 && Sw_norm < 1.0) ? 
+                             n_corey * std::pow(Sw_norm, n_corey - 1.0) / S_denom : 0.0;
         
         // Flux contribution (would be multiplied by pressure gradient magnitude)
         const PetscScalar dPdx = u_x[uOff_x[0]];
         const PetscScalar dPdz = u_x[uOff_x[0] + 1];
         PetscScalar grad_P_mag = std::sqrt(dPdx*dPdx + dPdz*dPdz);
         
-        PetscScalar k = 100e-15;  // Permeability
-        PetscScalar mu = 1e-3;    // Viscosity
-        
-        g0[1] += k / mu * dkr_dS * grad_P_mag;
+        g0[1] += kx / mu * dkr_dS * grad_P_mag;
     }
     
     // ∂f0/∂ux, ∂f0/∂uz: Biot coupling (displacement divergence affects storage)
@@ -368,17 +412,23 @@ void PoroelasticSolver::g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     // Extract saturation for relative permeability
     const PetscScalar S = u[uOff[1]];
     
-    // Permeability tensor (can be anisotropic)
+    // Get all parameters from user-configurable constants
+    // Constants layout:
+    // [0] = total compressibility, [1] = Biot coefficient
+    // [2] = permeability_x, [3] = permeability_z, [4] = viscosity
+    // [5] = water compressibility, [6] = oil compressibility
+    // [7] = water residual saturation (Swr), [8] = oil residual saturation (Sor)
+    // [9] = Corey exponent, [10] = max relative permeability
     PetscScalar kx = (numConstants > 2) ? constants[2] : 100e-15;  // Permeability x [m²]
     PetscScalar kz = (numConstants > 3) ? constants[3] : 10e-15;   // Permeability z [m²]
     PetscScalar mu = (numConstants > 4) ? constants[4] : 1e-3;     // Viscosity [Pa·s]
     
-    // Relative permeability (Corey model)
+    // Relative permeability (Corey model) with user-configurable parameters
     // kr = krmax * ((S - Swr)/(1 - Swr - Sor))^n
-    PetscScalar Swr = 0.2;   // Residual water saturation
-    PetscScalar Sor = 0.2;   // Residual oil saturation
-    PetscScalar krmax = 1.0;
-    PetscScalar n_corey = 4.0;
+    PetscScalar Swr = (numConstants > 7) ? constants[7] : 0.2;     // Water residual saturation
+    PetscScalar Sor = (numConstants > 8) ? constants[8] : 0.2;     // Oil residual saturation
+    PetscScalar n_corey = (numConstants > 9) ? constants[9] : 4.0; // Corey exponent
+    PetscScalar krmax = (numConstants > 10) ? constants[10] : 1.0; // Max relative permeability
     
     PetscScalar S_norm = std::max(0.0, std::min(1.0, (S - Swr) / (1.0 - Swr - Sor)));
     PetscScalar kr = krmax * std::pow(S_norm, n_corey);
@@ -410,9 +460,6 @@ void PoroelasticSolver::g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     // ∂q/∂(∇u) terms if permeability depends on strain (stress-dependent permeability)
     // k = k0 * exp(α_k * (σ_eff - σ_ref)) where σ_eff = σ_total - α*p
     // This would add off-diagonal blocks to the full coupled Jacobian
-    
-    // Suppress remaining unused parameters
-    (void)numConstants;
 }
 
 // ============================================================================

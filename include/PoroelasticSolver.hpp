@@ -47,8 +47,11 @@ public:
     struct PhysicsParams {
         // Rock properties
         double porosity0 = 0.2;
-        double permeability0 = 100e-15;  // m²
-        double youngs_modulus = 10e9;    // Pa
+        double permeability0 = 100e-15;   // m² (isotropic reference)
+        double permeability_x = 100e-15;  // m² (x-direction)
+        double permeability_y = 100e-15;  // m² (y-direction)
+        double permeability_z = 10e-15;   // m² (z-direction, typically lower)
+        double youngs_modulus = 10e9;     // Pa
         double poisson_ratio = 0.25;
         double biot_coefficient = 0.7;
         
@@ -58,8 +61,22 @@ public:
         double oil_viscosity = 2e-3;      // Pa·s
         
         // Compressibilities
-        double rock_compressibility = 1e-9;  // Pa⁻¹
-        double fluid_compressibility = 1e-9; // Pa⁻¹
+        double rock_compressibility = 1e-9;   // Pa⁻¹
+        double fluid_compressibility = 1e-9;  // Pa⁻¹ (total compressibility)
+        double water_compressibility = 4.5e-10; // Pa⁻¹
+        double oil_compressibility = 1.5e-9;    // Pa⁻¹
+        
+        // Residual saturations for relative permeability
+        double water_residual_saturation = 0.2;   // Swc/Swr
+        double oil_residual_saturation = 0.2;     // Sor
+        double gas_residual_saturation = 0.05;    // Sgc
+        
+        // Corey relative permeability model
+        double corey_exponent = 4.0;              // Corey exponent for rel perm
+        double corey_exponent_water = 4.0;        // Corey exponent for water
+        double corey_exponent_oil = 2.0;          // Corey exponent for oil
+        double kr_max_water = 1.0;                // Max water rel perm at Swr
+        double kr_max_oil = 1.0;                  // Max oil rel perm at Sor
         
         // Initial conditions
         double initial_pressure = 30e6;   // Pa
