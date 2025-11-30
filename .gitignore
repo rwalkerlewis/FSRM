@@ -42,3 +42,4 @@ output/
 # Generated config files
 compile_commands.json
 _codeql_detected_source_root
+_codeql_build_dir/
