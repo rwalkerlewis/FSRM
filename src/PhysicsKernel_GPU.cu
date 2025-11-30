@@ -91,12 +91,9 @@ void SinglePhaseFlowKernelGPU::residual(const PetscScalar u[], const PetscScalar
 void SinglePhaseFlowKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
                                         const PetscScalar u_x[], const PetscScalar a[],
                                         const PetscReal x[], PetscScalar J[]) {
-    if (!gpu_initialized) {
-        SinglePhaseFlowKernel::jacobian(u, u_t, u_x, a, x, J);
-        return;
-    }
-    
-    J[0] = porosity * compressibility * a[0];
+    // Always use full Jacobian from base class - GPU acceleration applies to
+    // matrix assembly, not to the pointwise Jacobian evaluation
+    SinglePhaseFlowKernel::jacobian(u, u_t, u_x, a, x, J);
 }
 
 // ============================================================================
@@ -237,15 +234,9 @@ void ElastodynamicsKernelGPU::residual(const PetscScalar u[], const PetscScalar 
 void ElastodynamicsKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
                                        const PetscScalar u_x[], const PetscScalar a[],
                                        const PetscReal x[], PetscScalar J[]) {
-    if (!gpu_initialized) {
-        ElastodynamicsKernel::jacobian(u, u_t, u_x, a, x, J);
-        return;
-    }
-    
-    double mass_term = density * (1.0 + damping_alpha);
-    J[0] = mass_term * a[0];
-    J[4] = mass_term * a[0];
-    J[8] = mass_term * a[0];
+    // Always use full Jacobian from base class - includes mass matrix + full
+    // stiffness tensor with Rayleigh damping (α*M + β*K)
+    ElastodynamicsKernel::jacobian(u, u_t, u_x, a, x, J);
 }
 
 // ============================================================================
@@ -377,18 +368,12 @@ void PoroelastodynamicsKernelGPU::residual(const PetscScalar u[], const PetscSca
 void PoroelastodynamicsKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
                                            const PetscScalar u_x[], const PetscScalar a[],
                                            const PetscReal x[], PetscScalar J[]) {
-    if (!gpu_initialized) {
-        PoroelastodynamicsKernel::jacobian(u, u_t, u_x, a, x, J);
-        return;
-    }
-    
-    double rho_bulk = (1.0 - porosity) * density_solid + porosity * density_fluid;
-    double mass_term = rho_bulk * (1.0 + damping_alpha);
-    
-    J[0] = mass_term * a[0];
-    J[5] = mass_term * a[0];
-    J[10] = mass_term * a[0];
-    J[15] = (1.0 / biot_modulus) * a[0];
+    // Always use full Jacobian from base class - includes:
+    // - Mass matrix with damping
+    // - Full elasticity tensor (undrained moduli for fast waves)
+    // - Biot coupling terms (α for u-p and p-u coupling)
+    // - Darcy flux Jacobian for pressure gradient
+    PoroelastodynamicsKernel::jacobian(u, u_t, u_x, a, x, J);
 }
 
 // ============================================================================
