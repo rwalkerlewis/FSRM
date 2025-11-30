@@ -4,7 +4,6 @@
 #include <petsc.h>
 #include <petscts.h>
 #include <petscdm.h>
-#include <petscdmda.h>
 #include <petscdmplex.h>
 #include <petscfe.h>
 

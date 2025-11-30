@@ -399,8 +399,7 @@ Quasi-static stress changes from injection → fault stress analysis → rate-st
 
 - Finite element (FEM) for mechanics
 - Finite volume (FVM) for flow
-- DMPlex for unstructured meshes
-- DMDA for structured Cartesian grids
+- DMPlex for all mesh types (structured and unstructured)
 
 ### Time Integration
 

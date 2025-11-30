@@ -1,3 +1,4 @@
+#include "petsc.h"
 #include "AdaptiveMeshRefinement.hpp"
 #include <algorithm>
 #include <numeric>
@@ -68,7 +69,7 @@ PetscErrorCode GradientErrorEstimator::estimate(DM dm, Vec solution,
     PetscCall(VecRestoreArrayRead(local_solution, &sol_array));
     PetscCall(DMRestoreLocalVector(dm, &local_solution));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode GradientErrorEstimator::computeGradientJump(DM dm, Vec solution,
@@ -100,7 +101,7 @@ PetscErrorCode GradientErrorEstimator::computeGradientJump(DM dm, Vec solution,
     PetscCall(PetscSectionGetDof(section, cell, &dof));
     
     if (dof == 0) {
-        PetscFunctionReturn(PETSC_SUCCESS);
+        PetscFunctionReturn(0);
     }
     
     PetscInt offset;
@@ -162,7 +163,7 @@ PetscErrorCode GradientErrorEstimator::computeGradientJump(DM dm, Vec solution,
     
     PetscCall(VecRestoreArrayRead(solution, &sol_array));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -226,7 +227,7 @@ PetscErrorCode HessianErrorEstimator::estimate(DM dm, Vec solution,
     PetscCall(VecRestoreArrayRead(hessian, &hess_array));
     PetscCall(DMRestoreGlobalVector(dm, &hessian));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode HessianErrorEstimator::recoverHessian(DM dm, Vec solution, Vec hessian) {
@@ -243,7 +244,7 @@ PetscErrorCode HessianErrorEstimator::recoverHessian(DM dm, Vec solution, Vec he
     // For now, estimate Hessian from second differences
     // This is a placeholder - production code would use proper recovery
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -311,7 +312,7 @@ PetscErrorCode ResidualErrorEstimator::estimate(DM dm, Vec solution,
     PetscCall(VecRestoreArrayRead(residual, &res_array));
     PetscCall(DMRestoreGlobalVector(dm, &residual));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -399,7 +400,7 @@ PetscErrorCode JumpErrorEstimator::estimate(DM dm, Vec solution,
     PetscCall(VecRestoreArrayRead(local_solution, &sol_array));
     PetscCall(DMRestoreLocalVector(dm, &local_solution));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -514,7 +515,7 @@ PetscErrorCode FeatureErrorEstimator::estimate(DM dm, Vec solution,
         errors.push_back(indicator);
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -572,7 +573,7 @@ PetscErrorCode CombinedErrorEstimator::estimate(DM dm, Vec solution,
         }
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -600,7 +601,7 @@ PetscErrorCode SolutionTransfer::transfer(DM dm_old, DM dm_new,
                                         nullptr, nullptr, nullptr, nullptr, PETSC_FALSE, 0.0));
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode SolutionTransfer::transferFields(DM dm_old, DM dm_new,
@@ -615,7 +616,7 @@ PetscErrorCode SolutionTransfer::transferFields(DM dm_old, DM dm_new,
         PetscCall(transfer(dm_old, dm_new, fields_old[i], fields_new[i]));
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode SolutionTransfer::conservativeTransfer(DM dm_old, DM dm_new,
@@ -630,7 +631,7 @@ PetscErrorCode SolutionTransfer::conservativeTransfer(DM dm_old, DM dm_new,
     // Apply transfer: u_new = M * u_old
     PetscCall(MatMult(transfer_matrix_, solution_old, solution_new));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode SolutionTransfer::buildTransferMatrix(DM dm_old, DM dm_new) {
@@ -663,7 +664,7 @@ PetscErrorCode SolutionTransfer::buildTransferMatrix(DM dm_old, DM dm_new) {
     PetscCall(MatAssemblyBegin(transfer_matrix_, MAT_FINAL_ASSEMBLY));
     PetscCall(MatAssemblyEnd(transfer_matrix_, MAT_FINAL_ASSEMBLY));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -697,7 +698,7 @@ PetscErrorCode MeshQuality::computeQuality(DM dm) {
     
     mean_quality_ = sum_quality / (cEnd - cStart);
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscBool MeshQuality::isAcceptable(const RefinementParameters& params) const {
@@ -783,7 +784,7 @@ PetscErrorCode AdaptiveMeshRefinement::initialize(DM dm) {
     current_level_ = 0;
     adapt_count_ = 0;
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::adapt(Vec solution, DM* dm_new, Vec* solution_new) {
@@ -862,7 +863,7 @@ PetscErrorCode AdaptiveMeshRefinement::adapt(Vec solution, DM* dm_new, Vec* solu
     dm_ = *dm_new;
     adapt_count_++;
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::checkAdaptation(Vec solution, PetscBool* need_adapt) {
@@ -893,7 +894,7 @@ PetscErrorCode AdaptiveMeshRefinement::checkAdaptation(Vec solution, PetscBool* 
         *need_adapt = PETSC_TRUE;  // Need coarsening
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::computeErrors(Vec solution,
@@ -902,7 +903,7 @@ PetscErrorCode AdaptiveMeshRefinement::computeErrors(Vec solution,
     
     PetscCall(error_estimator_->estimate(dm_, solution, errors));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::markCells(const std::vector<CellErrorIndicator>& errors,
@@ -925,7 +926,7 @@ PetscErrorCode AdaptiveMeshRefinement::markCells(const std::vector<CellErrorIndi
             PetscCall(markFixedFraction(errors, markers));
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::markFixedFraction(
@@ -954,7 +955,7 @@ PetscErrorCode AdaptiveMeshRefinement::markFixedFraction(
         markers[indices[errors.size() - 1 - i]] = CellMarker::COARSEN;
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::markThreshold(
@@ -970,7 +971,7 @@ PetscErrorCode AdaptiveMeshRefinement::markThreshold(
     }
     
     if (max_error < 1e-20) {
-        PetscFunctionReturn(PETSC_SUCCESS);
+        PetscFunctionReturn(0);
     }
     
     for (size_t i = 0; i < errors.size(); i++) {
@@ -983,7 +984,7 @@ PetscErrorCode AdaptiveMeshRefinement::markThreshold(
         }
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::markEquilibration(
@@ -1008,7 +1009,7 @@ PetscErrorCode AdaptiveMeshRefinement::markEquilibration(
         }
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::enforceConstraints(std::vector<CellMarker>& markers) {
@@ -1072,7 +1073,7 @@ PetscErrorCode AdaptiveMeshRefinement::enforceConstraints(std::vector<CellMarker
         }
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::addBufferLayers(std::vector<CellMarker>& markers) {
@@ -1114,7 +1115,7 @@ PetscErrorCode AdaptiveMeshRefinement::addBufferLayers(std::vector<CellMarker>& 
         markers = new_markers;
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::refineMesh(const std::vector<CellMarker>& markers,
@@ -1142,7 +1143,7 @@ PetscErrorCode AdaptiveMeshRefinement::refineMesh(const std::vector<CellMarker>&
             PetscCall(applyUniformRefine(dm_new));
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::createMetricFromErrors(
@@ -1212,7 +1213,7 @@ PetscErrorCode AdaptiveMeshRefinement::createMetricFromErrors(
     
     PetscCall(VecRestoreArray(*metric, &metric_array));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::applyPlexAdapt(Vec metric, DM* dm_new) {
@@ -1235,7 +1236,7 @@ PetscErrorCode AdaptiveMeshRefinement::applyPlexAdapt(Vec metric, DM* dm_new) {
     (void)metric; // Suppress unused parameter warning
 #endif
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::applyForestAdapt(
@@ -1265,7 +1266,7 @@ PetscErrorCode AdaptiveMeshRefinement::applyForestAdapt(
     PetscCall(DMForestTemplate(dm_, PetscObjectComm((PetscObject)dm_), dm_new));
     PetscCall(DMSetUp(*dm_new));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::applyUniformRefine(DM* dm_new) {
@@ -1274,7 +1275,7 @@ PetscErrorCode AdaptiveMeshRefinement::applyUniformRefine(DM* dm_new) {
     PetscCall(DMRefine(dm_, PetscObjectComm((PetscObject)dm_), dm_new));
     current_level_++;
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::transferSolution(DM dm_old, DM dm_new,
@@ -1284,7 +1285,7 @@ PetscErrorCode AdaptiveMeshRefinement::transferSolution(DM dm_old, DM dm_new,
     PetscCall(DMGetGlobalVector(dm_new, solution_new));
     PetscCall(solution_transfer_->transfer(dm_old, dm_new, solution_old, *solution_new));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::rebalance(DM dm) {
@@ -1299,7 +1300,7 @@ PetscErrorCode AdaptiveMeshRefinement::rebalance(DM dm) {
         dm_ = dm_dist;
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 void AdaptiveMeshRefinement::setCriterion(RefinementCriterion criterion) {
@@ -1355,14 +1356,14 @@ PetscErrorCode AdaptiveMeshRefinement::writeAdaptedMesh(const std::string& filen
     PetscCall(DMView(dm_, viewer));
     PetscCall(PetscViewerDestroy(&viewer));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode AdaptiveMeshRefinement::writeErrorField(const std::string& filename) const {
     PetscFunctionBeginUser;
     
     if (!error_vec_) {
-        PetscFunctionReturn(PETSC_SUCCESS);
+        PetscFunctionReturn(0);
     }
     
     PetscViewer viewer;
@@ -1372,7 +1373,7 @@ PetscErrorCode AdaptiveMeshRefinement::writeErrorField(const std::string& filena
     PetscCall(VecView(error_vec_, viewer));
     PetscCall(PetscViewerDestroy(&viewer));
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 // ============================================================================
@@ -1436,7 +1437,7 @@ PetscErrorCode AMRSetFromOptions(AdaptiveMeshRefinement* amr) {
     
     PetscOptionsEnd();
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 PetscErrorCode DMPlexCreateAdaptive(DM dm_in, AdaptationMethod method, DM* dm_out) {
@@ -1460,7 +1461,7 @@ PetscErrorCode DMPlexCreateAdaptive(DM dm_in, AdaptationMethod method, DM* dm_ou
             PetscCall(DMClone(dm_in, dm_out));
     }
     
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturn(0);
 }
 
 } // namespace FSRM
