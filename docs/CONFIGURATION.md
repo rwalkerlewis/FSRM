@@ -62,6 +62,48 @@ Mesh and domain definition.
 | `local_origin_x`, `local_origin_y`, `local_origin_z` | double | 0.0 | Local origin |
 | `auto_detect_utm` | bool | false | Auto-detect UTM zone |
 
+#### Gmsh-Specific Options
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `gmsh_physical_volume` | string | "" | Physical group name for main volume |
+| `gmsh_boundaries` | list | [] | Physical group names for boundaries |
+| `gmsh_refinement_level` | int | 0 | Additional mesh refinement levels |
+| `gmsh_material_mapping` | string | "" | Material domain mappings (see below) |
+| `gmsh_fault_mapping` | string | "" | Fault surface mappings (see below) |
+
+**Material Domain Mapping Format:**
+```ini
+# Map physical volume names to material sections
+gmsh_material_mapping = physical_group:ROCK_SECTION, group2:ROCK2, ...
+```
+
+**Fault Surface Mapping Format:**
+```ini
+# Map physical surface names to fault sections
+# Add :split suffix to enable split nodes for discontinuous displacement
+gmsh_fault_mapping = fault_surface:FAULT_SECTION[:split], ...
+```
+
+**Example:**
+```ini
+[GRID]
+mesh_type = GMSH
+mesh_file = meshes/reservoir.msh
+use_unstructured = true
+
+# Map physical volumes to materials
+gmsh_material_mapping = reservoir:ROCK1, caprock:ROCK2, basement:ROCK3
+
+# Map physical surfaces to faults (with split nodes)
+gmsh_fault_mapping = main_fault:FAULT1:split, secondary_fault:FAULT2
+
+# Boundaries for BC application
+gmsh_boundaries = inlet, outlet, top, bottom, north, south
+```
+
+See [Gmsh Mesh Guide](GMSH_MESH_GUIDE.md) for detailed instructions on creating Gmsh meshes with physical groups.
+
 ### [PHYSICS]
 
 Enable/disable physics modules.
@@ -382,6 +424,8 @@ mpirun -np 4 ./ex_config_driven config/large_simulation.config
 
 ## See Also
 
-- [Unstructured Meshes](UNSTRUCTURED_MESHES.md)
-- [Coordinate Systems](COORDINATE_SYSTEMS.md)
-- [Physics Models](PHYSICS.md)
+- [Gmsh Mesh Guide](GMSH_MESH_GUIDE.md) - Complete guide to creating and configuring Gmsh meshes
+- [Unstructured Meshes](UNSTRUCTURED_MESHES.md) - Overview of unstructured mesh support
+- [Coordinate Systems](COORDINATE_SYSTEMS.md) - Geographic coordinate handling
+- [Physics Models](PHYSICS_MODELS.md) - Physics module documentation
+- [Fault Model](PHYSICS_MODELS.md#fault-mechanics) - Fault friction and seismicity

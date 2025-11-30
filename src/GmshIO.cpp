@@ -6,8 +6,91 @@
 #include <cstring>
 #include <limits>
 #include <set>
+#include <cmath>
+#include <numeric>
 
 namespace FSRM {
+
+// ============================================================================
+// UnstructuredMesh - Material Domain Methods
+// ============================================================================
+
+MaterialDomain* UnstructuredMesh::getMaterialDomain(const std::string& name) {
+    auto it = material_domains.find(name);
+    return (it != material_domains.end()) ? &it->second : nullptr;
+}
+
+const MaterialDomain* UnstructuredMesh::getMaterialDomain(const std::string& name) const {
+    auto it = material_domains.find(name);
+    return (it != material_domains.end()) ? &it->second : nullptr;
+}
+
+std::vector<std::string> UnstructuredMesh::getMaterialDomainNames() const {
+    std::vector<std::string> names;
+    for (const auto& [name, domain] : material_domains) {
+        names.push_back(name);
+    }
+    return names;
+}
+
+int UnstructuredMesh::getMaterialIdForElement(int element_idx) const {
+    if (element_idx >= 0 && element_idx < static_cast<int>(element_material_ids.size())) {
+        return element_material_ids[element_idx];
+    }
+    return -1;  // Unknown material
+}
+
+// ============================================================================
+// UnstructuredMesh - Fault Surface Methods
+// ============================================================================
+
+FaultSurface* UnstructuredMesh::getFaultSurface(const std::string& name) {
+    auto it = fault_surfaces.find(name);
+    return (it != fault_surfaces.end()) ? &it->second : nullptr;
+}
+
+const FaultSurface* UnstructuredMesh::getFaultSurface(const std::string& name) const {
+    auto it = fault_surfaces.find(name);
+    return (it != fault_surfaces.end()) ? &it->second : nullptr;
+}
+
+std::vector<std::string> UnstructuredMesh::getFaultNames() const {
+    std::vector<std::string> names;
+    for (const auto& [name, fault] : fault_surfaces) {
+        names.push_back(name);
+    }
+    return names;
+}
+
+// ============================================================================
+// UnstructuredMesh - Boundary Surface Methods
+// ============================================================================
+
+BoundarySurface* UnstructuredMesh::getBoundarySurface(const std::string& name) {
+    auto it = boundary_surfaces.find(name);
+    return (it != boundary_surfaces.end()) ? &it->second : nullptr;
+}
+
+const BoundarySurface* UnstructuredMesh::getBoundarySurface(const std::string& name) const {
+    auto it = boundary_surfaces.find(name);
+    return (it != boundary_surfaces.end()) ? &it->second : nullptr;
+}
+
+std::vector<std::string> UnstructuredMesh::getBoundaryNames() const {
+    std::vector<std::string> names;
+    for (const auto& [name, boundary] : boundary_surfaces) {
+        names.push_back(name);
+    }
+    return names;
+}
+
+std::vector<int> UnstructuredMesh::getBoundaryNodes(const std::string& name) const {
+    auto it = boundary_surfaces.find(name);
+    if (it != boundary_surfaces.end()) {
+        return it->second.node_indices;
+    }
+    return {};
+}
 
 // ============================================================================
 // MeshElement Implementation
@@ -929,6 +1012,956 @@ bool GmshIO::validate() const {
     }
     
     return true;
+}
+
+// ============================================================================
+// Domain Mapping Configuration
+// ============================================================================
+
+void GmshIO::setMaterialMapping(const std::vector<GmshMaterialMapping>& mappings) {
+    material_mappings_ = mappings;
+    // Auto-assign material IDs if not specified
+    for (size_t i = 0; i < material_mappings_.size(); i++) {
+        if (material_mappings_[i].material_id < 0) {
+            material_mappings_[i].material_id = static_cast<int>(i);
+        }
+    }
+}
+
+void GmshIO::addMaterialMapping(const std::string& physical_group,
+                                const std::string& material_section,
+                                int material_id) {
+    int id = (material_id >= 0) ? material_id : static_cast<int>(material_mappings_.size());
+    material_mappings_.emplace_back(physical_group, material_section, id);
+}
+
+void GmshIO::setFaultMapping(const std::vector<GmshFaultMapping>& mappings) {
+    fault_mappings_ = mappings;
+}
+
+void GmshIO::addFaultMapping(const std::string& physical_group,
+                             const std::string& fault_section,
+                             bool use_split_nodes) {
+    fault_mappings_.emplace_back(physical_group, fault_section, use_split_nodes);
+}
+
+void GmshIO::setBoundaryNames(const std::vector<std::string>& boundary_names) {
+    boundary_names_ = boundary_names;
+}
+
+bool GmshIO::processDomains() {
+    if (!mesh_) {
+        std::cerr << "GmshIO: No mesh loaded\n";
+        return false;
+    }
+    
+    bool success = true;
+    
+    // Process material domains
+    if (!material_mappings_.empty()) {
+        success &= processMaterialDomains();
+    }
+    
+    // Process fault surfaces
+    if (!fault_mappings_.empty()) {
+        success &= processFaultSurfaces();
+    }
+    
+    // Process boundary surfaces
+    if (!boundary_names_.empty()) {
+        success &= processBoundarySurfaces();
+    }
+    
+    return success;
+}
+
+bool GmshIO::processMaterialDomains() {
+    if (!mesh_) return false;
+    
+    mesh_->material_domains.clear();
+    mesh_->element_material_ids.resize(mesh_->elements.size(), -1);
+    
+    for (const auto& mapping : material_mappings_) {
+        // Find the physical group tag
+        int tag = mesh_->getPhysicalTagByName(mapping.physical_group_name);
+        if (tag < 0) {
+            std::cerr << "GmshIO: Physical group '" << mapping.physical_group_name 
+                     << "' not found in mesh\n";
+            continue;
+        }
+        
+        // Create material domain
+        MaterialDomain domain;
+        domain.physical_tag = tag;
+        domain.name = mapping.physical_group_name;
+        domain.material_name = mapping.material_section;
+        domain.material_id = mapping.material_id;
+        
+        // Get dimension from physical group
+        auto pg_it = mesh_->physical_groups.find(tag);
+        if (pg_it != mesh_->physical_groups.end()) {
+            domain.dimension = pg_it->second.dimension;
+        }
+        
+        // Find elements belonging to this domain
+        domain.num_elements = 0;
+        for (size_t i = 0; i < mesh_->elements.size(); i++) {
+            if (mesh_->elements[i].physical_tag == tag) {
+                mesh_->element_material_ids[i] = domain.material_id;
+                domain.num_elements++;
+            }
+        }
+        
+        // Compute domain statistics
+        computeDomainStatistics(domain);
+        
+        mesh_->material_domains[domain.name] = domain;
+        
+        std::cout << "GmshIO: Material domain '" << domain.name 
+                 << "' -> " << domain.material_name
+                 << " (" << domain.num_elements << " elements, volume=" 
+                 << domain.volume << ")\n";
+    }
+    
+    return true;
+}
+
+bool GmshIO::processFaultSurfaces() {
+    if (!mesh_) return false;
+    
+    mesh_->fault_surfaces.clear();
+    
+    for (const auto& mapping : fault_mappings_) {
+        // Find the physical group tag
+        int tag = mesh_->getPhysicalTagByName(mapping.physical_group_name);
+        if (tag < 0) {
+            std::cerr << "GmshIO: Fault physical group '" << mapping.physical_group_name 
+                     << "' not found in mesh\n";
+            continue;
+        }
+        
+        // Create fault surface
+        FaultSurface fault;
+        fault.physical_tag = tag;
+        fault.name = mapping.physical_group_name;
+        fault.requires_split_nodes = mapping.use_split_nodes;
+        
+        // Get dimension from physical group
+        auto pg_it = mesh_->physical_groups.find(tag);
+        if (pg_it != mesh_->physical_groups.end()) {
+            fault.dimension = pg_it->second.dimension;
+        }
+        
+        // Find elements and nodes belonging to this fault
+        std::set<int> unique_nodes;
+        for (size_t i = 0; i < mesh_->elements.size(); i++) {
+            if (mesh_->elements[i].physical_tag == tag) {
+                fault.element_indices.push_back(static_cast<int>(i));
+                for (int node_tag : mesh_->elements[i].node_tags) {
+                    unique_nodes.insert(node_tag);
+                }
+            }
+        }
+        
+        fault.node_indices.assign(unique_nodes.begin(), unique_nodes.end());
+        
+        // Compute fault geometry
+        computeFaultGeometry(fault);
+        
+        mesh_->fault_surfaces[fault.name] = fault;
+        
+        std::cout << "GmshIO: Fault surface '" << fault.name 
+                 << "' (" << fault.element_indices.size() << " elements, "
+                 << fault.node_indices.size() << " nodes, area=" 
+                 << fault.area << " m²)\n";
+    }
+    
+    return true;
+}
+
+bool GmshIO::processBoundarySurfaces() {
+    if (!mesh_) return false;
+    
+    mesh_->boundary_surfaces.clear();
+    
+    for (const auto& name : boundary_names_) {
+        // Find the physical group tag
+        int tag = mesh_->getPhysicalTagByName(name);
+        if (tag < 0) {
+            std::cerr << "GmshIO: Boundary physical group '" << name 
+                     << "' not found in mesh\n";
+            continue;
+        }
+        
+        // Create boundary surface
+        BoundarySurface boundary;
+        boundary.physical_tag = tag;
+        boundary.name = name;
+        
+        // Get dimension from physical group
+        auto pg_it = mesh_->physical_groups.find(tag);
+        if (pg_it != mesh_->physical_groups.end()) {
+            boundary.dimension = pg_it->second.dimension;
+        }
+        
+        // Find elements and nodes belonging to this boundary
+        std::set<int> unique_nodes;
+        boundary.num_elements = 0;
+        for (size_t i = 0; i < mesh_->elements.size(); i++) {
+            if (mesh_->elements[i].physical_tag == tag) {
+                boundary.element_indices.push_back(static_cast<int>(i));
+                boundary.num_elements++;
+                for (int node_tag : mesh_->elements[i].node_tags) {
+                    unique_nodes.insert(node_tag);
+                }
+            }
+        }
+        
+        boundary.node_indices.assign(unique_nodes.begin(), unique_nodes.end());
+        
+        // Compute boundary statistics
+        computeBoundaryStatistics(boundary);
+        
+        mesh_->boundary_surfaces[boundary.name] = boundary;
+        
+        std::cout << "GmshIO: Boundary surface '" << boundary.name 
+                 << "' (" << boundary.num_elements << " elements, "
+                 << boundary.node_indices.size() << " nodes, area=" 
+                 << boundary.area << ")\n";
+    }
+    
+    return true;
+}
+
+void GmshIO::computeDomainStatistics(MaterialDomain& domain) {
+    if (!mesh_) return;
+    
+    domain.volume = 0.0;
+    domain.centroid = {0.0, 0.0, 0.0};
+    
+    double total_weight = 0.0;
+    
+    for (size_t i = 0; i < mesh_->elements.size(); i++) {
+        if (mesh_->elements[i].physical_tag == domain.physical_tag) {
+            double vol = computeElementVolume(static_cast<int>(i));
+            domain.volume += vol;
+            
+            // Compute element centroid
+            const auto& elem = mesh_->elements[i];
+            double cx = 0, cy = 0, cz = 0;
+            for (int node_tag : elem.node_tags) {
+                auto coords = getNodeCoords(node_tag);
+                cx += coords[0];
+                cy += coords[1];
+                cz += coords[2];
+            }
+            int n = static_cast<int>(elem.node_tags.size());
+            cx /= n; cy /= n; cz /= n;
+            
+            domain.centroid[0] += cx * vol;
+            domain.centroid[1] += cy * vol;
+            domain.centroid[2] += cz * vol;
+            total_weight += vol;
+        }
+    }
+    
+    if (total_weight > 0) {
+        domain.centroid[0] /= total_weight;
+        domain.centroid[1] /= total_weight;
+        domain.centroid[2] /= total_weight;
+    }
+}
+
+void GmshIO::computeFaultGeometry(FaultSurface& fault) {
+    if (!mesh_ || fault.element_indices.empty()) return;
+    
+    fault.area = 0.0;
+    fault.centroid = {0.0, 0.0, 0.0};
+    fault.normal = {0.0, 0.0, 0.0};
+    
+    double total_area = 0.0;
+    
+    for (int elem_idx : fault.element_indices) {
+        double area = computeElementVolume(elem_idx);
+        fault.area += area;
+        
+        // Compute element centroid
+        const auto& elem = mesh_->elements[elem_idx];
+        double cx = 0, cy = 0, cz = 0;
+        for (int node_tag : elem.node_tags) {
+            auto coords = getNodeCoords(node_tag);
+            cx += coords[0];
+            cy += coords[1];
+            cz += coords[2];
+        }
+        int n = static_cast<int>(elem.node_tags.size());
+        cx /= n; cy /= n; cz /= n;
+        
+        fault.centroid[0] += cx * area;
+        fault.centroid[1] += cy * area;
+        fault.centroid[2] += cz * area;
+        
+        // Accumulate normal (weighted by area)
+        auto normal = computeElementNormal(elem_idx);
+        fault.normal[0] += normal[0] * area;
+        fault.normal[1] += normal[1] * area;
+        fault.normal[2] += normal[2] * area;
+        
+        total_area += area;
+    }
+    
+    if (total_area > 0) {
+        fault.centroid[0] /= total_area;
+        fault.centroid[1] /= total_area;
+        fault.centroid[2] /= total_area;
+        
+        // Normalize the normal vector
+        double norm = std::sqrt(fault.normal[0]*fault.normal[0] + 
+                                fault.normal[1]*fault.normal[1] + 
+                                fault.normal[2]*fault.normal[2]);
+        if (norm > 1e-12) {
+            fault.normal[0] /= norm;
+            fault.normal[1] /= norm;
+            fault.normal[2] /= norm;
+        }
+    }
+    
+    // Compute approximate strike and dip from normal
+    // Strike is perpendicular to horizontal projection of normal
+    // Dip is angle from horizontal
+    double nx = fault.normal[0];
+    double ny = fault.normal[1];
+    double nz = fault.normal[2];
+    
+    double horiz_len = std::sqrt(nx*nx + ny*ny);
+    if (horiz_len > 1e-12) {
+        fault.strike = std::atan2(ny, nx);  // Strike direction
+        fault.dip = std::atan2(horiz_len, std::abs(nz));  // Dip angle
+    } else {
+        fault.strike = 0.0;
+        fault.dip = 0.0;  // Horizontal fault
+    }
+    
+    // Estimate length and width from bounding box of fault nodes
+    double min_x = std::numeric_limits<double>::max();
+    double max_x = std::numeric_limits<double>::lowest();
+    double min_y = std::numeric_limits<double>::max();
+    double max_y = std::numeric_limits<double>::lowest();
+    double min_z = std::numeric_limits<double>::max();
+    double max_z = std::numeric_limits<double>::lowest();
+    
+    for (int node_idx : fault.node_indices) {
+        auto coords = getNodeCoords(node_idx);
+        min_x = std::min(min_x, coords[0]);
+        max_x = std::max(max_x, coords[0]);
+        min_y = std::min(min_y, coords[1]);
+        max_y = std::max(max_y, coords[1]);
+        min_z = std::min(min_z, coords[2]);
+        max_z = std::max(max_z, coords[2]);
+    }
+    
+    double dx = max_x - min_x;
+    double dy = max_y - min_y;
+    double dz = max_z - min_z;
+    
+    fault.length = std::sqrt(dx*dx + dy*dy);  // Horizontal extent
+    fault.width = std::sqrt(dz*dz + std::min(dx, dy)*std::min(dx, dy));  // Vertical extent
+}
+
+void GmshIO::computeBoundaryStatistics(BoundarySurface& boundary) {
+    if (!mesh_ || boundary.element_indices.empty()) return;
+    
+    boundary.area = 0.0;
+    boundary.centroid = {0.0, 0.0, 0.0};
+    boundary.normal = {0.0, 0.0, 0.0};
+    
+    double total_area = 0.0;
+    
+    for (int elem_idx : boundary.element_indices) {
+        double area = computeElementVolume(elem_idx);
+        boundary.area += area;
+        
+        // Compute element centroid
+        const auto& elem = mesh_->elements[elem_idx];
+        double cx = 0, cy = 0, cz = 0;
+        for (int node_tag : elem.node_tags) {
+            auto coords = getNodeCoords(node_tag);
+            cx += coords[0];
+            cy += coords[1];
+            cz += coords[2];
+        }
+        int n = static_cast<int>(elem.node_tags.size());
+        cx /= n; cy /= n; cz /= n;
+        
+        boundary.centroid[0] += cx * area;
+        boundary.centroid[1] += cy * area;
+        boundary.centroid[2] += cz * area;
+        
+        // Accumulate normal (weighted by area)
+        auto normal = computeElementNormal(elem_idx);
+        boundary.normal[0] += normal[0] * area;
+        boundary.normal[1] += normal[1] * area;
+        boundary.normal[2] += normal[2] * area;
+        
+        total_area += area;
+    }
+    
+    if (total_area > 0) {
+        boundary.centroid[0] /= total_area;
+        boundary.centroid[1] /= total_area;
+        boundary.centroid[2] /= total_area;
+        
+        // Normalize the normal vector
+        double norm = std::sqrt(boundary.normal[0]*boundary.normal[0] + 
+                                boundary.normal[1]*boundary.normal[1] + 
+                                boundary.normal[2]*boundary.normal[2]);
+        if (norm > 1e-12) {
+            boundary.normal[0] /= norm;
+            boundary.normal[1] /= norm;
+            boundary.normal[2] /= norm;
+        }
+    }
+}
+
+// ============================================================================
+// Mesh Access Helpers
+// ============================================================================
+
+std::vector<std::string> GmshIO::getPhysicalGroupNames() const {
+    std::vector<std::string> names;
+    if (mesh_) {
+        for (const auto& [tag, group] : mesh_->physical_groups) {
+            names.push_back(group.name);
+        }
+    }
+    return names;
+}
+
+std::vector<std::string> GmshIO::getPhysicalGroupsByDimension(int dim) const {
+    std::vector<std::string> names;
+    if (mesh_) {
+        for (const auto& [tag, group] : mesh_->physical_groups) {
+            if (group.dimension == dim) {
+                names.push_back(group.name);
+            }
+        }
+    }
+    return names;
+}
+
+// ============================================================================
+// Geometry Computation Helpers
+// ============================================================================
+
+std::array<double, 3> GmshIO::getNodeCoords(int node_tag) const {
+    if (!mesh_) return {0, 0, 0};
+    
+    for (const auto& node : mesh_->nodes) {
+        if (node.tag == node_tag) {
+            return {node.x, node.y, node.z};
+        }
+    }
+    return {0, 0, 0};
+}
+
+int GmshIO::findNodeIndex(int node_tag) const {
+    if (!mesh_) return -1;
+    
+    for (size_t i = 0; i < mesh_->nodes.size(); i++) {
+        if (mesh_->nodes[i].tag == node_tag) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+double GmshIO::computeElementVolume(int element_idx) const {
+    if (!mesh_ || element_idx < 0 || element_idx >= static_cast<int>(mesh_->elements.size())) {
+        return 0.0;
+    }
+    
+    const auto& elem = mesh_->elements[element_idx];
+    int dim = elem.getDimension();
+    
+    if (dim == 3) {
+        // Volume element (tetrahedron, hexahedron, etc.)
+        if (elem.type == GmshElementType::TETRAHEDRON || elem.type == GmshElementType::TET10) {
+            // Tetrahedron volume: |((v1-v0) · ((v2-v0) × (v3-v0)))| / 6
+            auto p0 = getNodeCoords(elem.node_tags[0]);
+            auto p1 = getNodeCoords(elem.node_tags[1]);
+            auto p2 = getNodeCoords(elem.node_tags[2]);
+            auto p3 = getNodeCoords(elem.node_tags[3]);
+            
+            double v10[3] = {p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2]};
+            double v20[3] = {p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2]};
+            double v30[3] = {p3[0]-p0[0], p3[1]-p0[1], p3[2]-p0[2]};
+            
+            // Cross product v20 × v30
+            double cross[3] = {
+                v20[1]*v30[2] - v20[2]*v30[1],
+                v20[2]*v30[0] - v20[0]*v30[2],
+                v20[0]*v30[1] - v20[1]*v30[0]
+            };
+            
+            // Dot product v10 · cross
+            double vol = std::abs(v10[0]*cross[0] + v10[1]*cross[1] + v10[2]*cross[2]) / 6.0;
+            return vol;
+        }
+        // For other 3D elements, use approximate volume based on bounding box
+        // (proper implementation would require more complex formulas)
+        double min_x = std::numeric_limits<double>::max();
+        double max_x = std::numeric_limits<double>::lowest();
+        double min_y = std::numeric_limits<double>::max();
+        double max_y = std::numeric_limits<double>::lowest();
+        double min_z = std::numeric_limits<double>::max();
+        double max_z = std::numeric_limits<double>::lowest();
+        
+        for (int node_tag : elem.node_tags) {
+            auto coords = getNodeCoords(node_tag);
+            min_x = std::min(min_x, coords[0]);
+            max_x = std::max(max_x, coords[0]);
+            min_y = std::min(min_y, coords[1]);
+            max_y = std::max(max_y, coords[1]);
+            min_z = std::min(min_z, coords[2]);
+            max_z = std::max(max_z, coords[2]);
+        }
+        return (max_x - min_x) * (max_y - min_y) * (max_z - min_z);
+    }
+    else if (dim == 2) {
+        // Surface element (triangle, quad, etc.)
+        if (elem.type == GmshElementType::TRIANGLE || elem.type == GmshElementType::TRIANGLE6) {
+            // Triangle area: |((v1-v0) × (v2-v0))| / 2
+            auto p0 = getNodeCoords(elem.node_tags[0]);
+            auto p1 = getNodeCoords(elem.node_tags[1]);
+            auto p2 = getNodeCoords(elem.node_tags[2]);
+            
+            double v10[3] = {p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2]};
+            double v20[3] = {p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2]};
+            
+            // Cross product
+            double cross[3] = {
+                v10[1]*v20[2] - v10[2]*v20[1],
+                v10[2]*v20[0] - v10[0]*v20[2],
+                v10[0]*v20[1] - v10[1]*v20[0]
+            };
+            
+            return std::sqrt(cross[0]*cross[0] + cross[1]*cross[1] + cross[2]*cross[2]) / 2.0;
+        }
+        else if (elem.type == GmshElementType::QUAD || elem.type == GmshElementType::QUAD8 || 
+                 elem.type == GmshElementType::QUAD9) {
+            // Quad area: sum of two triangles
+            auto p0 = getNodeCoords(elem.node_tags[0]);
+            auto p1 = getNodeCoords(elem.node_tags[1]);
+            auto p2 = getNodeCoords(elem.node_tags[2]);
+            auto p3 = getNodeCoords(elem.node_tags[3]);
+            
+            // Triangle 0-1-2
+            double v10[3] = {p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2]};
+            double v20[3] = {p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2]};
+            double cross1[3] = {
+                v10[1]*v20[2] - v10[2]*v20[1],
+                v10[2]*v20[0] - v10[0]*v20[2],
+                v10[0]*v20[1] - v10[1]*v20[0]
+            };
+            double area1 = std::sqrt(cross1[0]*cross1[0] + cross1[1]*cross1[1] + cross1[2]*cross1[2]) / 2.0;
+            
+            // Triangle 0-2-3
+            double v30[3] = {p3[0]-p0[0], p3[1]-p0[1], p3[2]-p0[2]};
+            double cross2[3] = {
+                v20[1]*v30[2] - v20[2]*v30[1],
+                v20[2]*v30[0] - v20[0]*v30[2],
+                v20[0]*v30[1] - v20[1]*v30[0]
+            };
+            double area2 = std::sqrt(cross2[0]*cross2[0] + cross2[1]*cross2[1] + cross2[2]*cross2[2]) / 2.0;
+            
+            return area1 + area2;
+        }
+    }
+    else if (dim == 1) {
+        // Line element
+        if (elem.node_tags.size() >= 2) {
+            auto p0 = getNodeCoords(elem.node_tags[0]);
+            auto p1 = getNodeCoords(elem.node_tags[1]);
+            return std::sqrt(
+                (p1[0]-p0[0])*(p1[0]-p0[0]) + 
+                (p1[1]-p0[1])*(p1[1]-p0[1]) + 
+                (p1[2]-p0[2])*(p1[2]-p0[2])
+            );
+        }
+    }
+    
+    return 0.0;
+}
+
+std::array<double, 3> GmshIO::computeElementNormal(int element_idx) const {
+    if (!mesh_ || element_idx < 0 || element_idx >= static_cast<int>(mesh_->elements.size())) {
+        return {0, 0, 1};
+    }
+    
+    const auto& elem = mesh_->elements[element_idx];
+    int dim = elem.getDimension();
+    
+    if (dim == 2 && elem.node_tags.size() >= 3) {
+        // Surface element - compute normal from first three nodes
+        auto p0 = getNodeCoords(elem.node_tags[0]);
+        auto p1 = getNodeCoords(elem.node_tags[1]);
+        auto p2 = getNodeCoords(elem.node_tags[2]);
+        
+        double v10[3] = {p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2]};
+        double v20[3] = {p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2]};
+        
+        // Cross product
+        double cross[3] = {
+            v10[1]*v20[2] - v10[2]*v20[1],
+            v10[2]*v20[0] - v10[0]*v20[2],
+            v10[0]*v20[1] - v10[1]*v20[0]
+        };
+        
+        double norm = std::sqrt(cross[0]*cross[0] + cross[1]*cross[1] + cross[2]*cross[2]);
+        if (norm > 1e-12) {
+            return {cross[0]/norm, cross[1]/norm, cross[2]/norm};
+        }
+    }
+    
+    return {0, 0, 1};  // Default to z-up
+}
+
+double GmshIO::computeElementQuality(int element_idx) const {
+    if (!mesh_ || element_idx < 0 || element_idx >= static_cast<int>(mesh_->elements.size())) {
+        return 0.0;
+    }
+    
+    const auto& elem = mesh_->elements[element_idx];
+    
+    // For triangles: quality = 4*sqrt(3)*area / (sum of squared edge lengths)
+    // For tetrahedra: quality = 216*sqrt(3)*volume / (sum of squared edge lengths)^(3/2)
+    
+    if (elem.type == GmshElementType::TRIANGLE || elem.type == GmshElementType::TRIANGLE6) {
+        auto p0 = getNodeCoords(elem.node_tags[0]);
+        auto p1 = getNodeCoords(elem.node_tags[1]);
+        auto p2 = getNodeCoords(elem.node_tags[2]);
+        
+        // Edge lengths squared
+        double e01_2 = (p1[0]-p0[0])*(p1[0]-p0[0]) + (p1[1]-p0[1])*(p1[1]-p0[1]) + (p1[2]-p0[2])*(p1[2]-p0[2]);
+        double e12_2 = (p2[0]-p1[0])*(p2[0]-p1[0]) + (p2[1]-p1[1])*(p2[1]-p1[1]) + (p2[2]-p1[2])*(p2[2]-p1[2]);
+        double e20_2 = (p0[0]-p2[0])*(p0[0]-p2[0]) + (p0[1]-p2[1])*(p0[1]-p2[1]) + (p0[2]-p2[2])*(p0[2]-p2[2]);
+        
+        double area = computeElementVolume(element_idx);
+        double sum_e2 = e01_2 + e12_2 + e20_2;
+        
+        if (sum_e2 > 1e-20) {
+            return 4.0 * std::sqrt(3.0) * area / sum_e2;
+        }
+    }
+    else if (elem.type == GmshElementType::TETRAHEDRON || elem.type == GmshElementType::TET10) {
+        auto p0 = getNodeCoords(elem.node_tags[0]);
+        auto p1 = getNodeCoords(elem.node_tags[1]);
+        auto p2 = getNodeCoords(elem.node_tags[2]);
+        auto p3 = getNodeCoords(elem.node_tags[3]);
+        
+        // Sum of squared edge lengths
+        double sum_e2 = 0;
+        for (int i = 0; i < 4; i++) {
+            for (int j = i+1; j < 4; j++) {
+                auto pi = getNodeCoords(elem.node_tags[i]);
+                auto pj = getNodeCoords(elem.node_tags[j]);
+                sum_e2 += (pj[0]-pi[0])*(pj[0]-pi[0]) + (pj[1]-pi[1])*(pj[1]-pi[1]) + (pj[2]-pi[2])*(pj[2]-pi[2]);
+            }
+        }
+        
+        double volume = computeElementVolume(element_idx);
+        double denom = std::pow(sum_e2, 1.5);
+        
+        if (denom > 1e-20) {
+            return 216.0 * std::sqrt(3.0) * volume / denom;
+        }
+    }
+    
+    return 1.0;  // Default to perfect quality for unsupported element types
+}
+
+bool GmshIO::validateQuality(double min_quality, double max_aspect_ratio) const {
+    if (!mesh_) return false;
+    
+    bool all_pass = true;
+    
+    for (size_t i = 0; i < mesh_->elements.size(); i++) {
+        double quality = computeElementQuality(static_cast<int>(i));
+        if (quality < min_quality) {
+            std::cerr << "GmshIO: Element " << i << " has low quality: " << quality << "\n";
+            all_pass = false;
+        }
+    }
+    
+    return all_pass;
+}
+
+void GmshIO::getQualityStats(double& min_qual, double& max_qual, double& avg_qual) const {
+    if (!mesh_ || mesh_->elements.empty()) {
+        min_qual = max_qual = avg_qual = 0.0;
+        return;
+    }
+    
+    min_qual = std::numeric_limits<double>::max();
+    max_qual = std::numeric_limits<double>::lowest();
+    double sum = 0.0;
+    int count = 0;
+    
+    for (size_t i = 0; i < mesh_->elements.size(); i++) {
+        double quality = computeElementQuality(static_cast<int>(i));
+        min_qual = std::min(min_qual, quality);
+        max_qual = std::max(max_qual, quality);
+        sum += quality;
+        count++;
+    }
+    
+    avg_qual = (count > 0) ? sum / count : 0.0;
+}
+
+// ============================================================================
+// VTK Output with Materials
+// ============================================================================
+
+bool GmshIO::writeVtkFileWithMaterials(const std::string& filename) const {
+    if (!mesh_ || mesh_->nodes.empty()) {
+        std::cerr << "GmshIO: No mesh to write\n";
+        return false;
+    }
+    
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "GmshIO: Cannot create file: " << filename << "\n";
+        return false;
+    }
+    
+    // Create node tag to index mapping
+    std::map<int, int> tag_to_index;
+    for (size_t i = 0; i < mesh_->nodes.size(); i++) {
+        tag_to_index[mesh_->nodes[i].tag] = static_cast<int>(i);
+    }
+    
+    // VTK XML format header
+    file << "<?xml version=\"1.0\"?>\n";
+    file << "<VTKFile type=\"UnstructuredGrid\" version=\"1.0\" byte_order=\"LittleEndian\">\n";
+    file << "  <UnstructuredGrid>\n";
+    file << "    <Piece NumberOfPoints=\"" << mesh_->nodes.size() 
+         << "\" NumberOfCells=\"" << mesh_->elements.size() << "\">\n";
+    
+    // Points
+    file << "      <Points>\n";
+    file << "        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n";
+    for (const auto& node : mesh_->nodes) {
+        file << "          " << node.x << " " << node.y << " " << node.z << "\n";
+    }
+    file << "        </DataArray>\n";
+    file << "      </Points>\n";
+    
+    // Cells
+    file << "      <Cells>\n";
+    
+    // Connectivity
+    file << "        <DataArray type=\"Int32\" Name=\"connectivity\" format=\"ascii\">\n";
+    for (const auto& elem : mesh_->elements) {
+        file << "         ";
+        for (int tag : elem.node_tags) {
+            file << " " << tag_to_index[tag];
+        }
+        file << "\n";
+    }
+    file << "        </DataArray>\n";
+    
+    // Offsets
+    file << "        <DataArray type=\"Int32\" Name=\"offsets\" format=\"ascii\">\n";
+    int offset = 0;
+    for (const auto& elem : mesh_->elements) {
+        offset += elem.node_tags.size();
+        file << "          " << offset << "\n";
+    }
+    file << "        </DataArray>\n";
+    
+    // Cell types (VTK numbering)
+    file << "        <DataArray type=\"UInt8\" Name=\"types\" format=\"ascii\">\n";
+    for (const auto& elem : mesh_->elements) {
+        int vtk_type;
+        switch (elem.type) {
+            case GmshElementType::POINT: vtk_type = 1; break;
+            case GmshElementType::LINE: vtk_type = 3; break;
+            case GmshElementType::TRIANGLE: vtk_type = 5; break;
+            case GmshElementType::QUAD: vtk_type = 9; break;
+            case GmshElementType::TETRAHEDRON: vtk_type = 10; break;
+            case GmshElementType::HEXAHEDRON: vtk_type = 12; break;
+            case GmshElementType::PRISM: vtk_type = 13; break;
+            case GmshElementType::PYRAMID: vtk_type = 14; break;
+            case GmshElementType::LINE3: vtk_type = 21; break;
+            case GmshElementType::TRIANGLE6: vtk_type = 22; break;
+            case GmshElementType::TET10: vtk_type = 24; break;
+            case GmshElementType::HEX20: vtk_type = 25; break;
+            default: vtk_type = 0;
+        }
+        file << "          " << vtk_type << "\n";
+    }
+    file << "        </DataArray>\n";
+    file << "      </Cells>\n";
+    
+    // Cell data
+    file << "      <CellData>\n";
+    
+    // Physical group tags
+    file << "        <DataArray type=\"Int32\" Name=\"PhysicalGroup\" format=\"ascii\">\n";
+    for (const auto& elem : mesh_->elements) {
+        file << "          " << elem.physical_tag << "\n";
+    }
+    file << "        </DataArray>\n";
+    
+    // Material IDs
+    file << "        <DataArray type=\"Int32\" Name=\"MaterialID\" format=\"ascii\">\n";
+    for (size_t i = 0; i < mesh_->elements.size(); i++) {
+        int mat_id = -1;
+        if (i < mesh_->element_material_ids.size()) {
+            mat_id = mesh_->element_material_ids[i];
+        }
+        file << "          " << mat_id << "\n";
+    }
+    file << "        </DataArray>\n";
+    
+    file << "      </CellData>\n";
+    
+    file << "    </Piece>\n";
+    file << "  </UnstructuredGrid>\n";
+    file << "</VTKFile>\n";
+    
+    file.close();
+    return true;
+}
+
+// ============================================================================
+// DMPlex Creation with Materials
+// ============================================================================
+
+PetscErrorCode GmshIO::createDMPlexWithMaterials(MPI_Comm comm, DM* dm) const {
+    PetscFunctionBeginUser;
+    
+    // First create basic DMPlex
+    PetscErrorCode ierr = createDMPlex(comm, dm); CHKERRQ(ierr);
+    
+    // Add material labels
+    if (mesh_ && !mesh_->material_domains.empty()) {
+        DMLabel material_label;
+        ierr = DMCreateLabel(*dm, "Material"); CHKERRQ(ierr);
+        ierr = DMGetLabel(*dm, "Material", &material_label); CHKERRQ(ierr);
+        
+        for (const auto& [name, domain] : mesh_->material_domains) {
+            auto elem_indices = mesh_->getElementsByPhysicalTag(domain.physical_tag);
+            for (int idx : elem_indices) {
+                ierr = DMLabelSetValue(material_label, idx, domain.material_id); CHKERRQ(ierr);
+            }
+        }
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode GmshIO::createDMPlexFull(MPI_Comm comm, DM* dm) const {
+    PetscFunctionBeginUser;
+    
+    // First create DMPlex with materials
+    PetscErrorCode ierr = createDMPlexWithMaterials(comm, dm); CHKERRQ(ierr);
+    
+    // Add fault labels
+    if (mesh_ && !mesh_->fault_surfaces.empty()) {
+        DMLabel fault_label;
+        ierr = DMCreateLabel(*dm, "Fault"); CHKERRQ(ierr);
+        ierr = DMGetLabel(*dm, "Fault", &fault_label); CHKERRQ(ierr);
+        
+        int fault_id = 0;
+        for (const auto& [name, fault] : mesh_->fault_surfaces) {
+            for (int idx : fault.element_indices) {
+                ierr = DMLabelSetValue(fault_label, idx, fault_id); CHKERRQ(ierr);
+            }
+            fault_id++;
+        }
+    }
+    
+    // Add boundary labels
+    if (mesh_ && !mesh_->boundary_surfaces.empty()) {
+        DMLabel boundary_label;
+        ierr = DMCreateLabel(*dm, "Boundary"); CHKERRQ(ierr);
+        ierr = DMGetLabel(*dm, "Boundary", &boundary_label); CHKERRQ(ierr);
+        
+        int boundary_id = 0;
+        for (const auto& [name, boundary] : mesh_->boundary_surfaces) {
+            for (int idx : boundary.element_indices) {
+                ierr = DMLabelSetValue(boundary_label, idx, boundary_id); CHKERRQ(ierr);
+            }
+            boundary_id++;
+        }
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+// ============================================================================
+// Detailed Output
+// ============================================================================
+
+void GmshIO::printDomainInfo() const {
+    if (!mesh_) {
+        std::cout << "No mesh loaded\n";
+        return;
+    }
+    
+    std::cout << "\n=== Domain Information ===\n\n";
+    
+    // Material domains
+    if (!mesh_->material_domains.empty()) {
+        std::cout << "Material Domains:\n";
+        for (const auto& [name, domain] : mesh_->material_domains) {
+            std::cout << "  " << name << ":\n";
+            std::cout << "    Material: " << domain.material_name << " (ID=" << domain.material_id << ")\n";
+            std::cout << "    Elements: " << domain.num_elements << "\n";
+            std::cout << "    Volume: " << domain.volume << " m³\n";
+            std::cout << "    Centroid: (" << domain.centroid[0] << ", " 
+                     << domain.centroid[1] << ", " << domain.centroid[2] << ")\n";
+        }
+        std::cout << "\n";
+    }
+    
+    // Fault surfaces
+    if (!mesh_->fault_surfaces.empty()) {
+        std::cout << "Fault Surfaces:\n";
+        for (const auto& [name, fault] : mesh_->fault_surfaces) {
+            std::cout << "  " << name << ":\n";
+            std::cout << "    Elements: " << fault.element_indices.size() << "\n";
+            std::cout << "    Nodes: " << fault.node_indices.size() << "\n";
+            std::cout << "    Area: " << fault.area << " m²\n";
+            std::cout << "    Length: " << fault.length << " m\n";
+            std::cout << "    Width: " << fault.width << " m\n";
+            std::cout << "    Strike: " << fault.strike * 180.0 / M_PI << "°\n";
+            std::cout << "    Dip: " << fault.dip * 180.0 / M_PI << "°\n";
+            std::cout << "    Normal: (" << fault.normal[0] << ", " 
+                     << fault.normal[1] << ", " << fault.normal[2] << ")\n";
+            std::cout << "    Centroid: (" << fault.centroid[0] << ", " 
+                     << fault.centroid[1] << ", " << fault.centroid[2] << ")\n";
+            std::cout << "    Split nodes: " << (fault.requires_split_nodes ? "yes" : "no") << "\n";
+        }
+        std::cout << "\n";
+    }
+    
+    // Boundary surfaces
+    if (!mesh_->boundary_surfaces.empty()) {
+        std::cout << "Boundary Surfaces:\n";
+        for (const auto& [name, boundary] : mesh_->boundary_surfaces) {
+            std::cout << "  " << name << ":\n";
+            std::cout << "    Elements: " << boundary.num_elements << "\n";
+            std::cout << "    Nodes: " << boundary.node_indices.size() << "\n";
+            std::cout << "    Area: " << boundary.area << " m²\n";
+            std::cout << "    Normal: (" << boundary.normal[0] << ", " 
+                     << boundary.normal[1] << ", " << boundary.normal[2] << ")\n";
+            std::cout << "    Centroid: (" << boundary.centroid[0] << ", " 
+                     << boundary.centroid[1] << ", " << boundary.centroid[2] << ")\n";
+        }
+        std::cout << "\n";
+    }
 }
 
 } // namespace FSRM

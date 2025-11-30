@@ -365,6 +365,35 @@ bool ConfigReader::parseGridConfig(GridConfig& config) {
     
     config.gmsh_refinement_level = getInt("GRID", "gmsh_refinement_level", 0);
     
+    // Parse Gmsh material domain mappings
+    // Format: gmsh_material_mapping = physical_group:ROCK_SECTION, physical_group2:ROCK2, ...
+    std::string material_mapping_str = getString("GRID", "gmsh_material_mapping", "");
+    if (!material_mapping_str.empty()) {
+        auto mappings = split(material_mapping_str, ',');
+        for (const auto& mapping : mappings) {
+            auto parts = split(mapping, ':');
+            if (parts.size() >= 2) {
+                config.gmsh_material_domains.emplace_back(trim(parts[0]), trim(parts[1]));
+            }
+        }
+    }
+    
+    // Parse Gmsh fault surface mappings
+    // Format: gmsh_fault_mapping = physical_group:FAULT_SECTION[:split], ...
+    // The optional :split suffix indicates that split nodes should be used
+    std::string fault_mapping_str = getString("GRID", "gmsh_fault_mapping", "");
+    if (!fault_mapping_str.empty()) {
+        auto mappings = split(fault_mapping_str, ',');
+        for (const auto& mapping : mappings) {
+            auto parts = split(mapping, ':');
+            if (parts.size() >= 2) {
+                bool use_split = (parts.size() >= 3 && 
+                                 (trim(parts[2]) == "split" || trim(parts[2]) == "true"));
+                config.gmsh_fault_surfaces.emplace_back(trim(parts[0]), trim(parts[1]), use_split);
+            }
+        }
+    }
+    
     // Coordinate Reference System (CRS)
     config.input_crs = getString("GRID", "input_crs", "");
     config.model_crs = getString("GRID", "model_crs", "");
