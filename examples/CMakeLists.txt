@@ -81,6 +81,9 @@ add_reservoir_example(scec_loh4 scec_loh4.cpp)
 # Induced seismicity with IMEX transition
 add_reservoir_example(induced_seismicity_imex induced_seismicity_imex.cpp)
 
+# Coulomb stress distribution from parallel faults
+add_reservoir_example(coulomb_stress_parallel_faults coulomb_stress_parallel_faults.cpp)
+
 # Unit converter utility
 add_reservoir_example(unit_converter unit_converter.cpp)
 
@@ -113,6 +116,7 @@ message(STATUS "  - config/hydraulic_fracturing.config")
 message(STATUS "  - config/lefm_fracture_growth.config")
 message(STATUS "  - config/induced_seismicity.config")
 message(STATUS "  - config/induced_seismicity_imex.config  (IMEX transition)")
+message(STATUS "  - config/coulomb_stress_parallel_faults.config  (Coulomb stress)")
 message(STATUS "  - config/wave_propagation.config")
 message(STATUS "  - config/geothermal.config")
 message(STATUS "  - config/co2_storage.config")

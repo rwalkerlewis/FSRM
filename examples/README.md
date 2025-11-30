@@ -108,6 +108,39 @@ All example configs are in the `config/` directory:
 - **Features**: Multiple faults, aftershock sequences
 - **Runtime**: ~20 minutes
 
+#### `coulomb_stress_parallel_faults.config` ⭐ **NEW**
+- **Physics**: Coulomb stress transfer between parallel faults
+- **Features**: ΔCFF calculation, stress shadows, triggering lobes
+- **Runtime**: ~1 minute (standalone executable)
+- **Use case**: Fault interaction analysis, earthquake triggering studies
+- **Output formats**: Snapshot images (PNG/PPM) and ASCII data files
+
+**Key features:**
+- Calculate Coulomb stress change (ΔCFF) from slip on source fault
+- Compute stress distribution on parallel receiver fault  
+- Visualize stress transfer patterns (positive lobes, stress shadows)
+- Output as snapshot images for quick visualization
+- Output as ASCII files for external analysis (Gnuplot, MATLAB, Python)
+- Command-line configuration for parameter sweeps
+
+**Usage:**
+```bash
+# Run with default parameters
+./coulomb_stress_parallel_faults
+
+# Custom slip and separation
+./coulomb_stress_parallel_faults -slip 2.0 -sep 3000
+
+# ASCII output only
+./coulomb_stress_parallel_faults -output_format ascii
+
+# Snapshot images only
+./coulomb_stress_parallel_faults -output_format snapshot
+
+# Both formats (default)
+./coulomb_stress_parallel_faults -output_format both
+```
+
 ### Wave Propagation Examples
 
 #### `wave_propagation.config`
