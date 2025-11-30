@@ -18,6 +18,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [UNIT_SYSTEM.md](UNIT_SYSTEM.md) | Unit conversion and specifications |
 | [COORDINATE_SYSTEMS.md](COORDINATE_SYSTEMS.md) | Geographic coordinate transformations |
 | [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md) | Gmsh and unstructured mesh support |
+| [GMSH_MESH_GUIDE.md](GMSH_MESH_GUIDE.md) | Complete guide to creating Gmsh meshes |
 | [ADAPTIVE_MESH_REFINEMENT.md](ADAPTIVE_MESH_REFINEMENT.md) | AMR for unstructured grids |
 | [ECLIPSE_FEATURES.md](ECLIPSE_FEATURES.md) | Eclipse reservoir simulator compatibility |
 | [FOURIER_NEURAL_OPERATOR.md](FOURIER_NEURAL_OPERATOR.md) | Neural network PDE solver |
@@ -45,7 +46,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 - **Time Integration**: [IMEX_TRANSITION.md](IMEX_TRANSITION.md)
 - **Units**: [UNIT_SYSTEM.md](UNIT_SYSTEM.md)
 - **Coordinates**: [COORDINATE_SYSTEMS.md](COORDINATE_SYSTEMS.md)
-- **Meshes**: [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md)
+- **Meshes**: [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md), [GMSH_MESH_GUIDE.md](GMSH_MESH_GUIDE.md)
 - **AMR**: [ADAPTIVE_MESH_REFINEMENT.md](ADAPTIVE_MESH_REFINEMENT.md)
 - **Hydraulic Fracturing**: [RESFRAC_EQUIVALENT_CAPABILITIES.md](RESFRAC_EQUIVALENT_CAPABILITIES.md)
 - **Eclipse Compatibility**: [ECLIPSE_FEATURES.md](ECLIPSE_FEATURES.md)

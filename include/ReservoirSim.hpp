@@ -12,6 +12,8 @@
 #include <memory>
 #include <map>
 #include <functional>
+#include <tuple>
+#include <utility>
 
 namespace FSRM {
 
@@ -172,6 +174,12 @@ struct GridConfig {
     std::string gmsh_physical_volume;       ///< Physical group for main volume
     std::vector<std::string> gmsh_boundaries;  ///< Physical groups for boundaries
     int gmsh_refinement_level = 0;          ///< Additional mesh refinement
+    
+    // Gmsh material domain mappings (physical_group_name -> material_section)
+    std::vector<std::pair<std::string, std::string>> gmsh_material_domains;
+    
+    // Gmsh fault surface mappings (physical_group_name -> fault_section, use_split_nodes)
+    std::vector<std::tuple<std::string, std::string, bool>> gmsh_fault_surfaces;
     
     // Coordinate Reference System (CRS)
     std::string input_crs;                  ///< Input coordinates CRS (e.g., "EPSG:4326")
