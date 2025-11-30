@@ -876,6 +876,8 @@ PetscErrorCode Simulator::run() {
 
 // Static callback functions
 PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F, void *ctx) {
+    (void)ts;  // Part of PETSc callback interface - accessed via ctx
+    
     PetscFunctionBeginUser;
     Simulator *sim = static_cast<Simulator*>(ctx);
     PetscErrorCode ierr;
@@ -891,6 +893,8 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
 
 PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t, 
                                        PetscReal a, Mat J, Mat P, void *ctx) {
+    (void)ts;  // Part of PETSc callback interface - accessed via ctx
+    
     PetscFunctionBeginUser;
     Simulator *sim = static_cast<Simulator*>(ctx);
     PetscErrorCode ierr;
@@ -903,6 +907,9 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
 
 PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t, 
                                           Vec U, void *ctx) {
+    (void)ts;  // Part of PETSc callback interface - accessed via ctx
+    (void)U;   // Solution available through ctx->solution
+    
     PetscFunctionBeginUser;
     Simulator *sim = static_cast<Simulator*>(ctx);
     PetscErrorCode ierr;
@@ -930,6 +937,15 @@ void Simulator::f0_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                                PetscReal t,
                                const PetscReal x[], PetscInt numConstants,
                                const PetscScalar constants[], PetscScalar f0[]) {
+    // Suppress unused parameter warnings - part of PETSc pointwise function interface
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff; (void)uOff_x;
+    (void)u; (void)u_x;
+    (void)aOff; (void)aOff_x;
+    (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x;
+    (void)numConstants; (void)constants;
+    
     // Accumulation term: phi * ct * dP/dt
     const PetscReal phi = 0.2;  // porosity
     const PetscReal ct = 1.0e-9; // compressibility
@@ -946,6 +962,15 @@ void Simulator::f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                                PetscReal t,
                                const PetscReal x[], PetscInt numConstants,
                                const PetscScalar constants[], PetscScalar f1[]) {
+    // Suppress unused parameter warnings - part of PETSc pointwise function interface
+    (void)Nf; (void)NfAux;
+    (void)uOff; (void)uOff_x;
+    (void)u; (void)u_t;
+    (void)aOff; (void)aOff_x;
+    (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x;
+    (void)numConstants; (void)constants;
+    
     // Flux term: -k/mu * grad(P)
     const PetscReal k = 100.0e-15;  // permeability (m^2)
     const PetscReal mu = 0.001;      // viscosity (Pa·s)

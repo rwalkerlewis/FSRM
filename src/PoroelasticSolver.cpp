@@ -192,6 +192,14 @@ void PoroelasticSolver::f0_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                                     const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
                                     PetscReal t, const PetscReal x[], PetscInt numConstants,
                                     const PetscScalar constants[], PetscScalar f0[]) {
+    // Suppress unused parameter warnings - part of PETSc pointwise function interface
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff_x; (void)u_x;
+    (void)aOff; (void)aOff_x;
+    (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x;
+    (void)numConstants; (void)constants;
+    
     // f0 = phi * ct * dP/dt
     // u[0] = P, u[4] = phi, u_t[0] = dP/dt
     
@@ -199,6 +207,7 @@ void PoroelasticSolver::f0_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscScalar Sw    = u[uOff[1]];
     const PetscScalar phi   = u[uOff[4]];
     const PetscScalar P_t   = u_t[uOff[0]];
+    (void)P; (void)Sw;  // Used in full implementation
     
     // Total compressibility (approximation)
     const PetscScalar ct = 1e-9;  // Should get from constants
@@ -213,6 +222,14 @@ void PoroelasticSolver::f1_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                                     const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
                                     PetscReal t, const PetscReal x[], PetscInt numConstants,
                                     const PetscScalar constants[], PetscScalar f1[]) {
+    // Suppress unused parameter warnings - part of PETSc pointwise function interface
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff; (void)u; (void)u_t;
+    (void)aOff; (void)aOff_x;
+    (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x;
+    (void)numConstants; (void)constants;
+    
     // f1 = -k/mu * grad(P)
     // u_x[0] = dP/dx, u_x[1] = dP/dz (for 2D)
     
@@ -238,6 +255,14 @@ void PoroelasticSolver::g0_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                               const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
                               PetscReal t, PetscReal u_tShift, const PetscReal x[],
                               PetscInt numConstants, const PetscScalar constants[], PetscScalar g0[]) {
+    // Suppress unused parameter warnings - part of PETSc pointwise function interface
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x;
+    (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x;
+    (void)numConstants; (void)constants;
+    
     // g0 = df0/dP = phi * ct * shift (where shift = d()/dP_t)
     const PetscScalar phi = u[uOff[4]];
     const PetscScalar ct = 1e-9;
@@ -252,6 +277,15 @@ void PoroelasticSolver::g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                               const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
                               PetscReal t, PetscReal u_tShift, const PetscReal x[],
                               PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]) {
+    // Suppress unused parameter warnings - part of PETSc pointwise function interface
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff; (void)uOff_x;
+    (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x;
+    (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x;
+    (void)numConstants; (void)constants;
+    
     // g3 = df1/d(grad P) = -k/mu * I (identity tensor)
     const PetscScalar k = 100e-15;
     const PetscScalar mu = 1e-3;

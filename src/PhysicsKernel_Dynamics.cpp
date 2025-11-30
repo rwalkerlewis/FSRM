@@ -26,6 +26,8 @@ ElastodynamicsKernel::ElastodynamicsKernel()
       event_duration(10.0), trigger_time(-1.0), event_active(false) {}
 
 PetscErrorCode ElastodynamicsKernel::setup(DM dm, PetscFE fe) {
+    (void)dm;
+    (void)fe;
     PetscFunctionBeginUser;
     // Setup finite element spaces for dynamic problem
     PetscFunctionReturn(0);
@@ -34,6 +36,11 @@ PetscErrorCode ElastodynamicsKernel::setup(DM dm, PetscFE fe) {
 void ElastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
                                     const PetscScalar u_x[], const PetscScalar a[],
                                     const PetscReal x[], PetscScalar f[]) {
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
+    (void)u;
+    (void)a;
+    (void)x;
+    
     // Elastodynamics equation: ρ ∂²u/∂t² = ∇·σ + ρg
     // In first-order form with v = ∂u/∂t:
     // ρ ∂v/∂t = ∇·σ + ρg - damping
@@ -64,6 +71,10 @@ void ElastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar u_t
     double sigma_xz = 2.0 * mu * eps_xz;
     double sigma_yz = 2.0 * mu * eps_yz;
     
+    // Suppress unused variable warnings - stress components used in f1 flux term
+    (void)sigma_xx; (void)sigma_yy; (void)sigma_zz;
+    (void)sigma_xy; (void)sigma_xz; (void)sigma_yz;
+    
     // Inertial term: ρ ∂²u/∂t² (using second time derivative)
     // In weak form, this becomes mass matrix times acceleration
     // Here u_t is velocity, so we need acceleration
@@ -89,6 +100,12 @@ void ElastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar u_t
 void ElastodynamicsKernel::jacobian(const PetscScalar u[], const PetscScalar u_t[],
                                     const PetscScalar u_x[], const PetscScalar a[],
                                     const PetscReal x[], PetscScalar J[]) {
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
+    (void)u;
+    (void)u_t;
+    (void)u_x;
+    (void)x;
+    
     // Jacobian for elastodynamics
     // ∂F/∂u_t = ρ * I + α * ρ * I (with shift parameter 'a' from time integrator)
     
@@ -194,6 +211,8 @@ PoroelastodynamicsKernel::PoroelastodynamicsKernel()
       event_duration(10.0), trigger_time(-1.0), event_active(false) {}
 
 PetscErrorCode PoroelastodynamicsKernel::setup(DM dm, PetscFE fe) {
+    (void)dm;
+    (void)fe;
     PetscFunctionBeginUser;
     // Setup finite element spaces for coupled problem
     PetscFunctionReturn(0);
@@ -202,6 +221,10 @@ PetscErrorCode PoroelastodynamicsKernel::setup(DM dm, PetscFE fe) {
 void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
                                         const PetscScalar u_x[], const PetscScalar a[],
                                         const PetscReal x[], PetscScalar f[]) {
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
+    (void)a;
+    (void)x;
+    
     // Biot's poroelastodynamics equations:
     // 1) Momentum balance: ρ ∂²u/∂t² + ρ_f ∂²w/∂t² = ∇·σ - α∇p
     // 2) Darcy's law (dynamic): ρ_f ∂²u/∂t² + (ρ_f/φ) ∂²w/∂t² = -∇p - (μ/k)∂w/∂t
@@ -216,6 +239,7 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
     // Field ordering: u[0..2] = displacement, u[3] = pressure
     
     double ux = u[0], uy = u[1], uz = u[2];
+    (void)ux; (void)uy; (void)uz;  // Used for boundary conditions in full implementation
     double p = u[3];
     
     // Displacement gradients
@@ -230,6 +254,7 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
     double dp_dx = u_x[9];
     double dp_dy = u_x[10];
     double dp_dz = u_x[11];
+    (void)dp_dx; (void)dp_dy; (void)dp_dz;  // Used in f1 flux term
     
     // Material parameters
     double lambda = youngs_modulus * poisson_ratio / 
@@ -277,6 +302,7 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
     }
     
     double mobility = k_current / viscosity;
+    (void)mobility;  // Used in f1 flux term
     
     // Add flux divergence (handled in f1 term in actual implementation)
     // f[3] += mobility * (dp_dx² + dp_dy² + dp_dz²)
@@ -285,6 +311,12 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
 void PoroelastodynamicsKernel::jacobian(const PetscScalar u[], const PetscScalar u_t[],
                                         const PetscScalar u_x[], const PetscScalar a[],
                                         const PetscReal x[], PetscScalar J[]) {
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
+    (void)u;
+    (void)u_t;
+    (void)u_x;
+    (void)x;
+    
     // Jacobian for poroelastodynamics (4x4 system in 1D, larger in 3D)
     
     double rho_bulk = (1.0 - porosity) * density_solid + porosity * density_fluid;

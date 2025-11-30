@@ -91,6 +91,7 @@ double SinglePhaseFluid::getViscosity(double P, double T) const {
 }
 
 double SinglePhaseFluid::getCompressibility(double P, double T) const {
+    (void)P; (void)T;  // Part of interface - used in pressure-dependent models
     return compressibility;
 }
 
@@ -164,15 +165,18 @@ BlackOilFluid::BlackOilFluid()
       lambda_pc(2.0) {}
 
 double BlackOilFluid::getDensity(double P, double T) const {
+    (void)T;  // Temperature handled through PVT correlations
     // Return oil density by default
     return getOilDensity(P, getSolutionGOR(P));
 }
 
 double BlackOilFluid::getViscosity(double P, double T) const {
+    (void)T;  // Temperature handled through PVT correlations
     return getOilViscosity(P, getSolutionGOR(P));
 }
 
 double BlackOilFluid::getCompressibility(double P, double T) const {
+    (void)P; (void)T;  // Part of interface - used in pressure-dependent models
     return oil_compressibility;
 }
 
@@ -889,6 +893,7 @@ double BrineFluid::getViscosity(double P, double T) const {
 }
 
 double BrineFluid::getCompressibility(double P, double T) const {
+    (void)P; (void)T;  // Part of interface - simplified model
     // Slightly higher than pure water
     return 4.5e-10 * (1.0 + 0.5 * salinity);
 }
