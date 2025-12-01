@@ -216,7 +216,7 @@ void writeSnapshot(const std::string& filename,
         << "pore_pressure(MPa)  temperature(K)  permeability(m^2)  porosity\n";
     
     const auto& hyd_field = fault.getHydraulicField();
-    const auto& therm_field = fault.getThermalField();
+    (void)fault.getThermalField();  // Field available but not currently used in output
     
     for (size_t i = 0; i < hyd_field.size(); ++i) {
         const auto& state = fault.getMultiPhysicsState(i);
@@ -341,7 +341,7 @@ int main(int argc, char* argv[]) {
     
     // Injection parameters
     double injection_rate = getConfigDouble(config, "injection_pressure_rate", 1e6);  // 1 MPa/s pressure increase
-    double injection_radius = getConfigDouble(config, "injection_radius", 500.0);     // 500 m influence radius
+    (void)getConfigDouble(config, "injection_radius", 500.0);     // 500 m influence radius - available for future use
     double injection_center = fault_length / 2.0;  // Center of fault
     
     std::cout << "Configuration:" << std::endl;
@@ -388,20 +388,13 @@ int main(int argc, char* argv[]) {
     }
     fault->setFaultVertices(vertices);
     
-    // Initialize material properties
-    MaterialProperties mat;
-    mat.shear_modulus = shear_modulus;
-    mat.bulk_modulus = shear_modulus * 2.2;
-    mat.density = bulk_density;
-    fault->setMaterialProperties(mat);
-    
     // Set initial stress state
     DynamicFaultState initial_state;
-    initial_state.normal_stress = initial_normal_stress;
+    initial_state.effective_normal = initial_normal_stress;
     initial_state.shear_stress = initial_shear_stress;
     
     std::vector<DynamicFaultState> states(num_vertices, initial_state);
-    fault->setDynamicStates(states);
+    fault->setInitialState(states);
     
     // Initialize the fault
     fault->initialize();
