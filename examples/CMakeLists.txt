@@ -84,6 +84,9 @@ add_reservoir_example(induced_seismicity_imex induced_seismicity_imex.cpp)
 # Coulomb stress distribution from parallel faults
 add_reservoir_example(coulomb_stress_parallel_faults coulomb_stress_parallel_faults.cpp)
 
+# PyLith-style fault representation example
+add_reservoir_example(pylith_strike_slip_example pylith_strike_slip_example.cpp)
+
 # Unit converter utility
 add_reservoir_example(unit_converter unit_converter.cpp)
 
@@ -186,6 +189,10 @@ message(STATUS "  - scec_loh1.config   (layer over halfspace)")
 message(STATUS "  - scec_loh2.config   (heterogeneous layer)")
 message(STATUS "  - scec_loh3.config   (attenuation)")
 message(STATUS "  - scec_loh4.config   (multiple layers)")
+message(STATUS "")
+message(STATUS "PyLith-style fault configs:")
+message(STATUS "  - pylith_fault_kinematic.config  (prescribed slip rupture)")
+message(STATUS "  - pylith_fault_dynamic.config    (spontaneous rupture)")
 message(STATUS "")
 message(STATUS "All examples now use HDF5 output by default")
 message(STATUS "Use VTK for legacy visualization if needed")

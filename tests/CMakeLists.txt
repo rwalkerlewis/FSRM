@@ -20,6 +20,7 @@ set(UNIT_TEST_SOURCES
     # unit/test_discontinuous_galerkin.cpp  # Disabled: API mismatch
     unit/test_seismic_source.cpp
     unit/test_boundary_conditions.cpp
+    unit/test_pylith_fault.cpp
     # unit/test_plasticity_model.cpp  # Disabled: API mismatch
     # unit/test_viscoelastic_attenuation.cpp  # Disabled: API mismatch
     # unit/test_friction_laws.cpp  # Disabled: API mismatch
@@ -225,6 +226,8 @@ if(GTest_FOUND)
         COMMAND run_unit_tests --gtest_filter=*Friction*.*:*RateState*.*)
     add_test(NAME Unit.FourierNeuralOperator
         COMMAND run_unit_tests --gtest_filter=*FNO*.*:*Tensor*.*:*FFT*.*)
+    add_test(NAME Unit.PyLithFault
+        COMMAND run_unit_tests --gtest_filter=*PyLith*.*:*Cohesive*.*:*SlipTimeFn*.*)
     
     # Functional tests
     add_test(NAME Functional.SimulatorInit 
@@ -308,6 +311,7 @@ if(GTest_FOUND)
         Unit.ViscoelasticAttenuation
         Unit.FrictionLaws
         Unit.FourierNeuralOperator
+        Unit.PyLithFault
         PROPERTIES 
             TIMEOUT 60
             LABELS "unit;quick"
