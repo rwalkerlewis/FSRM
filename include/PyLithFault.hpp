@@ -968,6 +968,717 @@ double computeRuptureVelocity(double shear_wave_velocity,
 
 } // namespace FaultUtils
 
+// =============================================================================
+// Multi-Physics Fault Coupling (Poroelasticity, Thermoelasticity, THM/THMC)
+// =============================================================================
+
+/**
+ * @brief Coupling physics modes for faults
+ */
+enum class FaultCouplingMode {
+    MECHANICAL_ONLY,        // Pure mechanical (elastodynamics)
+    POROELASTIC,            // Mechanical + fluid flow (HM)
+    THERMOELASTIC,          // Mechanical + thermal (TM)
+    THERMO_HYDRO_MECHANICAL,// Full THM coupling
+    THMC                    // THM + chemical reactions
+};
+
+/**
+ * @brief Permeability tensor for fault zone
+ * 
+ * Fault zones have anisotropic permeability:
+ * - High permeability along-strike and up-dip (fault-parallel flow)
+ * - Variable permeability normal to fault (cross-fault flow)
+ * 
+ * The tensor is defined in fault-local coordinates (strike, dip, normal)
+ */
+struct FaultPermeabilityTensor {
+    // Principal permeabilities in fault-local coordinates (m²)
+    double k_strike;        // Along-strike permeability
+    double k_dip;           // Up-dip permeability
+    double k_normal;        // Cross-fault (normal) permeability
+    
+    // Off-diagonal terms (for non-aligned principal directions)
+    double k_strike_dip;    // Strike-dip coupling
+    double k_strike_normal; // Strike-normal coupling
+    double k_dip_normal;    // Dip-normal coupling
+    
+    // Reference values for stress-dependent updates
+    double k_strike_ref;
+    double k_dip_ref;
+    double k_normal_ref;
+    
+    FaultPermeabilityTensor() :
+        k_strike(1e-12), k_dip(1e-12), k_normal(1e-15),
+        k_strike_dip(0.0), k_strike_normal(0.0), k_dip_normal(0.0),
+        k_strike_ref(1e-12), k_dip_ref(1e-12), k_normal_ref(1e-15) {}
+    
+    /**
+     * @brief Get full 3x3 permeability tensor
+     */
+    std::array<double, 9> getTensor() const {
+        return {k_strike, k_strike_dip, k_strike_normal,
+                k_strike_dip, k_dip, k_dip_normal,
+                k_strike_normal, k_dip_normal, k_normal};
+    }
+    
+    /**
+     * @brief Set isotropic permeability
+     */
+    void setIsotropic(double k) {
+        k_strike = k_dip = k_normal = k;
+        k_strike_ref = k_dip_ref = k_normal_ref = k;
+        k_strike_dip = k_strike_normal = k_dip_normal = 0.0;
+    }
+    
+    /**
+     * @brief Set from principal values
+     */
+    void setPrincipal(double k_parallel, double k_perp) {
+        k_strike = k_dip = k_parallel;
+        k_normal = k_perp;
+        k_strike_ref = k_dip_ref = k_parallel;
+        k_normal_ref = k_perp;
+    }
+    
+    void configure(const std::map<std::string, std::string>& config);
+};
+
+/**
+ * @brief Hydraulic properties for fault zone
+ */
+struct FaultHydraulicProperties {
+    // Porosity (dimensionless)
+    double porosity;
+    double porosity_ref;            // Reference porosity
+    
+    // Permeability tensor
+    FaultPermeabilityTensor permeability;
+    
+    // Fault zone thickness (m)
+    double fault_thickness;
+    double damage_zone_thickness;   // Including damage zone
+    
+    // Storage properties
+    double specific_storage;        // 1/Pa
+    double fluid_compressibility;   // 1/Pa
+    double solid_compressibility;   // 1/Pa (grain compressibility)
+    
+    // Biot coefficient for fault zone
+    double biot_coefficient;
+    
+    // Fluid properties (can differ from matrix)
+    double fluid_viscosity;         // Pa·s
+    double fluid_density;           // kg/m³
+    
+    FaultHydraulicProperties() :
+        porosity(0.1), porosity_ref(0.1),
+        fault_thickness(0.01), damage_zone_thickness(10.0),
+        specific_storage(1e-9), fluid_compressibility(4.5e-10),
+        solid_compressibility(1e-11), biot_coefficient(0.9),
+        fluid_viscosity(1e-3), fluid_density(1000.0) {}
+    
+    void configure(const std::map<std::string, std::string>& config);
+};
+
+/**
+ * @brief Thermal properties for fault zone
+ */
+struct FaultThermalProperties {
+    // Thermal conductivity (W/m·K)
+    double conductivity_parallel;   // Along fault
+    double conductivity_normal;     // Across fault
+    
+    // Heat capacity
+    double specific_heat_solid;     // J/kg·K
+    double specific_heat_fluid;     // J/kg·K
+    
+    // Thermal expansion
+    double thermal_expansion_solid; // 1/K
+    double thermal_expansion_fluid; // 1/K
+    
+    // Reference temperature
+    double reference_temperature;   // K
+    
+    // Flash heating parameters (for high slip rates)
+    double weakening_temperature;   // K
+    double contact_diameter;        // m (asperity contact size)
+    double thermal_diffusivity;     // m²/s
+    
+    FaultThermalProperties() :
+        conductivity_parallel(3.0), conductivity_normal(2.0),
+        specific_heat_solid(900.0), specific_heat_fluid(4186.0),
+        thermal_expansion_solid(1e-5), thermal_expansion_fluid(3e-4),
+        reference_temperature(293.15),
+        weakening_temperature(1200.0), contact_diameter(10e-6),
+        thermal_diffusivity(1e-6) {}
+    
+    void configure(const std::map<std::string, std::string>& config);
+};
+
+/**
+ * @brief Chemical/reactive properties for fault zone (THMC)
+ */
+struct FaultChemicalProperties {
+    // Mineral composition (frite fractions)
+    double quartz_fraction;
+    double calcite_fraction;
+    double clay_fraction;
+    
+    // Dissolution/precipitation rates
+    double dissolution_rate;        // mol/m²/s
+    double precipitation_rate;      // mol/m²/s
+    
+    // Reactive surface area
+    double reactive_surface_area;   // m²/m³
+    
+    // pH and chemical environment
+    double initial_ph;
+    double co2_concentration;       // mol/L
+    
+    FaultChemicalProperties() :
+        quartz_fraction(0.6), calcite_fraction(0.2), clay_fraction(0.2),
+        dissolution_rate(1e-12), precipitation_rate(1e-13),
+        reactive_surface_area(1000.0), initial_ph(7.0),
+        co2_concentration(0.0) {}
+    
+    void configure(const std::map<std::string, std::string>& config);
+};
+
+/**
+ * @brief Physics-based property update models
+ * 
+ * These models describe how fault properties evolve during simulation
+ * based on mechanical, hydraulic, and thermal state changes.
+ */
+enum class PermeabilityUpdateModel {
+    CONSTANT,               // No update
+    SLIP_DEPENDENT,         // k = k0 * exp(α * slip)
+    DILATION_DEPENDENT,     // k = k0 * (1 + β * Δε_v)
+    STRESS_DEPENDENT,       // k = k0 * exp(-γ * σ'_n)
+    SHEAR_ENHANCED,         // k = k0 * (1 + δ * γ_xy)
+    DAMAGE_DEPENDENT,       // k = k0 * (1 - D)^(-n)
+    COMBINED                // Multiple effects
+};
+
+enum class PorosityUpdateModel {
+    CONSTANT,               // No update
+    COMPACTION,             // φ = φ0 * exp(-α * Δσ'_mean)
+    DILATION,               // φ = φ0 + β * Δε_v
+    CHEMICAL,               // Dissolution/precipitation
+    COMBINED
+};
+
+/**
+ * @brief Parameters for permeability evolution
+ */
+struct PermeabilityEvolutionParams {
+    PermeabilityUpdateModel model;
+    
+    // Slip-dependent: k = k0 * exp(slip_coeff * slip)
+    double slip_coefficient;        // 1/m
+    
+    // Dilation-dependent: k = k0 * (1 + dilation_coeff * Δε_v)
+    double dilation_coefficient;
+    
+    // Stress-dependent: k = k0 * exp(-stress_coeff * σ'_n / σ_ref)
+    double stress_coefficient;
+    double stress_reference;        // Pa
+    
+    // Shear-enhanced: k = k0 * (1 + shear_coeff * γ)
+    double shear_coefficient;
+    
+    // Damage-dependent: k = k0 * (1 - D)^(-damage_exp)
+    double damage_exponent;
+    
+    // Bounds
+    double k_min;                   // Minimum permeability (m²)
+    double k_max;                   // Maximum permeability (m²)
+    
+    // Time scales
+    double enhancement_time;        // Characteristic time for enhancement (s)
+    double recovery_time;           // Healing/recovery time (s)
+    
+    PermeabilityEvolutionParams() :
+        model(PermeabilityUpdateModel::CONSTANT),
+        slip_coefficient(10.0), dilation_coefficient(100.0),
+        stress_coefficient(0.1), stress_reference(50e6),
+        shear_coefficient(50.0), damage_exponent(3.0),
+        k_min(1e-20), k_max(1e-10),
+        enhancement_time(1.0), recovery_time(3.15e7) {}  // 1 year recovery
+    
+    void configure(const std::map<std::string, std::string>& config);
+};
+
+/**
+ * @brief Parameters for porosity evolution
+ */
+struct PorosityEvolutionParams {
+    PorosityUpdateModel model;
+    
+    // Compaction: φ = φ0 * exp(-compaction_coeff * Δσ'_mean / σ_ref)
+    double compaction_coefficient;
+    double compaction_reference;    // Pa
+    
+    // Dilation: φ = φ0 + dilation_coeff * Δε_v
+    double dilation_coefficient;
+    
+    // Chemical: dφ/dt = dissolution_rate - precipitation_rate
+    double chemical_rate;           // 1/s
+    
+    // Bounds
+    double phi_min;
+    double phi_max;
+    
+    PorosityEvolutionParams() :
+        model(PorosityUpdateModel::CONSTANT),
+        compaction_coefficient(0.01), compaction_reference(50e6),
+        dilation_coefficient(0.1), chemical_rate(1e-12),
+        phi_min(0.001), phi_max(0.5) {}
+    
+    void configure(const std::map<std::string, std::string>& config);
+};
+
+/**
+ * @brief Multi-physics state at a fault vertex
+ */
+struct FaultMultiPhysicsState {
+    // Mechanical state
+    double slip_total;              // Cumulative slip (m)
+    double slip_rate;               // Current slip rate (m/s)
+    double normal_stress;           // Total normal stress (Pa)
+    double shear_stress;            // Shear stress magnitude (Pa)
+    double volumetric_strain;       // Volumetric strain at fault
+    double shear_strain;            // Shear strain
+    
+    // Hydraulic state
+    double pore_pressure;           // Pore pressure (Pa)
+    double effective_normal_stress; // σ'_n = σ_n - p (Pa)
+    double fluid_flux_strike;       // Flow along strike (m/s)
+    double fluid_flux_dip;          // Flow up-dip (m/s)
+    double fluid_flux_normal;       // Cross-fault flow (m/s)
+    
+    // Thermal state
+    double temperature;             // Temperature (K)
+    double temperature_rise;        // Temperature change from reference (K)
+    double heat_flux_strike;        // Heat flow along strike (W/m²)
+    double heat_flux_dip;           // Heat flow up-dip (W/m²)
+    double heat_flux_normal;        // Cross-fault heat flow (W/m²)
+    double frictional_heating;      // Heat generation rate (W/m²)
+    
+    // Chemical state (THMC)
+    double ph;
+    double mineral_saturation;
+    double reaction_rate;
+    
+    // Current properties (updated by physics)
+    double current_porosity;
+    FaultPermeabilityTensor current_permeability;
+    double current_friction;
+    
+    // Damage state
+    double damage;                  // Damage parameter D ∈ [0, 1]
+    
+    FaultMultiPhysicsState() :
+        slip_total(0.0), slip_rate(0.0), normal_stress(0.0), shear_stress(0.0),
+        volumetric_strain(0.0), shear_strain(0.0),
+        pore_pressure(0.0), effective_normal_stress(0.0),
+        fluid_flux_strike(0.0), fluid_flux_dip(0.0), fluid_flux_normal(0.0),
+        temperature(293.15), temperature_rise(0.0),
+        heat_flux_strike(0.0), heat_flux_dip(0.0), heat_flux_normal(0.0),
+        frictional_heating(0.0), ph(7.0), mineral_saturation(1.0), reaction_rate(0.0),
+        current_porosity(0.1), current_friction(0.6), damage(0.0) {}
+};
+
+/**
+ * @brief Field data for hydraulic state on fault
+ */
+struct FaultHydraulicField {
+    std::vector<double> pore_pressure;           // Pa
+    std::vector<double> fluid_flux_strike;       // m/s
+    std::vector<double> fluid_flux_dip;          // m/s
+    std::vector<double> fluid_flux_normal;       // m/s
+    std::vector<double> porosity;                // Dimensionless
+    std::vector<FaultPermeabilityTensor> permeability;  // Full tensor at each vertex
+    
+    void resize(size_t n) {
+        pore_pressure.resize(n, 0.0);
+        fluid_flux_strike.resize(n, 0.0);
+        fluid_flux_dip.resize(n, 0.0);
+        fluid_flux_normal.resize(n, 0.0);
+        porosity.resize(n, 0.1);
+        permeability.resize(n);
+    }
+    
+    size_t size() const { return pore_pressure.size(); }
+};
+
+/**
+ * @brief Field data for thermal state on fault
+ */
+struct FaultThermalField {
+    std::vector<double> temperature;             // K
+    std::vector<double> heat_flux_strike;        // W/m²
+    std::vector<double> heat_flux_dip;           // W/m²
+    std::vector<double> heat_flux_normal;        // W/m²
+    std::vector<double> frictional_heating;      // W/m²
+    
+    void resize(size_t n) {
+        temperature.resize(n, 293.15);
+        heat_flux_strike.resize(n, 0.0);
+        heat_flux_dip.resize(n, 0.0);
+        heat_flux_normal.resize(n, 0.0);
+        frictional_heating.resize(n, 0.0);
+    }
+    
+    size_t size() const { return temperature.size(); }
+};
+
+/**
+ * @brief Callback interface for physics-based property updates
+ * 
+ * Users can implement this interface to provide custom physics
+ * for updating fault properties during simulation.
+ */
+class FaultPropertyUpdateCallback {
+public:
+    virtual ~FaultPropertyUpdateCallback() = default;
+    
+    /**
+     * @brief Update permeability based on current state
+     * @param state Current multi-physics state
+     * @param props Current hydraulic properties
+     * @param dt Time step
+     * @return Updated permeability tensor
+     */
+    virtual FaultPermeabilityTensor updatePermeability(
+        const FaultMultiPhysicsState& state,
+        const FaultHydraulicProperties& props,
+        double dt) = 0;
+    
+    /**
+     * @brief Update porosity based on current state
+     * @param state Current multi-physics state
+     * @param props Current hydraulic properties
+     * @param dt Time step
+     * @return Updated porosity
+     */
+    virtual double updatePorosity(
+        const FaultMultiPhysicsState& state,
+        const FaultHydraulicProperties& props,
+        double dt) = 0;
+    
+    /**
+     * @brief Update friction based on thermal/hydraulic state
+     * @param state Current multi-physics state
+     * @param base_friction Base friction coefficient
+     * @return Updated friction coefficient
+     */
+    virtual double updateFriction(
+        const FaultMultiPhysicsState& state,
+        double base_friction) = 0;
+};
+
+/**
+ * @brief Default implementation of property updates
+ */
+class DefaultFaultPropertyUpdater : public FaultPropertyUpdateCallback {
+public:
+    DefaultFaultPropertyUpdater();
+    
+    void setPermeabilityParams(const PermeabilityEvolutionParams& params) {
+        perm_params = params;
+    }
+    void setPorosityParams(const PorosityEvolutionParams& params) {
+        poro_params = params;
+    }
+    
+    FaultPermeabilityTensor updatePermeability(
+        const FaultMultiPhysicsState& state,
+        const FaultHydraulicProperties& props,
+        double dt) override;
+    
+    double updatePorosity(
+        const FaultMultiPhysicsState& state,
+        const FaultHydraulicProperties& props,
+        double dt) override;
+    
+    double updateFriction(
+        const FaultMultiPhysicsState& state,
+        double base_friction) override;
+    
+private:
+    PermeabilityEvolutionParams perm_params;
+    PorosityEvolutionParams poro_params;
+    
+    // Individual update models
+    double slipDependentPermeability(double k0, double slip) const;
+    double dilationDependentPermeability(double k0, double dilation) const;
+    double stressDependentPermeability(double k0, double sigma_n_eff) const;
+    double shearEnhancedPermeability(double k0, double shear_strain) const;
+    double damageDependentPermeability(double k0, double damage) const;
+};
+
+/**
+ * @brief Multi-physics coupled fault class
+ * 
+ * Extends FaultCohesiveDyn with full THM/THMC coupling:
+ * - Pore pressure effects on effective stress
+ * - Thermal pressurization during slip
+ * - Physics-based permeability and porosity evolution
+ * - Fluid flow along and across fault
+ * - Heat transfer and frictional heating
+ */
+class FaultCohesiveTHM : public FaultCohesiveDyn {
+public:
+    FaultCohesiveTHM();
+    
+    void configure(const std::map<std::string, std::string>& config) override;
+    
+    // Set coupling mode
+    void setCouplingMode(FaultCouplingMode mode) { coupling_mode = mode; }
+    FaultCouplingMode getCouplingMode() const { return coupling_mode; }
+    
+    // Set properties
+    void setHydraulicProperties(const FaultHydraulicProperties& props);
+    void setThermalProperties(const FaultThermalProperties& props);
+    void setChemicalProperties(const FaultChemicalProperties& props);
+    
+    // Set spatially varying properties
+    void setHydraulicField(const FaultHydraulicField& field);
+    void setThermalField(const FaultThermalField& field);
+    
+    // Set property evolution models
+    void setPermeabilityEvolution(const PermeabilityEvolutionParams& params);
+    void setPorosityEvolution(const PorosityEvolutionParams& params);
+    
+    // Set custom property updater
+    void setPropertyUpdater(std::shared_ptr<FaultPropertyUpdateCallback> updater);
+    
+    // Initialize multi-physics state
+    void initializeMultiPhysicsState();
+    
+    // Time stepping interface
+    void initialize() override;
+    void prestep(double t, double dt) override;
+    void computeResidual(const double* solution, double* residual) override;
+    void computeJacobian(const double* solution, double* jacobian) override;
+    void poststep(double t, double dt) override;
+    
+    // Coupling methods
+    /**
+     * @brief Set pore pressure field from external solver
+     */
+    void setPorePressureField(const std::vector<double>& pressure);
+    
+    /**
+     * @brief Set temperature field from external solver
+     */
+    void setTemperatureField(const std::vector<double>& temperature);
+    
+    /**
+     * @brief Get fluid source/sink terms for flow solver
+     * @return Fluid flux across fault (positive = into domain)
+     */
+    void getFluidSourceTerms(std::vector<double>& source_minus,
+                            std::vector<double>& source_plus) const;
+    
+    /**
+     * @brief Get heat source terms for thermal solver
+     * @return Heat generation rate at each vertex (W/m²)
+     */
+    void getHeatSourceTerms(std::vector<double>& heat_source) const;
+    
+    // Property access
+    const FaultHydraulicProperties& getHydraulicProperties() const { return hydraulic_props; }
+    const FaultThermalProperties& getThermalProperties() const { return thermal_props; }
+    const FaultHydraulicField& getHydraulicField() const { return hydraulic_field; }
+    const FaultThermalField& getThermalField() const { return thermal_field; }
+    
+    // Get multi-physics state at vertex
+    const FaultMultiPhysicsState& getMultiPhysicsState(size_t vertex_idx) const;
+    
+    // Get current permeability tensor at vertex
+    FaultPermeabilityTensor getPermeabilityAt(size_t vertex_idx) const;
+    
+    // Get current porosity at vertex
+    double getPorosityAt(size_t vertex_idx) const;
+    
+protected:
+    FaultCouplingMode coupling_mode;
+    
+    // Properties
+    FaultHydraulicProperties hydraulic_props;
+    FaultThermalProperties thermal_props;
+    FaultChemicalProperties chemical_props;
+    
+    // Fields
+    FaultHydraulicField hydraulic_field;
+    FaultThermalField thermal_field;
+    
+    // Multi-physics state at each vertex
+    std::vector<FaultMultiPhysicsState> mp_states;
+    
+    // Evolution parameters
+    PermeabilityEvolutionParams perm_evolution;
+    PorosityEvolutionParams poro_evolution;
+    
+    // Property updater
+    std::shared_ptr<FaultPropertyUpdateCallback> property_updater;
+    
+    // Internal methods
+    void updateEffectiveStress();
+    void updateThermalPressurization(double dt);
+    void updateFluidFlow(double dt);
+    void updateHeatTransfer(double dt);
+    void updateFaultProperties(double dt);
+    void computeFrictionalHeating();
+    
+    // Coupling residuals
+    void addPoroelasticResidual(const double* solution, double* residual);
+    void addThermalResidual(const double* solution, double* residual);
+    void addFlowResidual(const double* solution, double* residual);
+};
+
+// =============================================================================
+// Poroelastic Fault Helper Functions
+// =============================================================================
+
+namespace FaultPoroelastic {
+
+/**
+ * @brief Compute effective normal stress on fault
+ * @param total_normal Total normal stress (compression positive)
+ * @param pore_pressure Pore pressure
+ * @param biot Biot coefficient
+ * @return Effective normal stress
+ */
+inline double effectiveNormalStress(double total_normal, double pore_pressure, 
+                                    double biot = 1.0) {
+    return total_normal - biot * pore_pressure;
+}
+
+/**
+ * @brief Compute undrained pore pressure change from fault slip
+ * Based on Segall & Rice (1995) model for shear-induced dilatancy
+ * 
+ * @param shear_strain Shear strain increment
+ * @param dilatancy_coeff Dilatancy coefficient
+ * @param undrained_bulk Undrained bulk modulus
+ * @return Pore pressure change
+ */
+double undrainedPressureChange(double shear_strain, double dilatancy_coeff,
+                               double undrained_bulk);
+
+/**
+ * @brief Compute diffusion-controlled pore pressure at fault
+ * @param p0 Initial pore pressure
+ * @param p_boundary Boundary pore pressure
+ * @param hydraulic_diffusivity Hydraulic diffusivity (m²/s)
+ * @param distance Distance from boundary (m)
+ * @param time Time since perturbation (s)
+ * @return Current pore pressure
+ */
+double diffusivePressure(double p0, double p_boundary, 
+                        double hydraulic_diffusivity,
+                        double distance, double time);
+
+/**
+ * @brief Compute Skempton's coefficient for pore pressure response
+ */
+double skemptonCoefficient(double biot, double bulk_drained,
+                          double bulk_solid, double bulk_fluid,
+                          double porosity);
+
+} // namespace FaultPoroelastic
+
+// =============================================================================
+// Thermal Pressurization Functions
+// =============================================================================
+
+namespace FaultThermal {
+
+/**
+ * @brief Compute thermal pressurization during slip
+ * Based on Lachenbruch (1980) and Rice (2006)
+ * 
+ * @param slip_rate Current slip rate (m/s)
+ * @param shear_stress Current shear stress (Pa)
+ * @param fault_width Slip zone width (m)
+ * @param thermal_diff Thermal diffusivity (m²/s)
+ * @param hydraulic_diff Hydraulic diffusivity (m²/s)
+ * @param pressurization_coeff λ_f / β (Pa/K)
+ * @param dt Time step (s)
+ * @return Pore pressure change from thermal pressurization
+ */
+double thermalPressurization(double slip_rate, double shear_stress,
+                            double fault_width, double thermal_diff,
+                            double hydraulic_diff, double pressurization_coeff,
+                            double dt);
+
+/**
+ * @brief Compute frictional heat generation rate
+ * @param shear_stress Shear stress (Pa)
+ * @param slip_rate Slip rate (m/s)
+ * @return Heat generation rate (W/m²)
+ */
+inline double frictionalHeatingRate(double shear_stress, double slip_rate) {
+    return shear_stress * std::abs(slip_rate);
+}
+
+/**
+ * @brief Compute temperature rise from adiabatic heating
+ * @param shear_stress Shear stress (Pa)
+ * @param slip Cumulative slip (m)
+ * @param fault_width Slip zone width (m)
+ * @param heat_capacity Volumetric heat capacity (J/m³/K)
+ * @return Temperature rise (K)
+ */
+double adiabaticTemperatureRise(double shear_stress, double slip,
+                               double fault_width, double heat_capacity);
+
+/**
+ * @brief Compute flash temperature at asperity contacts
+ * Based on Rice (2006) flash heating model
+ */
+double flashTemperature(double slip_rate, double shear_stress,
+                       double contact_diameter, double thermal_diff,
+                       double heat_capacity, double ambient_temp);
+
+/**
+ * @brief Compute friction reduction from thermal weakening
+ */
+double thermalWeakeningFriction(double base_friction, double temperature,
+                               double weakening_temp, double residual_friction);
+
+} // namespace FaultThermal
+
+// =============================================================================
+// Factory Functions for Multi-Physics Faults
+// =============================================================================
+
+/**
+ * @brief Create THM fault from configuration
+ */
+std::unique_ptr<FaultCohesiveTHM> createFaultCohesiveTHM(
+    const std::map<std::string, std::string>& config);
+
+/**
+ * @brief Parse coupling mode from string
+ */
+FaultCouplingMode parseFaultCouplingMode(const std::string& str);
+
+/**
+ * @brief Parse permeability update model from string
+ */
+PermeabilityUpdateModel parsePermeabilityUpdateModel(const std::string& str);
+
+/**
+ * @brief Parse porosity update model from string
+ */
+PorosityUpdateModel parsePorosityUpdateModel(const std::string& str);
+
 } // namespace FSRM
 
 #endif // PYLITH_FAULT_HPP
+

@@ -1215,4 +1215,892 @@ double computeRuptureVelocity(double shear_wave_velocity,
 
 } // namespace FaultUtils
 
+// =============================================================================
+// Multi-Physics Property Configuration
+// =============================================================================
+
+void FaultPermeabilityTensor::configure(const std::map<std::string, std::string>& config) {
+    k_strike = parseDouble(config, "fault_permeability_strike", 1e-12);
+    k_dip = parseDouble(config, "fault_permeability_dip", 1e-12);
+    k_normal = parseDouble(config, "fault_permeability_normal", 1e-15);
+    k_strike_dip = parseDouble(config, "fault_permeability_strike_dip", 0.0);
+    k_strike_normal = parseDouble(config, "fault_permeability_strike_normal", 0.0);
+    k_dip_normal = parseDouble(config, "fault_permeability_dip_normal", 0.0);
+    
+    // Store reference values
+    k_strike_ref = k_strike;
+    k_dip_ref = k_dip;
+    k_normal_ref = k_normal;
+    
+    // Check for isotropic specification
+    double k_iso = parseDouble(config, "fault_permeability", -1.0);
+    if (k_iso > 0) {
+        setIsotropic(k_iso);
+    }
+    
+    // Check for principal specification
+    double k_par = parseDouble(config, "fault_permeability_parallel", -1.0);
+    double k_perp = parseDouble(config, "fault_permeability_perpendicular", -1.0);
+    if (k_par > 0 && k_perp > 0) {
+        setPrincipal(k_par, k_perp);
+    }
+}
+
+void FaultHydraulicProperties::configure(const std::map<std::string, std::string>& config) {
+    porosity = parseDouble(config, "fault_porosity", 0.1);
+    porosity_ref = porosity;
+    fault_thickness = parseDouble(config, "fault_thickness", 0.01);
+    damage_zone_thickness = parseDouble(config, "damage_zone_thickness", 10.0);
+    specific_storage = parseDouble(config, "fault_specific_storage", 1e-9);
+    fluid_compressibility = parseDouble(config, "fluid_compressibility", 4.5e-10);
+    solid_compressibility = parseDouble(config, "solid_compressibility", 1e-11);
+    biot_coefficient = parseDouble(config, "fault_biot_coefficient", 0.9);
+    fluid_viscosity = parseDouble(config, "fault_fluid_viscosity", 1e-3);
+    fluid_density = parseDouble(config, "fault_fluid_density", 1000.0);
+    
+    permeability.configure(config);
+}
+
+void FaultThermalProperties::configure(const std::map<std::string, std::string>& config) {
+    conductivity_parallel = parseDouble(config, "fault_thermal_conductivity_parallel", 3.0);
+    conductivity_normal = parseDouble(config, "fault_thermal_conductivity_normal", 2.0);
+    specific_heat_solid = parseDouble(config, "fault_specific_heat_solid", 900.0);
+    specific_heat_fluid = parseDouble(config, "fault_specific_heat_fluid", 4186.0);
+    thermal_expansion_solid = parseDouble(config, "fault_thermal_expansion_solid", 1e-5);
+    thermal_expansion_fluid = parseDouble(config, "fault_thermal_expansion_fluid", 3e-4);
+    reference_temperature = parseDouble(config, "fault_reference_temperature", 293.15);
+    weakening_temperature = parseDouble(config, "fault_weakening_temperature", 1200.0);
+    contact_diameter = parseDouble(config, "fault_contact_diameter", 10e-6);
+    thermal_diffusivity = parseDouble(config, "fault_thermal_diffusivity", 1e-6);
+}
+
+void FaultChemicalProperties::configure(const std::map<std::string, std::string>& config) {
+    quartz_fraction = parseDouble(config, "fault_quartz_fraction", 0.6);
+    calcite_fraction = parseDouble(config, "fault_calcite_fraction", 0.2);
+    clay_fraction = parseDouble(config, "fault_clay_fraction", 0.2);
+    dissolution_rate = parseDouble(config, "fault_dissolution_rate", 1e-12);
+    precipitation_rate = parseDouble(config, "fault_precipitation_rate", 1e-13);
+    reactive_surface_area = parseDouble(config, "fault_reactive_surface_area", 1000.0);
+    initial_ph = parseDouble(config, "fault_initial_ph", 7.0);
+    co2_concentration = parseDouble(config, "fault_co2_concentration", 0.0);
+}
+
+void PermeabilityEvolutionParams::configure(const std::map<std::string, std::string>& config) {
+    std::string model_str = parseString(config, "permeability_update_model", "constant");
+    model = parsePermeabilityUpdateModel(model_str);
+    
+    slip_coefficient = parseDouble(config, "permeability_slip_coefficient", 10.0);
+    dilation_coefficient = parseDouble(config, "permeability_dilation_coefficient", 100.0);
+    stress_coefficient = parseDouble(config, "permeability_stress_coefficient", 0.1);
+    stress_reference = parseDouble(config, "permeability_stress_reference", 50e6);
+    shear_coefficient = parseDouble(config, "permeability_shear_coefficient", 50.0);
+    damage_exponent = parseDouble(config, "permeability_damage_exponent", 3.0);
+    k_min = parseDouble(config, "permeability_minimum", 1e-20);
+    k_max = parseDouble(config, "permeability_maximum", 1e-10);
+    enhancement_time = parseDouble(config, "permeability_enhancement_time", 1.0);
+    recovery_time = parseDouble(config, "permeability_recovery_time", 3.15e7);
+}
+
+void PorosityEvolutionParams::configure(const std::map<std::string, std::string>& config) {
+    std::string model_str = parseString(config, "porosity_update_model", "constant");
+    model = parsePorosityUpdateModel(model_str);
+    
+    compaction_coefficient = parseDouble(config, "porosity_compaction_coefficient", 0.01);
+    compaction_reference = parseDouble(config, "porosity_compaction_reference", 50e6);
+    dilation_coefficient = parseDouble(config, "porosity_dilation_coefficient", 0.1);
+    chemical_rate = parseDouble(config, "porosity_chemical_rate", 1e-12);
+    phi_min = parseDouble(config, "porosity_minimum", 0.001);
+    phi_max = parseDouble(config, "porosity_maximum", 0.5);
+}
+
+// =============================================================================
+// DefaultFaultPropertyUpdater Implementation
+// =============================================================================
+
+DefaultFaultPropertyUpdater::DefaultFaultPropertyUpdater() {}
+
+double DefaultFaultPropertyUpdater::slipDependentPermeability(double k0, double slip) const {
+    // k = k0 * exp(alpha * slip)
+    double factor = std::exp(perm_params.slip_coefficient * slip);
+    return std::clamp(k0 * factor, perm_params.k_min, perm_params.k_max);
+}
+
+double DefaultFaultPropertyUpdater::dilationDependentPermeability(double k0, double dilation) const {
+    // k = k0 * (1 + beta * dilation)
+    // Only positive dilation (opening) enhances permeability
+    double factor = 1.0 + perm_params.dilation_coefficient * std::max(0.0, dilation);
+    return std::clamp(k0 * factor, perm_params.k_min, perm_params.k_max);
+}
+
+double DefaultFaultPropertyUpdater::stressDependentPermeability(double k0, double sigma_n_eff) const {
+    // k = k0 * exp(-gamma * sigma_n_eff / sigma_ref)
+    // Higher effective stress reduces permeability
+    double factor = std::exp(-perm_params.stress_coefficient * sigma_n_eff / perm_params.stress_reference);
+    return std::clamp(k0 * factor, perm_params.k_min, perm_params.k_max);
+}
+
+double DefaultFaultPropertyUpdater::shearEnhancedPermeability(double k0, double shear_strain) const {
+    // k = k0 * (1 + delta * |gamma|)
+    double factor = 1.0 + perm_params.shear_coefficient * std::abs(shear_strain);
+    return std::clamp(k0 * factor, perm_params.k_min, perm_params.k_max);
+}
+
+double DefaultFaultPropertyUpdater::damageDependentPermeability(double k0, double damage) const {
+    // k = k0 * (1 - D)^(-n) where D in [0, 1)
+    double clamped_damage = std::clamp(damage, 0.0, 0.999);
+    double factor = std::pow(1.0 - clamped_damage, -perm_params.damage_exponent);
+    return std::clamp(k0 * factor, perm_params.k_min, perm_params.k_max);
+}
+
+FaultPermeabilityTensor DefaultFaultPropertyUpdater::updatePermeability(
+    const FaultMultiPhysicsState& state,
+    const FaultHydraulicProperties& props,
+    double /*dt*/) {
+    
+    FaultPermeabilityTensor result = state.current_permeability;
+    
+    // Apply selected model(s)
+    double scale_factor = 1.0;
+    
+    switch (perm_params.model) {
+        case PermeabilityUpdateModel::CONSTANT:
+            // No update
+            return result;
+            
+        case PermeabilityUpdateModel::SLIP_DEPENDENT:
+            scale_factor = std::exp(perm_params.slip_coefficient * state.slip_total);
+            break;
+            
+        case PermeabilityUpdateModel::DILATION_DEPENDENT:
+            scale_factor = 1.0 + perm_params.dilation_coefficient * 
+                          std::max(0.0, state.volumetric_strain);
+            break;
+            
+        case PermeabilityUpdateModel::STRESS_DEPENDENT:
+            scale_factor = std::exp(-perm_params.stress_coefficient * 
+                          state.effective_normal_stress / perm_params.stress_reference);
+            break;
+            
+        case PermeabilityUpdateModel::SHEAR_ENHANCED:
+            scale_factor = 1.0 + perm_params.shear_coefficient * 
+                          std::abs(state.shear_strain);
+            break;
+            
+        case PermeabilityUpdateModel::DAMAGE_DEPENDENT:
+            scale_factor = std::pow(1.0 - std::clamp(state.damage, 0.0, 0.999),
+                                   -perm_params.damage_exponent);
+            break;
+            
+        case PermeabilityUpdateModel::COMBINED:
+            // Apply all effects multiplicatively
+            scale_factor *= std::exp(perm_params.slip_coefficient * state.slip_total);
+            scale_factor *= (1.0 + perm_params.dilation_coefficient * 
+                           std::max(0.0, state.volumetric_strain));
+            scale_factor *= std::exp(-perm_params.stress_coefficient * 
+                           state.effective_normal_stress / perm_params.stress_reference);
+            break;
+    }
+    
+    // Apply scale factor to all permeability components
+    result.k_strike = std::clamp(result.k_strike_ref * scale_factor, 
+                                perm_params.k_min, perm_params.k_max);
+    result.k_dip = std::clamp(result.k_dip_ref * scale_factor,
+                             perm_params.k_min, perm_params.k_max);
+    result.k_normal = std::clamp(result.k_normal_ref * scale_factor,
+                                perm_params.k_min, perm_params.k_max);
+    
+    return result;
+}
+
+double DefaultFaultPropertyUpdater::updatePorosity(
+    const FaultMultiPhysicsState& state,
+    const FaultHydraulicProperties& props,
+    double /*dt*/) {
+    
+    double phi = props.porosity_ref;
+    
+    switch (poro_params.model) {
+        case PorosityUpdateModel::CONSTANT:
+            return props.porosity;
+            
+        case PorosityUpdateModel::COMPACTION:
+            // φ = φ0 * exp(-α * Δσ'_mean / σ_ref)
+            phi *= std::exp(-poro_params.compaction_coefficient * 
+                           state.effective_normal_stress / poro_params.compaction_reference);
+            break;
+            
+        case PorosityUpdateModel::DILATION:
+            // φ = φ0 + β * Δε_v
+            phi += poro_params.dilation_coefficient * state.volumetric_strain;
+            break;
+            
+        case PorosityUpdateModel::CHEMICAL:
+            // φ changes from dissolution/precipitation
+            // This would integrate over time
+            phi += poro_params.chemical_rate * state.reaction_rate;
+            break;
+            
+        case PorosityUpdateModel::COMBINED:
+            phi *= std::exp(-poro_params.compaction_coefficient * 
+                           state.effective_normal_stress / poro_params.compaction_reference);
+            phi += poro_params.dilation_coefficient * state.volumetric_strain;
+            break;
+    }
+    
+    return std::clamp(phi, poro_params.phi_min, poro_params.phi_max);
+}
+
+double DefaultFaultPropertyUpdater::updateFriction(
+    const FaultMultiPhysicsState& state,
+    double base_friction) {
+    
+    // Thermal weakening effect
+    double T_ref = 293.15;
+    double T_weak = 1200.0;  // Typical weakening temperature
+    
+    if (state.temperature > T_ref) {
+        // Linear reduction in friction with temperature
+        double reduction = (state.temperature - T_ref) / (T_weak - T_ref);
+        reduction = std::clamp(reduction, 0.0, 0.9);  // Max 90% reduction
+        return base_friction * (1.0 - reduction);
+    }
+    
+    return base_friction;
+}
+
+// =============================================================================
+// FaultCohesiveTHM Implementation
+// =============================================================================
+
+FaultCohesiveTHM::FaultCohesiveTHM() : 
+    FaultCohesiveDyn(),
+    coupling_mode(FaultCouplingMode::MECHANICAL_ONLY) {
+    
+    property_updater = std::make_shared<DefaultFaultPropertyUpdater>();
+}
+
+void FaultCohesiveTHM::configure(const std::map<std::string, std::string>& config) {
+    // Configure base class
+    FaultCohesiveDyn::configure(config);
+    
+    // Parse coupling mode
+    std::string mode_str = parseString(config, "fault_coupling_mode", "mechanical");
+    coupling_mode = parseFaultCouplingMode(mode_str);
+    
+    // Configure multi-physics properties
+    if (coupling_mode != FaultCouplingMode::MECHANICAL_ONLY) {
+        hydraulic_props.configure(config);
+    }
+    
+    if (coupling_mode == FaultCouplingMode::THERMOELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        thermal_props.configure(config);
+    }
+    
+    if (coupling_mode == FaultCouplingMode::THMC) {
+        chemical_props.configure(config);
+    }
+    
+    // Configure property evolution
+    perm_evolution.configure(config);
+    poro_evolution.configure(config);
+    
+    // Set up the default updater with parameters
+    auto default_updater = std::dynamic_pointer_cast<DefaultFaultPropertyUpdater>(property_updater);
+    if (default_updater) {
+        default_updater->setPermeabilityParams(perm_evolution);
+        default_updater->setPorosityParams(poro_evolution);
+    }
+}
+
+void FaultCohesiveTHM::setHydraulicProperties(const FaultHydraulicProperties& props) {
+    hydraulic_props = props;
+}
+
+void FaultCohesiveTHM::setThermalProperties(const FaultThermalProperties& props) {
+    thermal_props = props;
+}
+
+void FaultCohesiveTHM::setChemicalProperties(const FaultChemicalProperties& props) {
+    chemical_props = props;
+}
+
+void FaultCohesiveTHM::setHydraulicField(const FaultHydraulicField& field) {
+    hydraulic_field = field;
+}
+
+void FaultCohesiveTHM::setThermalField(const FaultThermalField& field) {
+    thermal_field = field;
+}
+
+void FaultCohesiveTHM::setPermeabilityEvolution(const PermeabilityEvolutionParams& params) {
+    perm_evolution = params;
+    auto default_updater = std::dynamic_pointer_cast<DefaultFaultPropertyUpdater>(property_updater);
+    if (default_updater) {
+        default_updater->setPermeabilityParams(params);
+    }
+}
+
+void FaultCohesiveTHM::setPorosityEvolution(const PorosityEvolutionParams& params) {
+    poro_evolution = params;
+    auto default_updater = std::dynamic_pointer_cast<DefaultFaultPropertyUpdater>(property_updater);
+    if (default_updater) {
+        default_updater->setPorosityParams(params);
+    }
+}
+
+void FaultCohesiveTHM::setPropertyUpdater(std::shared_ptr<FaultPropertyUpdateCallback> updater) {
+    property_updater = updater;
+}
+
+void FaultCohesiveTHM::initializeMultiPhysicsState() {
+    size_t num_vertices = vertices.size();
+    mp_states.resize(num_vertices);
+    
+    // Initialize hydraulic field if needed
+    if (coupling_mode == FaultCouplingMode::POROELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        hydraulic_field.resize(num_vertices);
+        
+        // Set initial permeability from properties
+        for (size_t i = 0; i < num_vertices; ++i) {
+            hydraulic_field.porosity[i] = hydraulic_props.porosity;
+            hydraulic_field.permeability[i] = hydraulic_props.permeability;
+            mp_states[i].current_porosity = hydraulic_props.porosity;
+            mp_states[i].current_permeability = hydraulic_props.permeability;
+        }
+    }
+    
+    // Initialize thermal field if needed
+    if (coupling_mode == FaultCouplingMode::THERMOELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        thermal_field.resize(num_vertices);
+        
+        for (size_t i = 0; i < num_vertices; ++i) {
+            thermal_field.temperature[i] = thermal_props.reference_temperature;
+            mp_states[i].temperature = thermal_props.reference_temperature;
+        }
+    }
+}
+
+void FaultCohesiveTHM::initialize() {
+    // Initialize base class
+    FaultCohesiveDyn::initialize();
+    
+    // Initialize multi-physics state
+    initializeMultiPhysicsState();
+}
+
+void FaultCohesiveTHM::prestep(double t, double dt) {
+    // Call base class prestep
+    FaultCohesiveDyn::prestep(t, dt);
+    
+    // Update effective stress from pore pressure
+    if (coupling_mode != FaultCouplingMode::MECHANICAL_ONLY) {
+        updateEffectiveStress();
+    }
+    
+    // Update thermal effects
+    if (coupling_mode == FaultCouplingMode::THERMOELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        computeFrictionalHeating();
+    }
+}
+
+void FaultCohesiveTHM::computeResidual(const double* solution, double* residual) {
+    // Base mechanical residual
+    FaultCohesiveDyn::computeResidual(solution, residual);
+    
+    // Add poroelastic coupling terms
+    if (coupling_mode == FaultCouplingMode::POROELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        addPoroelasticResidual(solution, residual);
+    }
+    
+    // Add thermal coupling terms
+    if (coupling_mode == FaultCouplingMode::THERMOELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        addThermalResidual(solution, residual);
+    }
+}
+
+void FaultCohesiveTHM::computeJacobian(const double* solution, double* jacobian) {
+    // Base mechanical Jacobian
+    FaultCohesiveDyn::computeJacobian(solution, jacobian);
+    
+    // Add coupling contributions to Jacobian
+    // The coupling terms would add:
+    // - ∂R_mech/∂p (pore pressure effect on effective stress)
+    // - ∂R_flow/∂u (volume change effect on flow)
+    // - ∂R_mech/∂T (thermal stress)
+    // - ∂R_thermal/∂u (deformation effect on heat)
+    
+    // This is a placeholder - actual implementation would depend on
+    // the specific FE discretization and DOF ordering
+}
+
+void FaultCohesiveTHM::poststep(double t, double dt) {
+    // Update fault properties based on current state
+    updateFaultProperties(dt);
+    
+    // Update thermal state
+    if (coupling_mode == FaultCouplingMode::THERMOELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        updateHeatTransfer(dt);
+        updateThermalPressurization(dt);
+    }
+    
+    // Update fluid flow along fault
+    if (coupling_mode == FaultCouplingMode::POROELASTIC ||
+        coupling_mode == FaultCouplingMode::THERMO_HYDRO_MECHANICAL ||
+        coupling_mode == FaultCouplingMode::THMC) {
+        updateFluidFlow(dt);
+    }
+    
+    // Call base class poststep
+    FaultCohesiveDyn::poststep(t, dt);
+}
+
+void FaultCohesiveTHM::setPorePressureField(const std::vector<double>& pressure) {
+    if (pressure.size() != hydraulic_field.pore_pressure.size()) {
+        hydraulic_field.pore_pressure.resize(pressure.size());
+    }
+    hydraulic_field.pore_pressure = pressure;
+    
+    // Also update mp_states
+    for (size_t i = 0; i < std::min(mp_states.size(), pressure.size()); ++i) {
+        mp_states[i].pore_pressure = pressure[i];
+    }
+    
+    updateEffectiveStress();
+}
+
+void FaultCohesiveTHM::setTemperatureField(const std::vector<double>& temperature) {
+    if (temperature.size() != thermal_field.temperature.size()) {
+        thermal_field.temperature.resize(temperature.size());
+    }
+    thermal_field.temperature = temperature;
+    
+    // Also update mp_states
+    for (size_t i = 0; i < std::min(mp_states.size(), temperature.size()); ++i) {
+        mp_states[i].temperature = temperature[i];
+        mp_states[i].temperature_rise = temperature[i] - thermal_props.reference_temperature;
+    }
+}
+
+void FaultCohesiveTHM::getFluidSourceTerms(std::vector<double>& source_minus,
+                                          std::vector<double>& source_plus) const {
+    size_t n = hydraulic_field.size();
+    source_minus.resize(n, 0.0);
+    source_plus.resize(n, 0.0);
+    
+    // Fluid flux across fault (normal direction) creates source/sink
+    // for domains on either side
+    for (size_t i = 0; i < n; ++i) {
+        double flux_normal = hydraulic_field.fluid_flux_normal[i];
+        // Flux from minus side to plus side
+        source_minus[i] = -flux_normal;  // Sink for minus side
+        source_plus[i] = flux_normal;    // Source for plus side
+    }
+}
+
+void FaultCohesiveTHM::getHeatSourceTerms(std::vector<double>& heat_source) const {
+    size_t n = thermal_field.size();
+    heat_source.resize(n);
+    
+    for (size_t i = 0; i < n; ++i) {
+        heat_source[i] = thermal_field.frictional_heating[i];
+    }
+}
+
+const FaultMultiPhysicsState& FaultCohesiveTHM::getMultiPhysicsState(size_t vertex_idx) const {
+    if (vertex_idx >= mp_states.size()) {
+        static FaultMultiPhysicsState default_state;
+        return default_state;
+    }
+    return mp_states[vertex_idx];
+}
+
+FaultPermeabilityTensor FaultCohesiveTHM::getPermeabilityAt(size_t vertex_idx) const {
+    if (vertex_idx < hydraulic_field.permeability.size()) {
+        return hydraulic_field.permeability[vertex_idx];
+    }
+    return hydraulic_props.permeability;
+}
+
+double FaultCohesiveTHM::getPorosityAt(size_t vertex_idx) const {
+    if (vertex_idx < hydraulic_field.porosity.size()) {
+        return hydraulic_field.porosity[vertex_idx];
+    }
+    return hydraulic_props.porosity;
+}
+
+void FaultCohesiveTHM::updateEffectiveStress() {
+    for (size_t i = 0; i < mp_states.size(); ++i) {
+        // Get total normal stress from dynamic state
+        mp_states[i].normal_stress = dyn_states[i].normal_stress;
+        
+        // Get pore pressure
+        double p = (i < hydraulic_field.pore_pressure.size()) ? 
+                   hydraulic_field.pore_pressure[i] : 0.0;
+        mp_states[i].pore_pressure = p;
+        
+        // Compute effective normal stress
+        mp_states[i].effective_normal_stress = 
+            FaultPoroelastic::effectiveNormalStress(
+                mp_states[i].normal_stress, p, hydraulic_props.biot_coefficient);
+        
+        // Update the dynamic state effective stress for friction calculation
+        // This is how pore pressure affects the fault behavior
+        dyn_states[i].normal_stress = mp_states[i].effective_normal_stress;
+    }
+}
+
+void FaultCohesiveTHM::updateThermalPressurization(double dt) {
+    for (size_t i = 0; i < mp_states.size(); ++i) {
+        if (mp_states[i].frictional_heating > 0 && dt > 0) {
+            // Thermal pressurization coefficient
+            double lambda_f = thermal_props.thermal_expansion_fluid;
+            double beta_f = hydraulic_props.fluid_compressibility;
+            double pressurization_coeff = lambda_f / beta_f;  // Pa/K
+            
+            // Compute pore pressure change from thermal pressurization
+            double dp = FaultThermal::thermalPressurization(
+                mp_states[i].slip_rate,
+                mp_states[i].shear_stress,
+                hydraulic_props.fault_thickness,
+                thermal_props.thermal_diffusivity,
+                hydraulic_props.permeability.k_normal / (hydraulic_props.fluid_viscosity * 
+                    hydraulic_props.specific_storage),
+                pressurization_coeff,
+                dt);
+            
+            // Update pore pressure
+            if (i < hydraulic_field.pore_pressure.size()) {
+                hydraulic_field.pore_pressure[i] += dp;
+                mp_states[i].pore_pressure = hydraulic_field.pore_pressure[i];
+            }
+        }
+    }
+}
+
+void FaultCohesiveTHM::updateFluidFlow(double /*dt*/) {
+    // Compute fluid flux along fault using Darcy's law
+    // This is a simplified 1D flow along fault
+    
+    size_t n = mp_states.size();
+    if (n < 2) return;
+    
+    // For each vertex, estimate flux from pressure gradient
+    for (size_t i = 0; i < n; ++i) {
+        double dp_ds = 0.0;  // Pressure gradient along strike
+        double dp_dd = 0.0;  // Pressure gradient along dip
+        
+        // Estimate gradients (simplified finite difference)
+        // In practice, this would use actual mesh connectivity
+        if (i > 0 && i < n-1) {
+            // Central difference (simplified - assumes uniform spacing)
+            double dx = 100.0;  // Assume 100m spacing
+            dp_ds = (hydraulic_field.pore_pressure[i+1] - 
+                    hydraulic_field.pore_pressure[i-1]) / (2.0 * dx);
+        }
+        
+        // Darcy velocity: q = -k/μ * (∇p - ρg)
+        double k_s = hydraulic_field.permeability[i].k_strike;
+        double k_d = hydraulic_field.permeability[i].k_dip;
+        double mu = hydraulic_props.fluid_viscosity;
+        
+        hydraulic_field.fluid_flux_strike[i] = -k_s / mu * dp_ds;
+        hydraulic_field.fluid_flux_dip[i] = -k_d / mu * 
+            (dp_dd - hydraulic_props.fluid_density * 9.81);
+        
+        mp_states[i].fluid_flux_strike = hydraulic_field.fluid_flux_strike[i];
+        mp_states[i].fluid_flux_dip = hydraulic_field.fluid_flux_dip[i];
+    }
+}
+
+void FaultCohesiveTHM::updateHeatTransfer(double dt) {
+    // Compute temperature evolution from frictional heating and diffusion
+    
+    size_t n = mp_states.size();
+    if (n == 0) return;
+    
+    // Volumetric heat capacity
+    double rho = 2700.0;  // Rock density kg/m³
+    double cp = thermal_props.specific_heat_solid;
+    double rho_cp = rho * cp;
+    
+    for (size_t i = 0; i < n; ++i) {
+        // Adiabatic temperature rise from frictional heating
+        double dT = FaultThermal::adiabaticTemperatureRise(
+            mp_states[i].shear_stress,
+            mp_states[i].slip_rate * dt,  // slip in this time step
+            hydraulic_props.fault_thickness,
+            rho_cp);
+        
+        // Update temperature
+        if (i < thermal_field.temperature.size()) {
+            thermal_field.temperature[i] += dT;
+            mp_states[i].temperature = thermal_field.temperature[i];
+            mp_states[i].temperature_rise = 
+                thermal_field.temperature[i] - thermal_props.reference_temperature;
+        }
+    }
+}
+
+void FaultCohesiveTHM::updateFaultProperties(double dt) {
+    if (!property_updater) return;
+    
+    for (size_t i = 0; i < mp_states.size(); ++i) {
+        // Update mechanical state from dynamic state
+        mp_states[i].slip_total = dyn_states[i].slip[0];  // Total slip magnitude
+        mp_states[i].slip_rate = dyn_states[i].slip_rate[0];
+        mp_states[i].shear_stress = dyn_states[i].shear_stress;
+        
+        // Update permeability using callback
+        FaultPermeabilityTensor new_perm = property_updater->updatePermeability(
+            mp_states[i], hydraulic_props, dt);
+        
+        if (i < hydraulic_field.permeability.size()) {
+            hydraulic_field.permeability[i] = new_perm;
+        }
+        mp_states[i].current_permeability = new_perm;
+        
+        // Update porosity using callback
+        double new_phi = property_updater->updatePorosity(
+            mp_states[i], hydraulic_props, dt);
+        
+        if (i < hydraulic_field.porosity.size()) {
+            hydraulic_field.porosity[i] = new_phi;
+        }
+        mp_states[i].current_porosity = new_phi;
+        
+        // Update friction using callback (e.g., thermal weakening)
+        double base_friction = friction_model->getFriction();
+        mp_states[i].current_friction = property_updater->updateFriction(
+            mp_states[i], base_friction);
+    }
+}
+
+void FaultCohesiveTHM::computeFrictionalHeating() {
+    for (size_t i = 0; i < mp_states.size(); ++i) {
+        // Q = τ * V (heat generation rate)
+        double heating = FaultThermal::frictionalHeatingRate(
+            mp_states[i].shear_stress,
+            mp_states[i].slip_rate);
+        
+        if (i < thermal_field.frictional_heating.size()) {
+            thermal_field.frictional_heating[i] = heating;
+        }
+        mp_states[i].frictional_heating = heating;
+    }
+}
+
+void FaultCohesiveTHM::addPoroelasticResidual(const double* /*solution*/, double* /*residual*/) {
+    // Add pore pressure contribution to fault traction balance
+    // R_fault = T_cohesive - T_contact - α * p * n
+    //
+    // This modifies the normal traction by the effective stress principle
+    // The actual implementation depends on the specific DOF ordering
+    // and finite element discretization
+}
+
+void FaultCohesiveTHM::addThermalResidual(const double* /*solution*/, double* /*residual*/) {
+    // Add thermal stress contribution
+    // R_thermal = ∫ α_T * ΔT * K * ε dV
+    //
+    // For faults, this appears as:
+    // - Modified fault strength (thermal weakening)
+    // - Thermal expansion effects on fault opening
+}
+
+void FaultCohesiveTHM::addFlowResidual(const double* /*solution*/, double* /*residual*/) {
+    // Add fluid flow residual for fault
+    // R_flow = S * ∂p/∂t + ∇·q - Q
+    //
+    // For faults, we have 2D flow on fault surface plus
+    // cross-fault flow acting as source/sink
+}
+
+// =============================================================================
+// Poroelastic Helper Functions
+// =============================================================================
+
+namespace FaultPoroelastic {
+
+double undrainedPressureChange(double shear_strain, double dilatancy_coeff,
+                               double undrained_bulk) {
+    // Δp = -B * K_u * ε_v
+    // where ε_v = -dilatancy_coeff * γ (shear-induced dilatancy)
+    double eps_v = -dilatancy_coeff * std::abs(shear_strain);
+    return -undrained_bulk * eps_v;
+}
+
+double diffusivePressure(double p0, double p_boundary, 
+                        double hydraulic_diffusivity,
+                        double distance, double time) {
+    if (time <= 0 || hydraulic_diffusivity <= 0) return p0;
+    
+    // Error function solution: p = p0 + (p_b - p0) * erfc(x / sqrt(4 * D * t))
+    double arg = distance / std::sqrt(4.0 * hydraulic_diffusivity * time);
+    return p0 + (p_boundary - p0) * std::erfc(arg);
+}
+
+double skemptonCoefficient(double biot, double bulk_drained,
+                          double bulk_solid, double bulk_fluid,
+                          double porosity) {
+    // B = 1 / (1 + φ * K_d / K_f * (1 - K_d/K_s))
+    double term1 = porosity * bulk_drained / bulk_fluid;
+    double term2 = 1.0 - bulk_drained / bulk_solid;
+    return 1.0 / (1.0 + term1 * term2);
+}
+
+} // namespace FaultPoroelastic
+
+// =============================================================================
+// Thermal Functions
+// =============================================================================
+
+namespace FaultThermal {
+
+double thermalPressurization(double slip_rate, double shear_stress,
+                            double fault_width, double thermal_diff,
+                            double hydraulic_diff, double pressurization_coeff,
+                            double dt) {
+    if (slip_rate < 1e-15 || dt <= 0) return 0.0;
+    
+    // Heat generation rate
+    double Q = frictionalHeatingRate(shear_stress, slip_rate) / fault_width;
+    
+    // Pore pressure change from thermal pressurization
+    // dp/dt ≈ (λ_f / β) * (Q / ρ_c) * sqrt(π * α_th / α_hy)
+    // Simplified model assuming slip rate >> diffusion rate
+    double ratio = thermal_diff / hydraulic_diff;
+    if (ratio > 0) {
+        double dp = pressurization_coeff * Q / (2.7e6) * std::sqrt(M_PI * ratio) * dt;
+        return dp;
+    }
+    return 0.0;
+}
+
+double adiabaticTemperatureRise(double shear_stress, double slip,
+                               double fault_width, double heat_capacity) {
+    if (fault_width <= 0 || heat_capacity <= 0) return 0.0;
+    
+    // ΔT = τ * δ / (ρ * c * w)
+    // Energy per unit area = τ * δ
+    // Distributed over fault width w
+    return shear_stress * std::abs(slip) / (heat_capacity * fault_width);
+}
+
+double flashTemperature(double slip_rate, double shear_stress,
+                       double contact_diameter, double thermal_diff,
+                       double heat_capacity, double ambient_temp) {
+    if (slip_rate < 1e-15) return ambient_temp;
+    
+    // Flash temperature at asperity contacts (Rice 2006)
+    // T_flash = T_0 + (τ * V * D) / (2 * k * sqrt(π * α * D/V))
+    double k = heat_capacity * thermal_diff;  // Thermal conductivity approx
+    double contact_time = contact_diameter / slip_rate;
+    double diffusion_length = std::sqrt(thermal_diff * contact_time);
+    
+    if (diffusion_length > 0) {
+        double dT = shear_stress * slip_rate * contact_diameter / 
+                   (2.0 * k * std::sqrt(M_PI) * diffusion_length);
+        return ambient_temp + dT;
+    }
+    return ambient_temp;
+}
+
+double thermalWeakeningFriction(double base_friction, double temperature,
+                               double weakening_temp, double residual_friction) {
+    if (temperature < weakening_temp) {
+        return base_friction;
+    }
+    // Exponential weakening above threshold
+    double dT = temperature - weakening_temp;
+    double decay_scale = 100.0;  // Temperature scale for decay
+    return residual_friction + (base_friction - residual_friction) * 
+           std::exp(-dT / decay_scale);
+}
+
+} // namespace FaultThermal
+
+// =============================================================================
+// Factory Functions for Multi-Physics
+// =============================================================================
+
+std::unique_ptr<FaultCohesiveTHM> createFaultCohesiveTHM(
+    const std::map<std::string, std::string>& config) {
+    
+    auto fault = std::make_unique<FaultCohesiveTHM>();
+    fault->configure(config);
+    return fault;
+}
+
+FaultCouplingMode parseFaultCouplingMode(const std::string& str) {
+    std::string s = str;
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    
+    if (s == "mechanical" || s == "mechanical_only") {
+        return FaultCouplingMode::MECHANICAL_ONLY;
+    } else if (s == "poroelastic" || s == "hm") {
+        return FaultCouplingMode::POROELASTIC;
+    } else if (s == "thermoelastic" || s == "tm") {
+        return FaultCouplingMode::THERMOELASTIC;
+    } else if (s == "thm" || s == "thermo_hydro_mechanical") {
+        return FaultCouplingMode::THERMO_HYDRO_MECHANICAL;
+    } else if (s == "thmc") {
+        return FaultCouplingMode::THMC;
+    }
+    return FaultCouplingMode::MECHANICAL_ONLY;
+}
+
+PermeabilityUpdateModel parsePermeabilityUpdateModel(const std::string& str) {
+    std::string s = str;
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    
+    if (s == "constant" || s == "none") {
+        return PermeabilityUpdateModel::CONSTANT;
+    } else if (s == "slip" || s == "slip_dependent") {
+        return PermeabilityUpdateModel::SLIP_DEPENDENT;
+    } else if (s == "dilation" || s == "dilation_dependent") {
+        return PermeabilityUpdateModel::DILATION_DEPENDENT;
+    } else if (s == "stress" || s == "stress_dependent") {
+        return PermeabilityUpdateModel::STRESS_DEPENDENT;
+    } else if (s == "shear" || s == "shear_enhanced") {
+        return PermeabilityUpdateModel::SHEAR_ENHANCED;
+    } else if (s == "damage" || s == "damage_dependent") {
+        return PermeabilityUpdateModel::DAMAGE_DEPENDENT;
+    } else if (s == "combined" || s == "all") {
+        return PermeabilityUpdateModel::COMBINED;
+    }
+    return PermeabilityUpdateModel::CONSTANT;
+}
+
+PorosityUpdateModel parsePorosityUpdateModel(const std::string& str) {
+    std::string s = str;
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    
+    if (s == "constant" || s == "none") {
+        return PorosityUpdateModel::CONSTANT;
+    } else if (s == "compaction") {
+        return PorosityUpdateModel::COMPACTION;
+    } else if (s == "dilation") {
+        return PorosityUpdateModel::DILATION;
+    } else if (s == "chemical") {
+        return PorosityUpdateModel::CHEMICAL;
+    } else if (s == "combined" || s == "all") {
+        return PorosityUpdateModel::COMBINED;
+    }
+    return PorosityUpdateModel::CONSTANT;
+}
+
 } // namespace FSRM

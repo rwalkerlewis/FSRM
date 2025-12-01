@@ -856,6 +856,516 @@ bool test_fault_system() {
 }
 
 // =============================================================================
+// Multi-Physics (THM) Fault Tests
+// =============================================================================
+
+/**
+ * @test Test fault permeability tensor
+ */
+bool test_fault_permeability_tensor() {
+    std::cout << "Testing fault permeability tensor..." << std::endl;
+    
+    FaultPermeabilityTensor k;
+    
+    // Default values - anisotropic
+    if (k.k_strike != 1e-12 || k.k_normal != 1e-15) {
+        std::cerr << "  FAIL: Default permeability values incorrect" << std::endl;
+        return false;
+    }
+    
+    // Test isotropic setting
+    k.setIsotropic(1e-14);
+    if (k.k_strike != 1e-14 || k.k_dip != 1e-14 || k.k_normal != 1e-14) {
+        std::cerr << "  FAIL: Isotropic permeability not set correctly" << std::endl;
+        return false;
+    }
+    
+    // Test principal setting
+    k.setPrincipal(1e-13, 1e-16);
+    if (k.k_strike != 1e-13 || k.k_dip != 1e-13 || k.k_normal != 1e-16) {
+        std::cerr << "  FAIL: Principal permeability not set correctly" << std::endl;
+        return false;
+    }
+    
+    // Test tensor retrieval
+    auto tensor = k.getTensor();
+    if (tensor.size() != 9) {
+        std::cerr << "  FAIL: Tensor should be 3x3 (9 elements)" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Permeability tensor: k_parallel = " << k.k_strike 
+              << ", k_normal = " << k.k_normal << std::endl;
+    return true;
+}
+
+/**
+ * @test Test fault hydraulic properties
+ */
+bool test_fault_hydraulic_properties() {
+    std::cout << "Testing fault hydraulic properties..." << std::endl;
+    
+    FaultHydraulicProperties props;
+    
+    // Check default values
+    if (std::abs(props.porosity - 0.1) > 1e-10) {
+        std::cerr << "  FAIL: Default porosity incorrect" << std::endl;
+        return false;
+    }
+    if (std::abs(props.biot_coefficient - 0.9) > 1e-10) {
+        std::cerr << "  FAIL: Default Biot coefficient incorrect" << std::endl;
+        return false;
+    }
+    
+    // Test configuration from map
+    std::map<std::string, std::string> config;
+    config["fault_porosity"] = "0.15";
+    config["fault_biot_coefficient"] = "0.85";
+    config["fault_thickness"] = "0.05";
+    config["fault_permeability_parallel"] = "5e-13";
+    config["fault_permeability_perpendicular"] = "5e-16";
+    
+    props.configure(config);
+    
+    if (std::abs(props.porosity - 0.15) > 1e-10) {
+        std::cerr << "  FAIL: Configured porosity incorrect: " << props.porosity << std::endl;
+        return false;
+    }
+    if (std::abs(props.fault_thickness - 0.05) > 1e-10) {
+        std::cerr << "  FAIL: Configured fault thickness incorrect" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Hydraulic properties configured: φ = " << props.porosity
+              << ", w = " << props.fault_thickness << " m" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test fault thermal properties
+ */
+bool test_fault_thermal_properties() {
+    std::cout << "Testing fault thermal properties..." << std::endl;
+    
+    FaultThermalProperties props;
+    
+    // Check default reference temperature
+    if (std::abs(props.reference_temperature - 293.15) > 1e-10) {
+        std::cerr << "  FAIL: Default reference temperature incorrect" << std::endl;
+        return false;
+    }
+    
+    // Check flash heating parameters
+    if (props.weakening_temperature < 1000.0) {
+        std::cerr << "  FAIL: Weakening temperature too low" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Thermal properties: T_ref = " << props.reference_temperature 
+              << " K, T_weak = " << props.weakening_temperature << " K" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test effective stress calculation
+ */
+bool test_effective_stress() {
+    std::cout << "Testing effective stress calculation..." << std::endl;
+    
+    double sigma_n = 50e6;  // 50 MPa total normal stress
+    double p = 20e6;        // 20 MPa pore pressure
+    double biot = 1.0;
+    
+    double sigma_eff = FaultPoroelastic::effectiveNormalStress(sigma_n, p, biot);
+    double expected = 30e6;  // 30 MPa
+    
+    if (std::abs(sigma_eff - expected) > 1e-6) {
+        std::cerr << "  FAIL: Effective stress = " << sigma_eff/1e6 
+                  << " MPa, expected " << expected/1e6 << " MPa" << std::endl;
+        return false;
+    }
+    
+    // Test with Biot coefficient < 1
+    biot = 0.8;
+    sigma_eff = FaultPoroelastic::effectiveNormalStress(sigma_n, p, biot);
+    expected = sigma_n - biot * p;  // 50 - 0.8*20 = 34 MPa
+    
+    if (std::abs(sigma_eff - expected) > 1e-6) {
+        std::cerr << "  FAIL: Effective stress with Biot = " << sigma_eff/1e6 
+                  << " MPa, expected " << expected/1e6 << " MPa" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Effective stress correctly computed" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test thermal functions
+ */
+bool test_thermal_functions() {
+    std::cout << "Testing thermal functions..." << std::endl;
+    
+    // Test frictional heating
+    double tau = 10e6;    // 10 MPa shear stress
+    double V = 1.0;       // 1 m/s slip rate
+    double Q = FaultThermal::frictionalHeatingRate(tau, V);
+    double expected_Q = 10e6;  // 10 MW/m²
+    
+    if (std::abs(Q - expected_Q) > 1e-6) {
+        std::cerr << "  FAIL: Frictional heating = " << Q/1e6 
+                  << " MW/m², expected " << expected_Q/1e6 << std::endl;
+        return false;
+    }
+    
+    // Test adiabatic temperature rise
+    double slip = 0.1;    // 10 cm slip
+    double w = 0.001;     // 1 mm fault width
+    double rho_cp = 2.7e6; // Volumetric heat capacity
+    double dT = FaultThermal::adiabaticTemperatureRise(tau, slip, w, rho_cp);
+    // Expected: 10e6 * 0.1 / (2.7e6 * 0.001) = 370 K
+    double expected_dT = tau * slip / (rho_cp * w);
+    
+    if (std::abs(dT - expected_dT) > 1e-6) {
+        std::cerr << "  FAIL: Temperature rise = " << dT 
+                  << " K, expected " << expected_dT << " K" << std::endl;
+        return false;
+    }
+    
+    // Test thermal weakening
+    double f0 = 0.6;
+    double T_current = 1000.0;  // Below weakening temp
+    double T_weak = 1200.0;
+    double f_residual = 0.1;
+    
+    double f = FaultThermal::thermalWeakeningFriction(f0, T_current, T_weak, f_residual);
+    if (f != f0) {
+        std::cerr << "  FAIL: Friction below weakening temp should be unchanged" << std::endl;
+        return false;
+    }
+    
+    // Above weakening temp
+    T_current = 1300.0;
+    f = FaultThermal::thermalWeakeningFriction(f0, T_current, T_weak, f_residual);
+    if (f >= f0) {
+        std::cerr << "  FAIL: Friction above weakening temp should be reduced" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Thermal functions correct" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test permeability evolution models
+ */
+bool test_permeability_evolution() {
+    std::cout << "Testing permeability evolution..." << std::endl;
+    
+    DefaultFaultPropertyUpdater updater;
+    
+    // Test slip-dependent model
+    PermeabilityEvolutionParams params;
+    params.model = PermeabilityUpdateModel::SLIP_DEPENDENT;
+    params.slip_coefficient = 10.0;  // 1/m
+    updater.setPermeabilityParams(params);
+    
+    FaultMultiPhysicsState state;
+    state.slip_total = 0.1;  // 10 cm slip
+    state.current_permeability.setIsotropic(1e-15);
+    
+    FaultHydraulicProperties props;
+    
+    auto k_new = updater.updatePermeability(state, props, 0.001);
+    
+    // k = k0 * exp(10 * 0.1) = k0 * e = 2.72 * k0
+    double expected_factor = std::exp(10.0 * 0.1);
+    double k_expected = 1e-15 * expected_factor;
+    
+    if (std::abs(k_new.k_strike - k_expected) / k_expected > 0.01) {
+        std::cerr << "  FAIL: Slip-dependent permeability = " << k_new.k_strike 
+                  << ", expected " << k_expected << std::endl;
+        return false;
+    }
+    
+    // Test stress-dependent model
+    params.model = PermeabilityUpdateModel::STRESS_DEPENDENT;
+    params.stress_coefficient = 0.1;
+    params.stress_reference = 50e6;
+    updater.setPermeabilityParams(params);
+    
+    state.effective_normal_stress = 50e6;  // Equal to reference
+    state.current_permeability.setIsotropic(1e-15);
+    
+    k_new = updater.updatePermeability(state, props, 0.001);
+    
+    // k = k0 * exp(-0.1 * 50/50) = k0 * exp(-0.1) ≈ 0.905 * k0
+    expected_factor = std::exp(-0.1);
+    k_expected = 1e-15 * expected_factor;
+    
+    if (std::abs(k_new.k_strike - k_expected) / k_expected > 0.01) {
+        std::cerr << "  FAIL: Stress-dependent permeability = " << k_new.k_strike 
+                  << ", expected " << k_expected << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Permeability evolution models correct" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test porosity evolution models
+ */
+bool test_porosity_evolution() {
+    std::cout << "Testing porosity evolution..." << std::endl;
+    
+    DefaultFaultPropertyUpdater updater;
+    
+    // Test dilation model
+    PorosityEvolutionParams params;
+    params.model = PorosityUpdateModel::DILATION;
+    params.dilation_coefficient = 0.1;
+    updater.setPorosityParams(params);
+    
+    FaultMultiPhysicsState state;
+    state.volumetric_strain = 0.01;  // 1% dilation
+    
+    FaultHydraulicProperties props;
+    props.porosity = 0.1;
+    props.porosity_ref = 0.1;
+    
+    double phi_new = updater.updatePorosity(state, props, 0.001);
+    
+    // φ = φ0 + β * Δε_v = 0.1 + 0.1 * 0.01 = 0.101
+    double expected_phi = 0.1 + 0.1 * 0.01;
+    
+    if (std::abs(phi_new - expected_phi) > 1e-6) {
+        std::cerr << "  FAIL: Dilation porosity = " << phi_new 
+                  << ", expected " << expected_phi << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Porosity evolution models correct" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test FaultCohesiveTHM initialization
+ */
+bool test_thm_fault_initialization() {
+    std::cout << "Testing THM fault initialization..." << std::endl;
+    
+    FaultCohesiveTHM fault;
+    
+    // Configure with THM coupling
+    std::map<std::string, std::string> config;
+    config["fault_coupling_mode"] = "thm";
+    config["fault_porosity"] = "0.1";
+    config["fault_permeability"] = "1e-14";
+    config["fault_thickness"] = "0.01";
+    config["fault_reference_temperature"] = "350";
+    config["permeability_update_model"] = "slip_dependent";
+    
+    fault.configure(config);
+    
+    if (fault.getCouplingMode() != FaultCouplingMode::THERMO_HYDRO_MECHANICAL) {
+        std::cerr << "  FAIL: Coupling mode not set correctly" << std::endl;
+        return false;
+    }
+    
+    // Set up fault vertices
+    std::vector<FaultVertex> vertices(5);
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        vertices[i].vertex_id = i;
+        vertices[i].coordinates = {static_cast<double>(i) * 100.0, 0.0, 0.0};
+    }
+    fault.setFaultVertices(vertices);
+    
+    // Initialize
+    fault.initialize();
+    
+    // Check hydraulic field is initialized
+    const auto& hyd_field = fault.getHydraulicField();
+    if (hyd_field.size() != vertices.size()) {
+        std::cerr << "  FAIL: Hydraulic field size mismatch" << std::endl;
+        return false;
+    }
+    
+    // Check thermal field is initialized  
+    const auto& therm_field = fault.getThermalField();
+    if (therm_field.size() != vertices.size()) {
+        std::cerr << "  FAIL: Thermal field size mismatch" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: THM fault initialized with " << vertices.size() << " vertices" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test coupling mode parsing
+ */
+bool test_coupling_mode_parsing() {
+    std::cout << "Testing coupling mode parsing..." << std::endl;
+    
+    // Test various input strings
+    if (parseFaultCouplingMode("mechanical") != FaultCouplingMode::MECHANICAL_ONLY) {
+        std::cerr << "  FAIL: 'mechanical' not parsed correctly" << std::endl;
+        return false;
+    }
+    if (parseFaultCouplingMode("poroelastic") != FaultCouplingMode::POROELASTIC) {
+        std::cerr << "  FAIL: 'poroelastic' not parsed correctly" << std::endl;
+        return false;
+    }
+    if (parseFaultCouplingMode("hm") != FaultCouplingMode::POROELASTIC) {
+        std::cerr << "  FAIL: 'hm' not parsed correctly" << std::endl;
+        return false;
+    }
+    if (parseFaultCouplingMode("THM") != FaultCouplingMode::THERMO_HYDRO_MECHANICAL) {
+        std::cerr << "  FAIL: 'THM' not parsed correctly" << std::endl;
+        return false;
+    }
+    if (parseFaultCouplingMode("thmc") != FaultCouplingMode::THMC) {
+        std::cerr << "  FAIL: 'thmc' not parsed correctly" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: All coupling modes parsed correctly" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test custom property updater callback
+ */
+bool test_custom_property_updater() {
+    std::cout << "Testing custom property updater..." << std::endl;
+    
+    // Create a custom updater with specific behavior
+    class CustomUpdater : public FaultPropertyUpdateCallback {
+    public:
+        FaultPermeabilityTensor updatePermeability(
+            const FaultMultiPhysicsState& state,
+            const FaultHydraulicProperties& props,
+            double /*dt*/) override {
+            // Custom: double permeability for any slip
+            FaultPermeabilityTensor k = state.current_permeability;
+            if (state.slip_total > 0) {
+                k.k_strike *= 2.0;
+                k.k_dip *= 2.0;
+                k.k_normal *= 2.0;
+            }
+            return k;
+        }
+        
+        double updatePorosity(
+            const FaultMultiPhysicsState& /*state*/,
+            const FaultHydraulicProperties& props,
+            double /*dt*/) override {
+            return props.porosity;  // No change
+        }
+        
+        double updateFriction(
+            const FaultMultiPhysicsState& /*state*/,
+            double base_friction) override {
+            return base_friction * 0.9;  // 10% reduction always
+        }
+    };
+    
+    auto custom_updater = std::make_shared<CustomUpdater>();
+    
+    FaultCohesiveTHM fault;
+    fault.setPropertyUpdater(custom_updater);
+    
+    // Test the custom updater
+    FaultMultiPhysicsState state;
+    state.slip_total = 0.01;
+    state.current_permeability.setIsotropic(1e-15);
+    
+    FaultHydraulicProperties props;
+    props.porosity = 0.1;
+    
+    auto k_new = custom_updater->updatePermeability(state, props, 0.001);
+    if (std::abs(k_new.k_strike - 2e-15) > 1e-20) {
+        std::cerr << "  FAIL: Custom permeability update incorrect" << std::endl;
+        return false;
+    }
+    
+    double f = custom_updater->updateFriction(state, 0.6);
+    if (std::abs(f - 0.54) > 1e-10) {
+        std::cerr << "  FAIL: Custom friction update incorrect: " << f << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Custom property updater works correctly" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test pore pressure effects on fault
+ */
+bool test_pore_pressure_effects() {
+    std::cout << "Testing pore pressure effects on fault..." << std::endl;
+    
+    FaultCohesiveTHM fault;
+    
+    std::map<std::string, std::string> config;
+    config["fault_coupling_mode"] = "poroelastic";
+    config["fault_biot_coefficient"] = "0.9";
+    fault.configure(config);
+    
+    // Set up vertices
+    std::vector<FaultVertex> vertices(3);
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        vertices[i].vertex_id = i;
+    }
+    fault.setFaultVertices(vertices);
+    fault.initialize();
+    
+    // Set pore pressure field
+    std::vector<double> pore_pressure = {10e6, 20e6, 15e6};  // 10, 20, 15 MPa
+    fault.setPorePressureField(pore_pressure);
+    
+    // Check that pore pressure is stored
+    const auto& hyd_field = fault.getHydraulicField();
+    if (std::abs(hyd_field.pore_pressure[0] - 10e6) > 1e-6 ||
+        std::abs(hyd_field.pore_pressure[1] - 20e6) > 1e-6) {
+        std::cerr << "  FAIL: Pore pressure field not set correctly" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: Pore pressure effects correctly applied" << std::endl;
+    return true;
+}
+
+/**
+ * @test Test THM fault factory
+ */
+bool test_thm_fault_factory() {
+    std::cout << "Testing THM fault factory..." << std::endl;
+    
+    std::map<std::string, std::string> config;
+    config["fault_coupling_mode"] = "thmc";
+    config["fault_porosity"] = "0.12";
+    config["fault_permeability_strike"] = "2e-13";
+    config["permeability_update_model"] = "combined";
+    
+    auto fault = createFaultCohesiveTHM(config);
+    
+    if (!fault) {
+        std::cerr << "  FAIL: Factory returned null" << std::endl;
+        return false;
+    }
+    
+    if (fault->getCouplingMode() != FaultCouplingMode::THMC) {
+        std::cerr << "  FAIL: Factory did not set coupling mode correctly" << std::endl;
+        return false;
+    }
+    
+    std::cout << "  PASS: THM fault factory works correctly" << std::endl;
+    return true;
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -908,6 +1418,21 @@ int runPyLithFaultTests() {
     // System tests
     std::cout << "\n--- Fault System Tests ---\n" << std::endl;
     if (test_fault_system()) ++passed; else ++failed;
+    
+    // Multi-physics (THM) tests
+    std::cout << "\n--- Multi-Physics (THM) Fault Tests ---\n" << std::endl;
+    if (test_fault_permeability_tensor()) ++passed; else ++failed;
+    if (test_fault_hydraulic_properties()) ++passed; else ++failed;
+    if (test_fault_thermal_properties()) ++passed; else ++failed;
+    if (test_effective_stress()) ++passed; else ++failed;
+    if (test_thermal_functions()) ++passed; else ++failed;
+    if (test_permeability_evolution()) ++passed; else ++failed;
+    if (test_porosity_evolution()) ++passed; else ++failed;
+    if (test_thm_fault_initialization()) ++passed; else ++failed;
+    if (test_coupling_mode_parsing()) ++passed; else ++failed;
+    if (test_custom_property_updater()) ++passed; else ++failed;
+    if (test_pore_pressure_effects()) ++passed; else ++failed;
+    if (test_thm_fault_factory()) ++passed; else ++failed;
     
     std::cout << "\n========================================" << std::endl;
     std::cout << "  PyLith Fault Test Summary" << std::endl;

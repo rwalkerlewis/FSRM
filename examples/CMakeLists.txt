@@ -87,6 +87,9 @@ add_reservoir_example(coulomb_stress_parallel_faults coulomb_stress_parallel_fau
 # PyLith-style fault representation example
 add_reservoir_example(pylith_strike_slip_example pylith_strike_slip_example.cpp)
 
+# THM fault induced seismicity example
+add_reservoir_example(fault_thm_induced_seismicity fault_thm_induced_seismicity.cpp)
+
 # Unit converter utility
 add_reservoir_example(unit_converter unit_converter.cpp)
 
@@ -193,6 +196,9 @@ message(STATUS "")
 message(STATUS "PyLith-style fault configs:")
 message(STATUS "  - pylith_fault_kinematic.config  (prescribed slip rupture)")
 message(STATUS "  - pylith_fault_dynamic.config    (spontaneous rupture)")
+message(STATUS "")
+message(STATUS "THM-coupled fault configs:")
+message(STATUS "  - fault_thm_induced_seismicity.config  (induced seismicity with THM)")
 message(STATUS "")
 message(STATUS "All examples now use HDF5 output by default")
 message(STATUS "Use VTK for legacy visualization if needed")
