@@ -1751,7 +1751,7 @@ double FaultCohesiveTHM::getPorosityAt(size_t vertex_idx) const {
 void FaultCohesiveTHM::updateEffectiveStress() {
     for (size_t i = 0; i < mp_states.size(); ++i) {
         // Get total normal stress from dynamic state
-        mp_states[i].normal_stress = dynamic_states[i].normal_stress;
+        mp_states[i].normal_stress = dynamic_states[i].effective_normal;
         
         // Get pore pressure
         double p = (i < hydraulic_field.pore_pressure.size()) ? 
@@ -1765,7 +1765,7 @@ void FaultCohesiveTHM::updateEffectiveStress() {
         
         // Update the dynamic state effective stress for friction calculation
         // This is how pore pressure affects the fault behavior
-        dynamic_states[i].normal_stress = mp_states[i].effective_normal_stress;
+        dynamic_states[i].effective_normal = mp_states[i].effective_normal_stress;
     }
 }
 
@@ -1866,8 +1866,9 @@ void FaultCohesiveTHM::updateFaultProperties(double dt) {
     
     for (size_t i = 0; i < mp_states.size(); ++i) {
         // Update mechanical state from dynamic state
-        mp_states[i].slip_total = dynamic_states[i].slip[0];  // Total slip magnitude
-        mp_states[i].slip_rate = dynamic_states[i].slip_rate[0];
+        // Use state_variable as cumulative slip proxy (for slip-weakening models)
+        mp_states[i].slip_total = dynamic_states[i].state_variable;
+        mp_states[i].slip_rate = dynamic_states[i].slip_rate;
         mp_states[i].shear_stress = dynamic_states[i].shear_stress;
         
         // Update permeability using callback
