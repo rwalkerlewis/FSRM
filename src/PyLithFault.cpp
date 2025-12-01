@@ -41,6 +41,7 @@ static std::string parseString(const std::map<std::string, std::string>& config,
     return default_val;
 }
 
+[[maybe_unused]]
 static bool parseBool(const std::map<std::string, std::string>& config,
                      const std::string& key, bool default_val) {
     auto it = config.find(key);
@@ -57,6 +58,7 @@ static double dot3(const std::array<double, 3>& a, const std::array<double, 3>& 
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 }
 
+[[maybe_unused]]
 static std::array<double, 3> cross3(const std::array<double, 3>& a, 
                                     const std::array<double, 3>& b) {
     return {a[1]*b[2] - a[2]*b[1],
@@ -64,10 +66,12 @@ static std::array<double, 3> cross3(const std::array<double, 3>& a,
             a[0]*b[1] - a[1]*b[0]};
 }
 
+[[maybe_unused]]
 static double norm3(const std::array<double, 3>& v) {
     return std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
 }
 
+[[maybe_unused]]
 static void normalize3(std::array<double, 3>& v) {
     double n = norm3(v);
     if (n > 1e-15) {
@@ -471,11 +475,13 @@ void FaultCohesiveKin::configure(const std::map<std::string, std::string>& confi
     double slip_ll = parseDouble(config, "final_slip_ll", 0.0);
     double slip_rev = parseDouble(config, "final_slip_reverse", 0.0);
     double slip_open = parseDouble(config, "final_slip_opening", 0.0);
-    double slip_time = parseDouble(config, "slip_time", 0.0);
-    double rise_time = parseDouble(config, "rise_time", 1.0);
     
+    // Store uniform slip for later application in initialize()
     if (std::abs(slip_ll) > 0 || std::abs(slip_rev) > 0 || std::abs(slip_open) > 0) {
-        // Will be applied in initialize() once vertices are set
+        // Parameters stored in config, will be applied in initialize() once vertices are set
+        (void)slip_ll;  // Mark as intentionally unused here
+        (void)slip_rev;
+        (void)slip_open;
     }
 }
 
@@ -774,7 +780,7 @@ void FaultCohesiveDyn::initialize() {
     cumulative_frictional_work = 0.0;
 }
 
-void FaultCohesiveDyn::prestep(double t, double dt) {
+void FaultCohesiveDyn::prestep(double t, double /*dt*/) {
     current_time = t;
     
     // Apply traction perturbation
@@ -827,7 +833,7 @@ double FaultCohesiveDyn::computeTractionPerturbation(double t, double x, double 
     return pert_amplitude * time_factor * spatial_factor;
 }
 
-void FaultCohesiveDyn::computeResidual(const double* solution, double* residual) {
+void FaultCohesiveDyn::computeResidual(const double* solution, double* /*residual*/) {
     // For dynamic faults, the residual enforces:
     // τ = f(V, θ) × σ_n^eff  (friction constitutive equation)
     
@@ -853,7 +859,7 @@ void FaultCohesiveDyn::computeResidual(const double* solution, double* residual)
         transformToFaultCoords(du, v, slip_ll, slip_ud, slip_n);
         
         // Get traction from Lagrange multiplier if available
-        double traction_n = -state.effective_normal;  // Normal traction
+        // Normal traction used for complementarity constraints
         double traction_ll = traction_field.traction_shear_ll[i];
         double traction_ud = traction_field.traction_shear_ud[i];
         
@@ -899,7 +905,7 @@ void FaultCohesiveDyn::computeJacobian(const double* solution, double* jacobian)
     // Jacobian for friction equations - linearization of f(V, θ)
 }
 
-void FaultCohesiveDyn::poststep(double t, double dt) {
+void FaultCohesiveDyn::poststep(double /*t*/, double dt) {
     // Update friction state
     updateFrictionState(dt);
     
@@ -1178,7 +1184,7 @@ double computeStressDrop(double slip, double radius, double shear_modulus) {
 }
 
 double computeCornerFrequency(double moment, double stress_drop, 
-                             double shear_velocity, double density) {
+                             double shear_velocity, double /*density*/) {
     // Brune corner frequency: f_c = 0.49 * β * (Δσ/M0)^(1/3)
     double beta = shear_velocity;
     return 0.49 * beta * std::pow(stress_drop / moment, 1.0/3.0);
@@ -1354,7 +1360,7 @@ double DefaultFaultPropertyUpdater::damageDependentPermeability(double k0, doubl
 
 FaultPermeabilityTensor DefaultFaultPropertyUpdater::updatePermeability(
     const FaultMultiPhysicsState& state,
-    const FaultHydraulicProperties& props,
+    const FaultHydraulicProperties& /*props*/,
     double /*dt*/) {
     
     FaultPermeabilityTensor result = state.current_permeability;
@@ -1745,7 +1751,7 @@ double FaultCohesiveTHM::getPorosityAt(size_t vertex_idx) const {
 void FaultCohesiveTHM::updateEffectiveStress() {
     for (size_t i = 0; i < mp_states.size(); ++i) {
         // Get total normal stress from dynamic state
-        mp_states[i].normal_stress = dyn_states[i].normal_stress;
+        mp_states[i].normal_stress = dynamic_states[i].normal_stress;
         
         // Get pore pressure
         double p = (i < hydraulic_field.pore_pressure.size()) ? 
@@ -1759,7 +1765,7 @@ void FaultCohesiveTHM::updateEffectiveStress() {
         
         // Update the dynamic state effective stress for friction calculation
         // This is how pore pressure affects the fault behavior
-        dyn_states[i].normal_stress = mp_states[i].effective_normal_stress;
+        dynamic_states[i].normal_stress = mp_states[i].effective_normal_stress;
     }
 }
 
@@ -1860,9 +1866,9 @@ void FaultCohesiveTHM::updateFaultProperties(double dt) {
     
     for (size_t i = 0; i < mp_states.size(); ++i) {
         // Update mechanical state from dynamic state
-        mp_states[i].slip_total = dyn_states[i].slip[0];  // Total slip magnitude
-        mp_states[i].slip_rate = dyn_states[i].slip_rate[0];
-        mp_states[i].shear_stress = dyn_states[i].shear_stress;
+        mp_states[i].slip_total = dynamic_states[i].slip[0];  // Total slip magnitude
+        mp_states[i].slip_rate = dynamic_states[i].slip_rate[0];
+        mp_states[i].shear_stress = dynamic_states[i].shear_stress;
         
         // Update permeability using callback
         FaultPermeabilityTensor new_perm = property_updater->updatePermeability(
@@ -1883,7 +1889,9 @@ void FaultCohesiveTHM::updateFaultProperties(double dt) {
         mp_states[i].current_porosity = new_phi;
         
         // Update friction using callback (e.g., thermal weakening)
-        double base_friction = friction_model->getFriction();
+        // Use computeFriction with the current dynamic state
+        double base_friction = friction_model ? 
+            friction_model->computeFriction(dynamic_states[i]) : 0.6;
         mp_states[i].current_friction = property_updater->updateFriction(
             mp_states[i], base_friction);
     }
@@ -1956,10 +1964,11 @@ double diffusivePressure(double p0, double p_boundary,
 double skemptonCoefficient(double biot, double bulk_drained,
                           double bulk_solid, double bulk_fluid,
                           double porosity) {
-    // B = 1 / (1 + φ * K_d / K_f * (1 - K_d/K_s))
+    // B = α / (α + φ * (K_d / K_f) * (1 - K_d/K_s))
+    // where α is Biot coefficient
     double term1 = porosity * bulk_drained / bulk_fluid;
     double term2 = 1.0 - bulk_drained / bulk_solid;
-    return 1.0 / (1.0 + term1 * term2);
+    return biot / (biot + term1 * term2);
 }
 
 } // namespace FaultPoroelastic

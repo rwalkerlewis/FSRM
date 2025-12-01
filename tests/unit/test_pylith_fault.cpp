@@ -1177,7 +1177,7 @@ bool test_thm_fault_initialization() {
     std::vector<FaultVertex> vertices(5);
     for (size_t i = 0; i < vertices.size(); ++i) {
         vertices[i].vertex_id = i;
-        vertices[i].coordinates = {static_cast<double>(i) * 100.0, 0.0, 0.0};
+        vertices[i].coords = {static_cast<double>(i) * 100.0, 0.0, 0.0};
     }
     fault.setFaultVertices(vertices);
     
@@ -1245,7 +1245,7 @@ bool test_custom_property_updater() {
     public:
         FaultPermeabilityTensor updatePermeability(
             const FaultMultiPhysicsState& state,
-            const FaultHydraulicProperties& props,
+            const FaultHydraulicProperties& /*props*/,
             double /*dt*/) override {
             // Custom: double permeability for any slip
             FaultPermeabilityTensor k = state.current_permeability;

@@ -60,7 +60,7 @@ public:
     
     FaultPermeabilityTensor updatePermeability(
         const FaultMultiPhysicsState& state,
-        const FaultHydraulicProperties& props,
+        const FaultHydraulicProperties& /*props*/,
         double /*dt*/) override {
         
         FaultPermeabilityTensor k = state.current_permeability;
@@ -383,7 +383,7 @@ int main(int argc, char* argv[]) {
     double dx = fault_length / (num_vertices - 1);
     for (int i = 0; i < num_vertices; ++i) {
         vertices[i].vertex_id = i;
-        vertices[i].coordinates = {i * dx, 0.0, -fault_depth};
+        vertices[i].coords = {i * dx, 0.0, -fault_depth};
         vertices[i].area = dx * 1.0;  // 1 m width
     }
     fault->setFaultVertices(vertices);

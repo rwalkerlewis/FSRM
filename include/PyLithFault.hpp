@@ -811,7 +811,7 @@ public:
     double getFractureEnergy() const;
     double getRadiatedEnergy() const;
     
-private:
+protected:
     std::unique_ptr<FaultFrictionModel> friction_model;
     std::vector<DynamicFaultState> dynamic_states;
     
