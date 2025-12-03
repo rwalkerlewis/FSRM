@@ -298,12 +298,12 @@ public:
      * @brief Generate production forecast
      * 
      * @param initial_rate_oil Initial oil rate (m³/day)
-     * @param eur_oil Oil EUR (m³)
+     * @param eur_oil Oil EUR (m³) - used for calibration reference
      * @param years Forecast period
      * @return Production forecast
      */
     ProductionForecast generateForecast(double initial_rate_oil, 
-                                        double eur_oil,
+                                        double /* eur_oil */,
                                         double years) const {
         ProductionForecast forecast;
         
@@ -663,7 +663,7 @@ private:
     }
     
     double calculateIRR(const DevelopmentScenario& scenario,
-                       const ProductionForecast& forecast) {
+                       const ProductionForecast& /* forecast */) {
         // Simplified IRR - would use Newton-Raphson for accuracy
         // Start with guess based on NPV/Investment ratio
         double roi = scenario.npv / scenario.total_dc_cost;
@@ -858,7 +858,7 @@ int main(int argc, char** argv) {
     
     // Read configuration
     FSRM::ConfigReader config;
-    config.readFile(config_file);
+    config.loadFile(config_file);
     
     // Initialize models
     FSRM::WellInterferenceModel interference;
