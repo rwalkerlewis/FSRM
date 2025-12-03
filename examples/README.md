@@ -58,6 +58,14 @@ paraview output/*.vtu
 
 All example configs are in the `config/` directory:
 
+### Development Optimization Examples
+
+#### `well_spacing_optimization.config` ⭐ **FEATURED**
+- **Physics**: Well spacing + fracture placement + economic optimization
+- **Features**: Multi-well interference, stress shadowing, NPV maximization
+- **Runtime**: ~5-30 minutes
+- **Use case**: Unconventional field development, completion design optimization
+
 ### Basic Flow Examples
 
 #### `single_phase.config`
@@ -329,6 +337,58 @@ Reference: https://strike.scec.org/cvws/benchmark_descriptions.html
 | `scec_loh2.config` | Heterogeneous layer | Double-couple, Love waves | ~20 min |
 | `scec_loh3.config` | Attenuation | Viscoelastic Q, anelastic effects | ~25 min |
 | `scec_loh4.config` | Multiple layers | Crustal velocity model | ~30 min |
+
+### Optimization Examples
+
+#### `well_spacing_optimization.config` ⭐ **NEW**
+- **Physics**: Well spacing and hydraulic fracture placement optimization
+- **Features**: Multi-well interference, stress shadowing, economic NPV analysis
+- **Runtime**: ~5-30 minutes (depending on grid search resolution)
+- **Use case**: Unconventional reservoir development planning, completion optimization
+
+**Key capabilities:**
+- Grid search optimization over well spacing, stage spacing, and fracture geometry
+- Well-to-well interference modeling (pressure depletion, frac hits)
+- Inter-fracture stress shadowing effects
+- Production forecasting with decline curve analysis
+- Full economic analysis: NPV, IRR, payout, cost per BOE
+- Response surface generation for visualization
+- Sensitivity analysis and Monte Carlo uncertainty
+
+**Optimization variables:**
+- Inter-well spacing: 150-450 m (500-1500 ft)
+- Stage spacing: 30-90 m (100-300 ft)
+- Cluster spacing: 6-18 m (20-60 ft)
+- Fracture half-length: 75-225 m (250-750 ft)
+- Number of wells per drilling unit
+
+**Usage:**
+```bash
+# Full optimization
+./well_spacing_optimization -c config/well_spacing_optimization.config
+
+# Quick mode (coarser grid search)
+./well_spacing_optimization -c config/well_spacing_optimization.config -quick
+
+# Evaluate specific scenario
+./well_spacing_optimization -c config/well_spacing_optimization.config \
+    -well_spacing 250.0 -stage_spacing 50.0 -frac_length 150.0 -eval_only
+
+# Parallel execution
+mpirun -np 4 ./well_spacing_optimization -c config/well_spacing_optimization.config
+```
+
+**Output files:**
+- `optimization_summary.txt` - Human-readable results with recommendations
+- `optimization_results.csv` - All scenarios for spreadsheet analysis
+- `response_surface.dat` - Data for contour plots
+- `plot_response_surface.gp` - Gnuplot visualization script
+
+**Typical optimal ranges (Permian Basin-like):**
+- Well spacing: 200-300 m (660-1000 ft)
+- Stage spacing: 45-60 m (150-200 ft)
+- Cluster spacing: 9-15 m (30-50 ft)
+- Fracture half-length: 120-180 m (400-600 ft)
 
 ### GPU-Accelerated Examples
 

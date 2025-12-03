@@ -93,6 +93,9 @@ add_reservoir_example(fault_thm_induced_seismicity fault_thm_induced_seismicity.
 # Unit converter utility
 add_reservoir_example(unit_converter unit_converter.cpp)
 
+# Well spacing and hydraulic fracture placement optimization
+add_reservoir_example(well_spacing_optimization well_spacing_optimization.cpp)
+
 # Copy all config files to build directory
 file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*.config")
 foreach(CONFIG_FILE ${CONFIG_FILES})
@@ -199,6 +202,9 @@ message(STATUS "  - pylith_fault_dynamic.config    (spontaneous rupture)")
 message(STATUS "")
 message(STATUS "THM-coupled fault configs:")
 message(STATUS "  - fault_thm_induced_seismicity.config  (induced seismicity with THM)")
+message(STATUS "")
+message(STATUS "Optimization configs:")
+message(STATUS "  - well_spacing_optimization.config  (well spacing & frac placement)")
 message(STATUS "")
 message(STATUS "All examples now use HDF5 output by default")
 message(STATUS "Use VTK for legacy visualization if needed")
