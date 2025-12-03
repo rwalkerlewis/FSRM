@@ -48,7 +48,8 @@
 #include "WellModel.hpp"
 #include "FractureModel.hpp"
 #include "StressShadowing.hpp"
-#include "EconomicAnalysis.hpp"
+// Note: We define our own ProductionForecast locally to avoid linker issues
+// with unimplemented library constructors
 #include "ConfigReader.hpp"
 #include <iostream>
 #include <fstream>
@@ -60,6 +61,25 @@
 #include <memory>
 #include <chrono>
 #include <random>
+
+// Local production forecast structure (self-contained, no external dependencies)
+namespace WellSpacingOpt {
+
+struct ProductionForecast {
+    std::vector<double> times;          // Time points (days)
+    std::vector<double> oil_rate;       // Oil rate (m³/day)
+    std::vector<double> gas_rate;       // Gas rate (m³/day)
+    std::vector<double> water_rate;     // Water rate (m³/day)
+    std::vector<double> ngl_rate;       // NGL rate (m³/day)
+    
+    double eur_oil = 0.0;               // EUR oil (m³)
+    double eur_gas = 0.0;               // EUR gas (m³)
+    double eur_ngl = 0.0;               // EUR NGL (m³)
+    
+    ProductionForecast() = default;
+};
+
+} // namespace WellSpacingOpt
 
 static char help[] = 
     "Well Spacing and Hydraulic Fracture Placement Optimization\n"
@@ -302,10 +322,10 @@ public:
      * @param years Forecast period
      * @return Production forecast
      */
-    ProductionForecast generateForecast(double initial_rate_oil, 
+    WellSpacingOpt::ProductionForecast generateForecast(double initial_rate_oil, 
                                         double /* eur_oil */,
                                         double years) const {
-        ProductionForecast forecast;
+        WellSpacingOpt::ProductionForecast forecast;
         
         int num_points = static_cast<int>(years * 12); // Monthly
         double dt = 30.4375; // Average days per month
@@ -639,7 +659,7 @@ private:
     double frac_length_min_, frac_length_max_, frac_length_step_;
     
     double calculateNPV(const DevelopmentScenario& scenario,
-                       const ProductionForecast& forecast) {
+                       const WellSpacingOpt::ProductionForecast& forecast) {
         double npv = -scenario.total_dc_cost; // Initial investment
         
         // Monthly cash flows
@@ -663,7 +683,7 @@ private:
     }
     
     double calculateIRR(const DevelopmentScenario& scenario,
-                       const ProductionForecast& /* forecast */) {
+                       const WellSpacingOpt::ProductionForecast& /* forecast */) {
         // Simplified IRR - would use Newton-Raphson for accuracy
         // Start with guess based on NPV/Investment ratio
         double roi = scenario.npv / scenario.total_dc_cost;
@@ -671,7 +691,7 @@ private:
     }
     
     double calculatePayout(const DevelopmentScenario& scenario,
-                          const ProductionForecast& forecast) {
+                          const WellSpacingOpt::ProductionForecast& forecast) {
         double cumulative = 0.0;
         
         for (size_t i = 0; i < forecast.times.size(); ++i) {
