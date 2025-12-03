@@ -418,4 +418,4 @@ Improvements to deployment scripts are welcome! Please test thoroughly before su
 
 ## License
 
-Same as main project (MIT License)
+This project is licensed under the [MIT License](../LICENSE).
