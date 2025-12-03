@@ -4,7 +4,7 @@ This file provides context and guidelines for GitHub Copilot when working in thi
 
 ## Repository Overview
 
-FSRM (Fuck Stanford Reservoir Model) is a fully coupled, physics-based simulator for petroleum reservoirs and earth systems. It is built on PETSc for scalable parallel computing and supports GPU acceleration via CUDA/HIP.
+FSRM (Fully-coupled Subsurface Reservoir Model) is a fully coupled, physics-based simulator for petroleum reservoirs and earth systems. It is built on PETSc for scalable parallel computing and supports GPU acceleration via CUDA/HIP.
 
 ### Key Features
 - Multi-physics simulation (THM - Thermo-Hydro-Mechanical coupling)

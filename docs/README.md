@@ -94,3 +94,7 @@ FSRM supports GPU acceleration for 5-50x speedup on large problems:
 - Automatic CPU fallback
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
+
+## License
+
+FSRM is open source software licensed under the [MIT License](../LICENSE).

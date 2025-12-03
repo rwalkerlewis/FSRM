@@ -205,8 +205,7 @@ docker run -it fsrm:latest
 ```
 
 **Documentation**:
-- **Quick Start Guide**: [docs/QUICK_START_CLOUD.md](docs/QUICK_START_CLOUD.md)
-- **Comprehensive Guide**: [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md)
+- **Deployment Guide**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - **Deployment Tools**: [deploy/README.md](deploy/README.md)
 
 ## Usage
@@ -818,7 +817,7 @@ If you use FSRM in your research, please cite:
 
 ## License
 
-MIT License - see LICENSE file
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Documentation
 

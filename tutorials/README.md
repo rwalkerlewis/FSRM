@@ -207,7 +207,7 @@ Each tutorial includes hands-on exercises. Here's a summary:
 
 ## 📜 License
 
-FSRM and these tutorials are provided under the project license.
+FSRM and these tutorials are provided under the [MIT License](../LICENSE).
 
 ---
 
