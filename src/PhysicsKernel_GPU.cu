@@ -4,7 +4,7 @@
 #include "GPUKernels.cuh"
 #include <iostream>
 
-namespace ResSim {
+namespace FSRM {
 
 // ============================================================================
 // SinglePhaseFlowKernelGPU Implementation
@@ -399,6 +399,6 @@ std::shared_ptr<PhysicsKernel> createGPUKernel(PhysicsType type) {
     }
 }
 
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // USE_CUDA

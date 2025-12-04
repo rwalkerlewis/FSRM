@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 #include "EclipseIO.hpp"
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <fstream>
 #include <cstdio>
 

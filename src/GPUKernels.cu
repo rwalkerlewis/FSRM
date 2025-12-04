@@ -4,7 +4,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace ResSim {
+namespace FSRM {
 namespace GPU {
 
 // ============================================================================
@@ -496,6 +496,6 @@ __global__ void computeWaveVelocities(
 }
 
 } // namespace GPU
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // USE_CUDA

@@ -1,7 +1,7 @@
 #ifndef CONFIG_READER_HPP
 #define CONFIG_READER_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include "FluidModel.hpp"
 #include "MaterialModel.hpp"
 #include "FaultModel.hpp"

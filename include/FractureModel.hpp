@@ -1,7 +1,7 @@
 #ifndef FRACTURE_MODEL_HPP
 #define FRACTURE_MODEL_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <vector>
 #include <memory>
 

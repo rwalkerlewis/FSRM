@@ -10,6 +10,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [USER_GUIDE.md](USER_GUIDE.md) | Complete user manual |
 | [CONFIGURATION.md](CONFIGURATION.md) | Configuration file reference |
 | [PHYSICS_MODELS.md](PHYSICS_MODELS.md) | Physics and mathematical models |
+| [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) | **Unified physics kernel and GPU architecture** |
 | [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md) | Numerical approaches and algorithms |
 | [API_REFERENCE.md](API_REFERENCE.md) | C++ API documentation |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Cloud, HPC, and GPU deployment |
@@ -40,8 +41,9 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 
 ### By Topic
 - **Physics**: [PHYSICS_MODELS.md](PHYSICS_MODELS.md)
+- **Physics Kernels & GPU**: [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) ⭐
 - **Numerical Methods**: [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md)
-- **GPU Acceleration**: [DEPLOYMENT.md](DEPLOYMENT.md#gpu-deployment)
+- **GPU Deployment**: [DEPLOYMENT.md](DEPLOYMENT.md#gpu-configuration)
 - **Neural Networks**: [FOURIER_NEURAL_OPERATOR.md](FOURIER_NEURAL_OPERATOR.md)
 - **Time Integration**: [IMEX_TRANSITION.md](IMEX_TRANSITION.md)
 - **Units**: [UNIT_SYSTEM.md](UNIT_SYSTEM.md)
@@ -87,13 +89,29 @@ mpirun -np 4 fsrm -c config/my_simulation.config
 
 ### GPU Acceleration
 
-FSRM supports GPU acceleration for 5-50x speedup on large problems:
+FSRM supports GPU acceleration for 5-50× speedup on large problems:
+
+| Physics Kernel | GPU Support | Typical Speedup |
+|----------------|-------------|-----------------|
+| Single-Phase Flow | ✓ | 2-5× |
+| Elastodynamics | ✓ | 5-20× |
+| Poroelastodynamics | ✓ | 5-50× |
+| Black Oil | ✓ | 3-8× |
+| Thermal | ✓ | 2-5× |
+| Geomechanics | ✓ | 3-10× |
+| Hydrodynamic | ✓ | 10-50× |
+| Tsunami | ✓ | 10-50× |
+| Infrasound | ✓ | 5-30× |
+
+**Supported Platforms:**
 - NVIDIA CUDA (11.0+)
 - AMD ROCm/HIP (5.0+)
 - Multi-GPU with MPI
 - Automatic CPU fallback
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
+See:
+- [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) - Kernel architecture
+- [DEPLOYMENT.md](DEPLOYMENT.md#gpu-configuration) - GPU setup and configuration
 
 ## License
 

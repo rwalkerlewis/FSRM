@@ -4,7 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <chrono>
 #include <vector>
 #include <cmath>

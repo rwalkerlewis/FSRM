@@ -24,7 +24,7 @@
 #ifndef TSUNAMI_MODEL_HPP
 #define TSUNAMI_MODEL_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include "SeismicSource.hpp"
 #include "FaultModel.hpp"
 #include "CoordinateSystem.hpp"

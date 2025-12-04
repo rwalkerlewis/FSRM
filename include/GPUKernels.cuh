@@ -6,7 +6,7 @@
 #include <cuda_runtime.h>
 #include <cuda.h>
 
-namespace ResSim {
+namespace FSRM {
 namespace GPU {
 
 // Block and grid dimensions
@@ -346,7 +346,7 @@ __device__ inline void computeLameParameters(
 }
 
 } // namespace GPU
-} // namespace ResSim
+} // namespace FSRM
 
 #endif // USE_CUDA
 

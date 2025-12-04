@@ -1,4 +1,4 @@
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include "Simulator.hpp"
 #include "ConfigReader.hpp"
 #include <petsc.h>

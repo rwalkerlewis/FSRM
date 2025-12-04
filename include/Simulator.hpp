@@ -1,7 +1,7 @@
 #ifndef SIMULATOR_HPP
 #define SIMULATOR_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include "PhysicsKernel.hpp"
 #include "EclipseIO.hpp"
 #include "WellModel.hpp"

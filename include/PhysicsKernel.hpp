@@ -1,38 +1,290 @@
 #ifndef PHYSICS_KERNEL_HPP
 #define PHYSICS_KERNEL_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <petscfe.h>
+#include <functional>
 
 namespace FSRM {
 
-// Base class for all physics kernels
+// =============================================================================
+// Execution Policy System
+// =============================================================================
+// 
+// The execution policy system allows physics kernels to run on different 
+// hardware (CPU/GPU) without code changes. Each kernel can be tagged with
+// execution traits that determine how it should be dispatched.
+
+/**
+ * @brief Execution backend enumeration
+ * 
+ * Specifies where kernel computation should occur.
+ */
+enum class ExecutionBackend {
+    CPU,           ///< Standard CPU execution
+    CUDA,          ///< NVIDIA CUDA GPU execution
+    HIP,           ///< AMD ROCm/HIP GPU execution
+    SYCL,          ///< SYCL (Intel/generic GPU) execution
+    AUTOMATIC      ///< Auto-select based on availability
+};
+
+/**
+ * @brief Execution traits for physics kernels
+ * 
+ * Defines capabilities and requirements for kernel execution.
+ */
+struct ExecutionTraits {
+    bool supports_gpu = false;            ///< Kernel has GPU implementation
+    bool requires_gpu = false;            ///< Kernel must run on GPU
+    bool supports_batched = true;         ///< Can process multiple elements at once
+    bool thread_safe = true;              ///< Safe for OpenMP parallelism
+    size_t min_elements_for_gpu = 1000;   ///< Minimum elements to benefit from GPU
+    size_t preferred_block_size = 256;    ///< Preferred GPU block size
+    
+    /// Default CPU-only traits
+    static ExecutionTraits CPUOnly() {
+        return ExecutionTraits{false, false, true, true, 0, 256};
+    }
+    
+    /// GPU-accelerated traits
+    static ExecutionTraits GPUAccelerated(size_t min_elements = 1000) {
+        return ExecutionTraits{true, false, true, true, min_elements, 256};
+    }
+};
+
+/**
+ * @brief Kernel capability flags
+ * 
+ * Bit flags indicating what a kernel can compute.
+ */
+enum class KernelCapability : uint32_t {
+    NONE              = 0,
+    RESIDUAL          = 1 << 0,    ///< Can compute residual F(u)
+    JACOBIAN          = 1 << 1,    ///< Can compute Jacobian dF/du
+    BOUNDARY_INTEGRAL = 1 << 2,    ///< Can compute boundary terms
+    POINT_SOURCE      = 1 << 3,    ///< Can add point source terms
+    GPU_RESIDUAL      = 1 << 4,    ///< GPU-accelerated residual
+    GPU_JACOBIAN      = 1 << 5,    ///< GPU-accelerated Jacobian
+    GPU_MATRIX_FREE   = 1 << 6,    ///< GPU matrix-free Jacobian-vector product
+    ALL_CPU           = RESIDUAL | JACOBIAN | BOUNDARY_INTEGRAL | POINT_SOURCE,
+    ALL_GPU           = GPU_RESIDUAL | GPU_JACOBIAN | GPU_MATRIX_FREE
+};
+
+inline KernelCapability operator|(KernelCapability a, KernelCapability b) {
+    return static_cast<KernelCapability>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+inline bool hasCapability(KernelCapability caps, KernelCapability test) {
+    return (static_cast<uint32_t>(caps) & static_cast<uint32_t>(test)) != 0;
+}
+
+// =============================================================================
+// Physics Kernel Base Class
+// =============================================================================
+
+/**
+ * @brief Base class for all physics kernels
+ * 
+ * PhysicsKernel provides the abstract interface for finite element kernel 
+ * evaluation. All physics implementations (flow, mechanics, thermal, etc.)
+ * derive from this class and implement the residual and Jacobian methods.
+ * 
+ * ## Execution Model
+ * 
+ * Kernels are evaluated at quadrature points during finite element assembly.
+ * The PETSc framework calls residual() and jacobian() for each quadrature 
+ * point, providing local solution values and gradients.
+ * 
+ * ## GPU Support
+ * 
+ * GPU-accelerated kernels inherit from both PhysicsKernel and provide
+ * GPU-specific implementations. The execution policy system handles
+ * dispatch between CPU and GPU backends.
+ * 
+ * ## Thread Safety
+ * 
+ * Kernel methods must be thread-safe for OpenMP parallelization.
+ * Instance state should be read-only during residual/jacobian evaluation.
+ */
 class PhysicsKernel {
 public:
-    PhysicsKernel(PhysicsType type) : physics_type(type) {}
+    /**
+     * @brief Construct kernel with specified physics type
+     * @param type The physics type (flow, mechanics, etc.)
+     */
+    explicit PhysicsKernel(PhysicsType type) 
+        : physics_type(type), 
+          execution_traits(ExecutionTraits::CPUOnly()),
+          capabilities(KernelCapability::ALL_CPU) {}
+    
     virtual ~PhysicsKernel() = default;
     
-    // Setup kernel with PETSc
+    // =========================================================================
+    // Core Interface (must be implemented by derived classes)
+    // =========================================================================
+    
+    /**
+     * @brief Setup kernel with PETSc finite element infrastructure
+     * @param dm PETSc distributed mesh
+     * @param fe PETSc finite element space
+     * @return PETSc error code
+     */
     virtual PetscErrorCode setup(DM dm, PetscFE fe) = 0;
     
-    // Residual evaluation F(u) = 0
+    /**
+     * @brief Compute residual contribution at a quadrature point
+     * 
+     * Evaluates F(u) for the nonlinear system F(u) = 0.
+     * 
+     * @param u Solution values at quadrature point
+     * @param u_t Time derivatives of solution (for transient problems)
+     * @param u_x Spatial gradients of solution (∇u)
+     * @param a Auxiliary data (shift parameters from time integrator)
+     * @param x Physical coordinates of quadrature point
+     * @param[out] f Residual contribution (output)
+     * 
+     * @note For transient problems, the shift parameter a[0] relates the
+     *       time derivative to the solution: du/dt ≈ a[0] * (u - u_old)
+     */
     virtual void residual(const PetscScalar u[], const PetscScalar u_t[],
                          const PetscScalar u_x[], const PetscScalar a[],
                          const PetscReal x[], PetscScalar f[]) = 0;
     
-    // Jacobian evaluation dF/du
+    /**
+     * @brief Compute Jacobian contribution at a quadrature point
+     * 
+     * Evaluates dF/du for Newton iteration.
+     * 
+     * @param u Solution values at quadrature point
+     * @param u_t Time derivatives of solution
+     * @param u_x Spatial gradients of solution
+     * @param a Auxiliary data (shift = a[0])
+     * @param x Physical coordinates
+     * @param[out] J Jacobian contribution (output)
+     * 
+     * @note The Jacobian combines:
+     *       - g0: ∂f/∂u (point terms)
+     *       - g1: ∂f/∂(∇u) (flux gradient)
+     *       - g2: ∂(flux)/∂u (flux solution)
+     *       - g3: ∂(flux)/∂(∇u) (flux gradient-gradient)
+     * 
+     * @note For transient: J += a[0] * ∂f/∂(∂u/∂t) (mass matrix contribution)
+     */
     virtual void jacobian(const PetscScalar u[], const PetscScalar u_t[],
                          const PetscScalar u_x[], const PetscScalar a[],
                          const PetscReal x[], PetscScalar J[]) = 0;
     
-    // Get number of fields and components
+    /**
+     * @brief Get number of solution fields
+     * @return Number of fields (e.g., 1 for pressure, 2 for u+p, etc.)
+     */
     virtual int getNumFields() const = 0;
+    
+    /**
+     * @brief Get number of components for a field
+     * @param field Field index (0-based)
+     * @return Number of components (1 for scalar, 3 for vector in 3D)
+     */
     virtual int getNumComponents(int field) const = 0;
     
+    // =========================================================================
+    // Query Methods
+    // =========================================================================
+    
+    /// Get physics type
     PhysicsType getType() const { return physics_type; }
+    
+    /// Get physics type name as string
+    virtual const char* getTypeName() const {
+        switch (physics_type) {
+            // Core reservoir
+            case PhysicsType::FLUID_FLOW: return "FluidFlow";
+            case PhysicsType::GEOMECHANICS: return "Geomechanics";
+            case PhysicsType::THERMAL: return "Thermal";
+            case PhysicsType::PARTICLE_TRANSPORT: return "ParticleTransport";
+            case PhysicsType::FRACTURE_PROPAGATION: return "FracturePropagation";
+            case PhysicsType::TIDAL_FORCES: return "TidalForces";
+            case PhysicsType::CHEMICAL_REACTION: return "ChemicalReaction";
+            // Dynamic waves
+            case PhysicsType::ELASTODYNAMICS: return "Elastodynamics";
+            case PhysicsType::POROELASTODYNAMICS: return "Poroelastodynamics";
+            // Explosion/impact
+            case PhysicsType::EXPLOSION_SOURCE: return "ExplosionSource";
+            case PhysicsType::NEAR_FIELD_DAMAGE: return "NearFieldDamage";
+            case PhysicsType::HYDRODYNAMIC: return "Hydrodynamic";
+            case PhysicsType::CRATER_FORMATION: return "CraterFormation";
+            // Atmospheric
+            case PhysicsType::ATMOSPHERIC_BLAST: return "AtmosphericBlast";
+            case PhysicsType::ATMOSPHERIC_ACOUSTIC: return "AtmosphericAcoustic";
+            case PhysicsType::INFRASOUND: return "Infrasound";
+            case PhysicsType::THERMAL_RADIATION: return "ThermalRadiation";
+            case PhysicsType::EMP: return "ElectromagneticPulse";
+            case PhysicsType::FALLOUT: return "Fallout";
+            // Surface/water
+            case PhysicsType::TSUNAMI: return "Tsunami";
+            case PhysicsType::SURFACE_DEFORMATION: return "SurfaceDeformation";
+            default: return "Unknown";
+        }
+    }
+    
+    /// Get total degrees of freedom per point
+    virtual int getTotalDOF() const {
+        int total = 0;
+        for (int f = 0; f < getNumFields(); ++f) {
+            total += getNumComponents(f);
+        }
+        return total;
+    }
+    
+    // =========================================================================
+    // Execution Policy Methods
+    // =========================================================================
+    
+    /// Get execution traits
+    const ExecutionTraits& getExecutionTraits() const { return execution_traits; }
+    
+    /// Check if kernel supports GPU execution
+    bool supportsGPU() const { return execution_traits.supports_gpu; }
+    
+    /// Get kernel capabilities
+    KernelCapability getCapabilities() const { return capabilities; }
+    
+    /// Check if kernel has a specific capability
+    bool hasCapability(KernelCapability cap) const {
+        return FSRM::hasCapability(capabilities, cap);
+    }
+    
+    /// Get recommended minimum problem size for GPU benefit
+    size_t getMinGPUElements() const { return execution_traits.min_elements_for_gpu; }
+    
+    /// Determine best execution backend for given problem size
+    virtual ExecutionBackend selectBackend(size_t n_elements) const {
+        if (!execution_traits.supports_gpu) {
+            return ExecutionBackend::CPU;
+        }
+        if (execution_traits.requires_gpu) {
+            return ExecutionBackend::CUDA;  // Or detect available
+        }
+        if (n_elements >= execution_traits.min_elements_for_gpu) {
+            return ExecutionBackend::AUTOMATIC;  // Let runtime decide
+        }
+        return ExecutionBackend::CPU;
+    }
     
 protected:
     PhysicsType physics_type;
+    ExecutionTraits execution_traits;
+    KernelCapability capabilities;
+    
+    /// Set execution traits (for derived classes)
+    void setExecutionTraits(const ExecutionTraits& traits) {
+        execution_traits = traits;
+    }
+    
+    /// Set capabilities (for derived classes)
+    void setCapabilities(KernelCapability caps) {
+        capabilities = caps;
+    }
 };
 
 // Single phase flow kernel (Darcy flow)

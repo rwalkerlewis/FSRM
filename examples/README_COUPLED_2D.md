@@ -212,7 +212,7 @@ ex_coupled_reservoir_2d.cpp
 │   └── PPM/PNG export
 │
 ├── Physics Models (300 lines)
-│   ├── CoupledReservoirSimulator
+│   ├── CoupledFSRMulator
 │   ├── solveFlow() - Darcy equation
 │   ├── solveGeomechanics() - Subsidence
 │   └── updatePoroPermeFromGeomechanics()

@@ -1,7 +1,7 @@
 #ifndef TWO_PHASE_FLOW_HPP
 #define TWO_PHASE_FLOW_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <vector>
 #include <memory>
 #include <functional>

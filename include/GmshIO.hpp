@@ -1,7 +1,7 @@
 #ifndef GMSH_IO_HPP
 #define GMSH_IO_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <string>
 #include <vector>
 #include <map>

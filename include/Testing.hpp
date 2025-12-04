@@ -1,7 +1,7 @@
 #ifndef TESTING_HPP
 #define TESTING_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include "Simulator.hpp"
 #include <functional>
 #include <vector>
