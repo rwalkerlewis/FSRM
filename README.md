@@ -1,4 +1,4 @@
-# FSRM - F. Stanford Reservoir Model
+# FSRM - Full Service Reservoir Model
 
 A fully coupled, physics-based simulator for petroleum reservoirs and earth systems, built on PETSc for scalable parallel computing.
 
