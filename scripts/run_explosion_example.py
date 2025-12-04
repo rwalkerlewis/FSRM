@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Run Underground Explosion CRAM3D Example and Generate Visualizations
+Run Underground Explosion Near-Field Example and Generate Visualizations
 
-This script demonstrates the near-field deformation effects for underground
-explosions based on the CRAM3D methodology.
+This script demonstrates near-field deformation effects for underground
+explosions including cavity formation, damage zones, and seismic wave generation.
+
+Physical basis: NTS empirical relations, published literature
+References: CRAM3D methodology, Mueller-Murphy (1971), Terhune et al. (1977)
 
 Usage:
     python run_explosion_example.py [--yield YIELD_KT] [--depth DEPTH_M]
@@ -488,7 +491,7 @@ def create_summary_plot(yield_kt, depth, zones, save_path=None):
             fontfamily='monospace', fontsize=9,
             verticalalignment='top')
     
-    fig.suptitle(f'CRAM3D Underground Explosion Analysis: {yield_kt} kt at {depth} m', 
+    fig.suptitle(f'Underground Explosion Near-Field Analysis: {yield_kt} kt at {depth} m', 
                 fontsize=14, fontweight='bold', y=0.98)
     
     plt.tight_layout()
@@ -501,7 +504,7 @@ def create_summary_plot(yield_kt, depth, zones, save_path=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Run CRAM3D Underground Explosion Example')
+        description='Run Underground Explosion Near-Field Example')
     parser.add_argument('--yield', '-y', type=float, default=150.0,
                        dest='yield_kt', help='Yield in kilotons (default: 150)')
     parser.add_argument('--depth', '-d', type=float, default=1000.0,
@@ -518,8 +521,8 @@ def main():
     
     # Print header
     print("=" * 70)
-    print("  CRAM3D Underground Explosion Simulation")
-    print("  Near-field Damage and Seismic Wave Generation")
+    print("  Underground Explosion Near-Field Simulation")
+    print("  Damage Zones and Seismic Wave Generation")
     print("=" * 70)
     print()
     

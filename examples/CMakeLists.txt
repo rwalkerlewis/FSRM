@@ -102,8 +102,8 @@ add_reservoir_example(egs_optimization egs_optimization.cpp)
 # Tsunami modeling - Cascadia M9.0 earthquake and tsunami
 add_reservoir_example(cascadia_tsunami cascadia_tsunami.cpp)
 
-# Underground explosion with CRAM3D-style near-field damage
-add_reservoir_example(underground_explosion_cram3d underground_explosion_cram3d.cpp)
+# Underground explosion with near-field damage physics
+add_reservoir_example(underground_explosion_near_field underground_explosion_near_field.cpp)
 
 # Copy all config files to build directory
 file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*.config")
@@ -220,12 +220,13 @@ message(STATUS "Tsunami modeling configs:")
 message(STATUS "  - cascadia_m9_tsunami.config  (Cascadia M9.0 earthquake tsunami)")
 message(STATUS "  Scenarios: full_margin, southern, northern, central, worst_case")
 message(STATUS "")
-message(STATUS "Underground explosion configs (CRAM3D-style near-field):")
+message(STATUS "Underground explosion configs (near-field physics):")
 message(STATUS "  - underground_nuclear_test.config        (basic nuclear test)")
-message(STATUS "  - underground_explosion_cram3d.config    (CRAM3D near-field damage)")
+message(STATUS "  - underground_explosion_near_field.config (full near-field damage)")
 message(STATUS "  - atmospheric_nuclear_test.config        (surface/air burst)")
 message(STATUS "  - impact_event.config                    (asteroid impact)")
 message(STATUS "  Features: cavity formation, damage zones, spall, seismic source")
+message(STATUS "  References: CRAM3D methodology, NTS empirical relations")
 message(STATUS "")
 message(STATUS "All examples now use HDF5 output by default")
 message(STATUS "Use VTK for legacy visualization if needed")

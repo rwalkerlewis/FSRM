@@ -1,15 +1,18 @@
 /**
  * @file NearFieldExplosion.hpp
- * @brief CRAM3D-style near-field explosion physics for underground detonations
+ * @brief Near-field explosion physics for underground detonations
  * 
- * Implements comprehensive near-field effects for underground explosions based on
- * the CRAM3D methodology (Computational Rock Analysis Model - 3D):
+ * Implements comprehensive near-field effects for underground explosions including
+ * cavity formation, damage zones, shock wave propagation, and seismic source generation.
  * 
- * References:
- * - CRAM3D Code: https://apps.dtic.mil/sti/tr/pdf/AD1064154.pdf
+ * Physical basis and references:
+ * - CRAM3D methodology: https://apps.dtic.mil/sti/tr/pdf/AD1064154.pdf
  * - Rimer & Cherry (1982) - Nuclear test phenomenology
- * - Terhune et al. (1977) - Near-field effects
+ * - Terhune et al. (1977) - Near-field ground motion from underground explosions
+ * - Mueller & Murphy (1971) - Seismic characteristics of underground nuclear detonations
  * - Rodean (1971) - Nuclear explosion seismology
+ * - Glasstone & Dolan (1977) - Effects of nuclear weapons
+ * - NTS empirical scaling relations
  * 
  * Key Physics:
  * 1. Shock wave propagation with Mie-Grüneisen EOS

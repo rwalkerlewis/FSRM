@@ -1,10 +1,16 @@
 /**
- * @file underground_explosion_cram3d.cpp
- * @brief Comprehensive underground explosion example with CRAM3D-style near-field effects
+ * @file underground_explosion_near_field.cpp
+ * @brief Comprehensive underground explosion example with near-field deformation effects
  * 
  * This example demonstrates near-field deformation modeling for underground explosions,
- * implementing physics from the CRAM3D (Computational Rock Analysis Model - 3D) code:
- * https://apps.dtic.mil/sti/tr/pdf/AD1064154.pdf
+ * implementing physics for cavity formation, damage zones, and seismic wave generation.
+ * 
+ * Physical basis and references:
+ * - CRAM3D methodology: https://apps.dtic.mil/sti/tr/pdf/AD1064154.pdf
+ * - Rimer & Cherry (1982) - Nuclear test phenomenology
+ * - Terhune et al. (1977) - Near-field ground motion
+ * - Mueller & Murphy (1971) - Seismic source model
+ * - Rodean (1971) - Nuclear explosion seismology
  * 
  * Features:
  * 1. Near-field damage zones (crushed, fractured, disturbed)
@@ -19,12 +25,12 @@
  * Based on Nevada Test Site empirical relations and theoretical models.
  * 
  * Usage:
- *   ./underground_explosion_cram3d [config_file] [yield_kt]
+ *   ./underground_explosion_near_field [config_file] [yield_kt]
  * 
  * Examples:
- *   ./underground_explosion_cram3d                           # Default 100 kt
- *   ./underground_explosion_cram3d config.txt                # With config
- *   ./underground_explosion_cram3d "" 150                    # 150 kt yield
+ *   ./underground_explosion_near_field                        # Default 100 kt
+ *   ./underground_explosion_near_field config.txt             # With config
+ *   ./underground_explosion_near_field "" 150                 # 150 kt yield
  */
 
 #include "NearFieldExplosion.hpp"
@@ -432,14 +438,16 @@ int main(int argc, char* argv[]) {
     
     // Print header
     printSeparator('=');
-    std::cout << "  CRAM3D-Style Underground Explosion Near-Field Simulation\n";
-    std::cout << "  =========================================================\n";
+    std::cout << "  Underground Explosion Near-Field Deformation Simulation\n";
+    std::cout << "  ========================================================\n";
     std::cout << "  Near-field damage modeling with:\n";
     std::cout << "    - Cavity formation and expansion\n";
     std::cout << "    - Crushed, fractured, and damaged zones\n";
     std::cout << "    - Shock wave attenuation\n";
     std::cout << "    - Material damage evolution\n";
     std::cout << "    - Seismic source generation (RDP model)\n";
+    std::cout << "\n";
+    std::cout << "  Based on NTS empirical relations and published models.\n";
     printSeparator('=');
     std::cout << std::endl;
     
@@ -652,7 +660,7 @@ int main(int argc, char* argv[]) {
     // ==========================================================================
     // Output Files
     // ==========================================================================
-    std::string base_name = "explosion_cram3d";
+    std::string base_name = "explosion_near_field";
     
     std::cout << "Writing output files...\n";
     printSeparator('-', 40);
