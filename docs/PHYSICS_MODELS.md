@@ -2,6 +2,8 @@
 
 Mathematical formulations and theory behind FSRM physics models.
 
+> **See Also:** For GPU acceleration details, see [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md)
+
 ---
 
 ## Table of Contents
@@ -14,6 +16,7 @@ Mathematical formulations and theory behind FSRM physics models.
 6. [Fault Mechanics](#fault-mechanics)
 7. [Wave Propagation](#wave-propagation)
 8. [Coupled Physics](#coupled-physics)
+9. [GPU Acceleration](#gpu-acceleration)
 
 ---
 
@@ -422,6 +425,86 @@ Quasi-static stress changes from injection → fault stress analysis → rate-st
 
 ---
 
+## GPU Acceleration
+
+All physics kernels in FSRM are designed with GPU acceleration in mind. The execution policy system allows kernels to run on CPU or GPU transparently.
+
+### GPU-Accelerated Physics
+
+| Physics Model | GPU Support | Typical Speedup | Notes |
+|---------------|-------------|-----------------|-------|
+| Single-Phase Flow | ✓ Full | 2-5× | Accumulation + Darcy flux |
+| Black Oil | Planned | 3-8× | PVT + relative perm |
+| Compositional | Planned | 5-15× | Flash calculations |
+| Linear Elasticity | Planned | 3-10× | Stress-strain |
+| Elastodynamics | ✓ Full | 5-20× | Wave propagation |
+| Poroelastodynamics | ✓ Full | 5-50× | Coupled fluid-solid waves |
+| Thermal | Planned | 2-5× | Heat conduction |
+| Particle Transport | Planned | 3-8× | Advection-diffusion |
+
+### Execution Policy
+
+Kernels automatically select the best execution backend:
+
+```cpp
+// Kernel selects GPU for large problems
+ExecutionBackend backend = kernel->selectBackend(n_elements);
+
+// Manual selection
+if (config.gpu_mode == GPUExecutionMode::GPU_ONLY) {
+    // Force GPU execution
+}
+```
+
+### GPU Configuration
+
+```ini
+[SIMULATION]
+use_gpu = true
+gpu_mode = CPU_FALLBACK    # AUTO, GPU_ONLY, CPU_FALLBACK
+gpu_device_id = 0
+```
+
+### Performance Considerations
+
+1. **Problem size matters**: GPU acceleration benefits increase with problem size
+2. **Data locality**: Minimize CPU-GPU transfers between timesteps
+3. **Batched operations**: GPU kernels process all elements simultaneously
+4. **Memory**: GPU memory limits may constrain very large problems
+
+For detailed GPU architecture information, see [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md).
+
+---
+
+## Numerical Methods
+
+### Spatial Discretization
+
+- Finite element (FEM) for mechanics
+- Finite volume (FVM) for flow
+- DMPlex for all mesh types (structured and unstructured)
+
+### Time Integration
+
+- Implicit Euler for stability
+- Adaptive timestepping based on:
+  - Newton convergence
+  - CFL condition (dynamics)
+  - Error estimates
+
+### Nonlinear Solvers
+
+- Newton-Raphson (SNES)
+- Line search / trust region
+- Jacobian-free Newton-Krylov (JFNK)
+
+### Linear Solvers
+
+- Krylov methods: GMRES, CG, BiCGStab
+- Preconditioners: ILU, ASM, AMG (Hypre)
+
+---
+
 ## References
 
 1. Biot, M.A. (1941). General theory of three-dimensional consolidation.
@@ -429,3 +512,5 @@ Quasi-static stress changes from injection → fault stress analysis → rate-st
 3. Standing, M.B. (1947). A pressure-volume-temperature correlation for mixtures of California oils and gases.
 4. Peng, D.Y. & Robinson, D.B. (1976). A new two-constant equation of state.
 5. Thomsen, L. (1986). Weak elastic anisotropy.
+6. Hughes, T.J.R. (2000). The Finite Element Method.
+7. NVIDIA CUDA Programming Guide.

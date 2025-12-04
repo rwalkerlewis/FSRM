@@ -395,51 +395,174 @@ mpirun -np 128 ./fsrm -c simulation.config
 
 ## GPU Configuration
 
-### Build with CUDA
+> **Architecture Details:** See [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) for comprehensive GPU physics kernel documentation.
+
+### Build with CUDA (NVIDIA GPUs)
 
 ```bash
 cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_CUDA=ON \
-  -DCMAKE_CUDA_ARCHITECTURES="70;80;86"
+  -DCMAKE_CUDA_ARCHITECTURES="70;80;86;90"
 
 make -j$(nproc)
 ```
 
-### Build with ROCm/HIP
+**Supported CUDA Architectures:**
+
+| Architecture | GPUs | Compute Capability |
+|--------------|------|-------------------|
+| `70` | V100 | 7.0 |
+| `80` | A100 | 8.0 |
+| `86` | RTX 30xx | 8.6 |
+| `89` | RTX 40xx | 8.9 |
+| `90` | H100 | 9.0 |
+
+### Build with ROCm/HIP (AMD GPUs)
 
 ```bash
 cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_HIP=ON \
-  -DCMAKE_HIP_ARCHITECTURES="gfx908;gfx90a"
+  -DCMAKE_HIP_ARCHITECTURES="gfx908;gfx90a;gfx942"
 
 make -j$(nproc)
 ```
+
+**Supported AMD Architectures:**
+
+| Architecture | GPUs |
+|--------------|------|
+| `gfx908` | MI100 |
+| `gfx90a` | MI210/MI250 |
+| `gfx942` | MI300 |
+
+### GPU Execution Modes
+
+FSRM supports four GPU execution modes:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `CPU_ONLY` | Run entirely on CPU | Testing, small problems |
+| `GPU_ONLY` | Run entirely on GPU | Large problems, dedicated GPU |
+| `CPU_FALLBACK` | Try GPU, fallback to CPU | Production (default) |
+| `HYBRID` | Load balance CPU+GPU | Multi-GPU + CPU systems |
 
 ### Configuration for GPU
 
 ```ini
 [SIMULATION]
+# Enable GPU acceleration
 use_gpu = true
-gpu_mode = AUTO          # AUTO, GPU_ONLY, CPU_FALLBACK
-gpu_device_id = 0
-gpu_memory_fraction = 0.8
+gpu_mode = CPU_FALLBACK       # AUTO, GPU_ONLY, CPU_FALLBACK, HYBRID
+gpu_device_id = 0             # GPU device to use (0 = first GPU)
+gpu_memory_fraction = 0.8     # Fraction of GPU memory to use
+gpu_verbose = false           # Print GPU info at startup
+
+# GPU solver options
+use_gpu_preconditioner = true
+use_gpu_matrix_assembly = true
+pin_host_memory = true        # Faster CPU-GPU transfers
+
+# Physics-specific GPU options
+enable_elastodynamics = true
+enable_poroelastodynamics = false
 ```
+
+### GPU-Accelerated Physics Kernels
+
+| Kernel | Status | Speedup | Min Elements |
+|--------|--------|---------|--------------|
+| Single-Phase Flow | ✓ Available | 2-5× | 1,000 |
+| Elastodynamics | ✓ Available | 5-20× | 1,000 |
+| Poroelastodynamics | ✓ Available | 5-50× | 1,000 |
+| Black Oil | Planned | 3-8× | — |
+| Compositional | Planned | 5-15× | — |
+| Thermal | Planned | 2-5× | — |
 
 ### Multi-GPU Setup
 
 ```bash
-# One MPI rank per GPU
+# One MPI rank per GPU (recommended)
 mpirun -np 4 ./fsrm -c config.config
+
+# Query GPU mapping
+nvidia-smi -L  # List available GPUs
+```
+
+**MPI-GPU Binding:**
+```bash
+# Explicit GPU assignment per rank
+mpirun -np 4 --bind-to numa \
+  --map-by ppr:1:numa \
+  ./fsrm -c config.config
+```
+
+### GPU Memory Estimation
+
+```
+GPU Memory (bytes) ≈ n_cells × bytes_per_cell × factor
+
+Bytes per cell by physics:
+- Single-phase flow:    ~100 bytes
+- Elastodynamics:       ~300 bytes (displacement, velocity, strain, stress)
+- Poroelastodynamics:   ~500 bytes (solid + fluid arrays)
+- Black oil:            ~400 bytes (three phases + properties)
+
+Factor: 1.5-2.0 for working memory
+
+Example: 1M cells with poroelastodynamics
+  1,000,000 × 500 × 2.0 = 1 GB GPU memory required
 ```
 
 ### GPU Performance Tips
 
-1. **Large grids benefit most**: Use grids > 100×100×100
-2. **Batch operations**: GPU kernels amortize launch overhead
-3. **Memory management**: Avoid frequent CPU-GPU transfers
-4. **Mixed precision**: Enable for 2× speedup on Tensor Cores
+1. **Large grids benefit most**: Use grids > 100K cells for significant speedup
+2. **Keep data on GPU**: Minimize CPU-GPU transfers between timesteps
+3. **Batch operations**: GPU kernels process all elements simultaneously
+4. **Use appropriate precision**: Double precision for physics, single for visualization
+5. **Profile execution**: Use `--gpu-verbose` flag to monitor GPU utilization
+
+### Verifying GPU Usage
+
+```bash
+# Check GPU support at runtime
+./fsrm --version          # Shows GPU support status
+./fsrm --gpu-info         # Lists available GPUs
+
+# Monitor GPU during simulation
+nvidia-smi -l 1           # Update every 1 second (NVIDIA)
+rocm-smi -l               # AMD equivalent
+
+# Enable verbose GPU logging
+mpirun -np 4 ./fsrm -c config.config -gpu_verbose
+```
+
+### Troubleshooting GPU Issues
+
+**"GPU not available" warning:**
+```bash
+# Check CUDA installation
+nvidia-smi
+nvcc --version
+
+# Verify library paths
+echo $LD_LIBRARY_PATH | grep -i cuda
+```
+
+**Out of GPU memory:**
+```ini
+# Reduce memory usage
+gpu_memory_fraction = 0.5   # Use only 50% of GPU memory
+
+# Or use CPU fallback for large problems
+gpu_mode = CPU_FALLBACK
+```
+
+**Poor GPU performance:**
+- Check problem size (too small may be slower on GPU)
+- Verify MPI-GPU binding with `nvidia-smi`
+- Profile with `nsys` (NVIDIA) or `rocprof` (AMD)
 
 ---
 
