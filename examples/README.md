@@ -174,6 +174,7 @@ All example configs are in the `config/` directory:
 - **Features**: Temperature-dependent properties, thermal recovery
 - **Runtime**: ~20 minutes
 - **Use case**: Geothermal reservoir management
+- **See also**: `egs_optimization.config` for multi-objective EGS optimization
 
 #### `co2_storage.config`
 - **Physics**: Two-phase CO2-brine flow + geomechanics
@@ -340,7 +341,58 @@ Reference: https://strike.scec.org/cvws/benchmark_descriptions.html
 
 ### Optimization Examples
 
-#### `well_spacing_optimization.config` ⭐ **NEW**
+#### `egs_optimization.config` ⭐ **FEATURED**
+- **Physics**: Enhanced Geothermal System (EGS) multi-objective optimization
+- **Features**: Stochastic subsurface, Monte Carlo UQ, Pareto front analysis
+- **Runtime**: ~10-60 minutes (depending on MC iterations)
+- **Use case**: Geothermal energy development, risk-aware well placement
+
+**Key capabilities:**
+- Stochastic subsurface representation with geostatistical realizations
+- Discrete fracture network (DFN) generation
+- Monte Carlo uncertainty quantification across geological uncertainty
+- Multi-objective optimization: thermal power, NPV, induced seismicity risk
+- Pareto front identification for trade-off analysis
+- Well placement and injection rate optimization
+
+**Stochastic features:**
+- Spatially correlated permeability fields (log-normal)
+- Random fracture network with configurable statistics
+- Fault network for induced seismicity modeling
+- Thermal property uncertainty
+
+**Usage:**
+```bash
+# Full optimization with 20 Monte Carlo realizations
+./egs_optimization -c config/egs_optimization.config
+
+# Quick mode (5 MC iterations)
+./egs_optimization -c config/egs_optimization.config -quick
+
+# Custom MC iterations
+./egs_optimization -c config/egs_optimization.config -mc 50
+
+# Single realization (deterministic)
+./egs_optimization -c config/egs_optimization.config -single
+
+# Parallel execution
+mpirun -np 4 ./egs_optimization -c config/egs_optimization.config
+```
+
+**Output files:**
+- `egs_optimization_summary.txt` - Human-readable results with recommendations
+- `egs_optimization_results.csv` - All scenarios for spreadsheet analysis
+- `pareto_front.dat` - Pareto-optimal solutions
+- `plot_pareto.gp` - Gnuplot visualization for trade-offs
+- `plot_sensitivity.gp` - Sensitivity analysis plots
+
+**Typical EGS development parameters:**
+- Well spacing: 300-800 m
+- Injection rate: 20-100 L/s per injector
+- Reservoir temperature: 150-250°C
+- Operation lifetime: 20-30 years
+
+#### `well_spacing_optimization.config`
 - **Physics**: Well spacing and hydraulic fracture placement optimization
 - **Features**: Multi-well interference, stress shadowing, economic NPV analysis
 - **Runtime**: ~5-30 minutes (depending on grid search resolution)
