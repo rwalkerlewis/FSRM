@@ -34,13 +34,13 @@ PhysicsKernel (abstract base)
 │   ├── SinglePhaseFlowKernel
 │   │   └── SinglePhaseFlowKernelGPU
 │   ├── BlackOilKernel
-│   │   └── BlackOilKernelGPU (planned)
+│   │   └── BlackOilKernelGPU (implemented)
 │   └── CompositionalKernel
-│       └── CompositionalKernelGPU (planned)
+│       └── CompositionalKernelGPU (implemented)
 │
 ├── Mechanics Kernels
 │   ├── GeomechanicsKernel
-│   │   └── GeomechanicsKernelGPU (planned)
+│   │   └── GeomechanicsKernelGPU (implemented)
 │   ├── ElastodynamicsKernel
 │   │   └── ElastodynamicsKernelGPU
 │   └── PoroelastodynamicsKernel
@@ -48,17 +48,17 @@ PhysicsKernel (abstract base)
 │
 ├── Thermal Kernels
 │   └── ThermalKernel
-│       └── ThermalKernelGPU (planned)
+│       └── ThermalKernelGPU (implemented)
 │
 ├── Transport Kernels
 │   └── ParticleTransportKernel
-│       └── ParticleTransportKernelGPU (planned)
+│       └── ParticleTransportKernelGPU (implemented)
 │
 ├── Explosion/Impact Kernels
 │   ├── ExplosionSourceKernel
 │   ├── NearFieldDamageKernel
 │   ├── HydrodynamicKernel
-│   │   └── HydrodynamicKernelGPU (planned)
+│   │   └── HydrodynamicKernelGPU (implemented)
 │   └── CraterFormationKernel
 │
 ├── Atmospheric Kernels
@@ -233,15 +233,22 @@ pressure.copyToHost(host_pressure);
 | Kernel | CUDA | HIP | Description |
 |--------|------|-----|-------------|
 | Single-Phase Flow | ✓ | ✓ | Darcy flow accumulation, flux |
-| Black Oil | Planned | Planned | Three-phase flow |
-| Geomechanics | Planned | Planned | Static stress/strain |
+| Black Oil | ✓ | ✓ | Three-phase flow with PVT |
+| Geomechanics | ✓ | ✓ | Static stress/strain, plasticity |
 | Elastodynamics | ✓ | ✓ | Elastic wave propagation |
 | Poroelastodynamics | ✓ | ✓ | Coupled fluid-solid waves |
-| Thermal | Planned | Planned | Heat conduction/convection |
-| Hydrodynamic | Planned | Planned | High-pressure shock flow |
+| Thermal | ✓ | ✓ | Heat conduction/convection |
+| Hydrodynamic | ✓ | ✓ | Euler equations with shock |
 | Atmospheric Blast | ✓ | ✓ | Compressible flow, blast |
 | Infrasound | ✓ | ✓ | Low-frequency acoustic |
 | Tsunami | ✓ | ✓ | Shallow water waves |
+| Particle Transport | ✓ | ✓ | Advection-diffusion-settling |
+| Explosion Source | ✓ | ○ | Nuclear/chemical sources |
+| Crater Formation | ✓ | ○ | Impact excavation |
+| EMP | ○ | ○ | Electromagnetic pulse |
+| Fallout | ○ | ○ | Radioactive transport |
+
+Legend: ✓ = Full support, ○ = CPU implementation available
 
 ### CUDA Kernel Execution
 
@@ -292,7 +299,7 @@ $$\phi c_t \frac{\partial p}{\partial t} = \nabla \cdot \left(\frac{k}{\mu} \nab
 - Capillary pressure
 - Solution gas/oil ratio
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 #### CompositionalKernel
 
@@ -305,7 +312,7 @@ $$\phi c_t \frac{\partial p}{\partial t} = \nabla \cdot \left(\frac{k}{\mu} \nab
 - Rachford-Rice flash calculation
 - Fugacity coefficient computation
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 ---
 
@@ -328,7 +335,7 @@ $$\sigma_{ij} = \lambda \epsilon_{kk} \delta_{ij} + 2G \epsilon_{ij}$$
 
 where λ and G are Lamé parameters.
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 #### ElastodynamicsKernel
 
@@ -394,7 +401,7 @@ $$(\rho c_p)_{eff} \frac{\partial T}{\partial t} = \nabla \cdot (k_T \nabla T) +
 - Effective heat capacity: $(\rho c_p)_{eff} = (1-\phi)\rho_s c_{p,s} + \phi \rho_f c_{p,f}$
 - Effective conductivity: $k_{T,eff} = (1-\phi) k_{T,s} + \phi k_{T,f}$
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 ---
 
@@ -419,7 +426,7 @@ $$\phi \frac{\partial C}{\partial t} + \nabla \cdot (\mathbf{v} C) - \nabla \cdo
 - Mechanical dispersion
 - Bridging/filtration effects
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support via `ParticleTransportKernelGPU`
 
 ---
 
@@ -451,7 +458,7 @@ $$\frac{\partial^2 r_c}{\partial t^2} = \frac{1}{\rho} \left( P_c(t) - P_{conf} 
 - `fission_fraction`: Fission yield fraction
 - `host_rock_properties`: Density, velocities, strength
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 #### NearFieldDamageKernel
 
@@ -466,7 +473,7 @@ $$D = 1 - \exp\left( -\alpha \langle \epsilon - \epsilon_c \rangle^+ \right)$$
 - Fractured zone: Induced fractures, permeability enhancement
 - Coupling to permeability via damage-dependent model
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 #### HydrodynamicKernel
 
@@ -497,7 +504,7 @@ $$\frac{\partial E}{\partial t} + \nabla \cdot ((E+p)\mathbf{v}) = \rho \mathbf{
 - Excavation depth and volume
 - Ejecta distribution
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 ---
 
@@ -576,7 +583,7 @@ $$\frac{1}{c}\frac{\partial I}{\partial t} + \hat{\mathbf{n}} \cdot \nabla I + \
 - Time-resolved thermal pulse
 - Scaling with yield and burst height
 
-**GPU Acceleration:** Planned
+**GPU Acceleration:** Full support
 
 ---
 

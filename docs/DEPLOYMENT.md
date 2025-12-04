@@ -476,9 +476,14 @@ enable_poroelastodynamics = false
 | Single-Phase Flow | ✓ Available | 2-5× | 1,000 |
 | Elastodynamics | ✓ Available | 5-20× | 1,000 |
 | Poroelastodynamics | ✓ Available | 5-50× | 1,000 |
-| Black Oil | Planned | 3-8× | — |
-| Compositional | Planned | 5-15× | — |
-| Thermal | Planned | 2-5× | — |
+| Black Oil | ✓ Available | 3-8× | 5,000 |
+| Compositional | ✓ Available | 5-15× | 10,000 |
+| Thermal | ✓ Available | 2-5× | 5,000 |
+| Geomechanics | ✓ Available | 3-10× | 10,000 |
+| Hydrodynamic | ✓ Available | 10-50× | 1,000 |
+| Atmospheric Blast | ✓ Available | 5-20× | 5,000 |
+| Infrasound | ✓ Available | 5-30× | 10,000 |
+| Tsunami | ✓ Available | 10-50× | 5,000 |
 
 ### Multi-GPU Setup
 

@@ -96,8 +96,12 @@ FSRM supports GPU acceleration for 5-50× speedup on large problems:
 | Single-Phase Flow | ✓ | 2-5× |
 | Elastodynamics | ✓ | 5-20× |
 | Poroelastodynamics | ✓ | 5-50× |
-| Black Oil | Planned | 3-8× |
-| Thermal | Planned | 2-5× |
+| Black Oil | ✓ | 3-8× |
+| Thermal | ✓ | 2-5× |
+| Geomechanics | ✓ | 3-10× |
+| Hydrodynamic | ✓ | 10-50× |
+| Tsunami | ✓ | 10-50× |
+| Infrasound | ✓ | 5-30× |
 
 **Supported Platforms:**
 - NVIDIA CUDA (11.0+)

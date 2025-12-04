@@ -434,13 +434,17 @@ All physics kernels in FSRM are designed with GPU acceleration in mind. The exec
 | Physics Model | GPU Support | Typical Speedup | Notes |
 |---------------|-------------|-----------------|-------|
 | Single-Phase Flow | ✓ Full | 2-5× | Accumulation + Darcy flux |
-| Black Oil | Planned | 3-8× | PVT + relative perm |
-| Compositional | Planned | 5-15× | Flash calculations |
-| Linear Elasticity | Planned | 3-10× | Stress-strain |
+| Black Oil | ✓ Full | 3-8× | PVT + relative perm |
+| Compositional | ✓ Full | 5-15× | Flash calculations |
+| Linear Elasticity | ✓ Full | 3-10× | Stress-strain |
 | Elastodynamics | ✓ Full | 5-20× | Wave propagation |
 | Poroelastodynamics | ✓ Full | 5-50× | Coupled fluid-solid waves |
-| Thermal | Planned | 2-5× | Heat conduction |
-| Particle Transport | Planned | 3-8× | Advection-diffusion |
+| Thermal | ✓ Full | 2-5× | Heat conduction |
+| Particle Transport | ✓ Full | 3-8× | Advection-diffusion |
+| Hydrodynamic | ✓ Full | 10-50× | Euler equations with shock |
+| Atmospheric Blast | ✓ Full | 5-20× | Compressible blast wave |
+| Infrasound | ✓ Full | 5-30× | Low-frequency acoustic |
+| Tsunami | ✓ Full | 10-50× | Shallow water waves |
 
 ### Execution Policy
 
