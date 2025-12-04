@@ -1,4 +1,4 @@
-# Multi-stage Docker build for ReservoirSim
+# Multi-stage Docker build for FSRM
 # Stage 1: Build environment
 FROM ubuntu:22.04 AS builder
 
@@ -48,7 +48,7 @@ ENV PKG_CONFIG_PATH=/opt/petsc-3.20.0/arch-linux-c-opt/lib/pkgconfig:$PKG_CONFIG
 WORKDIR /build
 COPY . .
 
-# Build ReservoirSim
+# Build FSRM
 RUN mkdir -p build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && \
     make -j$(nproc)

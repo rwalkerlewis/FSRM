@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 #include "Simulator.hpp"
 #include "PhysicsKernel.hpp"
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <chrono>
 #include <vector>
 #include <cmath>

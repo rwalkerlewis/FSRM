@@ -1,7 +1,7 @@
 #ifndef IMPLICIT_EXPLICIT_TRANSITION_HPP
 #define IMPLICIT_EXPLICIT_TRANSITION_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include "FaultModel.hpp"
 #include <petscts.h>
 #include <petscvec.h>

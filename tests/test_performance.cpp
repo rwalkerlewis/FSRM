@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include "Simulator.hpp"
 #include "Testing.hpp"
 #include <mpi.h>

@@ -1,7 +1,7 @@
 #ifndef WELL_MODEL_HPP
 #define WELL_MODEL_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <vector>
 #include <string>
 #include <map>

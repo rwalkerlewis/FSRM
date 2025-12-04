@@ -1,7 +1,7 @@
 #ifndef DISCONTINUOUS_GALERKIN_HPP
 #define DISCONTINUOUS_GALERKIN_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <petscfe.h>
 #include <vector>
 #include <array>

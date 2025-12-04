@@ -1,7 +1,7 @@
 #ifndef PHYSICS_KERNEL_HPP
 #define PHYSICS_KERNEL_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <petscfe.h>
 #include <functional>
 
@@ -197,14 +197,32 @@ public:
     /// Get physics type name as string
     virtual const char* getTypeName() const {
         switch (physics_type) {
+            // Core reservoir
             case PhysicsType::FLUID_FLOW: return "FluidFlow";
             case PhysicsType::GEOMECHANICS: return "Geomechanics";
             case PhysicsType::THERMAL: return "Thermal";
-            case PhysicsType::ELASTODYNAMICS: return "Elastodynamics";
-            case PhysicsType::POROELASTODYNAMICS: return "Poroelastodynamics";
             case PhysicsType::PARTICLE_TRANSPORT: return "ParticleTransport";
             case PhysicsType::FRACTURE_PROPAGATION: return "FracturePropagation";
             case PhysicsType::TIDAL_FORCES: return "TidalForces";
+            case PhysicsType::CHEMICAL_REACTION: return "ChemicalReaction";
+            // Dynamic waves
+            case PhysicsType::ELASTODYNAMICS: return "Elastodynamics";
+            case PhysicsType::POROELASTODYNAMICS: return "Poroelastodynamics";
+            // Explosion/impact
+            case PhysicsType::EXPLOSION_SOURCE: return "ExplosionSource";
+            case PhysicsType::NEAR_FIELD_DAMAGE: return "NearFieldDamage";
+            case PhysicsType::HYDRODYNAMIC: return "Hydrodynamic";
+            case PhysicsType::CRATER_FORMATION: return "CraterFormation";
+            // Atmospheric
+            case PhysicsType::ATMOSPHERIC_BLAST: return "AtmosphericBlast";
+            case PhysicsType::ATMOSPHERIC_ACOUSTIC: return "AtmosphericAcoustic";
+            case PhysicsType::INFRASOUND: return "Infrasound";
+            case PhysicsType::THERMAL_RADIATION: return "ThermalRadiation";
+            case PhysicsType::EMP: return "ElectromagneticPulse";
+            case PhysicsType::FALLOUT: return "Fallout";
+            // Surface/water
+            case PhysicsType::TSUNAMI: return "Tsunami";
+            case PhysicsType::SURFACE_DEFORMATION: return "SurfaceDeformation";
             default: return "Unknown";
         }
     }

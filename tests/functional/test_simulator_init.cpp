@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 #include "Simulator.hpp"
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <fstream>
 #include <cstdio>
 
@@ -51,7 +51,7 @@ TEST_F(SimulatorInitTest, InitializeWithBasicConfig) {
 TEST_F(SimulatorInitTest, SimulationConfigDefaults) {
     SimulationConfig config;
     
-    // Verify default values from ReservoirSim.hpp
+    // Verify default values from FSRM.hpp
     EXPECT_DOUBLE_EQ(config.start_time, 0.0);
     EXPECT_DOUBLE_EQ(config.dt_initial, 0.01);
     EXPECT_EQ(config.max_timesteps, 10000);

@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 #include "Simulator.hpp"
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <fstream>
 #include <cstdio>
 

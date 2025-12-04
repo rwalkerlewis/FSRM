@@ -2,7 +2,18 @@
 
 ## Overview
 
-The FSRM (Fault-Slip Reservoir Modeling) framework includes a comprehensive unit system that allows users to specify input parameters and output results in any supported unit system. All calculations are performed internally using **SI base units** (meters, kilograms, seconds).
+The FSRM (Fault-Slip Reservoir Modeling) framework includes a comprehensive unit system that allows users to specify input parameters and output results in any supported unit system. 
+
+**All calculations are performed internally using SI base units:**
+- **Length**: meters (m)
+- **Mass**: kilograms (kg)  
+- **Time**: seconds (s)
+
+This design ensures:
+- Numerical consistency across all physics models
+- No unit conversion errors during computation
+- Easy verification against analytical solutions
+- Compatibility with PETSc and other numerical libraries
 
 ## Key Features
 

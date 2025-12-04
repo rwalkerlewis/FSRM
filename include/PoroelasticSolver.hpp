@@ -1,7 +1,7 @@
 #ifndef POROELASTIC_SOLVER_HPP
 #define POROELASTIC_SOLVER_HPP
 
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <petscts.h>
 #include <petscdmplex.h>
 #include <petscfe.h>

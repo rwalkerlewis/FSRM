@@ -29,23 +29,56 @@ FSRM uses a unified physics kernel architecture where:
 
 ```
 PhysicsKernel (abstract base)
-├── SinglePhaseFlowKernel
-│   └── SinglePhaseFlowKernelGPU
-├── BlackOilKernel
-│   └── BlackOilKernelGPU (planned)
-├── CompositionalKernel
-│   └── CompositionalKernelGPU (planned)
-├── GeomechanicsKernel
-│   └── GeomechanicsKernelGPU (planned)
-├── ThermalKernel
-│   └── ThermalKernelGPU (planned)
-├── ElastodynamicsKernel
-│   └── ElastodynamicsKernelGPU
-├── PoroelastodynamicsKernel
-│   └── PoroelastodynamicsKernelGPU
-├── ParticleTransportKernel
-├── FracturePropagationKernel
-└── TidalForcesKernel
+│
+├── Flow Kernels
+│   ├── SinglePhaseFlowKernel
+│   │   └── SinglePhaseFlowKernelGPU
+│   ├── BlackOilKernel
+│   │   └── BlackOilKernelGPU (planned)
+│   └── CompositionalKernel
+│       └── CompositionalKernelGPU (planned)
+│
+├── Mechanics Kernels
+│   ├── GeomechanicsKernel
+│   │   └── GeomechanicsKernelGPU (planned)
+│   ├── ElastodynamicsKernel
+│   │   └── ElastodynamicsKernelGPU
+│   └── PoroelastodynamicsKernel
+│       └── PoroelastodynamicsKernelGPU
+│
+├── Thermal Kernels
+│   └── ThermalKernel
+│       └── ThermalKernelGPU (planned)
+│
+├── Transport Kernels
+│   └── ParticleTransportKernel
+│       └── ParticleTransportKernelGPU (planned)
+│
+├── Explosion/Impact Kernels
+│   ├── ExplosionSourceKernel
+│   ├── NearFieldDamageKernel
+│   ├── HydrodynamicKernel
+│   │   └── HydrodynamicKernelGPU (planned)
+│   └── CraterFormationKernel
+│
+├── Atmospheric Kernels
+│   ├── AtmosphericBlastKernel
+│   │   └── AtmosphericBlastKernelGPU
+│   ├── InfrasoundKernel
+│   │   └── InfrasoundKernelGPU
+│   ├── ThermalRadiationKernel
+│   ├── EMPKernel
+│   └── FalloutKernel
+│
+├── Surface/Coupling Kernels
+│   ├── TsunamiKernel
+│   │   └── TsunamiKernelGPU
+│   ├── SurfaceDeformationKernel
+│   ├── FracturePropagationKernel
+│   └── TidalForcesKernel
+│
+└── Chemistry Kernels
+    └── ChemicalReactionKernel
 ```
 
 ---
@@ -200,10 +233,15 @@ pressure.copyToHost(host_pressure);
 | Kernel | CUDA | HIP | Description |
 |--------|------|-----|-------------|
 | Single-Phase Flow | ✓ | ✓ | Darcy flow accumulation, flux |
-| Elastodynamics | ✓ | ✓ | Wave propagation, stress/strain |
-| Poroelastodynamics | ✓ | ✓ | Coupled fluid-solid waves |
 | Black Oil | Planned | Planned | Three-phase flow |
+| Geomechanics | Planned | Planned | Static stress/strain |
+| Elastodynamics | ✓ | ✓ | Elastic wave propagation |
+| Poroelastodynamics | ✓ | ✓ | Coupled fluid-solid waves |
 | Thermal | Planned | Planned | Heat conduction/convection |
+| Hydrodynamic | Planned | Planned | High-pressure shock flow |
+| Atmospheric Blast | ✓ | ✓ | Compressible flow, blast |
+| Infrasound | ✓ | ✓ | Low-frequency acoustic |
+| Tsunami | ✓ | ✓ | Shallow water waves |
 
 ### CUDA Kernel Execution
 
@@ -382,6 +420,275 @@ $$\phi \frac{\partial C}{\partial t} + \nabla \cdot (\mathbf{v} C) - \nabla \cdo
 - Bridging/filtration effects
 
 **GPU Acceleration:** Planned
+
+---
+
+### Explosion and Impact Kernels
+
+FSRM includes comprehensive physics models for explosion sources and impact events.
+
+#### ExplosionSourceKernel
+
+**Applications:**
+- Nuclear test monitoring and forensics
+- Chemical explosion modeling
+- Industrial accident analysis
+
+**Physics Models:**
+- Mueller-Murphy source model for underground explosions
+- Spherical cavity source equivalents
+- Near-field damage zone evolution (cavity, crushed, fractured zones)
+- Seismic moment and magnitude estimation
+
+**Governing Equations (Cavity Pressure):**
+$$\frac{\partial^2 r_c}{\partial t^2} = \frac{1}{\rho} \left( P_c(t) - P_{conf} - \frac{4G}{3} \frac{r_c - r_0}{r_c} \right)$$
+
+**Fields:** 1 (cavity radius or equivalent moment)
+
+**Properties:**
+- `yield_kt`: Explosive yield [kt TNT]
+- `depth_of_burial`: Burial depth [m]
+- `fission_fraction`: Fission yield fraction
+- `host_rock_properties`: Density, velocities, strength
+
+**GPU Acceleration:** Planned
+
+#### NearFieldDamageKernel
+
+**Governing Equations:** Damage evolution based on strain and pressure:
+$$D = 1 - \exp\left( -\alpha \langle \epsilon - \epsilon_c \rangle^+ \right)$$
+
+**Fields:** 1 (damage parameter, 0-1)
+
+**Features:**
+- Cavity zone (D = 1): Complete vaporization/melting
+- Crushed zone: Pervasive fracturing
+- Fractured zone: Induced fractures, permeability enhancement
+- Coupling to permeability via damage-dependent model
+
+**GPU Acceleration:** Planned
+
+#### HydrodynamicKernel
+
+**Governing Equations (Euler):**
+$$\frac{\partial \rho}{\partial t} + \nabla \cdot (\rho \mathbf{v}) = 0$$
+$$\frac{\partial (\rho \mathbf{v})}{\partial t} + \nabla \cdot (\rho \mathbf{v} \otimes \mathbf{v}) + \nabla p = \rho \mathbf{g}$$
+$$\frac{\partial E}{\partial t} + \nabla \cdot ((E+p)\mathbf{v}) = \rho \mathbf{v} \cdot \mathbf{g}$$
+
+**Fields:** 5 (density, 3 momentum components, energy)
+
+**Properties:**
+- Equation of state (ideal gas, Mie-Grüneisen, Tillotson)
+- Shock capturing via artificial viscosity or limiters
+- Multi-material interface tracking
+
+**GPU Acceleration:** Planned (ideal for GPU due to local computations)
+
+#### CraterFormationKernel
+
+**Physics Models:**
+- Pi-group crater scaling (Holsapple-Schmidt)
+- Z-model excavation flow
+- Shock wave attenuation in target
+- Ejecta dynamics
+
+**Key Outputs:**
+- Transient and final crater dimensions
+- Excavation depth and volume
+- Ejecta distribution
+
+**GPU Acceleration:** Planned
+
+---
+
+### Atmospheric Kernels
+
+FSRM includes atmospheric physics for blast wave and infrasound propagation.
+
+#### AtmosphericBlastKernel
+
+**Governing Equations (Compressible Euler with stratification):**
+$$\frac{\partial \mathbf{U}}{\partial t} + \nabla \cdot \mathbf{F}(\mathbf{U}) = \mathbf{S}$$
+
+where $\mathbf{U} = (\rho, \rho \mathbf{v}, E)$ and $\mathbf{S}$ includes gravity and source terms.
+
+**Fields:** 5 (density, 3 momentum, energy)
+
+**Features:**
+- Stratified atmosphere with temperature/density profiles
+- Wind effects on propagation
+- Ground reflection and Mach stem formation
+- Thermal precursor effects
+
+**Properties:**
+- `yield_kt`: Explosion yield
+- `burst_height`: Height of burst
+- `atmosphere_model`: US_STANDARD_1976, ICAO, etc.
+- `wind_profile`: Wind velocity vs altitude
+
+**GPU Acceleration:** Full support via `AtmosphericBlastKernelGPU`
+
+#### InfrasoundKernel
+
+**Governing Equations (Linearized acoustics in moving medium):**
+$$\frac{\partial p'}{\partial t} + \rho c^2 \nabla \cdot \mathbf{v}' + \mathbf{v}_0 \cdot \nabla p_0' = S$$
+$$\rho \frac{\partial \mathbf{v}'}{\partial t} + \nabla p' = 0$$
+
+**Fields:** 2 (pressure perturbation: 1, velocity perturbation: 3)
+
+**Frequency Range:** 0.01 - 20 Hz (infrasound)
+
+**Features:**
+- Atmospheric refraction (temperature and wind effects)
+- Stratospheric and thermospheric ducting
+- Topographic scattering and reflection
+- Molecular absorption (O₂, N₂ relaxation)
+
+**Applications:**
+- Nuclear test monitoring (CTBT/IMS)
+- Volcanic eruption detection
+- Bolide/meteorite tracking
+- Severe weather monitoring
+
+**Properties:**
+- `atmosphere_profile`: Temperature, pressure, wind vs altitude
+- `topography_model`: Digital elevation model
+- `source_type`: EXPLOSION, VOLCANIC, BOLIDE, EARTHQUAKE
+- `attenuation_model`: Classical + molecular relaxation
+
+**Propagation Methods:**
+1. **Ray tracing**: Fast, geometric optics approximation
+2. **Parabolic equation (PE)**: Accurate for stratified media
+3. **Full wave**: Finite difference in 2D/3D
+
+**GPU Acceleration:** Full support via `InfrasoundKernelGPU`
+
+#### ThermalRadiationKernel
+
+**Governing Equation (Radiative transfer):**
+$$\frac{1}{c}\frac{\partial I}{\partial t} + \hat{\mathbf{n}} \cdot \nabla I + \kappa I = j$$
+
+**Fields:** 1 (intensity or thermal fluence)
+
+**Features:**
+- Fireball evolution model
+- Atmospheric transmission
+- Time-resolved thermal pulse
+- Scaling with yield and burst height
+
+**GPU Acceleration:** Planned
+
+---
+
+### Surface and Coupling Kernels
+
+#### TsunamiKernel
+
+**Governing Equations (Nonlinear shallow water):**
+$$\frac{\partial \eta}{\partial t} + \nabla \cdot ((h + \eta) \mathbf{v}) = 0$$
+$$\frac{\partial \mathbf{v}}{\partial t} + \mathbf{v} \cdot \nabla \mathbf{v} + g \nabla \eta = -C_d \frac{|\mathbf{v}| \mathbf{v}}{h + \eta}$$
+
+**Fields:** 3 (water elevation, 2 velocity components)
+
+**Features:**
+- Seafloor deformation source
+- Coriolis effects
+- Variable bathymetry
+- Inundation modeling
+
+**GPU Acceleration:** Full support
+
+#### SurfaceDeformationKernel
+
+**Purpose:** Tracks ground surface displacement from subsurface processes.
+
+**Coupling:**
+- Receives displacement from elastodynamics/geomechanics
+- Provides boundary condition for atmosphere/hydrodynamics
+- Computes InSAR-observable quantities
+
+---
+
+## Unit System
+
+### Design Philosophy
+
+**All calculations are performed in SI base units:**
+- Length: meters (m)
+- Mass: kilograms (kg)
+- Time: seconds (s)
+
+**User interface supports any units:**
+- Input values can be specified with units (e.g., "5000 psi", "100 mD")
+- Output can be configured to display in preferred units
+- Automatic conversion happens transparently
+
+### Configuration
+
+```ini
+[UNITS]
+# Input/output system preference
+input_system = SI        # SI, FIELD, METRIC
+output_system = FIELD    # SI, FIELD, METRIC
+
+# Per-quantity output units (override system default)
+pressure_unit = psi
+length_unit = ft
+time_unit = day
+permeability_unit = mD
+temperature_unit = degC
+```
+
+### Usage in Config Files
+
+```ini
+[ROCK]
+permeability_x = 150 mD          # → 1.48×10⁻¹³ m² internally
+youngs_modulus = 15 GPa          # → 1.5×10¹⁰ Pa internally
+density = 2.55 g/cm3             # → 2550 kg/m³ internally
+
+[SOURCE]
+yield = 1.0 kt                   # → 4.184×10¹² J internally
+depth = 500 ft                   # → 152.4 m internally
+```
+
+### Programmatic Usage
+
+```cpp
+#include "UnitSystem.hpp"
+
+using namespace FSRM;
+
+// Get unit system instance
+UnitSystem& units = UnitSystemManager::getInstance();
+
+// Convert between units
+double p_pa = units.convert(5000.0, "psi", "Pa");  // psi → Pa
+
+// Convert to/from SI base
+double k_si = units.toBase(100.0, "mD");           // mD → m²
+double k_field = units.fromBase(1e-15, "mD");      // m² → mD
+
+// Parse value with unit string
+double value = units.parseAndConvertToBase("500 km");  // → 500000 m
+```
+
+### Supported Unit Categories
+
+| Category | Common Units | SI Base |
+|----------|--------------|---------|
+| Length | m, km, ft, mi | m |
+| Mass | kg, g, lbm | kg |
+| Time | s, min, hr, day | s |
+| Pressure | Pa, MPa, psi, bar | Pa |
+| Permeability | m², D, mD | m² |
+| Viscosity | Pa·s, cP, P | Pa·s |
+| Temperature | K, °C, °F | K |
+| Energy | J, kJ, BTU, kt TNT | J |
+| Velocity | m/s, km/s, ft/s | m/s |
+| Density | kg/m³, g/cm³, lbm/ft³ | kg/m³ |
+
+See `docs/UNIT_SYSTEM.md` for complete unit reference.
 
 ---
 

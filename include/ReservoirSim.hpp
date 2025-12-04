@@ -55,16 +55,44 @@ enum class WellType {
     OBSERVATION
 };
 
+/**
+ * @brief Physics types supported by FSRM kernels
+ * 
+ * Each physics type represents a distinct set of governing equations
+ * that can be solved independently or coupled with other physics.
+ * All calculations are performed in SI base units (m, kg, s).
+ */
 enum class PhysicsType {
-    FLUID_FLOW,
-    GEOMECHANICS,
-    THERMAL,
-    PARTICLE_TRANSPORT,
-    FRACTURE_PROPAGATION,
-    TIDAL_FORCES,
-    CHEMICAL_REACTION,
-    ELASTODYNAMICS,          // Elastic wave propagation
-    POROELASTODYNAMICS       // Coupled fluid-solid wave propagation
+    // Core reservoir physics
+    FLUID_FLOW,              ///< Darcy flow (single/multi-phase)
+    GEOMECHANICS,            ///< Static stress/strain (elastic, poroelastic)
+    THERMAL,                 ///< Heat conduction and convection
+    PARTICLE_TRANSPORT,      ///< Proppant, tracers, solids transport
+    FRACTURE_PROPAGATION,    ///< Cohesive zone / LEFM fracture growth
+    TIDAL_FORCES,            ///< Earth tides and loading effects
+    CHEMICAL_REACTION,       ///< Reactive transport / geochemistry
+    
+    // Dynamic wave propagation
+    ELASTODYNAMICS,          ///< Elastic wave propagation with inertia
+    POROELASTODYNAMICS,      ///< Coupled fluid-solid wave (Biot waves)
+    
+    // Explosion and impact physics
+    EXPLOSION_SOURCE,        ///< Nuclear/chemical explosion source models
+    NEAR_FIELD_DAMAGE,       ///< Cavity, crushing, fracturing zones
+    HYDRODYNAMIC,            ///< High-pressure hydrodynamic flow (shock)
+    CRATER_FORMATION,        ///< Impact crater excavation and modification
+    
+    // Atmospheric physics
+    ATMOSPHERIC_BLAST,       ///< Atmospheric blast wave propagation
+    ATMOSPHERIC_ACOUSTIC,    ///< Linear acoustic wave in atmosphere
+    INFRASOUND,              ///< Low-frequency atmospheric sound (< 20 Hz)
+    THERMAL_RADIATION,       ///< Fireball thermal pulse
+    EMP,                     ///< Electromagnetic pulse
+    FALLOUT,                 ///< Radioactive debris transport
+    
+    // Tsunami and surface water
+    TSUNAMI,                 ///< Shallow water wave propagation
+    SURFACE_DEFORMATION      ///< Ground surface uplift/subsidence
 };
 
 // GPU execution mode
@@ -112,34 +140,95 @@ struct SimulationConfig {
     bool use_gpu_matrix_assembly = true;
     bool pin_host_memory = true;  // Pin CPU memory for faster GPU transfers
     
-    // Physics flags
+    // =========================================================================
+    // Physics Flags - Core Reservoir
+    // =========================================================================
     bool enable_geomechanics = false;
     bool enable_thermal = false;
     bool enable_fractures = false;
     bool enable_particle_transport = false;
     bool enable_faults = false;
     bool enable_tidal_forces = false;
-    bool enable_elastodynamics = false;           // Enable wave propagation
-    bool enable_poroelastodynamics = false;       // Enable coupled fluid-solid waves
+    bool enable_elastodynamics = false;           // Elastic wave propagation
+    bool enable_poroelastodynamics = false;       // Coupled fluid-solid waves
     
-    // Dynamic simulation mode
+    // =========================================================================
+    // Physics Flags - Explosion and Impact
+    // =========================================================================
+    bool enable_explosion_source = false;          // Explosion source models
+    bool enable_near_field_damage = false;         // Cavity/damage zone evolution
+    bool enable_hydrodynamic = false;              // High-pressure shock flow
+    bool enable_crater_formation = false;          // Impact cratering
+    
+    // =========================================================================
+    // Physics Flags - Atmospheric
+    // =========================================================================
+    bool enable_atmospheric_blast = false;         // Atmospheric blast wave
+    bool enable_atmospheric_acoustic = false;      // Linear acoustic propagation
+    bool enable_infrasound = false;                // Low-frequency sound (< 20 Hz)
+    bool enable_thermal_radiation = false;         // Fireball thermal pulse
+    bool enable_emp = false;                       // Electromagnetic pulse
+    bool enable_fallout = false;                   // Radioactive debris transport
+    
+    // =========================================================================
+    // Physics Flags - Surface and Water
+    // =========================================================================
+    bool enable_tsunami = false;                   // Shallow water waves
+    bool enable_surface_deformation = false;       // Ground surface changes
+    
+    // =========================================================================
+    // Dynamic Simulation Mode
+    // =========================================================================
     bool use_dynamic_mode = false;                 // Full dynamic vs quasi-static
-    bool use_static_triggering = false;            // Static stress triggers dynamic event
-    double dynamic_trigger_threshold = 1.0e6;      // Stress threshold for triggering (Pa)
-    double dynamic_event_duration = 10.0;          // Duration of dynamic event (s)
+    bool use_static_triggering = false;            // Static stress triggers dynamic
+    double dynamic_trigger_threshold = 1.0e6;      // Stress threshold (Pa)
+    double dynamic_event_duration = 10.0;          // Dynamic event duration (s)
     
-    // Permeability change from dynamic waves
+    // =========================================================================
+    // Permeability Dynamics
+    // =========================================================================
     bool enable_dynamic_permeability_change = false;
     double permeability_sensitivity = 1.0;         // Sensitivity to strain/stress
     double permeability_recovery_time = 100.0;     // Recovery time constant (s)
     
-    // Implicit-Explicit Time Integration Transition
+    // =========================================================================
+    // IMEX Time Integration
+    // =========================================================================
     bool enable_imex_transition = false;           // Enable IMEX mode switching
     std::string imex_trigger_type = "COULOMB_FAILURE";  // Trigger condition
     std::string imex_settling_type = "COMBINED";   // Settling condition
     double imex_min_dynamic_duration = 1.0;        // Min explicit duration (s)
     double imex_max_dynamic_duration = 60.0;       // Max explicit duration (s)
     
+    // =========================================================================
+    // Infrasound Modeling Configuration
+    // =========================================================================
+    bool infrasound_include_topography = true;     // Include terrain effects
+    bool infrasound_include_wind = true;           // Include wind effects
+    bool infrasound_include_attenuation = true;    // Include atmospheric absorption
+    double infrasound_frequency_min = 0.01;        // Minimum frequency (Hz)
+    double infrasound_frequency_max = 20.0;        // Maximum frequency (Hz)
+    int infrasound_num_frequencies = 100;          // Number of frequency bins
+    std::string infrasound_source_type = "POINT";  // POINT, EXPLOSION, VOLCANIC
+    
+    // =========================================================================
+    // Unit System Configuration
+    // =========================================================================
+    // All internal calculations use SI base units (m, kg, s).
+    // Input/output units can be configured per quantity.
+    std::string input_unit_system = "SI";          // SI, FIELD, METRIC
+    std::string output_unit_system = "SI";         // SI, FIELD, METRIC
+    
+    // Per-quantity output units (override system default)
+    std::string output_pressure_unit = "";         // e.g., "psi", "MPa"
+    std::string output_length_unit = "";           // e.g., "ft", "m"
+    std::string output_time_unit = "";             // e.g., "day", "s"
+    std::string output_permeability_unit = "";     // e.g., "mD", "m2"
+    std::string output_temperature_unit = "";      // e.g., "degC", "K"
+    
+    // =========================================================================
+    // Model Types
+    // =========================================================================
     FluidModelType fluid_model = FluidModelType::SINGLE_COMPONENT;
     SolidModelType solid_model = SolidModelType::ELASTIC;
 };

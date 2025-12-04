@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 #include "FractureModel.hpp"
-#include "ReservoirSim.hpp"
+#include "FSRM.hpp"
 #include <cmath>
 
 using namespace FSRM;
