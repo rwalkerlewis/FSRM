@@ -46,6 +46,43 @@ Complete unconventional completions simulation:
 - **Off-fault Plasticity**: Drucker-Prager, von Mises, Mohr-Coulomb, Cap models
 - **Viscoelastic Attenuation**: Multi-mechanism Q-factor modeling
 
+### Explosion & Impact Physics ⭐ NEW
+Comprehensive multi-physics simulation of explosive events and hypervelocity impacts:
+- **Underground Nuclear Tests**:
+  - Cavity formation and damage zone modeling
+  - Mueller-Murphy seismic source model
+  - Spall and chimney collapse
+  - Near-field plasticity and fracturing
+  - Seismic wave generation (P, S, surface waves)
+  - mb/Ms discrimination for monitoring
+- **Atmospheric Nuclear Detonations**:
+  - Fireball evolution (Brode model)
+  - Blast wave propagation (Sedov-Taylor)
+  - Ground coupling and crater formation
+  - Mach stem and reflection effects
+- **Radiation Transport**:
+  - Prompt gamma and neutron radiation
+  - Fallout modeling (Way-Wigner decay)
+  - Dose rate calculations
+  - Contamination mapping
+- **Electromagnetic Pulse (EMP)**:
+  - E1 (fast Compton current, nanoseconds)
+  - E2 (intermediate, microseconds)
+  - E3 (MHD-EMP, seconds)
+  - Ground wave and line coupling
+  - Ionospheric effects
+- **Hypervelocity Impacts**:
+  - Pi-group crater scaling (Holsapple-Schmidt)
+  - Shock metamorphism zones
+  - Z-model excavation flow
+  - Ejecta distribution and ballistics
+  - Transient to complex crater evolution
+  - Impact melt and vapor plume
+- **Coupled Atmosphere-Ground**:
+  - Compressible Navier-Stokes atmosphere
+  - Elastodynamic ground response
+  - Interface matching and coupling
+
 ### Machine Learning Solvers
 - **Fourier Neural Operator (FNO)**: Neural network-based PDE solver
   - 100-1000x faster inference after training
@@ -491,6 +528,9 @@ Configuration files define all simulation parameters:
 | Config File | Description |
 |-------------|-------------|
 | `config/multistage_frac_complete.config` | **Complete multi-stage fracturing (ResFrac-equivalent)** |
+| `config/underground_nuclear_test.config` | **Underground nuclear explosion with seismic waves** |
+| `config/atmospheric_nuclear_test.config` | **Atmospheric nuclear detonation with EMP & radiation** |
+| `config/impact_event.config` | **Asteroid/meteorite impact with crater formation** |
 | `config/buckley_leverett_2d.config` | 2D waterflooding with Buckley-Leverett |
 | `config/coupled_reservoir_2d.config` | Coupled flow-geomechanics |
 | `config/spe1_benchmark.config` | SPE1 benchmark problem |
@@ -844,6 +884,7 @@ Complete documentation is available in the `docs/` directory:
   - [SeisSol Comparison](docs/SEISSOL_COMPARISON.md) - Earthquake simulator comparison
   - [Fourier Neural Operator](docs/FOURIER_NEURAL_OPERATOR.md) - Neural network solver guide
   - [**ResFrac-Equivalent Capabilities**](docs/RESFRAC_EQUIVALENT_CAPABILITIES.md) - Complete hydraulic fracturing guide
+  - [**Explosion & Impact Physics**](docs/EXPLOSION_IMPACT_PHYSICS.md) - Nuclear tests, impacts, EMP, radiation
 
 ## Support
 
