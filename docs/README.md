@@ -26,6 +26,9 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [IMEX_TRANSITION.md](IMEX_TRANSITION.md) | Implicit-Explicit time integration |
 | [RESFRAC_EQUIVALENT_CAPABILITIES.md](RESFRAC_EQUIVALENT_CAPABILITIES.md) | Hydraulic fracturing capabilities |
 | [SEISSOL_COMPARISON.md](SEISSOL_COMPARISON.md) | Comparison with SeisSol earthquake simulator |
+| [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) | **Nuclear tests, impacts, EMP, radiation** |
+| [VOLCANO_MODELING.md](VOLCANO_MODELING.md) | **Comprehensive volcanic system simulation** |
+| [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md) | **Earthquake-tsunami coupling and inundation** |
 
 ## Quick Links
 
@@ -52,6 +55,9 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 - **AMR**: [ADAPTIVE_MESH_REFINEMENT.md](ADAPTIVE_MESH_REFINEMENT.md)
 - **Hydraulic Fracturing**: [RESFRAC_EQUIVALENT_CAPABILITIES.md](RESFRAC_EQUIVALENT_CAPABILITIES.md)
 - **Eclipse Compatibility**: [ECLIPSE_FEATURES.md](ECLIPSE_FEATURES.md)
+- **Explosions & Impacts**: [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) ⭐
+- **Volcanoes**: [VOLCANO_MODELING.md](VOLCANO_MODELING.md) ⭐
+- **Tsunamis**: [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md) ⭐
 
 ## Key Concepts
 
@@ -80,6 +86,10 @@ mpirun -np 4 fsrm -c config/my_simulation.config
 5. **Faults**: Coulomb and rate-state friction, induced seismicity
 6. **Dynamics**: Wave propagation, static triggering, dynamic rupture
 7. **Coupling**: Full THM (Thermo-Hydro-Mechanical) coupling
+8. **Explosions & Impacts**: Underground/atmospheric explosions, crater formation, EMP ⭐
+9. **Volcanoes**: Magma chambers, conduit flow, eruption columns, PDCs, lava flows ⭐
+10. **Tsunamis**: Shallow water equations, seafloor deformation, inundation ⭐
+11. **Infrasound**: Atmospheric acoustic propagation ⭐
 
 ### Output Formats
 
@@ -102,6 +112,9 @@ FSRM supports GPU acceleration for 5-50× speedup on large problems:
 | Hydrodynamic | ✓ | 10-50× |
 | Tsunami | ✓ | 10-50× |
 | Infrasound | ✓ | 5-30× |
+| Atmospheric Blast | ✓ | 5-20× |
+| Crater Formation | ✓ | 10-30× |
+| Volcano (multi-physics) | ✓ | 5-20× |
 
 **Supported Platforms:**
 - NVIDIA CUDA (11.0+)

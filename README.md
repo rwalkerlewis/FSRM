@@ -83,6 +83,81 @@ Comprehensive multi-physics simulation of explosive events and hypervelocity imp
   - Elastodynamic ground response
   - Interface matching and coupling
 
+### Volcano Modeling ⭐ NEW
+Comprehensive multi-physics volcanic system simulation:
+- **Magma Chamber Dynamics**:
+  - Pressure/temperature evolution
+  - Volatile exsolution (H₂O, CO₂, SO₂)
+  - Crystal fraction tracking
+  - Recharge and eruption coupling
+- **Conduit Flow**:
+  - Bubble nucleation and growth
+  - Flow regime transitions (bubbly → dispersed)
+  - Fragmentation depth calculation
+  - Mass eruption rate prediction
+- **Eruption Column**:
+  - Woods (1988) buoyant plume model
+  - Air entrainment and thermal equilibration
+  - Column collapse criteria
+  - Neutral buoyancy level calculation
+- **Volcanic Hazards**:
+  - Pyroclastic density currents (PDCs)
+  - Lava flow propagation with rheology
+  - Lahar (volcanic debris flow) modeling
+  - Tephra dispersal and fallout
+- **Volcanic Monitoring**:
+  - Surface deformation (Mogi, McTigue, Okada sources)
+  - Volcanic seismicity (VT, LP, VLP, tremor)
+  - Gas emission and dispersal (SO₂, CO₂)
+  - Synthetic observables for GPS, InSAR, seismometers
+- **Pre-defined Scenarios**:
+  - Mt. St. Helens 1980 (lateral blast)
+  - Pinatubo 1991 (VEI-6 Plinian)
+  - Kilauea (Hawaiian effusive)
+  - Yellowstone (caldera unrest)
+
+### Tsunami Modeling ⭐ NEW
+End-to-end earthquake-tsunami simulation:
+- **Earthquake-Tsunami Coupling**:
+  - Okada (1985) seafloor deformation
+  - Kinematic and dynamic rupture sources
+  - Kajiura filter for water column response
+- **Tsunami Propagation**:
+  - Nonlinear shallow water equations (NSWE)
+  - Multiple Riemann solvers (F-wave, HLLC, Roe)
+  - High-order reconstruction with limiters
+  - Positivity-preserving schemes
+- **Coastal Inundation**:
+  - Wetting/drying algorithm
+  - Manning friction model
+  - Runup tracking
+  - Variable land cover effects
+- **Bathymetry Support**:
+  - GEBCO, ETOPO global datasets
+  - NetCDF, ASCII, GeoTIFF formats
+  - Nested grid capability
+- **Cascadia Subduction Zone**:
+  - Full M9.0 margin rupture scenario
+  - Heterogeneous slip models
+  - DART buoy and tide gauge validation
+
+### Atmospheric Infrasound ⭐ NEW
+Low-frequency acoustic wave propagation:
+- **Propagation Physics**:
+  - Linearized acoustics in moving medium
+  - Stratified atmosphere with wind effects
+  - Stratospheric and thermospheric ducting
+  - Topographic scattering
+- **Source Types**:
+  - Nuclear/chemical explosions
+  - Volcanic eruptions
+  - Bolides and meteorites
+  - Severe weather
+- **Applications**:
+  - CTBT/IMS nuclear monitoring
+  - Volcano eruption detection
+  - Meteor tracking
+
 ### Machine Learning Solvers
 - **Fourier Neural Operator (FNO)**: Neural network-based PDE solver
   - 100-1000x faster inference after training
@@ -531,6 +606,10 @@ Configuration files define all simulation parameters:
 | `config/underground_nuclear_test.config` | **Underground nuclear explosion with seismic waves** |
 | `config/atmospheric_nuclear_test.config` | **Atmospheric nuclear detonation with EMP & radiation** |
 | `config/impact_event.config` | **Asteroid/meteorite impact with crater formation** |
+| `config/cascadia_m9_tsunami.config` | **Cascadia M9.0 earthquake-tsunami simulation** |
+| `config/infrasound_example.config` | **Atmospheric infrasound propagation** |
+| `config/egs_optimization.config` | **Enhanced Geothermal System optimization** |
+| `config/underground_explosion_near_field.config` | **Near-field underground explosion** |
 | `config/buckley_leverett_2d.config` | 2D waterflooding with Buckley-Leverett |
 | `config/coupled_reservoir_2d.config` | Coupled flow-geomechanics |
 | `config/spe1_benchmark.config` | SPE1 benchmark problem |
@@ -885,6 +964,8 @@ Complete documentation is available in the `docs/` directory:
   - [Fourier Neural Operator](docs/FOURIER_NEURAL_OPERATOR.md) - Neural network solver guide
   - [**ResFrac-Equivalent Capabilities**](docs/RESFRAC_EQUIVALENT_CAPABILITIES.md) - Complete hydraulic fracturing guide
   - [**Explosion & Impact Physics**](docs/EXPLOSION_IMPACT_PHYSICS.md) - Nuclear tests, impacts, EMP, radiation
+  - [**Volcano Modeling**](docs/VOLCANO_MODELING.md) - Comprehensive volcanic system simulation
+  - [**Tsunami Modeling**](docs/TSUNAMI_MODELING.md) - Earthquake-tsunami coupling and inundation
 
 ## Support
 

@@ -15,8 +15,10 @@ Mathematical formulations and theory behind FSRM physics models.
 5. [Fracture Models](#fracture-models)
 6. [Fault Mechanics](#fault-mechanics)
 7. [Wave Propagation](#wave-propagation)
-8. [Coupled Physics](#coupled-physics)
-9. [GPU Acceleration](#gpu-acceleration)
+8. [Volcano Physics](#volcano-physics)
+9. [Tsunami Physics](#tsunami-physics)
+10. [Coupled Physics](#coupled-physics)
+11. [GPU Acceleration](#gpu-acceleration)
 
 ---
 
@@ -365,6 +367,150 @@ $$k = k_0 \left(1 + \beta |\epsilon_{vol}|\right)$$
 
 **Frequency-dependent:**
 $$k(\omega) = k_0 \left(1 + A \frac{\omega/\omega_c}{1 + (\omega/\omega_c)^2}\right)$$
+
+---
+
+## Volcano Physics
+
+> **Full documentation:** [VOLCANO_MODELING.md](VOLCANO_MODELING.md)
+
+### Magma Chamber Dynamics
+
+**Pressure evolution:**
+$$\frac{dP}{dt} = \frac{1}{\beta V} \left[\dot{m}_{recharge} - \dot{m}_{erupt} + \rho_{melt} V \frac{d\phi_{gas}}{dt}\right]$$
+
+**Temperature evolution:**
+$$\frac{dT}{dt} = \frac{1}{\rho c_p V} \left[Q_{recharge} - Q_{wall} + L \frac{d\phi_{cryst}}{dt}\right]$$
+
+where:
+- β = chamber compressibility
+- V = chamber volume
+- φ_gas = gas volume fraction
+- φ_cryst = crystal fraction
+- L = latent heat of crystallization
+
+### Conduit Flow
+
+**Mass conservation:**
+$$\frac{d(\rho u A)}{dz} = 0$$
+
+**Momentum:**
+$$\rho u \frac{du}{dz} = -\frac{dP}{dz} - \rho g - \frac{\tau_{wall}}{r}$$
+
+**Fragmentation criterion:**
+$$\phi_{gas} \geq 0.75$$
+
+### Eruption Column Model (Woods 1988)
+
+**Entrainment equation:**
+$$\frac{d(\rho u A)}{dz} = \rho_a \alpha u \cdot 2\pi r$$
+
+**Momentum:**
+$$\frac{d(\rho u^2 A)}{dz} = (\rho_a - \rho) g A$$
+
+where:
+- α ≈ 0.09 = entrainment coefficient
+- ρ_a = ambient atmospheric density
+- r = column radius
+
+**Column height scaling:**
+$$H \propto \dot{M}^{1/4}$$
+
+### Volcanic Deformation (Mogi Model)
+
+**Vertical displacement:**
+$$u_z = \frac{(1-\nu)}{G} \cdot \frac{\Delta V \cdot d}{(r^2 + d^2)^{3/2}}$$
+
+**Radial displacement:**
+$$u_r = \frac{(1-\nu)}{G} \cdot \frac{\Delta V \cdot r}{(r^2 + d^2)^{3/2}}$$
+
+where:
+- ΔV = volume change
+- d = source depth
+- G = shear modulus
+- ν = Poisson's ratio
+
+### Lava Flow Rheology
+
+**Temperature-dependent viscosity:**
+$$\eta(T) = \eta_0 \exp\left(\frac{E_a}{R}\left(\frac{1}{T} - \frac{1}{T_0}\right)\right)$$
+
+**Bingham model (crystal-rich lavas):**
+$$\tau = \tau_y + \eta \dot{\gamma}$$
+
+### Pyroclastic Density Currents
+
+**Depth-averaged equations:**
+$$\frac{\partial h}{\partial t} + \nabla \cdot (h\mathbf{u}) = E - D$$
+
+$$\frac{\partial (h\mathbf{u})}{\partial t} + \nabla \cdot (h\mathbf{u} \otimes \mathbf{u}) = -gh\nabla b - C_d |\mathbf{u}|\mathbf{u}$$
+
+where:
+- h = flow depth
+- E = entrainment rate
+- D = deposition rate
+- b = topography
+
+---
+
+## Tsunami Physics
+
+> **Full documentation:** [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md)
+
+### Nonlinear Shallow Water Equations
+
+**Mass conservation:**
+$$\frac{\partial \eta}{\partial t} + \nabla \cdot ((h + \eta) \mathbf{u}) = 0$$
+
+**Momentum:**
+$$\frac{\partial \mathbf{u}}{\partial t} + \mathbf{u} \cdot \nabla \mathbf{u} + g \nabla \eta = -\frac{\tau_b}{\rho(h + \eta)}$$
+
+where:
+- η = sea surface elevation
+- h = water depth (bathymetry)
+- **u** = depth-averaged velocity
+- τ_b = bottom friction
+
+### Seafloor Deformation (Okada Model)
+
+**Vertical displacement from fault slip:**
+$$u_z = \frac{U \sin\delta}{2\pi} \left[ \tan^{-1}\frac{xy}{qR} - I_3 \sin\delta \cos\delta \right]$$
+
+where:
+- U = fault slip
+- δ = dip angle
+- R = distance function
+
+### Kajiura Filter
+
+**Transfer from seafloor to surface:**
+$$\eta_0(k) = \frac{u_z(k)}{\cosh(kh)}$$
+
+For long waves (kh → 0): η_0 ≈ u_z
+
+### Wave Speed
+
+$$c = \sqrt{g(h + \eta)} \approx \sqrt{gh}$$
+
+**Typical values:**
+- Deep ocean (4000 m): c ≈ 200 m/s (720 km/hr)
+- Coastal (50 m): c ≈ 22 m/s (80 km/hr)
+
+### Green's Law (Shoaling)
+
+$$\eta_2 = \eta_1 \left(\frac{h_1}{h_2}\right)^{1/4}$$
+
+As depth decreases, wave height increases.
+
+### Bottom Friction (Manning)
+
+$$\tau_b = \rho g n^2 \frac{|\mathbf{u}|\mathbf{u}}{(h + \eta)^{1/3}}$$
+
+Typical Manning's n values:
+- Open ocean: 0.02
+- Sandy coast: 0.02-0.03
+- Vegetated: 0.03-0.05
+- Urban: 0.04-0.06
 
 ---
 
