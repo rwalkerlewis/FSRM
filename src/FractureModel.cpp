@@ -1,4 +1,5 @@
 #include "FractureModel.hpp"
+#include "FractureNetwork.hpp"
 #include <cmath>
 #include <random>
 #include <algorithm>
@@ -91,6 +92,55 @@ void NaturalFractureNetwork::generateStochasticNetwork(int num_fractures,
         
         double ap = 1e-4 * (0.5 + 0.5 * pos_dist(gen));
         addFracture(points, ap);
+    }
+}
+
+void NaturalFractureNetwork::importFromFractureNetwork(const FractureNetwork* network) {
+    if (!network) return;
+    
+    fractures.clear();
+    
+    const auto& discrete_fractures = network->getFractures();
+    
+    for (const auto& dfrac : discrete_fractures) {
+        Fracture frac;
+        
+        // Convert DiscreteFracture to internal representation
+        // Center point and a point along the strike direction
+        frac.points = {
+            dfrac.center[0], dfrac.center[1], dfrac.center[2],
+            dfrac.center[0] + dfrac.radius * dfrac.strike_dir[0],
+            dfrac.center[1] + dfrac.radius * dfrac.strike_dir[1],
+            dfrac.center[2] + dfrac.radius * dfrac.strike_dir[2]
+        };
+        
+        frac.aperture = dfrac.aperture;
+        frac.permeability = dfrac.permeability;
+        
+        // Determine dominant orientation from normal vector
+        double abs_nx = std::abs(dfrac.normal[0]);
+        double abs_ny = std::abs(dfrac.normal[1]);
+        double abs_nz = std::abs(dfrac.normal[2]);
+        
+        if (abs_nx >= abs_ny && abs_nx >= abs_nz) {
+            frac.orientation = 0;  // x-dominant (fracture in y-z plane)
+        } else if (abs_ny >= abs_nx && abs_ny >= abs_nz) {
+            frac.orientation = 1;  // y-dominant (fracture in x-z plane)
+        } else {
+            frac.orientation = 2;  // z-dominant (fracture in x-y plane)
+        }
+        
+        fractures.push_back(frac);
+    }
+    
+    // Update overall properties
+    if (!fractures.empty()) {
+        double total_aperture = 0.0;
+        for (const auto& f : fractures) {
+            total_aperture += f.aperture;
+        }
+        aperture = total_aperture / fractures.size();
+        permeability = aperture * aperture / 12.0;  // Cubic law
     }
 }
 
