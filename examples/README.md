@@ -442,6 +442,72 @@ mpirun -np 4 ./well_spacing_optimization -c config/well_spacing_optimization.con
 - Cluster spacing: 9-15 m (30-50 ft)
 - Fracture half-length: 120-180 m (400-600 ft)
 
+### Tsunami Modeling Examples ⭐ **NEW**
+
+#### `cascadia_tsunami`
+- **Physics**: Earthquake-generated tsunami with Cascadia M9.0 scenario
+- **Features**: Okada seafloor deformation, shallow water equations, inundation
+- **Runtime**: ~30-60 minutes (depending on resolution)
+- **Use case**: Subduction zone tsunami hazard assessment
+
+**Key capabilities:**
+- Cascadia Subduction Zone fault model (full margin or segments)
+- Heterogeneous slip distribution
+- Nonlinear shallow water equations
+- Multiple Riemann solvers (F-wave, HLLC, Roe)
+- Coastal inundation with wetting/drying
+- DART buoy and tide gauge validation
+
+**Usage:**
+```bash
+# Full margin M9.0 scenario
+mpirun -np 8 ./cascadia_tsunami -scenario full_margin -end_time 14400
+
+# Southern segment only
+./cascadia_tsunami -scenario southern
+
+# Worst-case planning scenario
+mpirun -np 16 ./cascadia_tsunami -scenario worst_case
+```
+
+**Output files:**
+- `*_timeseries.dat` - Sea surface elevation at gauge locations
+- `maximum_values.dat` - Maximum wave height grid
+- `inundation_extent.dat` - Flooded areas
+- `arrival_time.dat` - First wave arrival times
+
+### Infrasound Modeling Examples ⭐ **NEW**
+
+#### `infrasound_propagation`
+- **Physics**: Atmospheric infrasound wave propagation
+- **Features**: Stratified atmosphere, wind effects, ducting, topography
+- **Runtime**: ~10-30 minutes
+- **Use case**: Nuclear test monitoring, volcano eruption detection
+
+**Key capabilities:**
+- Linearized acoustic equations in moving medium
+- Stratospheric and thermospheric ducting
+- Wind profile effects on propagation
+- Multiple source types (explosion, volcanic, bolide)
+- Molecular absorption modeling
+
+**Usage:**
+```bash
+# Nuclear test scenario
+./infrasound_propagation -source explosion -yield 10 -range 1000
+
+# Volcanic eruption
+./infrasound_propagation -source volcanic -vei 5
+
+# Bolide/meteor entry
+./infrasound_propagation -source bolide -energy 100
+```
+
+**Output files:**
+- `pressure_field.dat` - Pressure perturbation snapshots
+- `waveforms_*.dat` - Time series at receiver stations
+- `ray_paths.dat` - Geometric ray tracing output
+
 ### Volcano Modeling Examples ⭐ **NEW**
 
 #### `pinatubo_plinian`
@@ -517,6 +583,39 @@ mpirun -np 8 ./pinatubo_plinian -vei 6 -end_time 36000
 - `gps_*.dat` - GPS time series (east, north, up displacement)
 - `seismicity_catalog.dat` - Earthquake catalog
 - `gas_emissions.dat` - SO₂/CO₂ flux time series
+
+### Near-Field Explosion Examples ⭐ **NEW**
+
+#### `underground_explosion_near_field`
+- **Physics**: High-resolution near-field explosion modeling
+- **Features**: Cavity formation, damage zones, seismic wave generation
+- **Runtime**: ~30-60 minutes
+- **Use case**: Nuclear test forensics, monitoring discrimination
+
+**Key capabilities:**
+- Mueller-Murphy seismic source model
+- Near-field damage zone evolution (cavity, crushed, fractured)
+- Spall and chimney collapse physics
+- High-resolution P, S, and surface wave generation
+- mb/Ms discrimination analysis
+
+**Usage:**
+```bash
+# 1 kt underground test at 200m depth
+./underground_explosion_near_field -yield 1.0 -depth 200
+
+# Larger yield with detailed damage
+./underground_explosion_near_field -yield 10.0 -depth 500 -detailed
+
+# Generate seismograms for monitoring stations
+./underground_explosion_near_field -yield 5.0 -stations IMS
+```
+
+**Output files:**
+- `cavity_evolution.dat` - Cavity radius vs time
+- `damage_zones.dat` - Damage zone extents
+- `seismograms_*.dat` - Velocity seismograms
+- `source_time_function.dat` - Equivalent moment rate
 
 ### GPU-Accelerated Examples
 
