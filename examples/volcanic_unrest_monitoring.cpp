@@ -468,7 +468,7 @@ int main(int argc, char** argv) {
             
             // Get current state
             double overpressure = chamber_model.getOverpressure();
-            double volume_change = overpressure / magma.getMagmaCompressibility();
+            double volume_change = overpressure * chamber_model.getMagmaCompressibility() * chamber_model.getState().volume;
             
             // Update deformation source
             VolcanicDeformationSource source;
