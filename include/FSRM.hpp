@@ -92,7 +92,19 @@ enum class PhysicsType {
     
     // Tsunami and surface water
     TSUNAMI,                 ///< Shallow water wave propagation
-    SURFACE_DEFORMATION      ///< Ground surface uplift/subsidence
+    SURFACE_DEFORMATION,     ///< Ground surface uplift/subsidence
+    
+    // Volcanic physics
+    MAGMA_CHAMBER,           ///< Magma chamber thermodynamics
+    CONDUIT_FLOW,            ///< Magma conduit ascent/fragmentation
+    ERUPTION_COLUMN,         ///< Buoyant volcanic plume
+    PYROCLASTIC_FLOW,        ///< Pyroclastic density currents
+    LAVA_FLOW,               ///< Lava flow propagation
+    LAHAR,                   ///< Volcanic debris flows
+    VOLCANIC_DEFORMATION,    ///< Volcanic ground deformation (Mogi, etc.)
+    VOLCANIC_SEISMICITY,     ///< LP, VT, VLP, tremor sources
+    VOLCANIC_GAS,            ///< SO2, CO2 emission and dispersal
+    TEPHRA_DISPERSAL         ///< Ash fall modeling
 };
 
 // GPU execution mode
@@ -175,6 +187,20 @@ struct SimulationConfig {
     // =========================================================================
     bool enable_tsunami = false;                   // Shallow water waves
     bool enable_surface_deformation = false;       // Ground surface changes
+    
+    // =========================================================================
+    // Physics Flags - Volcanic Systems
+    // =========================================================================
+    bool enable_magma_chamber = false;             // Magma chamber dynamics
+    bool enable_conduit_flow = false;              // Conduit ascent/fragmentation
+    bool enable_eruption_column = false;           // Buoyant eruption column
+    bool enable_pyroclastic_flow = false;          // PDC modeling
+    bool enable_lava_flow = false;                 // Lava flow propagation
+    bool enable_lahar = false;                     // Volcanic debris flows
+    bool enable_volcanic_deformation = false;      // Volcanic deformation (Mogi)
+    bool enable_volcanic_seismicity = false;       // LP, VT, tremor sources
+    bool enable_volcanic_gas = false;              // SO2, CO2 dispersal
+    bool enable_tephra_dispersal = false;          // Ash fall modeling
     
     // =========================================================================
     // Dynamic Simulation Mode

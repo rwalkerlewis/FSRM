@@ -442,6 +442,82 @@ mpirun -np 4 ./well_spacing_optimization -c config/well_spacing_optimization.con
 - Cluster spacing: 9-15 m (30-50 ft)
 - Fracture half-length: 120-180 m (400-600 ft)
 
+### Volcano Modeling Examples ⭐ **NEW**
+
+#### `pinatubo_plinian`
+- **Physics**: VEI-6 Plinian eruption (1991 Pinatubo-style)
+- **Features**: Magma chamber, conduit flow, eruption column, PDCs, tephra dispersal
+- **Runtime**: ~30-60 minutes
+- **Use case**: Large explosive eruption hazard assessment
+
+**Key capabilities:**
+- Coupled magma chamber depressurization
+- Conduit flow with fragmentation at ~75% gas fraction
+- 35 km eruption column with air entrainment
+- Column collapse → pyroclastic density currents
+- Tephra dispersal by wind advection
+- SO₂ emission tracking
+
+**Usage:**
+```bash
+# Full VEI-6 scenario
+mpirun -np 8 ./pinatubo_plinian -vei 6 -end_time 36000
+
+# Scale to different VEI
+./pinatubo_plinian -vei 4   # VEI-4 (Eyjafjallajökull-scale)
+./pinatubo_plinian -vei 7   # VEI-7 (Tambora-scale)
+```
+
+#### `kilauea_effusive`
+- **Physics**: Hawaiian-style basaltic lava flow
+- **Features**: Low-viscosity lava flow spreading, thermal evolution, crust formation
+- **Runtime**: ~15-30 minutes
+- **Use case**: Effusive eruption hazard mapping
+
+**Key capabilities:**
+- Basaltic magma rheology (T-dependent viscosity)
+- Lava flow propagation over topography
+- Surface crust formation and insulation
+- Heat loss by radiation and convection
+- Flow area and volume tracking
+
+**Usage:**
+```bash
+# 30-day effusive eruption
+./kilauea_effusive -duration 30 -effusion 100
+
+# Variable effusion rate
+./kilauea_effusive -effusion 200  # High effusion rate
+```
+
+#### `volcanic_unrest_monitoring`
+- **Physics**: Pre-eruption unrest signals
+- **Features**: Synthetic GPS, seismicity, gas emissions for observatory testing
+- **Runtime**: ~5-15 minutes
+- **Use case**: Volcano monitoring system development, forecasting algorithms
+
+**Key capabilities:**
+- Magma chamber pressurization → ground deformation
+- Synthetic seismicity (VT, LP, VLP events)
+- Gas emission time series (SO₂, CO₂)
+- Multiple unrest scenarios (intrusion, hydrothermal, pre-eruption)
+
+**Usage:**
+```bash
+# Pre-eruption scenario (90 days)
+./volcanic_unrest_monitoring -scenario pre_eruption -duration 90
+
+# Available scenarios
+./volcanic_unrest_monitoring -scenario intrusion      # Dike emplacement
+./volcanic_unrest_monitoring -scenario hydrothermal   # Hydrothermal
+./volcanic_unrest_monitoring -scenario failed         # Failed eruption
+```
+
+**Output files:**
+- `gps_*.dat` - GPS time series (east, north, up displacement)
+- `seismicity_catalog.dat` - Earthquake catalog
+- `gas_emissions.dat` - SO₂/CO₂ flux time series
+
 ### GPU-Accelerated Examples
 
 #### `gpu_elastodynamics.config`
