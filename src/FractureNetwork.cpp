@@ -1292,6 +1292,15 @@ DiscreteFracture* FractureNetwork::getFracture(int id) {
     return nullptr;
 }
 
+const DiscreteFracture* FractureNetwork::getFracture(int id) const {
+    for (const auto& frac : fractures_) {
+        if (frac.id == id) {
+            return &frac;
+        }
+    }
+    return nullptr;
+}
+
 bool FractureNetwork::detectIntersection(const DiscreteFracture& f1, 
                                           const DiscreteFracture& f2,
                                           FractureIntersection& intersection) const {
@@ -1651,9 +1660,9 @@ std::vector<FractureNetwork::EDFMConnection> FractureNetwork::computeEDFM(DM dm)
         ff_conn.distance = 0.0;  // Fractures intersect
         ff_conn.area = intersection.length * std::min(
             getFracture(intersection.fracture1_id) ? 
-                const_cast<FractureNetwork*>(this)->getFracture(intersection.fracture1_id)->aperture : 1e-4,
+                getFracture(intersection.fracture1_id)->aperture : 1e-4,
             getFracture(intersection.fracture2_id) ? 
-                const_cast<FractureNetwork*>(this)->getFracture(intersection.fracture2_id)->aperture : 1e-4
+                getFracture(intersection.fracture2_id)->aperture : 1e-4
         );
         ff_conn.transmissibility = intersection.transmissivity * intersection.length;
         
