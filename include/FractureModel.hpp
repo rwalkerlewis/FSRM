@@ -1,11 +1,41 @@
 #ifndef FRACTURE_MODEL_HPP
 #define FRACTURE_MODEL_HPP
 
+/**
+ * @file FractureModel.hpp
+ * @brief Core fracture model classes for reservoir simulation
+ * 
+ * This file provides the base FractureModel class and derived classes for:
+ * - NaturalFractureNetwork: Natural/existing fracture systems
+ * - HydraulicFractureModel: Induced hydraulic fractures (PKN, KGD, P3D)
+ * - FaultModel: Fault mechanics with rate-state friction
+ * 
+ * For advanced discrete fracture network (DFN) algorithms including:
+ * - Stochastic DFN generation with Fisher/Bingham/power-law distributions
+ * - Graph-based connectivity analysis and percolation
+ * - MINC and EDFM upscaling methods
+ * - Oda's crack tensor and Snow's permeability models
+ * - LEFM-based fracture propagation
+ * 
+ * See FractureNetwork.hpp for the comprehensive FractureNetwork class
+ * and related algorithms.
+ */
+
 #include "FSRM.hpp"
 #include <vector>
 #include <memory>
 
 namespace FSRM {
+
+// Forward declarations for advanced fracture network algorithms
+// See FractureNetwork.hpp for full definitions
+class FractureNetwork;
+class FractureSet;
+class FractureConnectivityGraph;
+class FracturePropagationModel;
+class FractureFlowSimulator;
+struct DiscreteFracture;
+struct FractureIntensity;
 
 // Base fracture model
 class FractureModel {
@@ -52,6 +82,19 @@ public:
     void addFracture(const std::vector<double>& points, double aperture);
     void generateStochasticNetwork(int num_fractures, double mean_length,
                                   double std_length, int seed);
+    
+    /**
+     * @brief Import fractures from advanced FractureNetwork object
+     * 
+     * Converts DiscreteFracture objects from the FractureNetwork class
+     * into the internal Fracture representation used by this model.
+     * This allows using advanced DFN generation algorithms from
+     * FractureNetwork.hpp with the reservoir simulation coupling.
+     * 
+     * @param network Pointer to FractureNetwork with generated fractures
+     * @see FractureNetwork::generate() for DFN generation
+     */
+    void importFromFractureNetwork(const FractureNetwork* network);
     
     // Dual porosity/permeability model
     void enableDualPorosity(bool enable);
