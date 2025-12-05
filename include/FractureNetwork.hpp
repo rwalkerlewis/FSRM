@@ -379,6 +379,7 @@ public:
     const std::vector<DiscreteFracture>& getFractures() const { return fractures_; }
     std::vector<DiscreteFracture>& getFractures() { return fractures_; }
     DiscreteFracture* getFracture(int id);
+    const DiscreteFracture* getFracture(int id) const;
     size_t getNumFractures() const { return fractures_.size(); }
     
     // Intersection detection
