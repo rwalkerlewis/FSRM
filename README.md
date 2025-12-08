@@ -930,10 +930,10 @@ Contributions welcome! Areas of interest:
 
 If you use FSRM in your research, please cite:
 ```bibtex
-@software{fsrm2024,
+@software{fsrm2025,
   title = {FSRM: Coupled Multi-Physics Reservoir Simulator},
-  author = {Your Name},
-  year = {2024},
+  author = {Robert Walker},
+  year = {2025},
   version = {1.0.0}
 }
 ```
