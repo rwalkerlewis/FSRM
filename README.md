@@ -1,6 +1,10 @@
 # FSRM - Full Service Reservoir Model
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A fully coupled, physics-based simulator for petroleum reservoirs and earth systems, built on PETSc for scalable parallel computing.
+
+**This project is fully open source under the MIT License** — free to use, modify, and distribute for any purpose.
 
 ## Features
 
@@ -936,7 +940,15 @@ If you use FSRM in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**MIT License** — This project is fully open source and free to use.
+
+You are free to:
+- ✅ Use commercially
+- ✅ Modify and distribute
+- ✅ Use privately
+- ✅ Sublicense
+
+See the [LICENSE](LICENSE) file for the complete license text.
 
 ## Documentation
 
