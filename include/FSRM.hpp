@@ -94,6 +94,18 @@ enum class PhysicsType {
     TSUNAMI,                 ///< Shallow water wave propagation
     SURFACE_DEFORMATION,     ///< Ground surface uplift/subsidence
     
+    // Hydrodynamics and Ocean Physics
+    OCEAN_CIRCULATION,       ///< Large-scale ocean current modeling
+    COASTAL_HYDRODYNAMICS,   ///< Nearshore and coastal flows
+    ESTUARINE_DYNAMICS,      ///< Estuary and river-ocean interaction
+    STORM_SURGE,             ///< Storm-driven coastal flooding
+    OCEAN_ACOUSTICS,         ///< Underwater sound propagation
+    SEDIMENT_TRANSPORT,      ///< Coastal/marine sediment dynamics
+    WAVE_DYNAMICS,           ///< Surface gravity wave modeling
+    INTERNAL_WAVES,          ///< Internal/baroclinic wave propagation
+    OCEAN_MIXING,            ///< Turbulent mixing and diffusion
+    THERMOHALINE,            ///< Temperature/salinity dynamics
+    
     // Volcanic physics
     MAGMA_CHAMBER,           ///< Magma chamber thermodynamics
     CONDUIT_FLOW,            ///< Magma conduit ascent/fragmentation
@@ -187,6 +199,20 @@ struct SimulationConfig {
     // =========================================================================
     bool enable_tsunami = false;                   // Shallow water waves
     bool enable_surface_deformation = false;       // Ground surface changes
+    
+    // =========================================================================
+    // Physics Flags - Hydrodynamics and Ocean Physics
+    // =========================================================================
+    bool enable_ocean_circulation = false;         // Large-scale ocean currents
+    bool enable_coastal_hydrodynamics = false;     // Nearshore/coastal flows
+    bool enable_estuarine_dynamics = false;        // Estuary/river-ocean
+    bool enable_storm_surge = false;               // Storm-driven flooding
+    bool enable_ocean_acoustics = false;           // Underwater acoustics
+    bool enable_sediment_transport = false;        // Sediment dynamics
+    bool enable_wave_dynamics = false;             // Surface gravity waves
+    bool enable_internal_waves = false;            // Internal waves
+    bool enable_ocean_mixing = false;              // Turbulent mixing
+    bool enable_thermohaline = false;              // Temperature/salinity
     
     // =========================================================================
     // Physics Flags - Volcanic Systems

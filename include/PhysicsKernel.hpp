@@ -223,6 +223,17 @@ public:
             // Surface/water
             case PhysicsType::TSUNAMI: return "Tsunami";
             case PhysicsType::SURFACE_DEFORMATION: return "SurfaceDeformation";
+            // Hydrodynamics and Ocean Physics
+            case PhysicsType::OCEAN_CIRCULATION: return "OceanCirculation";
+            case PhysicsType::COASTAL_HYDRODYNAMICS: return "CoastalHydrodynamics";
+            case PhysicsType::ESTUARINE_DYNAMICS: return "EstuarineDynamics";
+            case PhysicsType::STORM_SURGE: return "StormSurge";
+            case PhysicsType::OCEAN_ACOUSTICS: return "OceanAcoustics";
+            case PhysicsType::SEDIMENT_TRANSPORT: return "SedimentTransport";
+            case PhysicsType::WAVE_DYNAMICS: return "WaveDynamics";
+            case PhysicsType::INTERNAL_WAVES: return "InternalWaves";
+            case PhysicsType::OCEAN_MIXING: return "OceanMixing";
+            case PhysicsType::THERMOHALINE: return "Thermohaline";
             default: return "Unknown";
         }
     }
