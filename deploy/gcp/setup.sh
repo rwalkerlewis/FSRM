@@ -48,7 +48,7 @@ echo ""
 
 # Get GCP project ID
 print_info "Getting GCP project information..."
-PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
+PROJECT_ID=$(gcloud config get-value project 2>nul 2>/dev/null)
 
 if [ -z "$PROJECT_ID" ]; then
     print_error "No GCP project configured. Run: gcloud config set project YOUR_PROJECT_ID"

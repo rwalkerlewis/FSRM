@@ -647,8 +647,8 @@ bool PoroelastodynamicsKernel::checkStaticTrigger(const PetscScalar stress[], do
     
     // Use Coulomb failure criterion
     double s_xx = stress[0];
-    double s_yy = stress[1];
-    double s_zz = stress[2];
+    // double s_yy = stress[1];  // Not used in 2D failure criterion
+    // double s_zz = stress[2];  // Not used in 2D failure criterion
     double s_xy = stress[3];
     double s_xz = stress[4];
     double s_yz = stress[5];

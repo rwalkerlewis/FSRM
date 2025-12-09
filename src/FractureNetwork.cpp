@@ -1923,6 +1923,7 @@ void FractureNetwork::writeVTK(const std::string& filename) const {
     file << "POINTS " << total_vertices << " double\n";
     
     for (const auto& frac : fractures_) {
+        (void)frac;  // Suppress unused warning - placeholder for full implementation
         auto vertices = frac.getVertices(n_sides);
         for (const auto& v : vertices) {
             file << v[0] << " " << v[1] << " " << v[2] << "\n";
@@ -2653,7 +2654,7 @@ double DFNStatistics::computeFisherKappa(
     
     // Estimate kappa (Fisher concentration parameter)
     // For large kappa: kappa ≈ (n-1) / (n - R)
-    double n = orientations.size();
+    // size_t n = orientations.size();  // Not used in simplified estimate
     
     if (R_bar > 0.999) {
         return 1000.0;  // Very high concentration
@@ -2815,7 +2816,7 @@ std::vector<double> DFNStatistics::computeRipleyK(
     }
     
     double volume = (x_max - x_min) * (y_max - y_min) * (z_max - z_min);
-    double lambda = fractures.size() / volume;  // Intensity
+    // double lambda = fractures.size() / volume;  // Intensity - not used in current implementation
     
     for (double r : distances) {
         int count = 0;

@@ -173,12 +173,14 @@ double NaturalFractureNetwork::computeShapeFactor(const std::string& model) cons
 
 void NaturalFractureNetwork::computeFluidExchange(Vec U, DM dm,
                                                   std::vector<double>& exchange_rates) const {
+    (void)U; (void)dm;  // Suppress unused parameter warnings - stub implementation
     if (use_dual_porosity) {
         // Compute fracture-matrix transfer
         // Q = sigma * k_m/mu * (P_f - P_m)
         exchange_rates.clear();
         
         for (const auto& frac : fractures) {
+            (void)frac;  // Suppress unused warning - placeholder
             // Simplified - would need to interpolate pressure from U
             double transfer_rate = shape_factor * 1e-15 / 0.001;  // k/mu
             exchange_rates.push_back(transfer_rate);

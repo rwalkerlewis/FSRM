@@ -564,7 +564,7 @@ PetscErrorCode Simulator::setupTimeStepper() {
         // Set parameters for optimal stability and accuracy
         PetscReal alpha_m = 0.5;  // Spectral radius
         PetscReal alpha_f = 0.5;
-        PetscReal gamma = 0.5 + alpha_m - alpha_f;
+        // PetscReal gamma = 0.5 + alpha_m - alpha_f;  // Not used in current implementation
         // These can be set via TSAlpha2SetParams if needed
     } else {
         // Quasi-static: use backward Euler
@@ -983,7 +983,7 @@ void Simulator::f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
 
 PetscErrorCode Simulator::writeOutput(int step) {
     PetscFunctionBeginUser;
-    PetscErrorCode ierr;
+    // PetscErrorCode ierr;  // Not used in current implementation
     
     // Disable VTK output for now to avoid format incompatibility
     // TODO: Properly implement output based on DM type (DMPlex)
@@ -1002,7 +1002,7 @@ PetscErrorCode Simulator::writeCheckpoint(int step) {
 
 PetscErrorCode Simulator::writeSummary() {
     PetscFunctionBeginUser;
-    PetscErrorCode ierr;
+    // PetscErrorCode ierr;  // Not used in current implementation
     
     if (rank == 0) {
         std::ofstream summary(config.output_file + "_SUMMARY.txt");

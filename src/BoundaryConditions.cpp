@@ -978,7 +978,7 @@ void BoundaryConditionManager::classifyBoundaryFaces(
     face_bc.resize(face_tags.size());
     
     for (size_t i = 0; i < face_tags.size(); ++i) {
-        BoundaryFace face;
+        BoundaryFace face{}; // Initialize all members to zero
         face.element_id = i;  // Simplified - actual impl gets from mesh
         
         int tag = face_tags[i];

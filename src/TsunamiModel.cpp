@@ -192,7 +192,7 @@ void OkadaModel::okadaGreenFunction(double x, double y, double d,
             I5 = -alpha * xi * sin_d / (R + eta);
         }
         
-        double I2 = alpha * (-std::log(R + eta)) - I3;
+        // double I2 = alpha * (-std::log(R + eta)) - I3;  // Not used in this component
         
         // Dip-slip displacement (rake = 90)
         double u_xi = -slip / (2.0 * M_PI) * (
@@ -851,7 +851,7 @@ double ShallowWaterSolver::step() {
 
 void ShallowWaterSolver::run(double end_time) {
     while (current_time < end_time) {
-        double dt_taken = step();
+        step();  // dt_taken not used currently
         recordGauges(current_time);
         
         // Progress output

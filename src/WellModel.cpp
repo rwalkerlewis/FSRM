@@ -584,7 +584,7 @@ double DirectionalWell::computeWellIndex(int completion_idx,
     // Anisotropic well index for deviated wells
     double kh = std::sqrt(kx * ky);
     double kv = kz;
-    double anisotropy = std::sqrt(kv / kh);
+    // double anisotropy = std::sqrt(kv / kh);  // Not used in this simplified implementation
     
     // Effective wellbore length in cell
     double L_eff = dz / std::cos(inc_rad);
@@ -604,8 +604,9 @@ double DirectionalWell::computeDeviatedWellPI(double length, double angle,
                                               double kh, double kv,
                                               double h, double rw) const {
     // Productivity index for deviated well
-    double inc_rad = angle * DEG_TO_RAD;
+    // double inc_rad = angle * DEG_TO_RAD;  // Not used in simplified Joshi equation
     double anisotropy = std::sqrt(kv / kh);
+    (void)angle;  // Suppress unused parameter warning
     
     // Joshi equation for deviated wells
     double a = length / 2.0;

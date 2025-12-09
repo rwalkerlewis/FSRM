@@ -6,7 +6,9 @@ FROM ubuntu:22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get clean && \
+    apt-get update --fix-missing && \
+    apt-get install -y --fix-missing \
     build-essential \
     cmake \
     git \
@@ -59,7 +61,9 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get clean && \
+    apt-get update --fix-missing && \
+    apt-get install -y --fix-missing \
     libopenmpi3 \
     openmpi-bin \
     libhdf5-openmpi-103 \
