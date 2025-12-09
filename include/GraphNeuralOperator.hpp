@@ -164,12 +164,12 @@ public:
      * @param graph Input graph with node and edge features
      * @return Updated node features
      */
-    Tensor forward(const MeshGraph& graph);
+    virtual Tensor forward(const MeshGraph& graph);
     
     /**
      * @brief Backward pass
      */
-    Tensor backward(const MeshGraph& graph, const Tensor& grad_output);
+    virtual Tensor backward(const MeshGraph& graph, const Tensor& grad_output);
     
     // Parameters
     std::vector<Tensor*> parameters();

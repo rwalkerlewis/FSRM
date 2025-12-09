@@ -185,7 +185,7 @@ void MLModelRegistry::registerNeuralAMR(const std::string& name,
     entry.category = ModelCategory::NEURAL_AMR;
     entry.status = ModelStatus::INITIALIZED;
     entry.model = std::make_shared<NeuralAMRController>(config);
-    entry.description = "Neural AMR Controller: " << name;
+    entry.description = "Neural AMR Controller: " + name;
     
     models_[name] = std::move(entry);
     

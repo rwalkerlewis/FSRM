@@ -39,7 +39,7 @@ void NaturalFractureNetwork::setGeometry(const std::vector<double>& coords) {
     coordinates = coords;
 }
 
-void NaturalFractureNetwork::updateGeometry(double dt) {
+void NaturalFractureNetwork::updateGeometry(double /* dt */) {
     // Natural fractures don't propagate in this model
 }
 
@@ -188,11 +188,11 @@ void NaturalFractureNetwork::computeFluidExchange(Vec U, DM dm,
     }
 }
 
-void NaturalFractureNetwork::contributeToResidual(Vec F, Vec U, DM dm) const {
+void NaturalFractureNetwork::contributeToResidual(Vec /* F */, Vec /* U */, DM /* dm */) const {
     // Add fracture flow contributions
 }
 
-void NaturalFractureNetwork::contributeToJacobian(Mat J, Vec U, DM dm) const {
+void NaturalFractureNetwork::contributeToJacobian(Mat /* J */, Vec /* U */, DM /* dm */) const {
     // Add fracture Jacobian contributions
 }
 
@@ -235,7 +235,7 @@ void HydraulicFractureModel::setPropagationCriteria(double Kc, double sigma_min)
     min_horizontal_stress = sigma_min;
 }
 
-void HydraulicFractureModel::computePropagationDirection(const Vec stress_field) {
+void HydraulicFractureModel::computePropagationDirection(const Vec /* stress_field */) {
     // Determine propagation based on stress field
     // Fracture propagates perpendicular to minimum principal stress
 }
@@ -353,7 +353,7 @@ void HydraulicFractureModel::setLeakoffCoefficient(double C_L) {
     leakoff_coefficient = C_L;
 }
 
-void HydraulicFractureModel::computeLeakoff(Vec U, DM dm, 
+void HydraulicFractureModel::computeLeakoff(Vec /* U */, DM /* dm */, 
                                            std::vector<double>& leak_rates) const {
     if (!enable_leakoff_model) return;
     
@@ -375,11 +375,11 @@ void HydraulicFractureModel::computeFluidExchange(Vec U, DM dm,
     exchange_rates = leak_rates;
 }
 
-void HydraulicFractureModel::contributeToResidual(Vec F, Vec U, DM dm) const {
+void HydraulicFractureModel::contributeToResidual(Vec /* F */, Vec /* U */, DM /* dm */) const {
     // Add hydraulic fracture contributions to residual
 }
 
-void HydraulicFractureModel::contributeToJacobian(Mat J, Vec U, DM dm) const {
+void HydraulicFractureModel::contributeToJacobian(Mat /* J */, Vec /* U */, DM /* dm */) const {
     // Add hydraulic fracture Jacobian contributions
 }
 
@@ -452,7 +452,7 @@ void FaultModel::setDilationAngle(double angle) {
     dilation_angle = angle;
 }
 
-void FaultModel::computeSlip(const Vec stress_field, Vec displacement_field) {
+void FaultModel::computeSlip(const Vec /* stress_field */, Vec /* displacement_field */) {
     // Compute fault slip based on stress state
     // This requires extracting stress at fault location from stress_field
 }
