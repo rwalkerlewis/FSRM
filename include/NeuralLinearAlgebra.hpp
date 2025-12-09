@@ -20,9 +20,14 @@
 #include "FourierNeuralOperator.hpp"
 #include "NeuralSurrogates.hpp"
 #include <petsc.h>
+#include <petscksp.h>
+#include <petscmat.h>
 #include <vector>
 #include <memory>
 #include <map>
+
+// Forward declarations for SLEPc types (optional dependency)
+typedef struct _p_EPS* EPS;
 
 namespace FSRM {
 namespace ML {

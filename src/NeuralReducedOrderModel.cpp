@@ -153,7 +153,12 @@ void PODBasis::svd(const Tensor& data, Tensor& U, Tensor& S, Tensor& Vt) {
     for (int mode = 0; mode < n; ++mode) {
         Tensor v({n});
         v.randn(0.0, 1.0);
-        v.normalize();
+        
+        // Normalize v
+        double norm = 0.0;
+        for (double val : v.data) norm += val * val;
+        norm = std::sqrt(norm);
+        for (double& val : v.data) val /= norm;
         
         // Power iteration
         for (int iter = 0; iter < 100; ++iter) {
@@ -452,8 +457,9 @@ void PODNeuralROM::train(const std::vector<Tensor>& reduced_states,
     
     AdamOptimizer optimizer(dynamics_network_->parameters(), config_.learning_rate);
     
+    double total_loss = 0.0;
     for (int epoch = 0; epoch < config_.epochs; ++epoch) {
-        double total_loss = 0.0;
+        total_loss = 0.0;
         
         // Shuffle
         std::vector<int> indices(n);

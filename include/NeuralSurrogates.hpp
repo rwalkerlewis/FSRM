@@ -717,7 +717,7 @@ public:
     };
     
     NeuralPreconditioner(const PrecondConfig& config);
-    ~NeuralPreconditioner() override = default;
+    ~NeuralPreconditioner() override;
     
     /**
      * @brief Apply preconditioner: y = M^{-1} * x

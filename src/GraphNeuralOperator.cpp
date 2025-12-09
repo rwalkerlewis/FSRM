@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <queue>
 #include <chrono>
+#include <set>
 
 namespace FSRM {
 namespace ML {

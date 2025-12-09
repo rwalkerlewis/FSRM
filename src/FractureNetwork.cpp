@@ -353,10 +353,6 @@ std::pair<double, double> FractureSet::sampleFisherOrientation(std::mt19937& rng
     double phi = 2.0 * M_PI * uniform(rng);
     
     // Convert to strike/dip relative to mean
-    // Mean pole orientation
-    double mean_strike_rad = fisher_params_.mean_strike * M_PI / 180.0;
-    double mean_dip_rad = fisher_params_.mean_dip * M_PI / 180.0;
-    
     // Apply rotation (simplified - rotate around mean pole)
     double strike = fisher_params_.mean_strike + (phi * 180.0 / M_PI);
     double dip = fisher_params_.mean_dip + (theta * 180.0 / M_PI) * std::cos(phi);
@@ -1277,7 +1273,7 @@ void FractureNetwork::applyTerminationRules() {
     // Apply termination rules from fracture sets
     // This is a simplified implementation
     
-    for (auto& set : sets_) {
+    for ([[maybe_unused]] auto& set : sets_) {
         // Check termination type through properties
         // Full implementation would track which fractures terminate at intersections
     }

@@ -32,7 +32,7 @@ Tensor::Tensor(const std::vector<int>& shape, double value) : shape(shape) {
 }
 
 Tensor::Tensor(const std::vector<int>& shape, const std::vector<double>& data)
-    : shape(shape), data(data) {}
+    : data(data), shape(shape) {}
 
 size_t Tensor::size() const {
     return data.size();
@@ -528,7 +528,7 @@ void FFT::rfft2d(const Tensor& input, ComplexTensor& output) {
     fft2d(input, output);
 }
 
-void FFT::irfft2d(const ComplexTensor& input, Tensor& output, const std::vector<int>& shape) {
+void FFT::irfft2d(const ComplexTensor& input, Tensor& output, const std::vector<int>& /* shape */) {
     ifft2d(input, output);
 }
 
@@ -1743,11 +1743,7 @@ void FNODataGenerator::generateFromSimulation(
     
     // Set dataset shapes
     if (!dataset.samples.empty()) {
-        auto& sample = dataset.samples[0];
         // Infer shapes from data
-        int total_input = sample.input.size();
-        int total_output = sample.output.size();
-        
         // Assume 2D for now
         int channels_in = config.input_channels;
         int channels_out = config.output_channels;

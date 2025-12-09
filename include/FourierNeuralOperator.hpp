@@ -43,6 +43,7 @@ class FNOLayer;
 class FNOModel;
 class FNOTrainer;
 class FNOSolver;
+class MLPModel;  // Forward declaration for constraint projector (future implementation)
 
 // =============================================================================
 // Configuration Structures

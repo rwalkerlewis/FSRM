@@ -22,6 +22,7 @@
 #include "FourierNeuralOperator.hpp"
 #include "NeuralSurrogates.hpp"
 #include "BayesianNeuralOperator.hpp"
+#include "NeuralReducedOrderModel.hpp"
 #include <petsc.h>
 #include <vector>
 #include <memory>
