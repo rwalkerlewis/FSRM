@@ -843,6 +843,44 @@ void WaveModel::getStokesDrift(std::vector<double>& u_stokes,
     }
 }
 
+void WaveModel::getWaveBottomStress(std::vector<double>& tau_w) const {
+    tau_w.resize(nx * ny);
+    
+    // Wave friction factor (typical range: 0.01-0.03)
+    // Value of 0.015 is representative for sandy/muddy bottoms
+    const double WAVE_FRICTION_FACTOR = 0.015;
+    
+    for (int j = 0; j < ny; ++j) {
+        for (int i = 0; i < nx; ++i) {
+            int idx2 = idx2d(i, j);
+            if (mask[idx2] == 0) {
+                tau_w[idx2] = 0.0;
+                continue;
+            }
+            
+            double h = depth[idx2];
+            double Hs = Hs_field[idx2];
+            double Tp = Tp_field[idx2];
+            
+            if (Tp <= 0.0 || Hs <= 0.0) {
+                tau_w[idx2] = 0.0;
+                continue;
+            }
+            
+            // Compute representative wave orbital velocity at bottom
+            double omega = 2.0 * M_PI / Tp;
+            double k = dispersion(1.0 / Tp, h);
+            
+            // RMS orbital velocity amplitude at bottom
+            double U_orb = 0.5 * Hs * omega / std::sinh(k * h);
+            
+            // Bottom stress from wave friction
+            // τ_w = (1/2) * ρ * f_w * U_orb²
+            tau_w[idx2] = 0.5 * RHO_WATER * WAVE_FRICTION_FACTOR * U_orb * U_orb;
+        }
+    }
+}
+
 // =============================================================================
 // InternalWaveModel Implementation
 // =============================================================================

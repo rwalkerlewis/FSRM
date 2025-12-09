@@ -1616,9 +1616,9 @@ EstuarineModel::EstuarineModel()
 void EstuarineModel::initializeEstuary(const HydrodynamicConfig& cfg,
                                        double river_width,
                                        double river_depth,
-                                       double salinity) {
+                                       double ocean_salinity) {
     initialize(cfg);
-    ocean_salinity = salinity;
+    this->ocean_salinity = ocean_salinity;
     
     // Initialize salinity field (linear gradient as first guess)
     for (int j = 0; j < ny; ++j) {

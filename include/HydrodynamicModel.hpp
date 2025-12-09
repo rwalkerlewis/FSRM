@@ -506,6 +506,11 @@ public:
     void computeVerticalMixing();
     
     /**
+     * @brief Compute vertical velocity from continuity
+     */
+    void computeVerticalVelocity();
+    
+    /**
      * @brief Compute bottom friction
      */
     void computeBottomFriction();
@@ -670,7 +675,7 @@ public:
      */
     void provideCurrentsToWaveModel();
     
-private:
+protected:
     // Configuration
     HydrodynamicConfig config;
     
