@@ -155,9 +155,7 @@ void PODBasis::svd(const Tensor& data, Tensor& U, Tensor& S, Tensor& Vt) {
         v.randn(0.0, 1.0);
         
         // Normalize v
-        double norm = 0.0;
-        for (double val : v.data) norm += val * val;
-        norm = std::sqrt(norm);
+        double norm = v.norm();
         for (double& val : v.data) val /= norm;
         
         // Power iteration
