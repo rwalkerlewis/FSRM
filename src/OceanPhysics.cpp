@@ -846,6 +846,10 @@ void WaveModel::getStokesDrift(std::vector<double>& u_stokes,
 void WaveModel::getWaveBottomStress(std::vector<double>& tau_w) const {
     tau_w.resize(nx * ny);
     
+    // Wave friction factor (typical range: 0.01-0.03)
+    // Value of 0.015 is representative for sandy/muddy bottoms
+    const double WAVE_FRICTION_FACTOR = 0.015;
+    
     for (int j = 0; j < ny; ++j) {
         for (int i = 0; i < nx; ++i) {
             int idx2 = idx2d(i, j);
@@ -872,9 +876,7 @@ void WaveModel::getWaveBottomStress(std::vector<double>& tau_w) const {
             
             // Bottom stress from wave friction
             // τ_w = (1/2) * ρ * f_w * U_orb²
-            // where f_w is wave friction factor (typically 0.01-0.03)
-            double f_w = 0.015;  // Wave friction factor
-            tau_w[idx2] = 0.5 * RHO_WATER * f_w * U_orb * U_orb;
+            tau_w[idx2] = 0.5 * RHO_WATER * WAVE_FRICTION_FACTOR * U_orb * U_orb;
         }
     }
 }
