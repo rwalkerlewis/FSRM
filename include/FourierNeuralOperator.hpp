@@ -43,6 +43,7 @@ class FNOLayer;
 class FNOModel;
 class FNOTrainer;
 class FNOSolver;
+class MLPModel;  // Forward declaration for constraint projector (future implementation)
 
 // =============================================================================
 // Configuration Structures
@@ -736,6 +737,314 @@ private:
     int scale_factor;
     std::unique_ptr<FNOModel> model;
     FNOConfig config;
+};
+
+// =============================================================================
+// Extended Physics-Informed Neural Operator (PINN Extensions)
+// =============================================================================
+
+/**
+ * @brief Configuration for Physics-Informed FNO
+ */
+struct PINNConfig : FNOConfig {
+    // Physics equation type
+    enum class PhysicsType {
+        NONE,               // No physics constraints
+        POISSON,            // -∇²u = f
+        DIFFUSION,          // ∂u/∂t = D∇²u
+        ADVECTION,          // ∂u/∂t + v·∇u = 0
+        WAVE,               // ∂²u/∂t² = c²∇²u
+        NAVIER_STOKES,      // Incompressible NS
+        ELASTODYNAMICS,     // Elastic wave equation
+        DARCY,              // Darcy flow in porous media
+        RESERVOIR,          // Reservoir flow (multiphase)
+        COUPLED             // Coupled multi-physics
+    };
+    PhysicsType physics_type = PhysicsType::NONE;
+    
+    // Loss weights
+    double data_loss_weight = 1.0;
+    double physics_loss_weight = 0.1;
+    double boundary_loss_weight = 0.1;
+    double conservation_loss_weight = 0.05;
+    double smoothness_loss_weight = 0.01;
+    
+    // Collocation points for physics loss
+    int num_collocation_points = 1000;
+    bool use_random_collocation = true;
+    
+    // Boundary conditions
+    enum class BCType { DIRICHLET, NEUMANN, PERIODIC, MIXED };
+    BCType bc_type = BCType::DIRICHLET;
+    
+    // Conservation laws to enforce
+    bool enforce_mass_conservation = false;
+    bool enforce_energy_conservation = false;
+    bool enforce_momentum_conservation = false;
+    
+    // Gradient penalty (for well-posedness)
+    bool use_gradient_penalty = false;
+    double gradient_penalty_weight = 0.01;
+    
+    // Automatic differentiation
+    bool use_autodiff = true;  // Use AD for physics derivatives
+    
+    // Hard vs soft constraints
+    bool use_hard_constraints = false;  // Project onto constraint manifold
+    
+    // Curriculum learning
+    bool use_curriculum = true;
+    double physics_weight_start = 0.01;
+    double physics_weight_end = 0.5;
+    int curriculum_epochs = 50;
+};
+
+/**
+ * @brief Extended Physics-Informed Loss Functions
+ */
+class ExtendedPhysicsLoss {
+public:
+    ExtendedPhysicsLoss(const PINNConfig& config);
+    
+    /**
+     * @brief Compute full PINN loss
+     */
+    double computeLoss(const Tensor& prediction, const Tensor& target,
+                      const Tensor& collocation_points);
+    
+    /**
+     * @brief Individual loss components
+     */
+    double dataLoss(const Tensor& prediction, const Tensor& target);
+    double physicsLoss(const Tensor& prediction, const Tensor& collocation_points);
+    double boundaryLoss(const Tensor& prediction, const Tensor& boundary_points,
+                       const Tensor& boundary_values);
+    double conservationLoss(const Tensor& prediction);
+    double smoothnessLoss(const Tensor& prediction);
+    
+    /**
+     * @brief Compute PDE residuals
+     */
+    Tensor computePoissonResidual(const Tensor& u, const Tensor& f,
+                                 double dx, double dy);
+    Tensor computeDiffusionResidual(const Tensor& u, const Tensor& u_prev,
+                                    double D, double dx, double dy, double dt);
+    Tensor computeAdvectionResidual(const Tensor& u, const Tensor& u_prev,
+                                    const Tensor& v, double dx, double dy, double dt);
+    Tensor computeWaveResidual(const Tensor& u, const Tensor& u_prev,
+                               const Tensor& u_pprev, double c,
+                               double dx, double dy, double dt);
+    Tensor computeNavierStokesResidual(const Tensor& u, const Tensor& v,
+                                       const Tensor& p, double nu,
+                                       double dx, double dy);
+    Tensor computeElastodynamicsResidual(const Tensor& displacement,
+                                         const Tensor& displacement_prev,
+                                         double rho, double lambda, double mu,
+                                         double dx, double dy, double dt);
+    Tensor computeDarcyResidual(const Tensor& pressure, const Tensor& permeability,
+                               double mu, double dx, double dy);
+    Tensor computeReservoirResidual(const Tensor& pressure, const Tensor& saturation,
+                                    const Tensor& permeability, const Tensor& porosity,
+                                    double dx, double dy, double dt);
+    
+    /**
+     * @brief Compute spatial derivatives
+     */
+    Tensor gradient(const Tensor& u, double dx, double dy);
+    Tensor divergence(const Tensor& u, const Tensor& v, double dx, double dy);
+    Tensor laplacian(const Tensor& u, double dx, double dy);
+    Tensor curl(const Tensor& u, const Tensor& v, double dx, double dy);
+    
+    /**
+     * @brief Conservation quantities
+     */
+    double totalMass(const Tensor& rho);
+    double totalEnergy(const Tensor& u, const Tensor& v, double rho);
+    Tensor momentum(const Tensor& u, const Tensor& v, double rho);
+    
+private:
+    PINNConfig config_;
+    
+    // Random generator for collocation points
+    std::mt19937 rng_;
+    
+    // Current training state for curriculum
+    int current_epoch_ = 0;
+    double current_physics_weight_ = 0.01;
+    
+    void updateCurriculum(int epoch);
+};
+
+/**
+ * @brief Physics-Informed Fourier Neural Operator
+ */
+class PhysicsInformedFNO {
+public:
+    PhysicsInformedFNO(const PINNConfig& config);
+    
+    /**
+     * @brief Forward pass with physics constraints
+     */
+    Tensor forward(const Tensor& input);
+    
+    /**
+     * @brief Forward pass that returns physics residual
+     */
+    std::pair<Tensor, Tensor> forwardWithResidual(const Tensor& input);
+    
+    /**
+     * @brief Predict with uncertainty estimate
+     */
+    void predict(const Tensor& input, Tensor& prediction, Tensor& uncertainty);
+    
+    /**
+     * @brief Train with physics-informed loss
+     */
+    void train(const FNODataset& data);
+    
+    /**
+     * @brief Train with additional collocation points
+     */
+    void trainPhysicsInformed(const FNODataset& labeled_data,
+                              const Tensor& collocation_points);
+    
+    /**
+     * @brief Enforce hard constraints on output
+     */
+    Tensor enforceConstraints(const Tensor& prediction);
+    
+    /**
+     * @brief Get physics residual for trained model
+     */
+    Tensor getPhysicsResidual(const Tensor& prediction);
+    
+    /**
+     * @brief Check if physics constraints are satisfied
+     */
+    bool checkPhysicsConstraints(const Tensor& prediction, double tolerance = 1e-3);
+    
+    // Model I/O
+    void save(const std::string& path) const;
+    void load(const std::string& path);
+    
+    // Access base FNO
+    FNOModel& getModel() { return *base_model_; }
+    const FNOModel& getModel() const { return *base_model_; }
+    
+private:
+    PINNConfig config_;
+    std::unique_ptr<FNOModel> base_model_;
+    std::unique_ptr<ExtendedPhysicsLoss> physics_loss_;
+    
+    // For hard constraint enforcement
+    std::unique_ptr<MLPModel> constraint_projector_;
+    
+    // Domain information
+    double dx_, dy_, dz_;
+    
+    // Collocation point generator
+    Tensor generateCollocationPoints(int n);
+};
+
+/**
+ * @brief PINN-based Solver that wraps FNO with physics guarantees
+ */
+class PINNSolver {
+public:
+    struct SolverConfig {
+        PINNConfig pinn_config;
+        
+        // Solver behavior
+        bool verify_physics = true;       // Check physics after solve
+        double physics_tolerance = 1e-3;  // Acceptable physics residual
+        int max_correction_steps = 5;     // Newton iterations for correction
+        
+        // Fallback
+        bool use_numerical_fallback = true;
+        double fallback_threshold = 1e-2;
+    };
+    
+    PINNSolver(const SolverConfig& config);
+    
+    /**
+     * @brief Solve PDE with physics guarantees
+     */
+    Tensor solve(const Tensor& initial_condition,
+                const Tensor& boundary_conditions,
+                double t_final, double dt);
+    
+    /**
+     * @brief Single time step
+     */
+    Tensor step(const Tensor& current_state, double dt);
+    
+    /**
+     * @brief Correct physics violations
+     */
+    Tensor correctPhysics(const Tensor& prediction, double dt);
+    
+    /**
+     * @brief Get last physics residual
+     */
+    double getLastPhysicsResidual() const { return last_residual_; }
+    
+    /**
+     * @brief Train solver
+     */
+    void train(const std::vector<Tensor>& trajectories,
+              const std::vector<double>& times);
+    
+private:
+    SolverConfig config_;
+    std::unique_ptr<PhysicsInformedFNO> pinn_;
+    
+    double last_residual_ = 0.0;
+    bool last_used_fallback_ = false;
+};
+
+// =============================================================================
+// 3D FNO Extension
+// =============================================================================
+
+/**
+ * @brief 3D Fourier Neural Operator
+ */
+class FNO3D {
+public:
+    struct FNO3DConfig : FNOConfig {
+        int modes_x = 8;
+        int modes_y = 8;
+        int modes_z = 8;
+        int nx = 64;
+        int ny = 64;
+        int nz = 64;
+    };
+    
+    FNO3D(const FNO3DConfig& config);
+    
+    /**
+     * @brief 3D forward pass
+     */
+    Tensor forward(const Tensor& input);
+    
+    /**
+     * @brief 3D FFT operations
+     */
+    ComplexTensor fft3d(const Tensor& x);
+    Tensor ifft3d(const ComplexTensor& x);
+    
+    void train(const std::vector<Tensor>& inputs,
+              const std::vector<Tensor>& outputs);
+    
+    void save(const std::string& path) const;
+    void load(const std::string& path);
+    
+private:
+    FNO3DConfig config_;
+    
+    // 3D spectral convolution layers
+    std::vector<ComplexTensor> spectral_weights_;
+    std::vector<Tensor> linear_weights_;
 };
 
 // =============================================================================
