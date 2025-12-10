@@ -809,12 +809,17 @@ PetscErrorCode PETScPhysicsPreconditioner::createFieldISFromDM(DM dm,
                                         const std::vector<std::string>& field_names) {
     PetscFunctionBeginUser;
     
-    for (size_t i = 0; i < field_names.size(); ++i) {
-        IS is;
-        PetscCall(DMCreateFieldIS(dm, NULL, NULL, &is));
-        // Note: For multiple fields, would need DMCreateFieldDecomposition
-        field_is_.push_back(is);
+    PetscInt num_fields;
+    IS *field_is_array = NULL;
+    PetscCall(DMCreateFieldIS(dm, &num_fields, NULL, &field_is_array));
+    
+    // Copy to our vector
+    for (PetscInt i = 0; i < num_fields && static_cast<size_t>(i) < field_names.size(); ++i) {
+        field_is_.push_back(field_is_array[i]);
     }
+    
+    // Free the array (but not the IS objects themselves)
+    PetscCall(PetscFree(field_is_array));
     
     PetscFunctionReturn(PETSC_SUCCESS);
 }
