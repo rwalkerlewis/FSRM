@@ -1,15 +1,16 @@
 /**
  * @file HighFidelityNumerics.cpp
- * @brief Implementation of advanced numerical methods for high-fidelity simulations
+ * @brief Implementation of advanced numerical methods using PETSc
  * 
- * Note: DG methods are implemented in DiscontinuousGalerkin.cpp
- *       AMR methods are implemented in AdaptiveMeshRefinement.cpp
+ * All heavy computational work is delegated to PETSc:
+ * - Time integration: PETSc TS
+ * - Preconditioning: PETSc PC
+ * - Linear algebra: PETSc Vec/Mat
  */
 
 #include "HighFidelityNumerics.hpp"
 #include <cmath>
 #include <algorithm>
-#include <numeric>
 #include <stdexcept>
 #include <sstream>
 
@@ -17,27 +18,17 @@ namespace FSRM {
 namespace HighFidelity {
 
 // =============================================================================
-// Utility Functions
+// Utility Functions (using PETSc types)
 // =============================================================================
 
 namespace {
 
-inline double sign(double x) {
-    if (x > 0.0) return 1.0;
-    if (x < 0.0) return -1.0;
-    return 0.0;
-}
-
-inline double dot3(const std::array<double, 3>& a, const std::array<double, 3>& b) {
+inline PetscReal dot3(const PetscReal a[3], const PetscReal b[3]) {
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 }
 
-inline double norm3(const std::array<double, 3>& v) {
-    return std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
-}
-
-inline double clamp(double val, double min_val, double max_val) {
-    return std::max(min_val, std::min(max_val, val));
+inline PetscReal norm3(const PetscReal v[3]) {
+    return PetscSqrtReal(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
 }
 
 } // anonymous namespace
@@ -76,40 +67,25 @@ void SUPGStabilization::configure(const std::map<std::string, std::string>& conf
     }
     
     it = config.find("supg_tau_multiplier");
-    if (it != config.end()) {
-        params_.tau_multiplier = std::stod(it->second);
-    }
+    if (it != config.end()) params_.tau_multiplier = std::stod(it->second);
     
     it = config.find("supg_crosswind_diffusion");
-    if (it != config.end()) {
-        params_.crosswind_diffusion = std::stod(it->second);
-    }
+    if (it != config.end()) params_.crosswind_diffusion = std::stod(it->second);
     
     it = config.find("supg_include_transient");
-    if (it != config.end()) {
-        params_.include_transient = (it->second == "true" || it->second == "1");
-    }
-    
-    it = config.find("supg_time_scale");
-    if (it != config.end()) {
-        params_.time_scale = std::stod(it->second);
-    }
+    if (it != config.end()) params_.include_transient = (it->second == "true" || it->second == "1");
     
     it = config.find("supg_shock_capturing");
-    if (it != config.end()) {
-        params_.shock_capturing = (it->second == "true" || it->second == "1");
-    }
+    if (it != config.end()) params_.shock_capturing = (it->second == "true" || it->second == "1");
     
     it = config.find("supg_shock_capture_coeff");
-    if (it != config.end()) {
-        params_.shock_capture_coeff = std::stod(it->second);
-    }
+    if (it != config.end()) params_.shock_capture_coeff = std::stod(it->second);
 }
 
-double SUPGStabilization::calculateTau(const std::array<double, 3>& velocity,
-                                       double diffusivity, double reaction,
-                                       double h, double dt) const {
-    double tau = 0.0;
+PetscReal SUPGStabilization::calculateTau(const PetscReal velocity[3],
+                                          PetscReal diffusivity, PetscReal reaction,
+                                          PetscReal h, PetscReal dt) const {
+    PetscReal tau = 0.0;
     
     switch (params_.tau_formula) {
         case TauFormula::SHAKIB:
@@ -121,8 +97,6 @@ double SUPGStabilization::calculateTau(const std::array<double, 3>& velocity,
         case TauFormula::CODINA:
             tau = tau_Codina(velocity, diffusivity, reaction, h, dt);
             break;
-        case TauFormula::FRANCA_VALENTIN:
-        case TauFormula::OPTIMAL:
         default:
             tau = tau_Shakib(velocity, diffusivity, reaction, h, dt);
             break;
@@ -131,502 +105,454 @@ double SUPGStabilization::calculateTau(const std::array<double, 3>& velocity,
     return params_.tau_multiplier * tau;
 }
 
-double SUPGStabilization::tau_Shakib(const std::array<double, 3>& velocity,
-                                     double diffusivity, double reaction,
-                                     double h, double dt) const {
-    // Shakib formula (1991):
-    // τ = (4/dt² + (2|a|/h)² + 9(4κ/h²)² + σ²)^(-1/2)
+PetscReal SUPGStabilization::tau_Shakib(const PetscReal velocity[3],
+                                        PetscReal diffusivity, PetscReal reaction,
+                                        PetscReal h, PetscReal dt) const {
+    PetscReal vel_mag = norm3(velocity);
     
-    double vel_mag = norm3(velocity);
-    
-    double term1 = 0.0;
+    PetscReal term1 = 0.0;
     if (params_.include_transient && dt > 0.0) {
         term1 = 4.0 / (dt * dt);
     }
     
-    double term2 = 0.0;
-    if (h > 0.0) {
-        term2 = std::pow(2.0 * vel_mag / h, 2);
-    }
+    PetscReal term2 = (h > 0.0) ? PetscSqr(2.0 * vel_mag / h) : 0.0;
+    PetscReal term3 = (h > 0.0 && diffusivity > 0.0) ? 
+                      PetscSqr(9.0 * 4.0 * diffusivity / (h * h)) : 0.0;
+    PetscReal term4 = params_.include_reaction ? reaction * reaction : 0.0;
     
-    double term3 = 0.0;
-    if (h > 0.0 && diffusivity > 0.0) {
-        term3 = std::pow(9.0 * 4.0 * diffusivity / (h * h), 2);
-    }
-    
-    double term4 = 0.0;
-    if (params_.include_reaction) {
-        term4 = reaction * reaction;
-    }
-    
-    double sum = term1 + term2 + term3 + term4;
-    if (sum < 1e-30) {
-        return 0.0;
-    }
-    
-    return 1.0 / std::sqrt(sum);
+    PetscReal sum = term1 + term2 + term3 + term4;
+    return (sum > PETSC_SMALL) ? 1.0 / PetscSqrtReal(sum) : 0.0;
 }
 
-double SUPGStabilization::tau_Tezduyar(const std::array<double, 3>& velocity,
-                                       double diffusivity, double h, double dt) const {
-    // Tezduyar formula for incompressible flow:
-    // τ = ((2/dt)² + (2|a|/h)² + (4ν/h²)²)^(-1/2)
+PetscReal SUPGStabilization::tau_Tezduyar(const PetscReal velocity[3],
+                                          PetscReal diffusivity, PetscReal h, 
+                                          PetscReal dt) const {
+    PetscReal vel_mag = norm3(velocity);
     
-    double vel_mag = norm3(velocity);
+    PetscReal term1 = (params_.include_transient && dt > 0.0) ? PetscSqr(2.0 / dt) : 0.0;
+    PetscReal term2 = (h > 0.0) ? PetscSqr(2.0 * vel_mag / h) : 0.0;
+    PetscReal term3 = (h > 0.0) ? PetscSqr(4.0 * diffusivity / (h * h)) : 0.0;
     
-    double term1 = 0.0;
-    if (params_.include_transient && dt > 0.0) {
-        term1 = std::pow(2.0 / dt, 2);
-    }
-    
-    double term2 = 0.0;
-    if (h > 0.0) {
-        term2 = std::pow(2.0 * vel_mag / h, 2);
-    }
-    
-    double term3 = 0.0;
-    if (h > 0.0) {
-        term3 = std::pow(4.0 * diffusivity / (h * h), 2);
-    }
-    
-    double sum = term1 + term2 + term3;
-    if (sum < 1e-30) {
-        return 0.0;
-    }
-    
-    return 1.0 / std::sqrt(sum);
+    PetscReal sum = term1 + term2 + term3;
+    return (sum > PETSC_SMALL) ? 1.0 / PetscSqrtReal(sum) : 0.0;
 }
 
-double SUPGStabilization::tau_Codina(const std::array<double, 3>& velocity,
-                                     double diffusivity, double reaction,
-                                     double h, double dt) const {
-    // Codina (projection-based):
-    // τ = min(c1·dt/2, c2·h/(2|a|), c3·h²/(4κ), c4/σ)
-    
-    const double c1 = 1.0;
-    const double c2 = 1.0;
-    const double c3 = 1.0;
-    const double c4 = 1.0;
-    
-    double tau = 1e10;
+PetscReal SUPGStabilization::tau_Codina(const PetscReal velocity[3],
+                                        PetscReal diffusivity, PetscReal reaction,
+                                        PetscReal h, PetscReal dt) const {
+    PetscReal tau = PETSC_MAX_REAL;
+    PetscReal vel_mag = norm3(velocity);
     
     if (params_.include_transient && dt > 0.0) {
-        tau = std::min(tau, c1 * dt / 2.0);
+        tau = PetscMin(tau, dt / 2.0);
+    }
+    if (vel_mag > PETSC_SMALL && h > 0.0) {
+        tau = PetscMin(tau, h / (2.0 * vel_mag));
+    }
+    if (diffusivity > PETSC_SMALL && h > 0.0) {
+        tau = PetscMin(tau, h * h / (4.0 * diffusivity));
+    }
+    if (params_.include_reaction && reaction > PETSC_SMALL) {
+        tau = PetscMin(tau, 1.0 / reaction);
     }
     
-    double vel_mag = norm3(velocity);
-    if (vel_mag > 1e-12 && h > 0.0) {
-        tau = std::min(tau, c2 * h / (2.0 * vel_mag));
-    }
-    
-    if (diffusivity > 1e-12 && h > 0.0) {
-        tau = std::min(tau, c3 * h * h / (4.0 * diffusivity));
-    }
-    
-    if (params_.include_reaction && reaction > 1e-12) {
-        tau = std::min(tau, c4 / reaction);
-    }
-    
-    if (tau > 1e9) {
-        tau = 0.0;
-    }
-    
-    return tau;
+    return (tau < PETSC_MAX_REAL / 2.0) ? tau : 0.0;
 }
 
-double SUPGStabilization::pecletNumber(double velocity_magnitude, double h,
-                                       double diffusivity) const {
-    if (diffusivity < 1e-30) {
-        return 1e10;  // Pure advection
-    }
-    return velocity_magnitude * h / (2.0 * diffusivity);
+PetscReal SUPGStabilization::pecletNumber(PetscReal velocity_magnitude, PetscReal h,
+                                          PetscReal diffusivity) const {
+    return (diffusivity > PETSC_SMALL) ? velocity_magnitude * h / (2.0 * diffusivity) : PETSC_MAX_REAL;
 }
 
-double SUPGStabilization::optimalDiffusivity(double velocity_magnitude, double h,
-                                              double diffusivity) const {
-    double Pe = pecletNumber(velocity_magnitude, h, diffusivity);
+PetscReal SUPGStabilization::optimalDiffusivity(PetscReal velocity_magnitude, PetscReal h,
+                                                 PetscReal diffusivity) const {
+    PetscReal Pe = pecletNumber(velocity_magnitude, h, diffusivity);
+    if (Pe < 1e-3) return 0.0;
     
-    if (Pe < 1e-3) {
-        return 0.0;
-    }
-    
-    double coth_Pe = (std::exp(2.0 * Pe) + 1.0) / (std::exp(2.0 * Pe) - 1.0);
-    double alpha = coth_Pe - 1.0 / Pe;
+    PetscReal coth_Pe = (PetscExpReal(2.0 * Pe) + 1.0) / (PetscExpReal(2.0 * Pe) - 1.0);
+    PetscReal alpha = coth_Pe - 1.0 / Pe;
     
     return 0.5 * velocity_magnitude * h * alpha;
 }
 
-void SUPGStabilization::addStabilization(const std::array<double, 3>& velocity,
-                                         const std::array<double, 3>& test_gradient,
-                                         double residual_strong,
-                                         double tau,
-                                         double& stabilization_term) const {
+void SUPGStabilization::addStabilization(const PetscReal velocity[3],
+                                         const PetscReal test_gradient[3],
+                                         PetscReal residual_strong,
+                                         PetscReal tau,
+                                         PetscReal* stabilization_term) const {
     if (params_.method == StabilizationMethod::NONE) {
-        stabilization_term = 0.0;
+        *stabilization_term = 0.0;
         return;
     }
     
-    double a_grad_v = dot3(velocity, test_gradient);
-    stabilization_term = tau * a_grad_v * residual_strong;
+    PetscReal a_grad_v = dot3(velocity, test_gradient);
+    *stabilization_term = tau * a_grad_v * residual_strong;
 }
 
-void SUPGStabilization::addGLSStabilization(double L_adjoint_v,
-                                            double residual_strong,
-                                            double tau,
-                                            double& stabilization_term) const {
-    stabilization_term = tau * L_adjoint_v * residual_strong;
+void SUPGStabilization::addGLSStabilization(PetscReal L_adjoint_v,
+                                            PetscReal residual_strong,
+                                            PetscReal tau,
+                                            PetscReal* stabilization_term) const {
+    *stabilization_term = tau * L_adjoint_v * residual_strong;
 }
 
-double SUPGStabilization::shockCapturingDiffusivity(const std::array<double, 3>& grad_u,
-                                                     double u, double h,
-                                                     double residual) const {
-    if (!params_.shock_capturing) {
-        return 0.0;
-    }
+PetscReal SUPGStabilization::shockCapturingDiffusivity(const PetscReal grad_u[3],
+                                                        PetscReal u, PetscReal h,
+                                                        PetscReal residual) const {
+    if (!params_.shock_capturing) return 0.0;
     
-    double grad_mag = norm3(grad_u);
-    if (grad_mag < 1e-30) {
-        return 0.0;
-    }
+    PetscReal grad_mag = norm3(grad_u);
+    if (grad_mag < PETSC_SMALL) return 0.0;
     
-    double kappa_DC = params_.shock_capture_coeff * h * std::abs(residual) / grad_mag;
-    
-    return kappa_DC;
+    return params_.shock_capture_coeff * h * PetscAbsReal(residual) / grad_mag;
 }
 
-double SUPGStabilization::pspgTerm(const std::array<double, 3>& grad_p,
-                                   const std::array<double, 3>& grad_q,
-                                   double tau) const {
+PetscReal SUPGStabilization::pspgTerm(const PetscReal grad_p[3],
+                                      const PetscReal grad_q[3],
+                                      PetscReal tau) const {
     return tau * dot3(grad_p, grad_q);
 }
 
 
 // =============================================================================
-// AdvancedTimeIntegration Implementation
+// PETScTimeIntegration Implementation
 // =============================================================================
 
-AdvancedTimeIntegration::AdvancedTimeIntegration() {
-    params_.newmark_beta = 0.25;
-    params_.newmark_gamma = 0.5;
-}
+PETScTimeIntegration::PETScTimeIntegration(MPI_Comm comm)
+    : comm_(comm), ts_(nullptr), ts_created_(PETSC_FALSE) {}
 
-void AdvancedTimeIntegration::setParameters(const Parameters& params) {
-    params_ = params;
-    
-    if (params_.scheme == TimeScheme::GENERALIZED_ALPHA) {
-        computeGeneralizedAlphaCoeffs();
+PETScTimeIntegration::~PETScTimeIntegration() {
+    if (ts_created_ && ts_) {
+        TSDestroy(&ts_);
     }
 }
 
-void AdvancedTimeIntegration::configure(const std::map<std::string, std::string>& config) {
+void PETScTimeIntegration::setParameters(const Parameters& params) {
+    params_ = params;
+}
+
+void PETScTimeIntegration::configure(const std::map<std::string, std::string>& config) {
     auto it = config.find("time_scheme");
     if (it != config.end()) {
         const std::string& val = it->second;
-        if (val == "forward_euler") params_.scheme = TimeScheme::FORWARD_EULER;
-        else if (val == "backward_euler") params_.scheme = TimeScheme::BACKWARD_EULER;
-        else if (val == "crank_nicolson") params_.scheme = TimeScheme::CRANK_NICOLSON;
+        if (val == "backward_euler" || val == "be") params_.scheme = TimeScheme::BACKWARD_EULER;
+        else if (val == "crank_nicolson" || val == "cn") params_.scheme = TimeScheme::CRANK_NICOLSON;
         else if (val == "theta") params_.scheme = TimeScheme::THETA_METHOD;
-        else if (val == "rk2") params_.scheme = TimeScheme::RK2;
         else if (val == "rk4") params_.scheme = TimeScheme::RK4;
         else if (val == "ssprk3") params_.scheme = TimeScheme::SSPRK3;
-        else if (val == "dirk2") params_.scheme = TimeScheme::DIRK2;
-        else if (val == "dirk3") params_.scheme = TimeScheme::DIRK3;
-        else if (val == "esdirk4") params_.scheme = TimeScheme::ESDIRK4;
         else if (val == "bdf2") params_.scheme = TimeScheme::BDF2;
         else if (val == "bdf3") params_.scheme = TimeScheme::BDF3;
         else if (val == "bdf4") params_.scheme = TimeScheme::BDF4;
-        else if (val == "newmark" || val == "newmark_beta") params_.scheme = TimeScheme::NEWMARK_BETA;
-        else if (val == "hht" || val == "hht_alpha") params_.scheme = TimeScheme::HHT_ALPHA;
+        else if (val == "arkimex2") params_.scheme = TimeScheme::ARKIMEX2;
+        else if (val == "arkimex3") params_.scheme = TimeScheme::ARKIMEX3;
+        else if (val == "arkimex4") params_.scheme = TimeScheme::ARKIMEX4;
         else if (val == "generalized_alpha") params_.scheme = TimeScheme::GENERALIZED_ALPHA;
-        else if (val == "bathe") params_.scheme = TimeScheme::BATHE;
+        else if (val == "newmark" || val == "newmark_beta") params_.scheme = TimeScheme::NEWMARK_BETA;
     }
     
     it = config.find("time_theta");
-    if (it != config.end()) {
-        params_.theta = std::stod(it->second);
-    }
+    if (it != config.end()) params_.theta = std::stod(it->second);
     
     it = config.find("newmark_beta");
-    if (it != config.end()) {
-        params_.newmark_beta = std::stod(it->second);
-    }
+    if (it != config.end()) params_.newmark_beta = std::stod(it->second);
     
     it = config.find("newmark_gamma");
-    if (it != config.end()) {
-        params_.newmark_gamma = std::stod(it->second);
-    }
+    if (it != config.end()) params_.newmark_gamma = std::stod(it->second);
     
     it = config.find("rho_infinity");
-    if (it != config.end()) {
-        params_.rho_infinity = std::stod(it->second);
-    }
+    if (it != config.end()) params_.rho_infinity = std::stod(it->second);
     
     it = config.find("time_adaptive");
-    if (it != config.end()) {
-        params_.adaptive = (it->second == "true" || it->second == "1");
-    }
+    if (it != config.end()) params_.adaptive = (it->second == "true" || it->second == "1") ? PETSC_TRUE : PETSC_FALSE;
     
-    it = config.find("time_error_tolerance");
-    if (it != config.end()) {
-        params_.error_tolerance = std::stod(it->second);
-    }
+    it = config.find("time_atol");
+    if (it != config.end()) params_.atol = std::stod(it->second);
     
-    if (params_.scheme == TimeScheme::GENERALIZED_ALPHA) {
-        computeGeneralizedAlphaCoeffs();
-    }
+    it = config.find("time_rtol");
+    if (it != config.end()) params_.rtol = std::stod(it->second);
 }
 
-int AdvancedTimeIntegration::getOrder() const {
+PetscErrorCode PETScTimeIntegration::createTS(DM dm) {
+    PetscFunctionBeginUser;
+    
+    PetscCall(TSCreate(comm_, &ts_));
+    ts_created_ = PETSC_TRUE;
+    
+    if (dm) {
+        PetscCall(TSSetDM(ts_, dm));
+    }
+    
+    PetscCall(configureTSType());
+    PetscCall(configureAdaptivity());
+    
+    // Allow command-line override
+    PetscCall(TSSetFromOptions(ts_));
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::configureTSType() {
+    PetscFunctionBeginUser;
+    
     switch (params_.scheme) {
-        case TimeScheme::FORWARD_EULER:
         case TimeScheme::BACKWARD_EULER:
+            PetscCall(TSSetType(ts_, TSTHETA));
+            PetscCall(TSThetaSetTheta(ts_, 1.0));
+            break;
+            
+        case TimeScheme::CRANK_NICOLSON:
+            PetscCall(TSSetType(ts_, TSTHETA));
+            PetscCall(TSThetaSetTheta(ts_, 0.5));
+            break;
+            
+        case TimeScheme::THETA_METHOD:
+            PetscCall(TSSetType(ts_, TSTHETA));
+            PetscCall(TSThetaSetTheta(ts_, params_.theta));
+            break;
+            
+        case TimeScheme::RK1FE:
+            PetscCall(TSSetType(ts_, TSRK));
+            PetscCall(TSRKSetType(ts_, TSRK1FE));
+            break;
+            
+        case TimeScheme::RK4:
+            PetscCall(TSSetType(ts_, TSRK));
+            PetscCall(TSRKSetType(ts_, TSRK4));
+            break;
+            
+        case TimeScheme::RK5DP:
+            PetscCall(TSSetType(ts_, TSRK));
+            PetscCall(TSRKSetType(ts_, TSRK5DP));
+            break;
+            
+        case TimeScheme::SSPRK3:
+            PetscCall(TSSetType(ts_, TSSSP));
+            break;
+            
+        case TimeScheme::ARKIMEX1:
+            PetscCall(TSSetType(ts_, TSARKIMEX));
+            PetscCall(TSARKIMEXSetType(ts_, TSARKIMEX1BEE));
+            break;
+            
+        case TimeScheme::ARKIMEX2:
+            PetscCall(TSSetType(ts_, TSARKIMEX));
+            PetscCall(TSARKIMEXSetType(ts_, TSARKIMEXA2));
+            break;
+            
+        case TimeScheme::ARKIMEX3:
+            PetscCall(TSSetType(ts_, TSARKIMEX));
+            PetscCall(TSARKIMEXSetType(ts_, TSARKIMEX3));
+            break;
+            
+        case TimeScheme::ARKIMEX4:
+            PetscCall(TSSetType(ts_, TSARKIMEX));
+            PetscCall(TSARKIMEXSetType(ts_, TSARKIMEX4));
+            break;
+            
+        case TimeScheme::ARKIMEX5:
+            PetscCall(TSSetType(ts_, TSARKIMEX));
+            PetscCall(TSARKIMEXSetType(ts_, TSARKIMEX5));
+            break;
+            
+        case TimeScheme::BDF1:
+            PetscCall(TSSetType(ts_, TSBDF));
+            PetscCall(TSBDFSetOrder(ts_, 1));
+            break;
+            
+        case TimeScheme::BDF2:
+            PetscCall(TSSetType(ts_, TSBDF));
+            PetscCall(TSBDFSetOrder(ts_, 2));
+            break;
+            
+        case TimeScheme::BDF3:
+            PetscCall(TSSetType(ts_, TSBDF));
+            PetscCall(TSBDFSetOrder(ts_, 3));
+            break;
+            
+        case TimeScheme::BDF4:
+            PetscCall(TSSetType(ts_, TSBDF));
+            PetscCall(TSBDFSetOrder(ts_, 4));
+            break;
+            
+        case TimeScheme::GENERALIZED_ALPHA:
+            PetscCall(TSSetType(ts_, TSALPHA));
+            PetscCall(TSAlphaSetRadius(ts_, params_.rho_infinity));
+            break;
+            
+        case TimeScheme::GENERALIZED_ALPHA2:
+            PetscCall(TSSetType(ts_, TSALPHA2));
+            PetscCall(TSAlpha2SetRadius(ts_, params_.rho_infinity));
+            break;
+            
+        case TimeScheme::NEWMARK_BETA:
+            // PETSc doesn't have native Newmark, use Alpha2 with specific params
+            PetscCall(TSSetType(ts_, TSALPHA2));
+            // Set parameters to match Newmark-beta
+            // For Newmark: rho_inf determines damping
+            PetscCall(TSAlpha2SetRadius(ts_, params_.rho_infinity));
+            break;
+            
+        default:
+            PetscCall(TSSetType(ts_, TSBDF));
+            PetscCall(TSBDFSetOrder(ts_, 2));
+            break;
+    }
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::configureAdaptivity() {
+    PetscFunctionBeginUser;
+    
+    TSAdapt adapt;
+    PetscCall(TSGetAdapt(ts_, &adapt));
+    
+    if (params_.adaptive) {
+        PetscCall(TSAdaptSetType(adapt, TSADAPTBASIC));
+        PetscCall(TSSetTolerances(ts_, params_.atol, NULL, params_.rtol, NULL));
+    } else {
+        PetscCall(TSAdaptSetType(adapt, TSADAPTNONE));
+    }
+    
+    PetscCall(TSAdaptSetStepLimits(adapt, params_.dt_min, params_.dt_max));
+    PetscCall(TSSetMaxSteps(ts_, params_.max_steps));
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::setRHSFunction(TSRHSFunction func, void* ctx) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetRHSFunction(ts_, NULL, func, ctx));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::setRHSJacobian(TSRHSJacobian func, Mat J, Mat P, void* ctx) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetRHSJacobian(ts_, J, P, func, ctx));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::setIFunction(TSIFunction func, Vec F, void* ctx) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetIFunction(ts_, F, func, ctx));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::setIJacobian(TSIJacobian func, Mat J, Mat P, void* ctx) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetIJacobian(ts_, J, P, func, ctx));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::setI2Function(TSI2Function func, Vec F, void* ctx) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetI2Function(ts_, F, func, ctx));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::setI2Jacobian(TSI2Jacobian func, Mat J, Mat P, void* ctx) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetI2Jacobian(ts_, J, P, func, ctx));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::solve(Vec u, PetscReal t0, PetscReal tf) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetTime(ts_, t0));
+    PetscCall(TSSetMaxTime(ts_, tf));
+    PetscCall(TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP));
+    PetscCall(TSSolve(ts_, u));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::step(Vec u) {
+    PetscFunctionBeginUser;
+    PetscCall(TSStep(ts_));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::getTime(PetscReal* t) const {
+    PetscFunctionBeginUser;
+    PetscCall(TSGetTime(ts_, t));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::getTimeStep(PetscReal* dt) const {
+    PetscFunctionBeginUser;
+    PetscCall(TSGetTimeStep(ts_, dt));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScTimeIntegration::setTimeStep(PetscReal dt) {
+    PetscFunctionBeginUser;
+    PetscCall(TSSetTimeStep(ts_, dt));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscInt PETScTimeIntegration::getOrder() const {
+    switch (params_.scheme) {
+        case TimeScheme::BACKWARD_EULER:
+        case TimeScheme::RK1FE:
+        case TimeScheme::BDF1:
+        case TimeScheme::ARKIMEX1:
             return 1;
         case TimeScheme::CRANK_NICOLSON:
-        case TimeScheme::RK2:
-        case TimeScheme::DIRK2:
+        case TimeScheme::RK2A:
         case TimeScheme::BDF2:
-        case TimeScheme::NEWMARK_BETA:
-        case TimeScheme::HHT_ALPHA:
+        case TimeScheme::ARKIMEX2:
         case TimeScheme::GENERALIZED_ALPHA:
+        case TimeScheme::GENERALIZED_ALPHA2:
+        case TimeScheme::NEWMARK_BETA:
             return 2;
+        case TimeScheme::RK3:
         case TimeScheme::SSPRK3:
-        case TimeScheme::DIRK3:
         case TimeScheme::BDF3:
+        case TimeScheme::ARKIMEX3:
             return 3;
         case TimeScheme::RK4:
-        case TimeScheme::ESDIRK4:
         case TimeScheme::BDF4:
-        case TimeScheme::BATHE:
+        case TimeScheme::ARKIMEX4:
             return 4;
-        case TimeScheme::THETA_METHOD:
-            return (std::abs(params_.theta - 0.5) < 1e-10) ? 2 : 1;
+        case TimeScheme::RK5F:
+        case TimeScheme::RK5DP:
+        case TimeScheme::BDF5:
+        case TimeScheme::ARKIMEX5:
+            return 5;
+        case TimeScheme::BDF6:
+            return 6;
         default:
             return 1;
     }
 }
 
-bool AdvancedTimeIntegration::isAStable() const {
+PetscBool PETScTimeIntegration::isAStable() const {
     switch (params_.scheme) {
-        case TimeScheme::FORWARD_EULER:
-        case TimeScheme::RK2:
-        case TimeScheme::RK4:
-        case TimeScheme::SSPRK3:
-        case TimeScheme::ADAMS_BASHFORTH_2:
-        case TimeScheme::BDF4:
-            return false;
         case TimeScheme::BACKWARD_EULER:
         case TimeScheme::CRANK_NICOLSON:
-        case TimeScheme::DIRK2:
-        case TimeScheme::DIRK3:
-        case TimeScheme::ESDIRK4:
+        case TimeScheme::THETA_METHOD:
+        case TimeScheme::BDF1:
         case TimeScheme::BDF2:
         case TimeScheme::BDF3:
-        case TimeScheme::ADAMS_MOULTON_2:
-        case TimeScheme::NEWMARK_BETA:
-        case TimeScheme::HHT_ALPHA:
+        case TimeScheme::ARKIMEX2:
+        case TimeScheme::ARKIMEX3:
+        case TimeScheme::ARKIMEX4:
         case TimeScheme::GENERALIZED_ALPHA:
-        case TimeScheme::BATHE:
-            return true;
-        case TimeScheme::THETA_METHOD:
-            return params_.theta >= 0.5;
+        case TimeScheme::GENERALIZED_ALPHA2:
+        case TimeScheme::NEWMARK_BETA:
+            return PETSC_TRUE;
         default:
-            return false;
+            return PETSC_FALSE;
     }
 }
 
-bool AdvancedTimeIntegration::isLStable() const {
+PetscBool PETScTimeIntegration::isLStable() const {
     switch (params_.scheme) {
         case TimeScheme::BACKWARD_EULER:
-        case TimeScheme::DIRK2:
-        case TimeScheme::DIRK3:
-        case TimeScheme::ESDIRK4:
+        case TimeScheme::BDF1:
         case TimeScheme::BDF2:
-        case TimeScheme::BDF3:
-            return true;
-        case TimeScheme::CRANK_NICOLSON:
-        case TimeScheme::ADAMS_MOULTON_2:
-            return false;
-        case TimeScheme::THETA_METHOD:
-            return params_.theta > 0.5;
-        case TimeScheme::NEWMARK_BETA:
-        case TimeScheme::HHT_ALPHA:
-        case TimeScheme::GENERALIZED_ALPHA:
-            return params_.newmark_gamma >= 0.5 + params_.newmark_beta;
+            return PETSC_TRUE;
         default:
-            return false;
-    }
-}
-
-void AdvancedTimeIntegration::getButcherTableau(std::vector<std::vector<double>>& A,
-                                                std::vector<double>& b,
-                                                std::vector<double>& c) const {
-    switch (params_.scheme) {
-        case TimeScheme::FORWARD_EULER:
-            A = {{0.0}};
-            b = {1.0};
-            c = {0.0};
-            break;
-        case TimeScheme::BACKWARD_EULER:
-            A = {{1.0}};
-            b = {1.0};
-            c = {1.0};
-            break;
-        case TimeScheme::RK2:
-            A = {{0.0, 0.0}, {0.5, 0.0}};
-            b = {0.0, 1.0};
-            c = {0.0, 0.5};
-            break;
-        case TimeScheme::SSPRK3:
-            A = {{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.25, 0.25, 0.0}};
-            b = {1.0/6.0, 1.0/6.0, 2.0/3.0};
-            c = {0.0, 1.0, 0.5};
-            break;
-        case TimeScheme::RK4:
-            A = {{0.0, 0.0, 0.0, 0.0},
-                 {0.5, 0.0, 0.0, 0.0},
-                 {0.0, 0.5, 0.0, 0.0},
-                 {0.0, 0.0, 1.0, 0.0}};
-            b = {1.0/6.0, 1.0/3.0, 1.0/3.0, 1.0/6.0};
-            c = {0.0, 0.5, 0.5, 1.0};
-            break;
-        case TimeScheme::DIRK2: {
-            double gamma = 1.0 - 1.0/std::sqrt(2.0);
-            A = {{gamma, 0.0}, {1.0 - gamma, gamma}};
-            b = {1.0 - gamma, gamma};
-            c = {gamma, 1.0};
-            break;
-        }
-        default:
-            A = {{0.0}};
-            b = {1.0};
-            c = {0.0};
-    }
-}
-
-void AdvancedTimeIntegration::initializeNewmark(const std::vector<double>& u0,
-                                                const std::vector<double>& v0,
-                                                const std::function<std::vector<double>(
-                                                    const std::vector<double>&,
-                                                    const std::vector<double>&)>& compute_rhs,
-                                                std::vector<double>& a0) const {
-    a0 = compute_rhs(u0, v0);
-}
-
-void AdvancedTimeIntegration::newmarkPredict(const std::vector<double>& u_n,
-                                             const std::vector<double>& v_n,
-                                             const std::vector<double>& a_n,
-                                             double dt,
-                                             std::vector<double>& u_pred,
-                                             std::vector<double>& v_pred) const {
-    double beta = params_.newmark_beta;
-    double gamma = params_.newmark_gamma;
-    
-    size_t n = u_n.size();
-    u_pred.resize(n);
-    v_pred.resize(n);
-    
-    for (size_t i = 0; i < n; ++i) {
-        u_pred[i] = u_n[i] + dt * v_n[i] + dt * dt * (0.5 - beta) * a_n[i];
-        v_pred[i] = v_n[i] + dt * (1.0 - gamma) * a_n[i];
-    }
-}
-
-void AdvancedTimeIntegration::newmarkCorrect(const std::vector<double>& u_pred,
-                                             const std::vector<double>& v_pred,
-                                             const std::vector<double>& a_new,
-                                             double dt,
-                                             std::vector<double>& u_new,
-                                             std::vector<double>& v_new) const {
-    double beta = params_.newmark_beta;
-    double gamma = params_.newmark_gamma;
-    
-    size_t n = u_pred.size();
-    u_new.resize(n);
-    v_new.resize(n);
-    
-    for (size_t i = 0; i < n; ++i) {
-        u_new[i] = u_pred[i] + beta * dt * dt * a_new[i];
-        v_new[i] = v_pred[i] + gamma * dt * a_new[i];
-    }
-}
-
-void AdvancedTimeIntegration::effectiveNewmarkMatrix(double dt, double mass, double damping,
-                                                     double stiffness, double& M_eff) const {
-    double beta = params_.newmark_beta;
-    double gamma = params_.newmark_gamma;
-    
-    M_eff = mass + gamma * dt * damping + beta * dt * dt * stiffness;
-}
-
-void AdvancedTimeIntegration::computeGeneralizedAlphaCoeffs() {
-    double rho = params_.rho_infinity;
-    
-    params_.alpha_m = (2.0 * rho - 1.0) / (rho + 1.0);
-    params_.alpha_f = rho / (rho + 1.0);
-    params_.newmark_gamma = 0.5 - params_.alpha_m + params_.alpha_f;
-    params_.newmark_beta = 0.25 * std::pow(1.0 - params_.alpha_m + params_.alpha_f, 2);
-}
-
-double AdvancedTimeIntegration::estimateError(const std::vector<double>& u_high,
-                                              const std::vector<double>& u_low) const {
-    if (u_high.size() != u_low.size() || u_high.empty()) {
-        return 0.0;
-    }
-    
-    double error_sq = 0.0;
-    double norm_sq = 0.0;
-    
-    for (size_t i = 0; i < u_high.size(); ++i) {
-        double diff = u_high[i] - u_low[i];
-        error_sq += diff * diff;
-        norm_sq += u_high[i] * u_high[i];
-    }
-    
-    if (norm_sq < 1e-30) {
-        return std::sqrt(error_sq);
-    }
-    
-    return std::sqrt(error_sq / norm_sq);
-}
-
-double AdvancedTimeIntegration::computeNewTimestep(double dt_current, double error,
-                                                   double tolerance) const {
-    if (error < 1e-30) {
-        return dt_current * params_.max_dt_factor;
-    }
-    
-    int order = getOrder();
-    double factor = params_.safety_factor * std::pow(tolerance / error, 1.0 / (order + 1));
-    
-    factor = clamp(factor, params_.min_dt_factor, params_.max_dt_factor);
-    
-    return dt_current * factor;
-}
-
-void AdvancedTimeIntegration::bdfCoefficients(int order, std::vector<double>& alpha,
-                                              double& beta) const {
-    alpha.clear();
-    
-    switch (order) {
-        case 1:
-            alpha = {1.0, -1.0};
-            beta = 1.0;
-            break;
-        case 2:
-            alpha = {3.0/2.0, -2.0, 1.0/2.0};
-            beta = 1.0;
-            break;
-        case 3:
-            alpha = {11.0/6.0, -3.0, 3.0/2.0, -1.0/3.0};
-            beta = 1.0;
-            break;
-        case 4:
-            alpha = {25.0/12.0, -4.0, 3.0, -4.0/3.0, 1.0/4.0};
-            beta = 1.0;
-            break;
-        default:
-            alpha = {1.0, -1.0};
-            beta = 1.0;
+            return PETSC_FALSE;
     }
 }
 
@@ -643,58 +569,62 @@ void PAdaptivityManager::setParameters(const Parameters& params) {
 
 void PAdaptivityManager::configure(const std::map<std::string, std::string>& config) {
     auto it = config.find("p_adapt_min_order");
-    if (it != config.end()) {
-        params_.min_order = std::stoi(it->second);
-    }
+    if (it != config.end()) params_.min_order = std::stoi(it->second);
     
     it = config.find("p_adapt_max_order");
-    if (it != config.end()) {
-        params_.max_order = std::stoi(it->second);
-    }
+    if (it != config.end()) params_.max_order = std::stoi(it->second);
     
     it = config.find("p_adapt_default_order");
-    if (it != config.end()) {
-        params_.default_order = std::stoi(it->second);
-    }
+    if (it != config.end()) params_.default_order = std::stoi(it->second);
     
     it = config.find("p_adapt_smoothness_inc");
-    if (it != config.end()) {
-        params_.smoothness_threshold_inc = std::stod(it->second);
-    }
+    if (it != config.end()) params_.smoothness_threshold_inc = std::stod(it->second);
     
     it = config.find("p_adapt_smoothness_dec");
-    if (it != config.end()) {
-        params_.smoothness_threshold_dec = std::stod(it->second);
-    }
+    if (it != config.end()) params_.smoothness_threshold_dec = std::stod(it->second);
 }
 
-double PAdaptivityManager::smoothnessIndicator(const std::vector<double>& legendre_coeffs) const {
-    if (legendre_coeffs.size() < 2) {
-        return 1.0;
+PetscErrorCode PAdaptivityManager::smoothnessIndicator(Vec legendre_coeffs, 
+                                                        PetscReal* indicator) const {
+    PetscFunctionBeginUser;
+    
+    PetscInt n;
+    PetscCall(VecGetSize(legendre_coeffs, &n));
+    
+    if (n < 2) {
+        *indicator = 1.0;
+        PetscFunctionReturn(PETSC_SUCCESS);
     }
     
-    double sum_high = 0.0;
-    double sum_low = 0.0;
+    // Use PETSc Vec operations for efficiency
+    const PetscScalar* coeffs;
+    PetscCall(VecGetArrayRead(legendre_coeffs, &coeffs));
     
-    size_t mid = legendre_coeffs.size() / 2;
+    PetscReal sum_low = 0.0, sum_high = 0.0;
+    PetscInt mid = n / 2;
     
-    for (size_t i = 0; i < mid; ++i) {
-        sum_low += legendre_coeffs[i] * legendre_coeffs[i];
+    for (PetscInt i = 0; i < mid; ++i) {
+        sum_low += PetscRealPart(coeffs[i]) * PetscRealPart(coeffs[i]);
     }
-    for (size_t i = mid; i < legendre_coeffs.size(); ++i) {
-        sum_high += legendre_coeffs[i] * legendre_coeffs[i];
-    }
-    
-    if (sum_low < 1e-30) {
-        return 1.0;
+    for (PetscInt i = mid; i < n; ++i) {
+        sum_high += PetscRealPart(coeffs[i]) * PetscRealPart(coeffs[i]);
     }
     
-    double ratio = sum_high / sum_low;
-    return std::exp(-ratio);
+    PetscCall(VecRestoreArrayRead(legendre_coeffs, &coeffs));
+    
+    if (sum_low < PETSC_SMALL) {
+        *indicator = 1.0;
+    } else {
+        PetscReal ratio = sum_high / sum_low;
+        *indicator = PetscExpReal(-ratio);
+    }
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-int PAdaptivityManager::decideOrderChange(double smoothness, double error_indicator,
-                                          int current_order) const {
+PetscInt PAdaptivityManager::decideOrderChange(PetscReal smoothness, 
+                                                PetscReal error_indicator,
+                                                PetscInt current_order) const {
     if (smoothness > params_.smoothness_threshold_inc &&
         error_indicator > params_.p_refinement_threshold &&
         current_order < params_.max_order) {
@@ -710,199 +640,285 @@ int PAdaptivityManager::decideOrderChange(double smoothness, double error_indica
     return 0;
 }
 
-void PAdaptivityManager::increaseOrder(const std::vector<double>& coeffs_p,
-                                       std::vector<double>& coeffs_p1,
-                                       int p) const {
-    size_t new_size = coeffs_p.size() + (p + 2);
-    coeffs_p1.resize(new_size, 0.0);
+PetscErrorCode PAdaptivityManager::changeOrder(DM dm_old, Vec u_old,
+                                                PetscInt new_order, 
+                                                DM* dm_new, Vec* u_new) const {
+    PetscFunctionBeginUser;
     
-    std::copy(coeffs_p.begin(), coeffs_p.end(), coeffs_p1.begin());
+    // Clone the DM and set new polynomial order
+    PetscCall(DMClone(dm_old, dm_new));
+    
+    // Get FE space and set new order
+    PetscFE fe;
+    PetscCall(DMGetField(*dm_new, 0, NULL, (PetscObject*)&fe));
+    
+    // Create new FE with different order
+    PetscInt dim, num_comp;
+    PetscCall(PetscFEGetSpatialDimension(fe, &dim));
+    PetscCall(PetscFEGetNumComponents(fe, &num_comp));
+    
+    PetscFE fe_new;
+    PetscCall(PetscFECreateDefault(PetscObjectComm((PetscObject)*dm_new), 
+                                   dim, num_comp, PETSC_FALSE, NULL, new_order, &fe_new));
+    PetscCall(DMSetField(*dm_new, 0, NULL, (PetscObject)fe_new));
+    PetscCall(DMCreateDS(*dm_new));
+    PetscCall(PetscFEDestroy(&fe_new));
+    
+    // Create new solution vector
+    PetscCall(DMCreateGlobalVector(*dm_new, u_new));
+    
+    // Project solution from old to new using DMCreateInterpolation
+    Mat interp;
+    Vec scale;
+    PetscCall(DMCreateInterpolation(dm_old, *dm_new, &interp, &scale));
+    PetscCall(MatInterpolate(interp, u_old, *u_new));
+    PetscCall(MatDestroy(&interp));
+    PetscCall(VecDestroy(&scale));
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-void PAdaptivityManager::decreaseOrder(const std::vector<double>& coeffs_p,
-                                       std::vector<double>& coeffs_p1,
-                                       int p) const {
-    if (p <= params_.min_order) {
-        coeffs_p1 = coeffs_p;
-        return;
+
+// =============================================================================
+// PETScPhysicsPreconditioner Implementation
+// =============================================================================
+
+PETScPhysicsPreconditioner::PETScPhysicsPreconditioner(MPI_Comm comm)
+    : comm_(comm) {}
+
+PETScPhysicsPreconditioner::~PETScPhysicsPreconditioner() {
+    for (IS& is : field_is_) {
+        if (is) ISDestroy(&is);
     }
-    
-    size_t new_size = coeffs_p.size() - p;
-    if (new_size < 1) new_size = 1;
-    
-    coeffs_p1.resize(new_size);
-    std::copy(coeffs_p.begin(), coeffs_p.begin() + new_size, coeffs_p1.begin());
 }
 
-
-// =============================================================================
-// PhysicsBasedPreconditioner Implementation
-// =============================================================================
-
-PhysicsBasedPreconditioner::PhysicsBasedPreconditioner() {}
-
-void PhysicsBasedPreconditioner::setParameters(const Parameters& params) {
+void PETScPhysicsPreconditioner::setParameters(const Parameters& params) {
     params_ = params;
 }
 
-void PhysicsBasedPreconditioner::configure(const std::map<std::string, std::string>& config) {
+void PETScPhysicsPreconditioner::configure(const std::map<std::string, std::string>& config) {
     auto it = config.find("precond_type");
     if (it != config.end()) {
         const std::string& val = it->second;
-        if (val == "block_jacobi") params_.type = CoupledPreconditioner::BLOCK_JACOBI;
-        else if (val == "block_gauss_seidel") params_.type = CoupledPreconditioner::BLOCK_GAUSS_SEIDEL;
-        else if (val == "schur") params_.type = CoupledPreconditioner::SCHUR_COMPLEMENT;
-        else if (val == "field_split") params_.type = CoupledPreconditioner::FIELD_SPLIT;
-        else if (val == "physics") params_.type = CoupledPreconditioner::PHYSICS_BASED;
-        else if (val == "multigrid" || val == "mg") params_.type = CoupledPreconditioner::MULTIGRID;
-    }
-    
-    it = config.find("precond_split_type");
-    if (it != config.end()) {
-        params_.split_type = it->second;
-    }
-    
-    it = config.find("precond_schur_precond");
-    if (it != config.end()) {
-        params_.schur_precond = it->second;
+        if (val == "bjacobi") params_.type = PreconditionerType::BJACOBI;
+        else if (val == "asm") params_.type = PreconditionerType::ASM;
+        else if (val == "fieldsplit_additive") params_.type = PreconditionerType::FIELDSPLIT_ADDITIVE;
+        else if (val == "fieldsplit_multiplicative") params_.type = PreconditionerType::FIELDSPLIT_MULTIPLICATIVE;
+        else if (val == "fieldsplit_schur") params_.type = PreconditionerType::FIELDSPLIT_SCHUR;
+        else if (val == "mg") params_.type = PreconditionerType::MG;
+        else if (val == "gamg") params_.type = PreconditionerType::GAMG;
+        else if (val == "hypre") params_.type = PreconditionerType::HYPRE_BOOMERAMG;
     }
     
     it = config.find("precond_mg_levels");
-    if (it != config.end()) {
-        params_.mg_levels = std::stoi(it->second);
-    }
+    if (it != config.end()) params_.mg_levels = std::stoi(it->second);
     
     it = config.find("precond_mg_smoother");
-    if (it != config.end()) {
-        params_.mg_smoother = it->second;
-    }
+    if (it != config.end()) params_.mg_smoother = it->second;
 }
 
-void PhysicsBasedPreconditioner::applyBlockJacobi(
-    const std::vector<std::vector<double>>& blocks,
-    const std::vector<double>& rhs,
-    std::vector<double>& solution) const {
+PetscErrorCode PETScPhysicsPreconditioner::setup(KSP ksp, Mat A) {
+    PetscFunctionBeginUser;
     
-    if (blocks.empty() || rhs.empty()) {
-        return;
+    PC pc;
+    PetscCall(KSPGetPC(ksp, &pc));
+    
+    PetscCall(setPCType(pc));
+    
+    switch (params_.type) {
+        case PreconditionerType::FIELDSPLIT_ADDITIVE:
+        case PreconditionerType::FIELDSPLIT_MULTIPLICATIVE:
+        case PreconditionerType::FIELDSPLIT_SYMMETRIC:
+        case PreconditionerType::FIELDSPLIT_SCHUR:
+            PetscCall(setupFieldSplit(pc));
+            break;
+        case PreconditionerType::MG:
+        case PreconditionerType::GAMG:
+            PetscCall(setupMultigrid(pc));
+            break;
+        default:
+            break;
     }
     
-    size_t n_blocks = blocks.size();
-    size_t total_size = rhs.size();
-    solution.resize(total_size, 0.0);
+    PetscCall(PCSetFromOptions(pc));
     
-    size_t block_size = total_size / n_blocks;
-    
-    for (size_t b = 0; b < n_blocks; ++b) {
-        size_t start = b * block_size;
-        size_t end = (b == n_blocks - 1) ? total_size : (b + 1) * block_size;
-        size_t size = end - start;
-        
-        const std::vector<double>& block = blocks[b];
-        if (block.size() < size * size) continue;
-        
-        for (size_t i = 0; i < size; ++i) {
-            double diag = block[i * size + i];
-            if (std::abs(diag) > 1e-30) {
-                solution[start + i] = rhs[start + i] / diag;
-            }
-        }
-    }
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-void PhysicsBasedPreconditioner::applyBlockGaussSeidel(
-    const std::vector<std::vector<double>>& diag_blocks,
-    const std::vector<std::vector<double>>& off_diag,
-    const std::vector<double>& rhs,
-    std::vector<double>& solution) const {
+PetscErrorCode PETScPhysicsPreconditioner::setPCType(PC pc) {
+    PetscFunctionBeginUser;
     
-    if (diag_blocks.empty() || rhs.empty()) {
-        return;
+    switch (params_.type) {
+        case PreconditionerType::BJACOBI:
+            PetscCall(PCSetType(pc, PCBJACOBI));
+            break;
+        case PreconditionerType::ASM:
+            PetscCall(PCSetType(pc, PCASM));
+            break;
+        case PreconditionerType::GASM:
+            PetscCall(PCSetType(pc, PCGASM));
+            break;
+        case PreconditionerType::FIELDSPLIT_ADDITIVE:
+        case PreconditionerType::FIELDSPLIT_MULTIPLICATIVE:
+        case PreconditionerType::FIELDSPLIT_SYMMETRIC:
+        case PreconditionerType::FIELDSPLIT_SCHUR:
+            PetscCall(PCSetType(pc, PCFIELDSPLIT));
+            break;
+        case PreconditionerType::MG:
+            PetscCall(PCSetType(pc, PCMG));
+            break;
+        case PreconditionerType::GAMG:
+            PetscCall(PCSetType(pc, PCGAMG));
+            break;
+        case PreconditionerType::HYPRE_BOOMERAMG:
+            PetscCall(PCSetType(pc, PCHYPRE));
+            PetscCall(PCHYPRESetType(pc, "boomeramg"));
+            break;
+        case PreconditionerType::LU:
+            PetscCall(PCSetType(pc, PCLU));
+            break;
+        case PreconditionerType::CHOLESKY:
+            PetscCall(PCSetType(pc, PCCHOLESKY));
+            break;
+        default:
+            PetscCall(PCSetType(pc, PCILU));
+            break;
     }
     
-    size_t n_blocks = diag_blocks.size();
-    size_t total_size = rhs.size();
-    solution.resize(total_size, 0.0);
-    
-    size_t block_size = total_size / n_blocks;
-    
-    for (size_t b = 0; b < n_blocks; ++b) {
-        size_t start = b * block_size;
-        size_t end = (b == n_blocks - 1) ? total_size : (b + 1) * block_size;
-        size_t size = end - start;
-        
-        std::vector<double> r(size);
-        for (size_t i = 0; i < size; ++i) {
-            r[i] = rhs[start + i];
-        }
-        
-        const std::vector<double>& block = diag_blocks[b];
-        if (block.size() >= size * size) {
-            for (size_t i = 0; i < size; ++i) {
-                double diag = block[i * size + i];
-                if (std::abs(diag) > 1e-30) {
-                    solution[start + i] = r[i] / diag;
-                }
-            }
-        }
-    }
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-void PhysicsBasedPreconditioner::applySchurComplement(
-    const std::vector<std::vector<double>>& A,
-    const std::vector<std::vector<double>>& B,
-    const std::vector<std::vector<double>>& C,
-    const std::vector<std::vector<double>>& D,
-    const std::vector<double>& f,
-    const std::vector<double>& g,
-    std::vector<double>& x,
-    std::vector<double>& y) const {
+PetscErrorCode PETScPhysicsPreconditioner::addField(const std::string& name, IS is,
+                                                     PetscInt num_components,
+                                                     const std::string& sub_pc) {
+    PetscFunctionBeginUser;
     
-    size_t nx = f.size();
-    size_t ny = g.size();
+    FieldInfo info;
+    info.name = name;
+    info.index_set = is;
+    info.num_components = num_components;
+    info.sub_pc_type = sub_pc;
     
-    if (nx == 0 || ny == 0) {
-        return;
-    }
+    params_.fields.push_back(info);
+    field_is_.push_back(is);
     
-    std::vector<double> z(nx, 0.0);
-    if (!A.empty() && A[0].size() >= nx) {
-        for (size_t i = 0; i < nx; ++i) {
-            double diag = A[0][i * nx + i];
-            if (std::abs(diag) > 1e-30) {
-                z[i] = f[i] / diag;
-            }
-        }
-    }
-    
-    std::vector<double> g_mod = g;
-    
-    y.resize(ny, 0.0);
-    if (!D.empty() && D[0].size() >= ny) {
-        for (size_t i = 0; i < ny; ++i) {
-            double diag = D[0][i * ny + i];
-            if (std::abs(diag) > 1e-30) {
-                y[i] = g_mod[i] / diag;
-            }
-        }
-    }
-    
-    std::vector<double> f_mod = f;
-    x.resize(nx, 0.0);
-    if (!A.empty() && A[0].size() >= nx) {
-        for (size_t i = 0; i < nx; ++i) {
-            double diag = A[0][i * nx + i];
-            if (std::abs(diag) > 1e-30) {
-                x[i] = f_mod[i] / diag;
-            }
-        }
-    }
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-void PhysicsBasedPreconditioner::setupFieldSplit(PC pc, const std::vector<IS>& index_sets) const {
-    // PETSc configuration would go here
-    (void)pc;
-    (void)index_sets;
+PetscErrorCode PETScPhysicsPreconditioner::createFieldISFromDM(DM dm, 
+                                        const std::vector<std::string>& field_names) {
+    PetscFunctionBeginUser;
+    
+    for (size_t i = 0; i < field_names.size(); ++i) {
+        IS is;
+        PetscCall(DMCreateFieldIS(dm, NULL, NULL, &is));
+        // Note: For multiple fields, would need DMCreateFieldDecomposition
+        field_is_.push_back(is);
+    }
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScPhysicsPreconditioner::setupFieldSplit(PC pc) {
+    PetscFunctionBeginUser;
+    
+    // Set split type
+    switch (params_.type) {
+        case PreconditionerType::FIELDSPLIT_ADDITIVE:
+            PetscCall(PCFieldSplitSetType(pc, PC_COMPOSITE_ADDITIVE));
+            break;
+        case PreconditionerType::FIELDSPLIT_MULTIPLICATIVE:
+            PetscCall(PCFieldSplitSetType(pc, PC_COMPOSITE_MULTIPLICATIVE));
+            break;
+        case PreconditionerType::FIELDSPLIT_SYMMETRIC:
+            PetscCall(PCFieldSplitSetType(pc, PC_COMPOSITE_SYMMETRIC_MULTIPLICATIVE));
+            break;
+        case PreconditionerType::FIELDSPLIT_SCHUR:
+            PetscCall(PCFieldSplitSetType(pc, PC_COMPOSITE_SCHUR));
+            PetscCall(setupSchurComplement(pc));
+            break;
+        default:
+            break;
+    }
+    
+    // Add fields
+    for (size_t i = 0; i < params_.fields.size(); ++i) {
+        const FieldInfo& field = params_.fields[i];
+        PetscCall(PCFieldSplitSetIS(pc, field.name.c_str(), field.index_set));
+    }
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScPhysicsPreconditioner::setupSchurComplement(PC pc) {
+    PetscFunctionBeginUser;
+    
+    // Set Schur factorization type
+    PCFieldSplitSchurFactType fact_type;
+    switch (params_.schur_fact) {
+        case SchurFactType::DIAG:
+            fact_type = PC_FIELDSPLIT_SCHUR_FACT_DIAG;
+            break;
+        case SchurFactType::LOWER:
+            fact_type = PC_FIELDSPLIT_SCHUR_FACT_LOWER;
+            break;
+        case SchurFactType::UPPER:
+            fact_type = PC_FIELDSPLIT_SCHUR_FACT_UPPER;
+            break;
+        case SchurFactType::FULL:
+        default:
+            fact_type = PC_FIELDSPLIT_SCHUR_FACT_FULL;
+            break;
+    }
+    PetscCall(PCFieldSplitSetSchurFactType(pc, fact_type));
+    
+    // Set Schur preconditioner type
+    PCFieldSplitSchurPreType pre_type;
+    switch (params_.schur_pre) {
+        case SchurPreType::SELF:
+            pre_type = PC_FIELDSPLIT_SCHUR_PRE_SELF;
+            break;
+        case SchurPreType::SELFP:
+            pre_type = PC_FIELDSPLIT_SCHUR_PRE_SELFP;
+            break;
+        case SchurPreType::A11:
+            pre_type = PC_FIELDSPLIT_SCHUR_PRE_A11;
+            break;
+        case SchurPreType::USER:
+            pre_type = PC_FIELDSPLIT_SCHUR_PRE_USER;
+            break;
+        case SchurPreType::FULL:
+        default:
+            pre_type = PC_FIELDSPLIT_SCHUR_PRE_FULL;
+            break;
+    }
+    PetscCall(PCFieldSplitSetSchurPre(pc, pre_type, NULL));
+    
+    // Set Schur scale
+    PetscCall(PCFieldSplitSetSchurScale(pc, params_.schur_scale));
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScPhysicsPreconditioner::setupMultigrid(PC pc) {
+    PetscFunctionBeginUser;
+    
+    if (params_.type == PreconditionerType::MG) {
+        PetscCall(PCMGSetLevels(pc, params_.mg_levels, NULL));
+        PetscCall(PCMGSetCycleType(pc, PC_MG_CYCLE_V));
+        PetscCall(PCMGSetNumberSmooth(pc, params_.mg_smooth_down));
+    } else if (params_.type == PreconditionerType::GAMG) {
+        PetscCall(PCGAMGSetNSmooths(pc, params_.gamg_agg_nsmooths));
+        PetscCall(PCGAMGSetThreshold(pc, &params_.gamg_threshold, 1));
+    }
+    
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PETScPhysicsPreconditioner::getPC(KSP ksp, PC* pc) {
+    PetscFunctionBeginUser;
+    PetscCall(KSPGetPC(ksp, pc));
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 
@@ -937,36 +953,33 @@ void HighFidelityNumericsConfig::parseConfig(const std::map<std::string, std::st
     }
 }
 
-bool HighFidelityNumericsConfig::validate(std::string& error_msg) const {
+PetscErrorCode HighFidelityNumericsConfig::validate(std::string& error_msg) const {
+    PetscFunctionBeginUser;
     error_msg.clear();
     
     if (enable_advanced_time) {
         if (time_params.theta < 0.0 || time_params.theta > 1.0) {
             error_msg = "Time integration theta must be in [0, 1]";
-            return false;
-        }
-        if (time_params.newmark_beta < 0.0) {
-            error_msg = "Newmark beta must be >= 0";
-            return false;
+            PetscFunctionReturn(PETSC_ERR_ARG_OUTOFRANGE);
         }
         if (time_params.rho_infinity < 0.0 || time_params.rho_infinity > 1.0) {
             error_msg = "Generalized-alpha rho_infinity must be in [0, 1]";
-            return false;
+            PetscFunctionReturn(PETSC_ERR_ARG_OUTOFRANGE);
         }
     }
     
     if (enable_p_adapt) {
         if (p_adapt_params.min_order < 1) {
             error_msg = "p-adaptivity min_order must be >= 1";
-            return false;
+            PetscFunctionReturn(PETSC_ERR_ARG_OUTOFRANGE);
         }
         if (p_adapt_params.max_order < p_adapt_params.min_order) {
             error_msg = "p-adaptivity max_order must be >= min_order";
-            return false;
+            PetscFunctionReturn(PETSC_ERR_ARG_OUTOFRANGE);
         }
     }
     
-    return true;
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 
@@ -982,16 +995,21 @@ std::unique_ptr<SUPGStabilization> createSUPGStabilization(
     return supg;
 }
 
-std::unique_ptr<AdvancedTimeIntegration> createTimeIntegration(
-    const std::map<std::string, std::string>& config) {
+std::unique_ptr<PETScTimeIntegration> createTimeIntegration(
+    MPI_Comm comm, const std::map<std::string, std::string>& config) {
     
-    auto time = std::make_unique<AdvancedTimeIntegration>();
-    time->configure(config);
-    return time;
+    auto ts = std::make_unique<PETScTimeIntegration>(comm);
+    ts->configure(config);
+    return ts;
 }
 
-// Note: For DG, use createDGSolver() from DiscontinuousGalerkin.hpp
-// Note: For AMR, use AdaptiveMeshRefinement class from AdaptiveMeshRefinement.hpp
+std::unique_ptr<PETScPhysicsPreconditioner> createPhysicsPreconditioner(
+    MPI_Comm comm, const std::map<std::string, std::string>& config) {
+    
+    auto pc = std::make_unique<PETScPhysicsPreconditioner>(comm);
+    pc->configure(config);
+    return pc;
+}
 
 } // namespace HighFidelity
 } // namespace FSRM
