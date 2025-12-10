@@ -314,7 +314,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 1; }
-    int getNumComponents(int field) const override { return 1; }
+    int getNumComponents(int field) const override { (void)field; return 1; }
     
     void setProperties(double phi, double k, double ct, double mu, double rho);
     
@@ -342,7 +342,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 3; } // Po, Sw, Sg
-    int getNumComponents(int field) const override { return 1; }
+    int getNumComponents(int field) const override { (void)field; return 1; }
     
     void setFluidProperties(const FluidProperties& props);
     void setRockProperties(double phi, double kx, double ky, double kz);
@@ -387,7 +387,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return nc + 1; } // P + nc-1 compositions
-    int getNumComponents(int field) const override { return 1; }
+    int getNumComponents(int field) const override { (void)field; return 1; }
     
     void setComponentProperties(const std::vector<double>& mw,
                                const std::vector<double>& Tc,
@@ -428,7 +428,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 1; }
-    int getNumComponents(int field) const override { return 3; } // ux, uy, uz
+    int getNumComponents(int field) const override { (void)field; return 3; } // ux, uy, uz
     
     void setMaterialProperties(double E, double nu, double rho);
     void setViscoelasticProperties(double tau, double eta);
@@ -461,7 +461,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 1; } // Temperature
-    int getNumComponents(int field) const override { return 1; }
+    int getNumComponents(int field) const override { (void)field; return 1; }
     
     void setThermalProperties(double k, double rho, double cp);
     void setFluidThermalProperties(double k_f, double rho_f, double cp_f);
@@ -492,7 +492,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 1; } // Concentration
-    int getNumComponents(int field) const override { return 1; }
+    int getNumComponents(int field) const override { (void)field; return 1; }
     
     void setParticleProperties(double diameter, double density, double diffusivity);
     void enableGravitationalSettling(bool enable);
@@ -528,7 +528,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 1; } // Fracture width
-    int getNumComponents(int field) const override { return 1; }
+    int getNumComponents(int field) const override { (void)field; return 1; }
     
     void setFractureProperties(double Kc, double Gc, double sigma_c);
     
@@ -554,7 +554,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 0; } // Body force addition
-    int getNumComponents(int field) const override { return 0; }
+    int getNumComponents(int field) const override { (void)field; return 0; }
     
     void setLocationAndTime(double lat, double lon, double time);
     void computeTidalStress(const PetscReal x[], PetscScalar stress[]);
@@ -581,7 +581,7 @@ public:
                  const PetscReal x[], PetscScalar J[]) override;
     
     int getNumFields() const override { return 1; }
-    int getNumComponents(int field) const override { return 3; } // ux, uy, uz
+    int getNumComponents(int field) const override { (void)field; return 3; } // ux, uy, uz
     
     void setMaterialProperties(double E, double nu, double rho);
     void setWaveProperties(double vp, double vs, double Q);

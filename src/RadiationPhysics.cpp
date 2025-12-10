@@ -1124,6 +1124,33 @@ double RadioactiveDispersalModel::airConcentration(double x, double y, double z,
     return concentration;
 }
 
+double RadioactiveDispersalModel::integratedAirConcentration(double x, double y, double z,
+                                                             double t_start, double t_end) const {
+    // Integrate air concentration over time using trapezoidal rule
+    // This provides the time-integrated concentration (Bq·s/m³) needed for dose calculations
+    
+    const int num_steps = 100;  // Number of integration steps
+    double dt = (t_end - t_start) / num_steps;
+    
+    if (dt <= 0) {
+        return 0.0;
+    }
+    
+    double integrated = 0.0;
+    double conc_prev = airConcentration(x, y, z, t_start);
+    
+    for (int i = 1; i <= num_steps; ++i) {
+        double t = t_start + i * dt;
+        double conc = airConcentration(x, y, z, t);
+        
+        // Trapezoidal rule
+        integrated += 0.5 * (conc_prev + conc) * dt;
+        conc_prev = conc;
+    }
+    
+    return integrated;
+}
+
 double RadioactiveDispersalModel::groundDeposition(double x, double y, double /*t*/) const {
     // Find grid cell
     int ix = static_cast<int>((x - x_grid_.front()) / (x_grid_[1] - x_grid_[0]));

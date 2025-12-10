@@ -518,7 +518,7 @@ Tensor PODNeuralROM::implicitEulerStep(const Tensor& a, double dt,
     for (int iter = 0; iter < 10; ++iter) {
         Tensor f = evaluateReducedDynamics(a_new, 0.0, params);
         
-        Tensor a_next({a.numel()});
+        Tensor a_next({static_cast<int>(a.numel())});
         for (size_t i = 0; i < a.numel(); ++i) {
             a_next.data[i] = a.data[i] + dt * f.data[i];
         }
@@ -539,7 +539,7 @@ Tensor PODNeuralROM::rk4Step(const Tensor& a, double t, double dt,
                              const Tensor& params) {
     Tensor k1 = evaluateReducedDynamics(a, t, params);
     
-    Tensor a_temp({a.numel()});
+    Tensor a_temp({static_cast<int>(a.numel())});
     for (size_t i = 0; i < a.numel(); ++i) {
         a_temp.data[i] = a.data[i] + 0.5 * dt * k1.data[i];
     }
@@ -555,7 +555,7 @@ Tensor PODNeuralROM::rk4Step(const Tensor& a, double t, double dt,
     }
     Tensor k4 = evaluateReducedDynamics(a_temp, t + dt, params);
     
-    Tensor a_new({a.numel()});
+    Tensor a_new({static_cast<int>(a.numel())});
     for (size_t i = 0; i < a.numel(); ++i) {
         a_new.data[i] = a.data[i] + dt / 6.0 * (k1.data[i] + 2*k2.data[i] + 
                                                   2*k3.data[i] + k4.data[i]);

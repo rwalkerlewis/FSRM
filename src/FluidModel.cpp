@@ -440,7 +440,6 @@ double BlackOilFluid::standingMuoLive(double P, double Rs) const {
     
     // Dead oil viscosity (Beggs-Robinson)
     double Z = 3.0324 - 0.02023 * oil_API;
-    double Y = 10.0;
     double mu_od = std::pow(10.0, std::pow(10.0, Z) * std::pow(T_F, -1.163)) - 1.0;
     
     // Live oil viscosity
@@ -570,13 +569,13 @@ void CompositionalFluid::configure(const std::map<std::string, std::string>& con
     auto z_vals = parseDoubleArray(parseString(config, "composition", ""));
     
     if (!mw_vals.empty()) {
-        nc = mw_vals.size();
+        nc = static_cast<int>(mw_vals.size());
         Mw = mw_vals;
     }
-    if (!tc_vals.empty() && tc_vals.size() == nc) Tc = tc_vals;
-    if (!pc_vals.empty() && pc_vals.size() == nc) Pc = pc_vals;
-    if (!omega_vals.empty() && omega_vals.size() == nc) omega = omega_vals;
-    if (!z_vals.empty() && z_vals.size() == nc) z_global = z_vals;
+    if (!tc_vals.empty() && tc_vals.size() == static_cast<size_t>(nc)) Tc = tc_vals;
+    if (!pc_vals.empty() && pc_vals.size() == static_cast<size_t>(nc)) Pc = pc_vals;
+    if (!omega_vals.empty() && omega_vals.size() == static_cast<size_t>(nc)) omega = omega_vals;
+    if (!z_vals.empty() && z_vals.size() == static_cast<size_t>(nc)) z_global = z_vals;
     
     // Resize other vectors
     component_names.resize(nc);
@@ -608,7 +607,7 @@ void CompositionalFluid::addComponent(const std::string& name, double mw, double
 }
 
 void CompositionalFluid::setComposition(const std::vector<double>& z) {
-    if (z.size() == nc) {
+    if (z.size() == static_cast<size_t>(nc)) {
         z_global = z;
     }
 }
@@ -937,7 +936,7 @@ CO2Fluid::CO2Fluid() : FluidModelBase(FluidType::CO2) {}
 
 double CO2Fluid::getDensity(double P, double T) const {
     // Span-Wagner EOS (simplified)
-    double Tr = T / Tc_CO2;
+    // Reduced temperature Tr = T / Tc_CO2 is used within getReducedDensity
     double rho_r = getReducedDensity(P, T);
     return rho_r * rhoc_CO2;
 }
@@ -945,10 +944,10 @@ double CO2Fluid::getDensity(double P, double T) const {
 double CO2Fluid::getViscosity(double P, double T) const {
     // Fenghour et al. (1998) correlation (simplified)
     double rho = getDensity(P, T);
-    double Tr = T / Tc_CO2;
+    double Tr_vis = T / Tc_CO2;
     
     // Zero-density viscosity
-    double mu_0 = 1.0065e-6 * std::sqrt(T) / (1.0 + 0.24 / Tr);
+    double mu_0 = 1.0065e-6 * std::sqrt(T) / (1.0 + 0.24 / Tr_vis);
     
     // Excess viscosity
     double rho_r = rho / rhoc_CO2;
