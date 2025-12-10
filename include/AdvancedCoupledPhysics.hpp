@@ -889,7 +889,7 @@ public:
     /**
      * @brief Loading-collapse (LC) curve
      * 
-     * p_0(s) = p_c · [(p_0*/p_c)^((λ(0) - κ)/(λ(s) - κ))]
+     * p_0(s) = p_c * [(p_0_star/p_c)^((lambda_0 - kappa)/(lambda_s - kappa))]
      */
     double loadingCollapseCurve(double suction, double p0_star,
                                double p_c, double lambda_0,

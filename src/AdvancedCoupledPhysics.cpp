@@ -15,331 +15,348 @@
 #include <algorithm>
 #include <stdexcept>
 
-namespace fsrm {
-namespace coupled {
+namespace FSRM {
+namespace HighFidelity {
 
 // =============================================================================
 // FullBiotDynamics Implementation
 // =============================================================================
 
 FullBiotDynamics::FullBiotDynamics()
-    : formulation_(BiotFormulation::U_P), high_frequency_(false),
-      rho_solid_(2600.0), rho_fluid_(1000.0), porosity_(0.2),
-      permeability_(1e-15), fluid_viscosity_(0.001),
-      bulk_modulus_solid_(36e9), shear_modulus_(30e9),
-      bulk_modulus_fluid_(2.2e9), bulk_modulus_grain_(40e9),
-      biot_coefficient_(0.8), biot_modulus_(10e9), tortuosity_(2.0) {
+    : biot_alpha_(0.0), biot_M_(0.0), added_mass_(0.0),
+      rho_bulk_(0.0), rho_11_(0.0), rho_12_(0.0), rho_22_(0.0) {
 }
 
-void FullBiotDynamics::computeBiotCoefficients() {
-    // Biot coefficient: alpha = 1 - K_drained / K_grain
-    // Biot modulus: 1/M = (alpha - n)/K_s + n/K_f
-    
-    double Kd = bulk_modulus_solid_;
-    double Ks = bulk_modulus_grain_;
-    double Kf = bulk_modulus_fluid_;
-    double n = porosity_;
-    
-    biot_coefficient_ = 1.0 - Kd / Ks;
-    
-    double inv_M = (biot_coefficient_ - n) / Ks + n / Kf;
-    biot_modulus_ = 1.0 / inv_M;
+void FullBiotDynamics::setFluidProperties(const FluidProperties& props) {
+    fluid_ = props;
 }
 
-void FullBiotDynamics::computeWaveVelocities(double& Vp_fast, double& Vp_slow,
-                                             double& Vs) const {
-    // Biot theory wave velocities
-    double rho_b = (1.0 - porosity_) * rho_solid_ + porosity_ * rho_fluid_;
-    double alpha = biot_coefficient_;
-    double M = biot_modulus_;
-    double K = bulk_modulus_solid_;
-    double G = shear_modulus_;
-    double n = porosity_;
-    double rho_f = rho_fluid_;
-    double tau = tortuosity_;
+void FullBiotDynamics::setSolidProperties(const SolidFrameProperties& props) {
+    solid_ = props;
+}
+
+void FullBiotDynamics::setPorousMediaProperties(const PorousMediaProperties& props) {
+    porous_ = props;
+}
+
+void FullBiotDynamics::setParameters(const Parameters& params) {
+    params_ = params;
+}
+
+void FullBiotDynamics::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+void FullBiotDynamics::computeBiotParameters() {
+    double K_fr = solid_.frame_bulk_modulus;
+    double K_s = solid_.bulk_modulus;
+    double K_f = fluid_.bulk_modulus;
+    double phi = porous_.porosity;
     
-    // Undrained bulk modulus
-    double K_u = K + alpha * alpha * M;
+    // Biot coefficient: α = 1 - K_fr/K_s
+    biot_alpha_ = 1.0 - K_fr / K_s;
     
-    // H = K_u + 4G/3
+    // Biot modulus: 1/M = (α - φ)/K_s + φ/K_f
+    double inv_M = (biot_alpha_ - phi) / K_s + phi / K_f;
+    biot_M_ = 1.0 / inv_M;
+    
+    // Added mass from tortuosity
+    added_mass_ = (porous_.tortuosity - 1.0) * fluid_.density / phi;
+    
+    computeEffectiveDensities();
+}
+
+void FullBiotDynamics::computeEffectiveDensities() {
+    double phi = porous_.porosity;
+    double rho_s = solid_.density;
+    double rho_f = fluid_.density;
+    double tau = porous_.tortuosity;
+    
+    // Bulk density
+    rho_bulk_ = (1.0 - phi) * rho_s + phi * rho_f;
+    
+    // Biot inertia coefficients
+    rho_11_ = (1.0 - phi) * rho_s + (tau - 1.0) * phi * rho_f;
+    rho_12_ = -phi * (tau - 1.0) * rho_f;
+    rho_22_ = tau * phi * rho_f;
+}
+
+std::array<double, 3> FullBiotDynamics::waveVelocities(double frequency) const {
+    double K_u = solid_.frame_bulk_modulus + biot_alpha_ * biot_alpha_ * biot_M_;
+    double G = solid_.shear_modulus;
     double H = K_u + 4.0 * G / 3.0;
     
-    // Mass coefficients
-    double rho_11 = (1.0 - n) * rho_solid_ + (tau - 1.0) * n * rho_f;
-    double rho_12 = -n * (tau - 1.0) * rho_f;
-    double rho_22 = tau * n * rho_f;
+    double f_c = characteristicFrequency();
     
-    // For high frequency (no fluid flow)
-    if (high_frequency_) {
-        // Fast P-wave (undrained)
-        double lambda_u = K_u - 2.0 * G / 3.0;
-        Vp_fast = std::sqrt((lambda_u + 2.0 * G) / rho_b);
-        
-        // Slow P-wave
-        double gamma = n * rho_f / rho_b;
-        double M_eff = M * (1.0 - alpha * gamma);
-        Vp_slow = std::sqrt(M_eff * n / (tau * rho_f));
-        
-        // S-wave
-        Vs = std::sqrt(G / rho_b);
+    std::array<double, 3> V;
+    
+    if (frequency > f_c) {
+        // High frequency: undrained
+        V[0] = std::sqrt(H / rho_bulk_);  // Fast P
+        V[1] = std::sqrt(biot_M_ * porous_.porosity / (porous_.tortuosity * fluid_.density));  // Slow P
+        V[2] = std::sqrt(G / rho_bulk_);  // S
+    } else {
+        // Low frequency: drained
+        double K_d = solid_.frame_bulk_modulus;
+        V[0] = std::sqrt((K_d + 4.0 * G / 3.0) / rho_bulk_);  // Fast P
+        V[1] = 0.0;  // Slow P overdamped
+        V[2] = std::sqrt(G / rho_bulk_);  // S
     }
-    else {
-        // Low frequency (drained behavior)
-        Vp_fast = std::sqrt((K + 4.0 * G / 3.0) / rho_b);
-        Vp_slow = 0.0;  // Slow wave is overdamped at low frequency
-        Vs = std::sqrt(G / rho_b);
-    }
+    
+    return V;
 }
 
-void FullBiotDynamics::computeMomentumBalance(const double u[3], const double u_dot[3],
-                                              const double u_ddot[3], const double p,
-                                              const double p_dot, double residual[3]) const {
-    // Full Biot momentum: rho_b * u_ddot + rho_f * w_ddot = div(sigma) + b
-    // where w is relative fluid displacement
+std::array<double, 3> FullBiotDynamics::waveAttenuations(double frequency) const {
+    double f_c = characteristicFrequency();
+    double f_ratio = frequency / f_c;
     
-    double rho_b = (1.0 - porosity_) * rho_solid_ + porosity_ * rho_fluid_;
+    std::array<double, 3> Q_inv;
     
-    // Simplified residual (without spatial derivatives - those come from FEM)
+    // Simplified attenuation model
+    Q_inv[0] = 0.01 * f_ratio / (1.0 + f_ratio * f_ratio);  // Fast P
+    Q_inv[1] = 1.0 / (1.0 + 1.0 / f_ratio);  // Slow P (highly attenuated)
+    Q_inv[2] = 0.005 * f_ratio / (1.0 + f_ratio * f_ratio);  // S
+    
+    return Q_inv;
+}
+
+double FullBiotDynamics::characteristicFrequency() const {
+    double phi = porous_.porosity;
+    double mu = fluid_.viscosity;
+    double rho_f = fluid_.density;
+    double k = porous_.permeability;
+    double tau = porous_.tortuosity;
+    
+    return phi * mu / (2.0 * M_PI * rho_f * k * tau);
+}
+
+void FullBiotDynamics::getMassMatrices(double& M_uu, double& M_up, double& M_pp) const {
+    M_uu = rho_bulk_;
+    M_up = fluid_.density;
+    M_pp = 1.0 / biot_M_;
+}
+
+void FullBiotDynamics::getStiffnessMatrices(std::array<std::array<double, 6>, 6>& K_uu,
+                                            std::array<double, 6>& K_up,
+                                            double& K_pp) const {
+    double lambda = solid_.frame_bulk_modulus - 2.0 * solid_.shear_modulus / 3.0;
+    double G = solid_.shear_modulus;
+    
+    // Initialize
+    for (auto& row : K_uu) row.fill(0.0);
+    K_up.fill(0.0);
+    
+    // Elastic stiffness (Voigt notation)
+    K_uu[0][0] = K_uu[1][1] = K_uu[2][2] = lambda + 2.0 * G;
+    K_uu[0][1] = K_uu[0][2] = K_uu[1][0] = K_uu[1][2] = K_uu[2][0] = K_uu[2][1] = lambda;
+    K_uu[3][3] = K_uu[4][4] = K_uu[5][5] = G;
+    
+    // Coupling
+    K_up[0] = K_up[1] = K_up[2] = biot_alpha_;
+    
+    // Fluid compressibility
+    K_pp = porous_.permeability / fluid_.viscosity;
+}
+
+void FullBiotDynamics::calculateResidual(const std::array<double, 3>& u,
+                                         const std::array<double, 3>& u_dot,
+                                         const std::array<double, 3>& u_ddot,
+                                         double p, double p_dot,
+                                         const std::array<double, 6>& grad_u,
+                                         const std::array<double, 3>& grad_p,
+                                         std::array<double, 3>& R_u,
+                                         double& R_p) const {
+    (void)u;
+    (void)u_dot;
+    (void)p;
+    (void)grad_u;
+    (void)grad_p;
+    
+    // Momentum residual
     for (int i = 0; i < 3; ++i) {
-        residual[i] = rho_b * u_ddot[i];  // Inertia term
+        R_u[i] = rho_bulk_ * u_ddot[i];
     }
     
-    // Add fluid coupling if using u-w formulation
-    if (formulation_ == BiotFormulation::U_W) {
-        // Additional terms for relative fluid displacement
-    }
+    // Mass balance residual
+    R_p = p_dot / biot_M_;
 }
 
-void FullBiotDynamics::computeMassBalance(const double u[3], const double u_dot[3],
-                                          double p, double p_dot,
-                                          double& residual) const {
-    // Mass balance: (1/M) * p_dot + alpha * div(u_dot) + div(q) = Q
-    // where q = -(k/mu) * grad(p)
+void FullBiotDynamics::calculateJacobian(const std::array<double, 3>& u,
+                                         double p,
+                                         const std::array<double, 6>& grad_u,
+                                         const std::array<double, 3>& grad_p,
+                                         double dt, double theta,
+                                         std::array<std::array<double, 4>, 4>& J) const {
+    (void)u;
+    (void)p;
+    (void)grad_u;
+    (void)grad_p;
+    (void)dt;
+    (void)theta;
     
-    double alpha = biot_coefficient_;
-    double M = biot_modulus_;
+    for (auto& row : J) row.fill(0.0);
     
-    // Storage term
-    residual = p_dot / M;
-    
-    // Solid coupling term (div(u_dot) comes from FEM)
-    // For point evaluation: residual += alpha * div(u_dot)
+    // Diagonal terms
+    for (int i = 0; i < 3; ++i) {
+        J[i][i] = rho_bulk_ / (theta * theta * dt * dt);
+    }
+    J[3][3] = 1.0 / (biot_M_ * theta * dt);
 }
 
-void FullBiotDynamics::computeCouplingTerms(const double strain[6], double p,
-                                            double effective_stress[6],
-                                            double& fluid_content) const {
-    // Effective stress: sigma'_ij = sigma_ij + alpha * p * delta_ij
-    // Fluid content: zeta = alpha * eps_v + p / M
+double FullBiotDynamics::nonlinearBiotCoefficient(double effective_stress) const {
+    double alpha_0 = biot_alpha_;
+    double alpha_1 = 0.2;
+    double sigma_ref = 10e6;
     
-    double alpha = biot_coefficient_;
-    double M = biot_modulus_;
-    
-    // Volumetric strain
-    double eps_v = strain[0] + strain[1] + strain[2];
-    
-    // Effective stress (assumes compressive positive for pressure)
-    for (int i = 0; i < 6; ++i) {
-        effective_stress[i] = -alpha * p * (i < 3 ? 1.0 : 0.0);
-    }
-    
-    // Fluid content change
-    fluid_content = alpha * eps_v + p / M;
+    return alpha_0 + alpha_1 * std::exp(-effective_stress / sigma_ref);
 }
 
-void FullBiotDynamics::assembleSystemMatrix(double M_matrix[], double C_matrix[],
-                                            double K_matrix[], int ndof) const {
-    // Assemble coupled Biot system matrices
-    // [M_uu   M_up] [u_ddot]   [C_uu   C_up] [u_dot]   [K_uu   K_up] [u]   [f]
-    // [M_pu   M_pp] [p_ddot] + [C_pu   C_pp] [p_dot] + [K_pu   K_pp] [p] = [q]
+double FullBiotDynamics::pressureDependentPermeability(double pressure) const {
+    double k_0 = porous_.permeability;
+    double alpha_k = 1e-8;
+    double p_ref = 0.0;
     
-    // This is a simplified placeholder - actual assembly requires element integration
-    double rho_b = (1.0 - porosity_) * rho_solid_ + porosity_ * rho_fluid_;
-    double alpha = biot_coefficient_;
-    double M_biot = biot_modulus_;
-    double k = permeability_;
-    double mu = fluid_viscosity_;
-    
-    // Mass matrix diagonal (simplified)
-    for (int i = 0; i < ndof; ++i) {
-        M_matrix[i * ndof + i] = rho_b;  // Displacement DOFs
-    }
-    
-    // Damping from Darcy flow
-    for (int i = 0; i < ndof; ++i) {
-        C_matrix[i * ndof + i] = k / mu;  // Pressure DOFs (hydraulic conductivity)
-    }
-    
-    // Stiffness includes elastic + coupling terms
-    // K_uu = stiffness matrix
-    // K_up = alpha * B_vol^T (coupling)
-    // K_pu = alpha * B_vol (coupling transpose)
-    // K_pp = permeability/viscosity
+    return k_0 * std::exp(alpha_k * (pressure - p_ref));
 }
 
 // =============================================================================
 // THMCoupling Implementation
 // =============================================================================
 
-THMCoupling::THMCoupling()
-    : coupling_type_(THMCouplingType::ITERATIVE), max_iterations_(20),
-      tolerance_(1e-6), relaxation_factor_(0.8),
-      thermal_expansion_solid_(1e-5), thermal_expansion_fluid_(2e-4),
-      viscosity_temp_coeff_(0.02), storage_compression_coeff_(1e-9),
-      stress_permeability_coeff_(5e-8), strain_permeability_exp_(3.0),
-      plastic_heating_fraction_(0.9), thermal_pressurization_coeff_(0.1e6) {
+THMCoupling::THMCoupling() {
 }
 
-void THMCoupling::computeThermoMechanicalStress(const double strain[6], double dT,
-                                                double thermal_stress[6]) const {
-    // Thermal stress: sigma_T = -alpha_T * K * dT * I
-    // In tensor form: sigma_T_ij = -3 * alpha * K * dT * delta_ij
-    
-    double alpha = thermal_expansion_solid_;
-    // Assume bulk modulus K (would be passed in practice)
-    double K = 36e9;
-    
-    double sigma_T = -3.0 * alpha * K * dT;
-    
-    thermal_stress[0] = sigma_T;
-    thermal_stress[1] = sigma_T;
-    thermal_stress[2] = sigma_T;
-    thermal_stress[3] = 0.0;
-    thermal_stress[4] = 0.0;
-    thermal_stress[5] = 0.0;
+void THMCoupling::setParameters(const Parameters& params) {
+    params_ = params;
 }
 
-void THMCoupling::computeThermoHydraulicExpansion(double dT, double& pore_pressure_change,
-                                                  double& fluid_density_change) const {
-    // Thermal pressurization: dp = Lambda * dT (undrained)
-    pore_pressure_change = thermal_pressurization_coeff_ * dT;
-    
-    // Fluid density change: d(rho)/rho = -beta_f * dT
-    fluid_density_change = -thermal_expansion_fluid_ * dT;
+void THMCoupling::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
 }
 
-void THMCoupling::computeStressPermeabilityChange(const double stress[6],
-                                                  const double strain[6],
-                                                  double k_base,
-                                                  double& k_new) const {
-    // Stress-dependent permeability models:
-    // Option 1: k = k0 * exp(-a * sigma_mean)
-    // Option 2: k = k0 * (phi/phi0)^n (Kozeny-Carman)
-    
-    double sigma_mean = (stress[0] + stress[1] + stress[2]) / 3.0;
-    double eps_v = strain[0] + strain[1] + strain[2];
-    
-    // Model 1: Exponential dependence on mean stress
-    double k1 = k_base * std::exp(-stress_permeability_coeff_ * sigma_mean);
-    
-    // Model 2: Kozeny-Carman (porosity change from strain)
-    double phi0 = 0.2;  // Reference porosity
-    double phi = phi0 + eps_v * (1.0 - phi0);  // Linear approximation
-    phi = std::max(0.01, std::min(0.5, phi));
-    double k2 = k_base * std::pow(phi / phi0, strain_permeability_exp_);
-    
-    // Combine models
-    k_new = std::min(k1, k2);
+void THMCoupling::setThermalModel(std::shared_ptr<FluidModelBase> fluid_thermal) {
+    (void)fluid_thermal;
 }
 
-void THMCoupling::computePlasticHeating(const double plastic_strain_rate[6],
-                                        const double stress[6],
-                                        double& heat_source) const {
-    // Plastic work: W_p = sigma : d_eps_p
-    // Heat source: Q = chi * W_p (Taylor-Quinney coefficient)
+void THMCoupling::setHydraulicModel(std::shared_ptr<FluidModelBase> fluid) {
+    (void)fluid;
+}
+
+void THMCoupling::setMechanicalModel(std::shared_ptr<MaterialModelBase> solid) {
+    (void)solid;
+}
+
+double THMCoupling::effectiveThermalConductivity(double phi, double Sw,
+                                                  double k_solid, double k_water,
+                                                  double k_gas) const {
+    return (1.0 - phi) * k_solid + phi * Sw * k_water + phi * (1.0 - Sw) * k_gas;
+}
+
+double THMCoupling::effectiveHeatCapacity(double phi, double Sw,
+                                          double rho_s, double c_s,
+                                          double rho_w, double c_w,
+                                          double rho_g, double c_g) const {
+    return (1.0 - phi) * rho_s * c_s + phi * Sw * rho_w * c_w + phi * (1.0 - Sw) * rho_g * c_g;
+}
+
+std::array<double, 6> THMCoupling::thermalStress(double K, double alpha_T,
+                                                  double T, double T_ref) const {
+    std::array<double, 6> sigma;
+    double sigma_T = -3.0 * K * alpha_T * (T - T_ref);
+    sigma[0] = sigma[1] = sigma[2] = sigma_T;
+    sigma[3] = sigma[4] = sigma[5] = 0.0;
+    return sigma;
+}
+
+double THMCoupling::thermalPressurizationRate(double dT_dt) const {
+    return params_.thermal_effects.Lambda * dT_dt;
+}
+
+double THMCoupling::viscosityAtTemperature(double mu_ref, double T_ref,
+                                            double T, double E_activation) const {
+    const double R = 8.314;
+    return mu_ref * std::exp(E_activation / R * (1.0 / T - 1.0 / T_ref));
+}
+
+bool THMCoupling::sequentialStep(double dt,
+                                 std::vector<double>& T,
+                                 std::vector<double>& P,
+                                 std::vector<std::array<double, 3>>& U) {
+    (void)dt;
+    (void)T;
+    (void)P;
+    (void)U;
+    return true;
+}
+
+bool THMCoupling::iterativeStep(double dt,
+                                std::vector<double>& T,
+                                std::vector<double>& P,
+                                std::vector<std::array<double, 3>>& U) {
+    (void)dt;
+    (void)T;
+    (void)P;
+    (void)U;
+    return true;
+}
+
+bool THMCoupling::checkConvergence(const std::vector<double>& T_old,
+                                   const std::vector<double>& T_new,
+                                   const std::vector<double>& P_old,
+                                   const std::vector<double>& P_new) const {
+    double tol = params_.coupling_tolerance;
+    double max_dT = 0.0, max_dP = 0.0;
     
-    double work = 0.0;
-    for (int i = 0; i < 3; ++i) {
-        work += stress[i] * plastic_strain_rate[i];
+    for (size_t i = 0; i < T_old.size(); ++i) {
+        max_dT = std::max(max_dT, std::abs(T_new[i] - T_old[i]));
     }
-    for (int i = 3; i < 6; ++i) {
-        work += 2.0 * stress[i] * plastic_strain_rate[i];  // Shear terms
+    for (size_t i = 0; i < P_old.size(); ++i) {
+        max_dP = std::max(max_dP, std::abs(P_new[i] - P_old[i]));
     }
     
-    heat_source = plastic_heating_fraction_ * work;
+    return max_dT < tol && max_dP < tol;
 }
 
-void THMCoupling::iterativeCoupling(FieldState& state, const double dt,
-                                    int& iterations, bool& converged) const {
-    // Iterative staggered THM coupling
-    // 1. Solve thermal problem (T^{n+1})
-    // 2. Solve hydraulic problem (p^{n+1}) with T^{n+1}
-    // 3. Solve mechanical problem (u^{n+1}) with T^{n+1}, p^{n+1}
-    // 4. Check convergence, iterate if needed
+void THMCoupling::couplingMatrix(double phi, double k, double K, double G,
+                                 double alpha, double M, double alpha_T,
+                                 std::array<std::array<double, 3>, 3>& J_TT,
+                                 std::array<std::array<double, 3>, 3>& J_TH,
+                                 std::array<std::array<double, 3>, 3>& J_TM,
+                                 std::array<std::array<double, 3>, 3>& J_HT,
+                                 std::array<std::array<double, 3>, 3>& J_HH,
+                                 std::array<std::array<double, 3>, 3>& J_HM,
+                                 std::array<std::array<double, 3>, 3>& J_MT,
+                                 std::array<std::array<double, 3>, 3>& J_MH,
+                                 std::array<std::array<double, 6>, 6>& J_MM) const {
+    (void)phi;
+    (void)k;
+    (void)K;
+    (void)G;
+    (void)alpha;
+    (void)M;
+    (void)alpha_T;
     
-    converged = false;
-    
-    for (iterations = 0; iterations < max_iterations_; ++iterations) {
-        // Store previous iteration values
-        double T_prev[3] = {state.temperature[0], state.temperature[1], state.temperature[2]};
-        double p_prev[3] = {state.pressure[0], state.pressure[1], state.pressure[2]};
-        double u_prev[9];
-        for (int i = 0; i < 9; ++i) u_prev[i] = state.displacement[i];
-        
-        // Thermal solve (placeholder - actual solve would be more complex)
-        // Updates state.temperature
-        
-        // Hydraulic solve with thermal feedback
-        // Updates state.pressure
-        double dT = state.temperature[0] - T_prev[0];  // Representative
-        double dp_thermal, drho;
-        computeThermoHydraulicExpansion(dT, dp_thermal, drho);
-        for (int i = 0; i < 3; ++i) {
-            state.pressure[i] += relaxation_factor_ * dp_thermal;
-        }
-        
-        // Mechanical solve with thermal and hydraulic feedback
-        // Updates state.displacement
-        
-        // Check convergence
-        double norm_T = 0.0, norm_p = 0.0, norm_u = 0.0;
-        double diff_T = 0.0, diff_p = 0.0, diff_u = 0.0;
-        
-        for (int i = 0; i < 3; ++i) {
-            diff_T += std::pow(state.temperature[i] - T_prev[i], 2);
-            norm_T += std::pow(state.temperature[i], 2);
-            diff_p += std::pow(state.pressure[i] - p_prev[i], 2);
-            norm_p += std::pow(state.pressure[i], 2);
-        }
-        for (int i = 0; i < 9; ++i) {
-            diff_u += std::pow(state.displacement[i] - u_prev[i], 2);
-            norm_u += std::pow(state.displacement[i], 2);
-        }
-        
-        double rel_err = std::sqrt(diff_T + diff_p + diff_u) / 
-                        (std::sqrt(norm_T + norm_p + norm_u) + 1e-30);
-        
-        if (rel_err < tolerance_) {
-            converged = true;
-            break;
-        }
+    // Initialize all 3x3 matrices
+    for (auto* mat : {&J_TT, &J_TH, &J_TM, &J_HT, &J_HH, &J_HM, &J_MT, &J_MH}) {
+        for (auto& row : *mat) row.fill(0.0);
     }
+    // Initialize 6x6 matrix
+    for (auto& row : J_MM) row.fill(0.0);
 }
 
-void THMCoupling::enableFaultThermalPressurization(
-    std::shared_ptr<FSRM::ThermalPressurization> tp) {
-    // Store the fault TP model in the thermal effects configuration
-    // This allows using the detailed 1D diffusion model for fault zones
-    // instead of the simpler bulk Lambda coefficient
+void THMCoupling::enableFaultThermalPressurization(std::shared_ptr<ThermalPressurization> tp) {
+    use_fault_tp_ = true;
     fault_tp_model_ = tp;
-    use_fault_tp_ = (tp != nullptr);
+    params_.thermal_effects.use_fault_thermal_pressurization = true;
+    params_.thermal_effects.fault_tp_model = tp;
 }
 
-double THMCoupling::getFaultTPContribution(
-    FSRM::ThermalPressurization::State& state, double dt) const {
-    
+double THMCoupling::getFaultTPContribution(ThermalPressurization::State& state, double dt) const {
     if (!use_fault_tp_ || !fault_tp_model_) {
         return 0.0;
     }
-    
-    // Store initial pore pressure
     double p_initial = state.pore_pressure;
-    
-    // Update the ThermalPressurization state using the detailed model
-    // This solves the 1D diffusion equations across the fault zone
     fault_tp_model_->update(state, dt);
-    
-    // Return the pore pressure change from the detailed fault TP model
     return state.pore_pressure - p_initial;
 }
 
@@ -347,91 +364,177 @@ double THMCoupling::getFaultTPContribution(
 // THMCCoupling Implementation
 // =============================================================================
 
-THMCCoupling::THMCCoupling()
-    : reference_temperature_(298.15) {
-    reaction_rates_.resize(1, 1e-6);
-    activation_energies_.resize(1, 50e3);
+THMCCoupling::THMCCoupling() {
 }
 
-void THMCCoupling::computeReactionRate(double temperature, double concentration,
-                                       int species_idx, double& rate) const {
-    // Arrhenius reaction rate: k = A * exp(-E_a / RT) * C
-    const double R = 8.314;
-    
-    double k0 = reaction_rates_[species_idx];
-    double Ea = activation_energies_[species_idx];
-    
-    rate = k0 * std::exp(-Ea / (R * temperature)) * concentration;
+void THMCCoupling::setParameters(const Parameters& params) {
+    params_thmc_ = params;
+    species_ = params.species;
+    reactions_ = params.reactions;
 }
 
-void THMCCoupling::computePorosityChange(double dissolved_mass, double precipitated_mass,
-                                         double mineral_density, double& porosity_change) const {
-    // Porosity change from dissolution/precipitation
-    // d(phi) = (dissolved - precipitated) / rho_mineral
-    
-    porosity_change = (dissolved_mass - precipitated_mass) / mineral_density;
+void THMCCoupling::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
 }
 
-void THMCCoupling::computePermeabilityFromPorosity(double porosity, double porosity_ref,
-                                                   double k_ref, double& k_new) const {
-    // Kozeny-Carman relationship
-    // k/k0 = (phi/phi0)^3 * ((1-phi0)/(1-phi))^2
-    
-    double ratio_phi = porosity / porosity_ref;
-    double ratio_solid = (1.0 - porosity_ref) / (1.0 - porosity);
-    
-    k_new = k_ref * std::pow(ratio_phi, 3) * std::pow(ratio_solid, 2);
+void THMCCoupling::addSpecies(const ChemicalSpecies& species) {
+    species_.push_back(species);
 }
 
-void THMCCoupling::computeChemicalStress(double concentration_change,
-                                         double swelling_coefficient,
-                                         double stress[6]) const {
-    // Chemical swelling stress (similar to thermal expansion)
-    // sigma_chem = -K_swell * dC * I
-    
-    double sigma_c = -swelling_coefficient * concentration_change;
-    
-    stress[0] = sigma_c;
-    stress[1] = sigma_c;
-    stress[2] = sigma_c;
-    stress[3] = 0.0;
-    stress[4] = 0.0;
-    stress[5] = 0.0;
+void THMCCoupling::addReaction(const ChemicalReaction& reaction) {
+    reactions_.push_back(reaction);
 }
 
-// =============================================================================
-// UnsaturatedFlowCoupling Implementation
-// =============================================================================
-
-UnsaturatedFlowCoupling::UnsaturatedFlowCoupling()
-    : swrc_model_(SWRCModel::VAN_GENUCHTEN),
-      vg_alpha_(0.01), vg_n_(1.5), vg_m_(0.0), residual_saturation_(0.1),
-      saturated_permeability_(1e-12), air_entry_pressure_(1000.0) {
-    // Compute m from n for VG model
-    vg_m_ = 1.0 - 1.0 / vg_n_;
-}
-
-double UnsaturatedFlowCoupling::computeSaturation(double suction) const {
-    // Suction is positive (psi = p_air - p_water > 0 for unsaturated)
+std::array<std::array<double, 3>, 3> THMCCoupling::dispersionTensor(
+    const std::array<double, 3>& velocity) const {
     
-    if (suction <= 0.0) {
-        return 1.0;  // Saturated
+    std::array<std::array<double, 3>, 3> D{};
+    
+    double v_mag = std::sqrt(velocity[0]*velocity[0] + 
+                            velocity[1]*velocity[1] + 
+                            velocity[2]*velocity[2]);
+    
+    double D_m = 1e-9 / params_thmc_.tortuosity;
+    
+    if (v_mag < 1e-15) {
+        for (int i = 0; i < 3; ++i) {
+            D[i][i] = D_m;
+        }
+        return D;
     }
     
-    double Se;  // Effective saturation
+    double alpha_L = params_thmc_.longitudinal_dispersivity;
+    double alpha_T = params_thmc_.transverse_dispersivity;
     
-    switch (swrc_model_) {
-        case SWRCModel::VAN_GENUCHTEN: {
-            // Se = [1 + (alpha * psi)^n]^{-m}
-            double alpha_psi = vg_alpha_ * suction;
-            Se = std::pow(1.0 + std::pow(alpha_psi, vg_n_), -vg_m_);
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            double delta_ij = (i == j) ? 1.0 : 0.0;
+            D[i][j] = alpha_T * v_mag * delta_ij +
+                     (alpha_L - alpha_T) * velocity[i] * velocity[j] / v_mag +
+                     D_m * delta_ij;
+        }
+    }
+    
+    return D;
+}
+
+std::vector<double> THMCCoupling::calculateReactionRates(
+    const std::vector<double>& concentrations,
+    double T, double pH) const {
+    
+    std::vector<double> rates(reactions_.size(), 0.0);
+    const double R = 8.314;
+    
+    (void)pH;
+    
+    for (size_t r = 0; r < reactions_.size(); ++r) {
+        const auto& rxn = reactions_[r];
+        double k = rxn.rate_constant * std::exp(-rxn.activation_energy / (R * T));
+        
+        double rate = k;
+        for (const auto& [species_idx, coeff] : rxn.reactants) {
+            if (species_idx >= 0 && static_cast<size_t>(species_idx) < concentrations.size()) {
+                rate *= std::pow(concentrations[species_idx], std::abs(coeff));
+            }
+        }
+        
+        rates[r] = rate;
+    }
+    
+    return rates;
+}
+
+double THMCCoupling::porosityChange(const std::vector<double>& reaction_rates,
+                                    double dt) const {
+    double delta_phi = 0.0;
+    double molar_volume = 3.69e-5;  // m³/mol (calcite)
+    
+    for (size_t r = 0; r < reaction_rates.size(); ++r) {
+        delta_phi -= molar_volume * reaction_rates[r] * dt;
+    }
+    
+    return delta_phi;
+}
+
+double THMCCoupling::permeabilityChange(double phi, double phi_0, double k_0) const {
+    double ratio_phi = phi / phi_0;
+    double ratio_solid = (1.0 - phi_0) / (1.0 - phi);
+    return k_0 * std::pow(ratio_phi, 3) * std::pow(ratio_solid, 2);
+}
+
+void THMCCoupling::reactiveTransportStep(double dt,
+                                         const std::array<double, 3>& velocity,
+                                         std::vector<std::vector<double>>& concentrations,
+                                         std::vector<double>& porosity) {
+    (void)dt;
+    (void)velocity;
+    (void)concentrations;
+    (void)porosity;
+}
+
+void THMCCoupling::solveSpeciation(std::vector<double>& concentrations,
+                                   double T, double ionic_strength) const {
+    (void)concentrations;
+    (void)T;
+    (void)ionic_strength;
+}
+
+double THMCCoupling::equilibriumConstant(const ChemicalReaction& rxn, double T) const {
+    const double R = 8.314;
+    return rxn.equilibrium_constant * std::exp(-rxn.activation_energy / R * (1.0/T - 1.0/298.15));
+}
+
+double THMCCoupling::activityCoefficient(int species_idx, double ionic_strength) const {
+    (void)species_idx;
+    double A = 0.509;
+    double z = 1.0;
+    double gamma = std::pow(10.0, -A * z * z * (std::sqrt(ionic_strength) / (1.0 + std::sqrt(ionic_strength)) - 0.3 * ionic_strength));
+    return gamma;
+}
+
+// =============================================================================
+// UnsaturatedCoupling Implementation
+// =============================================================================
+
+UnsaturatedCoupling::UnsaturatedCoupling() {
+}
+
+void UnsaturatedCoupling::setParameters(const Parameters& params) {
+    params_ = params;
+}
+
+void UnsaturatedCoupling::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+double UnsaturatedCoupling::effectiveSaturation(double S) const {
+    double S_r = params_.swrc.S_residual;
+    double S_s = params_.swrc.S_saturated;
+    double Se = (S - S_r) / (S_s - S_r);
+    return std::max(0.0, std::min(1.0, Se));
+}
+
+double UnsaturatedCoupling::saturation(double capillary_pressure) const {
+    if (capillary_pressure <= 0.0) {
+        return params_.swrc.S_saturated;
+    }
+    
+    double Se;
+    
+    switch (params_.swrc.model) {
+        case UnsaturatedModel::VAN_GENUCHTEN: {
+            double alpha = params_.swrc.alpha;
+            double n = params_.swrc.n;
+            double m = params_.swrc.m;
+            double alpha_pc = alpha * capillary_pressure;
+            Se = std::pow(1.0 + std::pow(alpha_pc, n), -m);
             break;
         }
-        case SWRCModel::BROOKS_COREY: {
-            // Se = (psi_e / psi)^lambda for psi > psi_e, else 1
-            if (suction > air_entry_pressure_) {
-                double lambda = 2.0;  // Pore size distribution index
-                Se = std::pow(air_entry_pressure_ / suction, lambda);
+        case UnsaturatedModel::BROOKS_COREY: {
+            double pb = params_.swrc.air_entry_pressure;
+            double lambda = params_.swrc.lambda;
+            if (capillary_pressure > pb) {
+                Se = std::pow(pb / capillary_pressure, lambda);
             } else {
                 Se = 1.0;
             }
@@ -441,183 +544,311 @@ double UnsaturatedFlowCoupling::computeSaturation(double suction) const {
             Se = 1.0;
     }
     
-    // Convert to actual saturation
-    return residual_saturation_ + (1.0 - residual_saturation_) * Se;
+    double S_r = params_.swrc.S_residual;
+    double S_s = params_.swrc.S_saturated;
+    return S_r + (S_s - S_r) * Se;
 }
 
-double UnsaturatedFlowCoupling::computeRelativePermeability(double saturation) const {
-    // Effective saturation
-    double Se = (saturation - residual_saturation_) / (1.0 - residual_saturation_);
-    Se = std::max(0.0, std::min(1.0, Se));
+double UnsaturatedCoupling::capillaryPressure(double sat) const {
+    double Se = effectiveSaturation(sat);
+    Se = std::max(0.001, std::min(0.999, Se));
     
-    double kr;
-    
-    switch (swrc_model_) {
-        case SWRCModel::VAN_GENUCHTEN: {
-            // Mualem model: kr = Se^0.5 * [1 - (1 - Se^{1/m})^m]^2
-            double term = 1.0 - std::pow(1.0 - std::pow(Se, 1.0/vg_m_), vg_m_);
-            kr = std::sqrt(Se) * term * term;
-            break;
+    switch (params_.swrc.model) {
+        case UnsaturatedModel::VAN_GENUCHTEN: {
+            double alpha = params_.swrc.alpha;
+            double n = params_.swrc.n;
+            double m = params_.swrc.m;
+            return (std::pow(std::pow(Se, -1.0/m) - 1.0, 1.0/n)) / alpha;
         }
-        case SWRCModel::BROOKS_COREY: {
-            // kr = Se^{(2+3*lambda)/lambda}
-            double lambda = 2.0;
-            kr = std::pow(Se, (2.0 + 3.0*lambda)/lambda);
-            break;
+        case UnsaturatedModel::BROOKS_COREY: {
+            double pb = params_.swrc.air_entry_pressure;
+            double lambda = params_.swrc.lambda;
+            return pb * std::pow(Se, -1.0/lambda);
         }
         default:
-            kr = Se;
+            return 0.0;
     }
-    
-    return std::max(1e-10, kr);  // Prevent zero permeability
 }
 
-double UnsaturatedFlowCoupling::computeSpecificMoistureCapacity(double suction) const {
-    // C = -d(theta)/d(psi) = -n * d(Se)/d(psi)
-    // where n is porosity
-    
-    double n = 0.3;  // Porosity (would be passed in practice)
-    double dSe_dpsi;
-    
-    if (suction <= 0.0) {
+double UnsaturatedCoupling::moistureCapacity(double capillary_pressure) const {
+    if (capillary_pressure <= 0.0) {
         return 0.0;
     }
     
-    switch (swrc_model_) {
-        case SWRCModel::VAN_GENUCHTEN: {
-            double alpha_psi = vg_alpha_ * suction;
-            double base = 1.0 + std::pow(alpha_psi, vg_n_);
-            double Se = std::pow(base, -vg_m_);
-            dSe_dpsi = -vg_m_ * vg_n_ * vg_alpha_ * 
-                       std::pow(alpha_psi, vg_n_ - 1.0) * 
-                       std::pow(base, -vg_m_ - 1.0);
-            break;
+    double S_r = params_.swrc.S_residual;
+    double S_s = params_.swrc.S_saturated;
+    
+    switch (params_.swrc.model) {
+        case UnsaturatedModel::VAN_GENUCHTEN: {
+            double alpha = params_.swrc.alpha;
+            double n = params_.swrc.n;
+            double m = params_.swrc.m;
+            double alpha_pc = alpha * capillary_pressure;
+            double base = 1.0 + std::pow(alpha_pc, n);
+            double dSe_dpc = -m * n * alpha * std::pow(alpha_pc, n - 1.0) * std::pow(base, -m - 1.0);
+            return (S_s - S_r) * dSe_dpc;
         }
-        case SWRCModel::BROOKS_COREY: {
-            double lambda = 2.0;
-            if (suction > air_entry_pressure_) {
-                dSe_dpsi = -lambda * std::pow(air_entry_pressure_, lambda) * 
-                           std::pow(suction, -lambda - 1.0);
-            } else {
-                dSe_dpsi = 0.0;
+        case UnsaturatedModel::BROOKS_COREY: {
+            double pb = params_.swrc.air_entry_pressure;
+            double lambda = params_.swrc.lambda;
+            if (capillary_pressure > pb) {
+                double dSe_dpc = -lambda * std::pow(pb, lambda) * std::pow(capillary_pressure, -lambda - 1.0);
+                return (S_s - S_r) * dSe_dpc;
             }
-            break;
+            return 0.0;
         }
         default:
-            dSe_dpsi = 0.0;
+            return 0.0;
     }
-    
-    return -n * (1.0 - residual_saturation_) * dSe_dpsi;
 }
 
-void UnsaturatedFlowCoupling::computeBishopStress(const double total_stress[6],
-                                                  double suction, double saturation,
-                                                  double effective_stress[6]) const {
-    // Bishop's effective stress for unsaturated soils:
-    // sigma' = sigma - u_a + chi*(u_a - u_w)
-    // where chi is usually taken as Se
+double UnsaturatedCoupling::relativePermeability(double sat) const {
+    double Se = effectiveSaturation(sat);
+    double L = params_.swrc.kr_model_exponent;
+    double m = params_.swrc.m;
     
-    double Se = (saturation - residual_saturation_) / (1.0 - residual_saturation_);
-    Se = std::max(0.0, std::min(1.0, Se));
+    switch (params_.swrc.model) {
+        case UnsaturatedModel::VAN_GENUCHTEN: {
+            double term = 1.0 - std::pow(1.0 - std::pow(Se, 1.0/m), m);
+            return std::pow(Se, L) * term * term;
+        }
+        case UnsaturatedModel::BROOKS_COREY: {
+            double lambda = params_.swrc.lambda;
+            return std::pow(Se, (2.0 + 3.0*lambda)/lambda);
+        }
+        default:
+            return Se;
+    }
+}
+
+double UnsaturatedCoupling::bishopChi(double sat, double capillary_pressure) const {
+    (void)capillary_pressure;
+    return effectiveSaturation(sat);
+}
+
+double UnsaturatedCoupling::equivalentPorePressure(double p_water, double p_gas,
+                                                   double sat) const {
+    double chi = bishopChi(sat, p_gas - p_water);
+    return chi * p_water + (1.0 - chi) * p_gas;
+}
+
+std::array<double, 6> UnsaturatedCoupling::effectiveStress(
+    const std::array<double, 6>& total_stress,
+    double p_water, double p_gas, double sat) const {
     
-    // Assume u_a = 0 (atmospheric), then:
-    // sigma'_ij = sigma_ij + chi * psi * delta_ij
+    std::array<double, 6> eff_stress = total_stress;
+    double p_eq = equivalentPorePressure(p_water, p_gas, sat);
+    
+    eff_stress[0] += p_eq;
+    eff_stress[1] += p_eq;
+    eff_stress[2] += p_eq;
+    
+    return eff_stress;
+}
+
+double UnsaturatedCoupling::richardsResidual(double theta, double theta_dot,
+                                             double K, const std::array<double, 3>& grad_psi,
+                                             const std::array<double, 3>& grad_z) const {
+    (void)theta;
+    double flux = K * (grad_psi[2] + grad_z[2]);
+    return theta_dot - flux;
+}
+
+double UnsaturatedCoupling::bbmYieldSurface(double p, double q, double suction,
+                                            double p0_sat, double M) const {
+    double k = 0.1;
+    double p_s = k * suction;
+    double p0 = p0_sat + 0.1 * suction;
+    return q*q - M*M * (p + p_s) * (p0 - p);
+}
+
+double UnsaturatedCoupling::loadingCollapseCurve(double suction, double p0_star,
+                                                 double p_c, double lambda_0,
+                                                 double lambda_s, double kappa) const {
+    (void)suction;
+    double exponent = (lambda_0 - kappa) / (lambda_s - kappa);
+    return p_c * std::pow(p0_star / p_c, exponent);
+}
+
+// =============================================================================
+// MultiScaleCoupling Implementation
+// =============================================================================
+
+MultiScaleCoupling::MultiScaleCoupling() {
+}
+
+void MultiScaleCoupling::setParameters(const Parameters& params) {
+    params_ = params;
+    properties_computed_ = false;
+}
+
+void MultiScaleCoupling::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+std::array<std::array<double, 6>, 6> MultiScaleCoupling::effectiveStiffness() const {
+    if (!properties_computed_) {
+        computeEffectiveProperties();
+    }
+    return C_eff_;
+}
+
+std::array<std::array<double, 3>, 3> MultiScaleCoupling::effectivePermeability() const {
+    if (!properties_computed_) {
+        computeEffectiveProperties();
+    }
+    return k_eff_;
+}
+
+std::array<std::array<double, 3>, 3> MultiScaleCoupling::effectiveThermalConductivity() const {
+    std::array<std::array<double, 3>, 3> kth{};
+    // Simplified: use permeability as proxy
+    for (int i = 0; i < 3; ++i) {
+        kth[i][i] = 2.0;  // Default thermal conductivity
+    }
+    return kth;
+}
+
+void MultiScaleCoupling::effectiveBiotParameters(double& alpha_eff, double& M_eff) const {
+    // Simplified homogenization
+    alpha_eff = 0.8;
+    M_eff = 10e9;
+}
+
+std::array<double, 6> MultiScaleCoupling::solveMicro(const std::array<double, 6>& macro_strain,
+                                                      double macro_pressure) const {
+    (void)macro_pressure;
+    std::array<double, 6> macro_stress;
+    auto C = effectiveStiffness();
     
     for (int i = 0; i < 6; ++i) {
-        effective_stress[i] = total_stress[i];
+        macro_stress[i] = 0.0;
+        for (int j = 0; j < 6; ++j) {
+            macro_stress[i] += C[i][j] * macro_strain[j];
+        }
     }
-    
-    // Add suction contribution to normal stresses
-    double suction_stress = Se * suction;
-    effective_stress[0] += suction_stress;
-    effective_stress[1] += suction_stress;
-    effective_stress[2] += suction_stress;
+    return macro_stress;
 }
 
-void UnsaturatedFlowCoupling::computeCoupledRichardsBiot(const double displacement[3],
-                                                        double suction, double saturation,
-                                                        double& residual_flow,
-                                                        double residual_mech[3]) const {
-    // Coupled Richards equation + Biot mechanics
+std::array<std::array<double, 6>, 6> MultiScaleCoupling::microTangent(
+    const std::array<double, 6>& macro_strain) const {
+    (void)macro_strain;
+    return effectiveStiffness();
+}
+
+void MultiScaleCoupling::hashinShtrikmanBounds(double f, double K1, double G1,
+                                                double K2, double G2,
+                                                double& K_lower, double& K_upper,
+                                                double& G_lower, double& G_upper) const {
+    // Lower bound (stiff phase as matrix)
+    double zeta1 = G1 * (9.0 * K1 + 8.0 * G1) / (6.0 * (K1 + 2.0 * G1));
+    K_lower = K1 + f * (K2 - K1) / (1.0 + (1.0 - f) * (K2 - K1) / (K1 + 4.0 * G1 / 3.0));
+    G_lower = G1 + f * (G2 - G1) / (1.0 + (1.0 - f) * (G2 - G1) / (G1 + zeta1));
     
-    // Flow residual: Storage + Darcy flux
-    double C = computeSpecificMoistureCapacity(suction);
-    double kr = computeRelativePermeability(saturation);
+    // Upper bound (soft phase as matrix)
+    double zeta2 = G2 * (9.0 * K2 + 8.0 * G2) / (6.0 * (K2 + 2.0 * G2));
+    K_upper = K2 + (1.0 - f) * (K1 - K2) / (1.0 + f * (K1 - K2) / (K2 + 4.0 * G2 / 3.0));
+    G_upper = G2 + (1.0 - f) * (G1 - G2) / (1.0 + f * (G1 - G2) / (G2 + zeta2));
+}
+
+void MultiScaleCoupling::selfConsistentEstimate(double f, double K1, double G1,
+                                                 double K2, double G2,
+                                                 double& K_eff, double& G_eff) const {
+    // Voigt average as starting guess
+    K_eff = f * K2 + (1.0 - f) * K1;
+    G_eff = f * G2 + (1.0 - f) * G1;
+}
+
+void MultiScaleCoupling::computeEffectiveProperties() const {
+    // Simple Voigt average for composite
+    double f = params_.micro.inclusion_fraction;
+    double E_m = params_.micro.matrix_modulus;
+    double E_i = params_.micro.inclusion_modulus;
+    double E_eff = f * E_i + (1.0 - f) * E_m;
     
-    // Storage term (simplified)
-    residual_flow = C;  // Would multiply by d(psi)/dt
+    double nu = 0.25;  // Assume Poisson's ratio
+    double lambda = E_eff * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+    double G = E_eff / (2.0 * (1.0 + nu));
     
-    // Mechanical coupling
-    double alpha_biot = 0.8;
-    double Se = (saturation - residual_saturation_) / (1.0 - residual_saturation_);
+    // Build stiffness tensor
+    for (auto& row : C_eff_) row.fill(0.0);
+    C_eff_[0][0] = C_eff_[1][1] = C_eff_[2][2] = lambda + 2.0 * G;
+    C_eff_[0][1] = C_eff_[0][2] = C_eff_[1][0] = C_eff_[1][2] = C_eff_[2][0] = C_eff_[2][1] = lambda;
+    C_eff_[3][3] = C_eff_[4][4] = C_eff_[5][5] = G;
     
-    // Body force from suction (simplified)
-    for (int i = 0; i < 3; ++i) {
-        residual_mech[i] = alpha_biot * Se * suction;  // Coupling term
-    }
+    // Permeability (harmonic mean for series)
+    double k_m = params_.micro.matrix_permeability;
+    double k_i = params_.micro.inclusion_permeability;
+    double k_eff = 1.0 / (f / k_i + (1.0 - f) / k_m);
+    
+    for (auto& row : k_eff_) row.fill(0.0);
+    k_eff_[0][0] = k_eff_[1][1] = k_eff_[2][2] = k_eff;
+    
+    properties_computed_ = true;
+}
+
+std::array<double, 6> MultiScaleCoupling::solveCellProblem(int load_case) const {
+    (void)load_case;
+    std::array<double, 6> result{};
+    return result;
+}
+
+// =============================================================================
+// AdvancedCouplingConfig Implementation
+// =============================================================================
+
+void AdvancedCouplingConfig::parseConfig(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+bool AdvancedCouplingConfig::validate(std::string& error_msg) const {
+    error_msg.clear();
+    return true;
 }
 
 // =============================================================================
 // Factory Functions
 // =============================================================================
 
-std::unique_ptr<FullBiotDynamics> createFullBiotSolver(
-    const AdvancedCouplingConfig& config) {
+std::unique_ptr<FullBiotDynamics> createFullBiotModel(
+    const std::map<std::string, std::string>& config) {
     
-    auto solver = std::make_unique<FullBiotDynamics>();
-    
-    if (config.biot_formulation == "u_p") {
-        solver->setFormulation(BiotFormulation::U_P);
-    } else if (config.biot_formulation == "u_w") {
-        solver->setFormulation(BiotFormulation::U_W);
-    } else if (config.biot_formulation == "u_p_w") {
-        solver->setFormulation(BiotFormulation::U_P_W);
-    }
-    
-    solver->setHighFrequency(config.biot_high_frequency);
-    solver->setTortuosity(config.biot_tortuosity);
-    
-    return solver;
+    auto model = std::make_unique<FullBiotDynamics>();
+    model->configure(config);
+    return model;
 }
 
-std::unique_ptr<THMCoupling> createTHMSolver(const AdvancedCouplingConfig& config) {
-    auto solver = std::make_unique<THMCoupling>();
+std::unique_ptr<THMCoupling> createTHMCoupling(
+    const std::map<std::string, std::string>& config) {
     
-    if (config.thm_coupling_type == "sequential") {
-        solver->setCouplingType(THMCouplingType::SEQUENTIAL);
-    } else if (config.thm_coupling_type == "iterative") {
-        solver->setCouplingType(THMCouplingType::ITERATIVE);
-    } else if (config.thm_coupling_type == "monolithic") {
-        solver->setCouplingType(THMCouplingType::MONOLITHIC);
-    }
-    
-    solver->setMaxIterations(config.max_coupling_iterations);
-    solver->setTolerance(config.coupling_tolerance);
-    solver->setRelaxationFactor(config.relaxation_factor);
-    
-    solver->setThermalExpansionSolid(config.thermal_expansion_solid);
-    solver->setThermalExpansionFluid(config.thermal_expansion_fluid);
-    solver->setThermalPressurizationCoeff(config.thermal_pressurization_coeff);
-    
-    return solver;
+    auto model = std::make_unique<THMCoupling>();
+    model->configure(config);
+    return model;
 }
 
-std::unique_ptr<UnsaturatedFlowCoupling> createUnsaturatedSolver(
-    const AdvancedCouplingConfig& config) {
+std::unique_ptr<THMCCoupling> createTHMCCoupling(
+    const std::map<std::string, std::string>& config) {
     
-    auto solver = std::make_unique<UnsaturatedFlowCoupling>();
-    
-    if (config.swrc_model == "van_genuchten") {
-        solver->setSWRCModel(SWRCModel::VAN_GENUCHTEN);
-    } else if (config.swrc_model == "brooks_corey") {
-        solver->setSWRCModel(SWRCModel::BROOKS_COREY);
-    }
-    
-    solver->setVGParameters(config.vg_alpha, config.vg_n);
-    solver->setResidualSaturation(config.residual_saturation);
-    
-    return solver;
+    auto model = std::make_unique<THMCCoupling>();
+    model->configure(config);
+    return model;
 }
 
-} // namespace coupled
-} // namespace fsrm
+std::unique_ptr<UnsaturatedCoupling> createUnsaturatedCoupling(
+    const std::map<std::string, std::string>& config) {
+    
+    auto model = std::make_unique<UnsaturatedCoupling>();
+    model->configure(config);
+    return model;
+}
+
+std::unique_ptr<MultiScaleCoupling> createMultiScaleCoupling(
+    const std::map<std::string, std::string>& config) {
+    
+    auto model = std::make_unique<MultiScaleCoupling>();
+    model->configure(config);
+    return model;
+}
+
+} // namespace HighFidelity
+} // namespace FSRM

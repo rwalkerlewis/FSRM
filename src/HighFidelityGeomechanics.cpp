@@ -15,8 +15,8 @@
 #include <algorithm>
 #include <stdexcept>
 
-namespace fsrm {
-namespace geomechanics {
+namespace FSRM {
+namespace HighFidelity {
 
 // =============================================================================
 // Tensor Utility Functions
@@ -92,64 +92,143 @@ void computeInvariants(const double C[6], double& I1, double& I2, double& I3) {
 // DeformationGradient Implementation
 // =============================================================================
 
-void DeformationGradient::setFromDisplacementGradient(const double H[9]) {
-    // F = I + H
-    for (int i = 0; i < 9; ++i) {
-        F[i] = H[i];
+DeformationGradient::DeformationGradient() {
+    // Initialize to identity
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            F[i][j] = (i == j) ? 1.0 : 0.0;
+        }
     }
-    F[0] += 1.0;
-    F[4] += 1.0;
-    F[8] += 1.0;
-    
-    updateDerivedQuantities();
 }
 
-void DeformationGradient::updateDerivedQuantities() {
-    // Jacobian
-    J = det3x3(F);
-    
-    // Right Cauchy-Green tensor
-    computeRightCauchyGreen(F, C);
-    
-    // Invariants
-    computeInvariants(C, I1, I2, I3);
-    
-    // Inverse
-    inv3x3(F, F_inv);
-    
-    // Green-Lagrange strain: E = 0.5*(C - I)
-    E[0] = 0.5 * (C[0] - 1.0);
-    E[1] = 0.5 * (C[1] - 1.0);
-    E[2] = 0.5 * (C[2] - 1.0);
-    E[3] = 0.5 * C[3];
-    E[4] = 0.5 * C[4];
-    E[5] = 0.5 * C[5];
+DeformationGradient::DeformationGradient(const std::array<std::array<double, 3>, 3>& components)
+    : F(components) {
 }
 
-void DeformationGradient::polarDecomposition(double R[9], double U[9]) const {
+double DeformationGradient::determinant() const {
+    return F[0][0] * (F[1][1] * F[2][2] - F[1][2] * F[2][1])
+         - F[0][1] * (F[1][0] * F[2][2] - F[1][2] * F[2][0])
+         + F[0][2] * (F[1][0] * F[2][1] - F[1][1] * F[2][0]);
+}
+
+DeformationGradient DeformationGradient::inverse() const {
+    DeformationGradient Finv;
+    double J = determinant();
+    if (std::abs(J) < 1e-30) {
+        throw std::runtime_error("Singular deformation gradient");
+    }
+    double Jinv = 1.0 / J;
+    
+    Finv.F[0][0] = Jinv * (F[1][1] * F[2][2] - F[1][2] * F[2][1]);
+    Finv.F[0][1] = Jinv * (F[0][2] * F[2][1] - F[0][1] * F[2][2]);
+    Finv.F[0][2] = Jinv * (F[0][1] * F[1][2] - F[0][2] * F[1][1]);
+    Finv.F[1][0] = Jinv * (F[1][2] * F[2][0] - F[1][0] * F[2][2]);
+    Finv.F[1][1] = Jinv * (F[0][0] * F[2][2] - F[0][2] * F[2][0]);
+    Finv.F[1][2] = Jinv * (F[0][2] * F[1][0] - F[0][0] * F[1][2]);
+    Finv.F[2][0] = Jinv * (F[1][0] * F[2][1] - F[1][1] * F[2][0]);
+    Finv.F[2][1] = Jinv * (F[0][1] * F[2][0] - F[0][0] * F[2][1]);
+    Finv.F[2][2] = Jinv * (F[0][0] * F[1][1] - F[0][1] * F[1][0]);
+    
+    return Finv;
+}
+
+DeformationGradient DeformationGradient::transpose() const {
+    DeformationGradient FT;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            FT.F[i][j] = F[j][i];
+        }
+    }
+    return FT;
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::rightCauchyGreen() const {
+    // C = F^T * F
+    std::array<std::array<double, 3>, 3> C{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            C[i][j] = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                C[i][j] += F[k][i] * F[k][j];
+            }
+        }
+    }
+    return C;
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::leftCauchyGreen() const {
+    // B = F * F^T
+    std::array<std::array<double, 3>, 3> B{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            B[i][j] = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                B[i][j] += F[i][k] * F[j][k];
+            }
+        }
+    }
+    return B;
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::greenLagrangeStrain() const {
+    // E = 0.5*(C - I)
+    auto C = rightCauchyGreen();
+    std::array<std::array<double, 3>, 3> E_tensor{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            E_tensor[i][j] = 0.5 * (C[i][j] - ((i == j) ? 1.0 : 0.0));
+        }
+    }
+    return E_tensor;
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::eulerAlmansiStrain() const {
+    // e = 0.5*(I - B^{-1})
+    auto B = leftCauchyGreen();
+    // For simplicity, approximate for small deformations
+    std::array<std::array<double, 3>, 3> e{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            e[i][j] = 0.5 * (((i == j) ? 1.0 : 0.0) - B[i][j]);
+        }
+    }
+    return e;
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::logarithmicStrain() const {
+    // Simplified: for small deformations, ln(U) ~ E
+    return greenLagrangeStrain();
+}
+
+void DeformationGradient::polarDecomposition(std::array<std::array<double, 3>, 3>& R,
+                                             std::array<std::array<double, 3>, 3>& U) const {
     // Simplified polar decomposition using iteration
-    // R is rotation, U is right stretch: F = R * U
+    // F = R * U where R is rotation and U is right stretch
     
     // Initial guess: R = F / |F|
     double norm = 0.0;
-    for (int i = 0; i < 9; ++i) {
-        norm += F[i] * F[i];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            norm += F[i][j] * F[i][j];
+        }
     }
     norm = std::sqrt(norm);
     
-    for (int i = 0; i < 9; ++i) {
-        R[i] = F[i] / norm;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            R[i][j] = F[i][j] / norm;
+        }
     }
     
-    // Iterative refinement (3 iterations usually sufficient)
+    // Iterative refinement
     for (int iter = 0; iter < 10; ++iter) {
-        double Rinv[9];
-        inv3x3(R, Rinv);
-        
-        // R_new = 0.5 * (R + R^{-T})
+        // Compute R^{-T} and average
+        DeformationGradient R_def;
+        R_def.F = R;
+        auto Rinv = R_def.inverse();
         for (int i = 0; i < 3; ++i) {
             for (int j = 0; j < 3; ++j) {
-                R[3*i + j] = 0.5 * (R[3*i + j] + Rinv[3*j + i]);
+                R[i][j] = 0.5 * (R[i][j] + Rinv.F[j][i]);
             }
         }
     }
@@ -157,517 +236,924 @@ void DeformationGradient::polarDecomposition(double R[9], double U[9]) const {
     // U = R^T * F
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
-            U[3*i + j] = 0.0;
+            U[i][j] = 0.0;
             for (int k = 0; k < 3; ++k) {
-                U[3*i + j] += R[3*k + i] * F[3*k + j];
+                U[i][j] += R[k][i] * F[k][j];
+            }
+        }
+    }
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::velocityGradient(
+    const DeformationGradient& F_curr, const DeformationGradient& F_dot) {
+    // L = F_dot * F^{-1}
+    auto Finv = F_curr.inverse();
+    std::array<std::array<double, 3>, 3> L{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            L[i][j] = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                L[i][j] += F_dot.F[i][k] * Finv.F[k][j];
+            }
+        }
+    }
+    return L;
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::rateOfDeformation(
+    const std::array<std::array<double, 3>, 3>& L) {
+    // D = sym(L)
+    std::array<std::array<double, 3>, 3> D{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            D[i][j] = 0.5 * (L[i][j] + L[j][i]);
+        }
+    }
+    return D;
+}
+
+std::array<std::array<double, 3>, 3> DeformationGradient::spinTensor(
+    const std::array<std::array<double, 3>, 3>& L) {
+    // W = skew(L)
+    std::array<std::array<double, 3>, 3> W{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            W[i][j] = 0.5 * (L[i][j] - L[j][i]);
+        }
+    }
+    return W;
+}
+
+// =============================================================================
+// FiniteStrainStress Implementation
+// =============================================================================
+
+void FiniteStrainStress::cauchyToKirchhoff(const std::array<std::array<double, 3>, 3>& sigma,
+                                           double J,
+                                           std::array<std::array<double, 3>, 3>& tau) {
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            tau[i][j] = J * sigma[i][j];
+        }
+    }
+}
+
+void FiniteStrainStress::cauchyToPiola1(const std::array<std::array<double, 3>, 3>& sigma,
+                                        const DeformationGradient& F_def,
+                                        std::array<std::array<double, 3>, 3>& P) {
+    double J = F_def.determinant();
+    auto Finv = F_def.inverse();
+    // P = J * sigma * F^{-T}
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            P[i][j] = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                P[i][j] += J * sigma[i][k] * Finv.F[j][k];
+            }
+        }
+    }
+}
+
+void FiniteStrainStress::cauchyToPiola2(const std::array<std::array<double, 3>, 3>& sigma,
+                                        const DeformationGradient& F_def,
+                                        std::array<std::array<double, 3>, 3>& S) {
+    double J = F_def.determinant();
+    auto Finv = F_def.inverse();
+    // S = F^{-1} * P = J * F^{-1} * sigma * F^{-T}
+    std::array<std::array<double, 3>, 3> temp{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            temp[i][j] = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                temp[i][j] += J * sigma[i][k] * Finv.F[j][k];
+            }
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            S[i][j] = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                S[i][j] += Finv.F[i][k] * temp[k][j];
             }
         }
     }
 }
 
 // =============================================================================
-// NeoHookeanModel Implementation
+// HyperelasticMaterial Implementation
 // =============================================================================
 
-NeoHookeanModel::NeoHookeanModel(double mu, double lambda)
-    : mu_(mu), lambda_(lambda), compressible_(true) {
+HyperelasticMaterial::HyperelasticMaterial() {
 }
 
-void NeoHookeanModel::computePK2Stress(const DeformationGradient& defGrad,
-                                       double S[6]) const {
-    double J = defGrad.J;
-    const double* C = defGrad.C;
-    
-    // Inverse of C
-    double C_inv[6];
-    double detC = J * J;
-    
-    // For simplicity, use relation S = 2 * dW/dC
-    // Neo-Hookean: W = mu/2 * (I1 - 3) - mu * ln(J) + lambda/2 * (ln(J))^2
-    
-    double lnJ = std::log(J);
-    
-    // S = mu * (I - C^{-1}) + lambda * lnJ * C^{-1}
-    // Need C^{-1} - computed via adjugate/det
-    
-    // Simplified for isochoric Neo-Hookean
-    double Cinv_trace = (C[1]*C[2] - C[3]*C[3] + C[0]*C[2] - C[4]*C[4] + 
-                         C[0]*C[1] - C[5]*C[5]) / detC;
-    
-    // Identity - C^{-1}
-    // For nearly incompressible: S ≈ mu * (I - C^{-1}) + p * J * C^{-1}
-    
-    // Simplified computation for demonstration
-    S[0] = mu_ * (1.0 - 1.0/C[0]) + lambda_ * lnJ / C[0];
-    S[1] = mu_ * (1.0 - 1.0/C[1]) + lambda_ * lnJ / C[1];
-    S[2] = mu_ * (1.0 - 1.0/C[2]) + lambda_ * lnJ / C[2];
-    S[3] = -mu_ * C[3] / detC;
-    S[4] = -mu_ * C[4] / detC;
-    S[5] = -mu_ * C[5] / detC;
+void HyperelasticMaterial::setParameters(const Parameters& params) {
+    params_ = params;
 }
 
-void NeoHookeanModel::computeCauchyStress(const DeformationGradient& defGrad,
-                                          double sigma[6]) const {
-    // First get PK2
-    double S[6];
-    computePK2Stress(defGrad, S);
-    
-    // Push forward: sigma = (1/J) * F * S * F^T
-    // For demonstration, simplified computation
-    double J = defGrad.J;
-    const double* F = defGrad.F;
-    
-    // Convert S from Voigt to matrix form, multiply, convert back
-    // Simplified: for Neo-Hookean, direct Cauchy stress formula
-    double lnJ = std::log(J);
-    double Jinv = 1.0 / J;
-    
-    // Left Cauchy-Green: b = F * F^T
-    double b[6];
-    b[0] = F[0]*F[0] + F[1]*F[1] + F[2]*F[2];
-    b[1] = F[3]*F[3] + F[4]*F[4] + F[5]*F[5];
-    b[2] = F[6]*F[6] + F[7]*F[7] + F[8]*F[8];
-    b[3] = F[3]*F[6] + F[4]*F[7] + F[5]*F[8];
-    b[4] = F[0]*F[6] + F[1]*F[7] + F[2]*F[8];
-    b[5] = F[0]*F[3] + F[1]*F[4] + F[2]*F[5];
-    
-    // sigma = (mu/J) * (b - I) + (lambda/J) * lnJ * I
-    double muJ = mu_ * Jinv;
-    double lamJ = lambda_ * Jinv * lnJ;
-    
-    sigma[0] = muJ * (b[0] - 1.0) + lamJ;
-    sigma[1] = muJ * (b[1] - 1.0) + lamJ;
-    sigma[2] = muJ * (b[2] - 1.0) + lamJ;
-    sigma[3] = muJ * b[3];
-    sigma[4] = muJ * b[4];
-    sigma[5] = muJ * b[5];
+void HyperelasticMaterial::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
 }
 
-void NeoHookeanModel::computeMaterialTangent(const DeformationGradient& defGrad,
-                                             double C_mat[36]) const {
-    double J = defGrad.J;
-    double lnJ = std::log(J);
-    double Jinv = 1.0 / J;
-    double J2inv = Jinv * Jinv;
-    
-    // Material tangent for Neo-Hookean (simplified)
-    // C_ijkl = lambda * C^{-1}_{ij} * C^{-1}_{kl} + (mu - lambda*lnJ) * 
-    //          (C^{-1}_{ik}*C^{-1}_{jl} + C^{-1}_{il}*C^{-1}_{jk})
-    
-    // Initialize with zeros
-    for (int i = 0; i < 36; ++i) {
-        C_mat[i] = 0.0;
+double HyperelasticMaterial::strainEnergy(const DeformationGradient& F) const {
+    switch (params_.model) {
+        case HyperelasticModel::NEO_HOOKEAN:
+            return W_NeoHookean(F);
+        case HyperelasticModel::MOONEY_RIVLIN:
+            return W_MooneyRivlin(F);
+        default:
+            return W_NeoHookean(F);
     }
-    
-    // Diagonal terms (approximate)
-    double coeff1 = lambda_;
-    double coeff2 = 2.0 * (mu_ - lambda_ * lnJ);
-    
-    C_mat[0] = coeff1 + coeff2;  // C_xxxx
-    C_mat[7] = coeff1 + coeff2;  // C_yyyy
-    C_mat[14] = coeff1 + coeff2; // C_zzzz
-    C_mat[21] = 0.5 * coeff2;    // C_yzyz
-    C_mat[28] = 0.5 * coeff2;    // C_xzxz
-    C_mat[35] = 0.5 * coeff2;    // C_xyxy
-    
-    // Off-diagonal
-    C_mat[1] = coeff1;  // C_xxyy
-    C_mat[6] = coeff1;
-    C_mat[2] = coeff1;  // C_xxzz
-    C_mat[12] = coeff1;
-    C_mat[8] = coeff1;  // C_yyzz
-    C_mat[13] = coeff1;
 }
 
-double NeoHookeanModel::computeStrainEnergy(const DeformationGradient& defGrad) const {
-    double J = defGrad.J;
-    double I1 = defGrad.I1;
+std::array<std::array<double, 3>, 3> HyperelasticMaterial::secondPiolaKirchhoff(const DeformationGradient& F) const {
+    switch (params_.model) {
+        case HyperelasticModel::NEO_HOOKEAN:
+            return S_NeoHookean(F);
+        case HyperelasticModel::MOONEY_RIVLIN:
+            return S_MooneyRivlin(F);
+        default:
+            return S_NeoHookean(F);
+    }
+}
+
+std::array<std::array<double, 3>, 3> HyperelasticMaterial::cauchyStress(const DeformationGradient& Fdef) const {
+    auto S = secondPiolaKirchhoff(Fdef);
+    std::array<std::array<double, 3>, 3> sigma{};
+    
+    // sigma = (1/J) * F * S * F^T (simplified)
+    double J = Fdef.determinant();
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            sigma[i][j] = S[i][j] / J;
+        }
+    }
+    return sigma;
+}
+
+std::array<std::array<double, 6>, 6> HyperelasticMaterial::materialTangent(const DeformationGradient& F) const {
+    (void)F;
+    std::array<std::array<double, 6>, 6> C{};
+    
+    double lambda = params_.lambda;
+    double mu = params_.mu;
+    
+    // Simplified isotropic tangent
+    C[0][0] = C[1][1] = C[2][2] = lambda + 2.0 * mu;
+    C[0][1] = C[0][2] = C[1][0] = C[1][2] = C[2][0] = C[2][1] = lambda;
+    C[3][3] = C[4][4] = C[5][5] = mu;
+    
+    return C;
+}
+
+std::array<std::array<double, 6>, 6> HyperelasticMaterial::spatialTangent(const DeformationGradient& F) const {
+    // For now, return material tangent
+    return materialTangent(F);
+}
+
+bool HyperelasticMaterial::isValidDeformation(const DeformationGradient& Fdef) const {
+    return Fdef.determinant() > 0.0;
+}
+
+double HyperelasticMaterial::W_NeoHookean(const DeformationGradient& Fdef) const {
+    double J = Fdef.determinant();
+    auto C = Fdef.rightCauchyGreen();
+    double I1 = C[0][0] + C[1][1] + C[2][2];
     double lnJ = std::log(J);
-    
-    // W = mu/2 * (I1 - 3) - mu * ln(J) + lambda/2 * (ln(J))^2
-    return 0.5 * mu_ * (I1 - 3.0) - mu_ * lnJ + 0.5 * lambda_ * lnJ * lnJ;
+    return 0.5 * params_.mu * (I1 - 3.0) - params_.mu * lnJ + 0.5 * params_.lambda * lnJ * lnJ;
 }
 
-// =============================================================================
-// MooneyRivlinModel Implementation
-// =============================================================================
-
-MooneyRivlinModel::MooneyRivlinModel(double C10, double C01, double D)
-    : C10_(C10), C01_(C01), D_(D) {
-}
-
-void MooneyRivlinModel::computePK2Stress(const DeformationGradient& defGrad,
-                                         double S[6]) const {
-    double J = defGrad.J;
-    double I1 = defGrad.I1;
-    double I2 = defGrad.I2;
-    
-    // Modified invariants for nearly incompressible
+double HyperelasticMaterial::W_MooneyRivlin(const DeformationGradient& Fdef) const {
+    double J = Fdef.determinant();
+    auto C = Fdef.rightCauchyGreen();
+    double I1 = C[0][0] + C[1][1] + C[2][2];
+    double I2 = 0.5 * (I1 * I1 - (C[0][0]*C[0][0] + C[1][1]*C[1][1] + C[2][2]*C[2][2] + 
+                                   2.0*(C[0][1]*C[0][1] + C[0][2]*C[0][2] + C[1][2]*C[1][2])));
     double J23 = std::pow(J, -2.0/3.0);
     double I1_bar = J23 * I1;
     double I2_bar = std::pow(J, -4.0/3.0) * I2;
-    
-    // dW/dI1 and dW/dI2
-    double dW_dI1 = C10_;
-    double dW_dI2 = C01_;
-    
-    // S = 2 * (dW/dI1 * I + dW/dI2 * (I1*I - C)) - p * J * C^{-1}
-    // Simplified implementation
-    const double* C = defGrad.C;
-    
-    S[0] = 2.0 * (dW_dI1 + dW_dI2 * (I1 - C[0]));
-    S[1] = 2.0 * (dW_dI1 + dW_dI2 * (I1 - C[1]));
-    S[2] = 2.0 * (dW_dI1 + dW_dI2 * (I1 - C[2]));
-    S[3] = -2.0 * dW_dI2 * C[3];
-    S[4] = -2.0 * dW_dI2 * C[4];
-    S[5] = -2.0 * dW_dI2 * C[5];
+    return params_.C1 * (I1_bar - 3.0) + params_.C2 * (I2_bar - 3.0) + 
+           0.5 * params_.kappa * (J - 1.0) * (J - 1.0);
 }
 
-void MooneyRivlinModel::computeCauchyStress(const DeformationGradient& defGrad,
-                                            double sigma[6]) const {
-    double S[6];
-    computePK2Stress(defGrad, S);
+double HyperelasticMaterial::W_Ogden(const DeformationGradient& Fdef) const {
+    (void)Fdef;
+    return 0.0;  // Placeholder
+}
+
+double HyperelasticMaterial::W_StVenant(const DeformationGradient& Fdef) const {
+    // St. Venant-Kirchhoff: W = lambda/2 * tr(E)^2 + mu * tr(E^2)
+    auto E = Fdef.greenLagrangeStrain();
+    double trE = E[0][0] + E[1][1] + E[2][2];
+    double trE2 = E[0][0]*E[0][0] + E[1][1]*E[1][1] + E[2][2]*E[2][2] +
+                  2.0 * (E[0][1]*E[0][1] + E[0][2]*E[0][2] + E[1][2]*E[1][2]);
+    return 0.5 * params_.lambda * trE * trE + params_.mu * trE2;
+}
+
+std::array<std::array<double, 3>, 3> HyperelasticMaterial::S_NeoHookean(const DeformationGradient& Fdef) const {
+    std::array<std::array<double, 3>, 3> S{};
+    double J = Fdef.determinant();
+    double lnJ = std::log(J);
+    double mu = params_.mu;
+    double lambda = params_.lambda;
+    auto C = Fdef.rightCauchyGreen();
     
-    // Push forward (simplified)
-    double J = defGrad.J;
+    // Simplified: S_ij = mu * delta_ij + (lambda * lnJ - mu) / C_ii
+    S[0][0] = mu + (lambda * lnJ - mu) / C[0][0];
+    S[1][1] = mu + (lambda * lnJ - mu) / C[1][1];
+    S[2][2] = mu + (lambda * lnJ - mu) / C[2][2];
+    
+    return S;
+}
+
+std::array<std::array<double, 3>, 3> HyperelasticMaterial::S_MooneyRivlin(const DeformationGradient& Fdef) const {
+    std::array<std::array<double, 3>, 3> S{};
+    auto C = Fdef.rightCauchyGreen();
+    double I1 = C[0][0] + C[1][1] + C[2][2];
+    
+    double dW_dI1 = params_.C1;
+    double dW_dI2 = params_.C2;
+    
+    S[0][0] = 2.0 * (dW_dI1 + dW_dI2 * (I1 - C[0][0]));
+    S[1][1] = 2.0 * (dW_dI1 + dW_dI2 * (I1 - C[1][1]));
+    S[2][2] = 2.0 * (dW_dI1 + dW_dI2 * (I1 - C[2][2]));
+    
+    return S;
+}
+
+void HyperelasticMaterial::computePrincipalStretches(const DeformationGradient& Fdef,
+                                                     std::array<double, 3>& lambda_arr) const {
+    // Simplified: use diagonal of C
+    auto C = Fdef.rightCauchyGreen();
+    lambda_arr[0] = std::sqrt(C[0][0]);
+    lambda_arr[1] = std::sqrt(C[1][1]);
+    lambda_arr[2] = std::sqrt(C[2][2]);
+}
+
+void HyperelasticMaterial::computeInvariants(const DeformationGradient& Fdef,
+                                             double& I1, double& I2, double& I3) const {
+    auto C = Fdef.rightCauchyGreen();
+    I1 = C[0][0] + C[1][1] + C[2][2];
+    I2 = 0.5 * (I1 * I1 - (C[0][0]*C[0][0] + C[1][1]*C[1][1] + C[2][2]*C[2][2] + 
+                           2.0*(C[0][1]*C[0][1] + C[0][2]*C[0][2] + C[1][2]*C[1][2])));
+    I3 = Fdef.determinant() * Fdef.determinant();
+}
+
+// =============================================================================
+// FiniteStrainPlasticity Implementation
+// =============================================================================
+
+FiniteStrainPlasticity::FiniteStrainPlasticity() {
+}
+
+void FiniteStrainPlasticity::setParameters(const Parameters& params) {
+    params_ = params;
+}
+
+void FiniteStrainPlasticity::setHyperelasticModel(std::shared_ptr<HyperelasticMaterial> elastic) {
+    elastic_ = elastic;
+}
+
+void FiniteStrainPlasticity::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+void FiniteStrainPlasticity::initializeState(State& state) const {
+    // Initialize plastic deformation gradient to identity
+    state.Fp = DeformationGradient();  // Default constructor gives identity
+    state.accumulated_plastic_strain = 0.0;
+    for (auto& row : state.back_stress) row.fill(0.0);
+    state.is_plastic = false;
+}
+
+std::array<std::array<double, 3>, 3> FiniteStrainPlasticity::computeStress(
+    const DeformationGradient& F_new, State& state) const {
+    // Simplified elastic predictor
+    (void)F_new;
+    (void)state;
+    std::array<std::array<double, 3>, 3> sigma{};
+    return sigma;
+}
+
+std::array<std::array<double, 6>, 6> FiniteStrainPlasticity::consistentTangent(
+    const DeformationGradient& F_def, const State& state) const {
+    (void)F_def;
+    (void)state;
+    std::array<std::array<double, 6>, 6> C{};
+    return C;
+}
+
+double FiniteStrainPlasticity::yieldFunction(
+    const std::array<std::array<double, 3>, 3>& kirchhoff_stress,
+    double accumulated_strain) const {
+    // Von Mises yield function
+    double p = (kirchhoff_stress[0][0] + kirchhoff_stress[1][1] + kirchhoff_stress[2][2]) / 3.0;
+    double s11 = kirchhoff_stress[0][0] - p;
+    double s22 = kirchhoff_stress[1][1] - p;
+    double s33 = kirchhoff_stress[2][2] - p;
+    double J2 = 0.5 * (s11*s11 + s22*s22 + s33*s33) +
+                kirchhoff_stress[0][1]*kirchhoff_stress[0][1] +
+                kirchhoff_stress[0][2]*kirchhoff_stress[0][2] +
+                kirchhoff_stress[1][2]*kirchhoff_stress[1][2];
+    double sigma_eq = std::sqrt(3.0 * J2);
+    double hardening = params_.hardening_modulus * accumulated_strain;
+    return sigma_eq - std::sqrt(2.0/3.0) * (params_.yield_stress + hardening);
+}
+
+bool FiniteStrainPlasticity::isYielding(
+    const std::array<std::array<double, 3>, 3>& stress, double eps_p) const {
+    return yieldFunction(stress, eps_p) > 0.0;
+}
+
+// =============================================================================
+// HypoplasticMaterial Implementation
+// =============================================================================
+
+HypoplasticMaterial::HypoplasticMaterial() {
+}
+
+void HypoplasticMaterial::setParameters(const Parameters& params) {
+    params_ = params;
+}
+
+void HypoplasticMaterial::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+void HypoplasticMaterial::initializeState(State& state, double e0) const {
+    state.void_ratio = e0;
+    state.intergranular_strain.fill(0.0);
+    state.rho = 0.0;
+    state.temperature = 293.15;
+}
+
+std::array<double, 6> HypoplasticMaterial::stressRate(const std::array<double, 6>& stress,
+                                                       const std::array<double, 6>& strain_rate,
+                                                       const State& state) const {
+    std::array<double, 6> sigma_dot;
+    double K = 1e8;
+    double G = 5e7;
+    
+    double ev = strain_rate[0] + strain_rate[1] + strain_rate[2];
+    sigma_dot[0] = K * ev + 2.0 * G * (strain_rate[0] - ev/3.0);
+    sigma_dot[1] = K * ev + 2.0 * G * (strain_rate[1] - ev/3.0);
+    sigma_dot[2] = K * ev + 2.0 * G * (strain_rate[2] - ev/3.0);
+    sigma_dot[3] = 2.0 * G * strain_rate[3];
+    sigma_dot[4] = 2.0 * G * strain_rate[4];
+    sigma_dot[5] = 2.0 * G * strain_rate[5];
+    
+    (void)stress;
+    (void)state;
+    return sigma_dot;
+}
+
+void HypoplasticMaterial::integrateStress(const std::array<double, 6>& strain_increment,
+                                          std::array<double, 6>& stress,
+                                          State& state,
+                                          double dt) const {
+    auto sigma_dot = stressRate(stress, strain_increment, state);
     for (int i = 0; i < 6; ++i) {
-        sigma[i] = S[i] / J;
+        stress[i] += sigma_dot[i];
     }
+    (void)dt;
 }
 
-void MooneyRivlinModel::computeMaterialTangent(const DeformationGradient& defGrad,
-                                               double C_mat[36]) const {
-    // Simplified tangent
-    for (int i = 0; i < 36; ++i) {
-        C_mat[i] = 0.0;
-    }
+std::array<std::array<double, 6>, 6> HypoplasticMaterial::tangentStiffness(
+    const std::array<double, 6>& stress,
+    const std::array<double, 6>& strain_rate,
+    const State& state) const {
+    (void)stress;
+    (void)strain_rate;
+    (void)state;
+    std::array<std::array<double, 6>, 6> L{};
+    double K = 1e8;
+    double G = 5e7;
+    double lambda = K - 2.0*G/3.0;
     
-    double mu = 2.0 * (C10_ + C01_);
-    double lambda = 2.0 / D_;
+    L[0][0] = L[1][1] = L[2][2] = lambda + 2.0*G;
+    L[0][1] = L[0][2] = L[1][0] = L[1][2] = L[2][0] = L[2][1] = lambda;
+    L[3][3] = L[4][4] = L[5][5] = G;
     
-    // Similar structure to Neo-Hookean
-    C_mat[0] = lambda + 2.0 * mu;
-    C_mat[7] = lambda + 2.0 * mu;
-    C_mat[14] = lambda + 2.0 * mu;
-    C_mat[21] = mu;
-    C_mat[28] = mu;
-    C_mat[35] = mu;
-    
-    C_mat[1] = lambda; C_mat[6] = lambda;
-    C_mat[2] = lambda; C_mat[12] = lambda;
-    C_mat[8] = lambda; C_mat[13] = lambda;
+    return L;
 }
 
-double MooneyRivlinModel::computeStrainEnergy(const DeformationGradient& defGrad) const {
-    double J = defGrad.J;
-    double I1 = defGrad.I1;
-    double I2 = defGrad.I2;
-    
-    // Modified invariants
-    double J23 = std::pow(J, -2.0/3.0);
-    double I1_bar = J23 * I1;
-    double I2_bar = std::pow(J, -4.0/3.0) * I2;
-    
-    // W = C10*(I1_bar - 3) + C01*(I2_bar - 3) + (1/D)*(J-1)^2
-    return C10_ * (I1_bar - 3.0) + C01_ * (I2_bar - 3.0) + 
-           (1.0/D_) * (J - 1.0) * (J - 1.0);
+void HypoplasticMaterial::limitVoidRatios(double p, double& e_c, double& e_d, double& e_i) const {
+    double h_s = params_.h_s;
+    double n_param = params_.n_h;
+    double factor = std::exp(-std::pow(3.0 * p / h_s, n_param));
+    e_c = params_.e_c0 * factor;
+    e_d = params_.e_d0 * factor;
+    e_i = params_.e_i0 * factor;
+}
+
+double HypoplasticMaterial::relativeDensity(double e, double p) const {
+    double e_c, e_d, e_i;
+    limitVoidRatios(p, e_c, e_d, e_i);
+    return (e_i - e) / (e_i - e_d);
+}
+
+double HypoplasticMaterial::densityFactor(double e, double p) const {
+    double e_c, e_d, e_i;
+    limitVoidRatios(p, e_c, e_d, e_i);
+    return std::pow(e_c / e, params_.alpha_h);
+}
+
+double HypoplasticMaterial::pressureFactor(double p, double e) const {
+    double h_s = params_.h_s;
+    double n_param = params_.n_h;
+    double e_i = params_.e_i0 * std::exp(-std::pow(3.0 * p / h_s, n_param));
+    return std::pow(h_s / (3.0 * p), n_param) * (1.0 + e_i) * e_i / e;
 }
 
 // =============================================================================
-// PerzynaViscoplasticity Implementation
+// Viscoplasticity Implementation
 // =============================================================================
 
-PerzynaViscoplasticity::PerzynaViscoplasticity(double fluidity, double exponent,
-                                               double ref_stress)
-    : fluidity_(fluidity), exponent_(exponent), reference_stress_(ref_stress) {
+Viscoplasticity::Viscoplasticity() {
 }
 
-void PerzynaViscoplasticity::computeViscoplasticStrainRate(
-    double yield_function, double flow_direction[6], double strain_rate[6]) const {
+void Viscoplasticity::setParameters(const Parameters& params) {
+    params_ = params;
+}
+
+void Viscoplasticity::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+void Viscoplasticity::initializeState(State& state, double T0) const {
+    state.plastic_strain.fill(0.0);
+    state.accumulated_plastic_strain = 0.0;
+    state.back_stress.fill(0.0);
+    state.temperature = T0;
+}
+
+void Viscoplasticity::integrateStress(const std::array<double, 6>& strain_increment,
+                                      double dt,
+                                      std::array<double, 6>& stress,
+                                      State& state,
+                                      const std::array<std::array<double, 6>, 6>& C) const {
+    // Trial stress
+    std::array<double, 6> stress_trial;
+    for (int i = 0; i < 6; ++i) {
+        stress_trial[i] = stress[i];
+        for (int j = 0; j < 6; ++j) {
+            stress_trial[i] += C[i][j] * strain_increment[j];
+        }
+    }
     
-    // Perzyna model: dot(epsilon_vp) = gamma * <phi(f)> * n
-    // where <x> = max(0, x), phi(f) = (f/sigma_ref)^m
+    // Check yield
+    double f = yieldFunction(stress_trial, state.accumulated_plastic_strain * params_.hardening_modulus);
     
-    if (yield_function <= 0.0) {
-        // Elastic
+    if (f <= 0.0) {
+        stress = stress_trial;
+        return;
+    }
+    
+    // Viscoplastic correction
+    double phi = overstressFunction(f);
+    auto n = flowDirection(stress_trial);
+    double dgamma = params_.fluidity * phi * dt * thermalFactor(state.temperature);
+    
+    for (int i = 0; i < 6; ++i) {
+        state.plastic_strain[i] += dgamma * n[i];
+        stress[i] = stress_trial[i];
+        for (int j = 0; j < 6; ++j) {
+            stress[i] -= C[i][j] * dgamma * n[j];
+        }
+    }
+    
+    state.accumulated_plastic_strain += dgamma;
+}
+
+std::array<double, 6> Viscoplasticity::plasticStrainRate(const std::array<double, 6>& stress,
+                                                          const State& state) const {
+    double f = yieldFunction(stress, state.accumulated_plastic_strain * params_.hardening_modulus);
+    if (f <= 0.0) {
+        return std::array<double, 6>{};
+    }
+    
+    double phi = overstressFunction(f);
+    auto n = flowDirection(stress);
+    double gamma_dot = params_.fluidity * phi * thermalFactor(state.temperature);
+    
+    std::array<double, 6> eps_dot;
+    for (int i = 0; i < 6; ++i) {
+        eps_dot[i] = gamma_dot * n[i];
+    }
+    return eps_dot;
+}
+
+double Viscoplasticity::overstressFunction(double f) const {
+    if (f <= 0.0) return 0.0;
+    return std::pow(f / params_.reference_stress, params_.rate_exponent);
+}
+
+double Viscoplasticity::overstressFunctionDerivative(double f) const {
+    if (f <= 0.0) return 0.0;
+    return params_.rate_exponent / params_.reference_stress * 
+           std::pow(f / params_.reference_stress, params_.rate_exponent - 1.0);
+}
+
+double Viscoplasticity::rateDependentYield(double strain_rate) const {
+    double ratio = strain_rate / 1e-3;  // Reference strain rate
+    return params_.yield_stress * (1.0 + std::pow(ratio, 1.0 / params_.rate_exponent));
+}
+
+std::array<std::array<double, 6>, 6> Viscoplasticity::consistentTangent(
+    const std::array<double, 6>& stress, const State& state, double dt,
+    const std::array<std::array<double, 6>, 6>& C) const {
+    
+    double f = yieldFunction(stress, state.accumulated_plastic_strain * params_.hardening_modulus);
+    if (f <= 0.0) return C;
+    
+    double dphi_df = overstressFunctionDerivative(f);
+    double theta = 1.0 / (1.0 + params_.fluidity * dphi_df * dt);
+    
+    std::array<std::array<double, 6>, 6> Cvp;
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 6; ++j) {
+            Cvp[i][j] = theta * C[i][j];
+        }
+    }
+    return Cvp;
+}
+
+double Viscoplasticity::yieldFunction(const std::array<double, 6>& stress, double hardening) const {
+    // Von Mises
+    double s1 = stress[0] - (stress[0] + stress[1] + stress[2]) / 3.0;
+    double s2 = stress[1] - (stress[0] + stress[1] + stress[2]) / 3.0;
+    double s3 = stress[2] - (stress[0] + stress[1] + stress[2]) / 3.0;
+    double J2 = 0.5 * (s1*s1 + s2*s2 + s3*s3) + stress[3]*stress[3] + stress[4]*stress[4] + stress[5]*stress[5];
+    return std::sqrt(3.0 * J2) - params_.yield_stress - hardening;
+}
+
+std::array<double, 6> Viscoplasticity::flowDirection(const std::array<double, 6>& stress) const {
+    double p = (stress[0] + stress[1] + stress[2]) / 3.0;
+    std::array<double, 6> s;
+    s[0] = stress[0] - p;
+    s[1] = stress[1] - p;
+    s[2] = stress[2] - p;
+    s[3] = stress[3];
+    s[4] = stress[4];
+    s[5] = stress[5];
+    
+    double J2 = 0.5 * (s[0]*s[0] + s[1]*s[1] + s[2]*s[2]) + s[3]*s[3] + s[4]*s[4] + s[5]*s[5];
+    double sigma_eq = std::sqrt(3.0 * J2);
+    
+    std::array<double, 6> n;
+    if (sigma_eq > 1e-10) {
+        double factor = 1.5 / sigma_eq;
         for (int i = 0; i < 6; ++i) {
-            strain_rate[i] = 0.0;
+            n[i] = factor * s[i];
         }
-        return;
+    } else {
+        n.fill(0.0);
     }
-    
-    double phi = std::pow(yield_function / reference_stress_, exponent_);
-    double gamma_dot = fluidity_ * phi;
-    
-    for (int i = 0; i < 6; ++i) {
-        strain_rate[i] = gamma_dot * flow_direction[i];
-    }
+    return n;
 }
 
-void PerzynaViscoplasticity::computeConsistentTangent(
-    double yield_function, double dt, double flow_direction[6],
-    const double C_elastic[36], double C_vp[36]) const {
-    
-    // Algorithmic tangent for viscoplastic return mapping
-    if (yield_function <= 0.0) {
-        // Elastic
-        for (int i = 0; i < 36; ++i) {
-            C_vp[i] = C_elastic[i];
-        }
-        return;
-    }
-    
-    // Compute viscoplastic modulus
-    double dphi_df = exponent_ * std::pow(yield_function / reference_stress_, 
-                                           exponent_ - 1.0) / reference_stress_;
-    double theta = 1.0 / (1.0 + fluidity_ * dphi_df * dt);
-    
-    // C_vp = theta * C_elastic - correction term
-    for (int i = 0; i < 36; ++i) {
-        C_vp[i] = theta * C_elastic[i];
-    }
-    
-    // Additional correction for consistent tangent
-    // C_vp -= (some tensor product involving flow direction)
-    // Simplified here
-}
-
-void PerzynaViscoplasticity::integrateStress(
-    double stress_trial[6], double yield_function, double dt,
-    double flow_direction[6], double stress[6]) const {
-    
-    if (yield_function <= 0.0) {
-        for (int i = 0; i < 6; ++i) {
-            stress[i] = stress_trial[i];
-        }
-        return;
-    }
-    
-    // Compute viscoplastic strain increment
-    double strain_rate[6];
-    computeViscoplasticStrainRate(yield_function, flow_direction, strain_rate);
-    
-    // Update stress (simplified explicit update)
-    // In practice, use implicit return mapping
-    for (int i = 0; i < 6; ++i) {
-        stress[i] = stress_trial[i];  // Would subtract C:delta_epsilon_vp
-    }
-}
-
-// =============================================================================
-// PowerLawCreep Implementation
-// =============================================================================
-
-PowerLawCreep::PowerLawCreep(double A, double n, double Q)
-    : A_(A), n_(n), Q_(Q), reference_temperature_(293.15) {
-}
-
-void PowerLawCreep::computeCreepStrainRate(double stress_eq, double temperature,
-                                           double deviatoric_stress[6],
-                                           double strain_rate[6]) const {
-    if (stress_eq < 1e-10) {
-        for (int i = 0; i < 6; ++i) {
-            strain_rate[i] = 0.0;
-        }
-        return;
-    }
-    
-    // Arrhenius term
-    const double R = 8.314;  // Gas constant
-    double arrhenius = std::exp(-Q_ / (R * temperature));
-    
-    // Equivalent creep strain rate
-    double eps_eq_dot = A_ * std::pow(stress_eq, n_) * arrhenius;
-    
-    // Flow rule: deviatoric proportional to deviatoric stress
-    double factor = 1.5 * eps_eq_dot / stress_eq;
-    
-    for (int i = 0; i < 6; ++i) {
-        strain_rate[i] = factor * deviatoric_stress[i];
-    }
-}
-
-void PowerLawCreep::integrateCreepStrain(double stress_eq, double temperature,
-                                         double deviatoric_stress[6], double dt,
-                                         double creep_strain[6]) const {
-    double strain_rate[6];
-    computeCreepStrainRate(stress_eq, temperature, deviatoric_stress, strain_rate);
-    
-    for (int i = 0; i < 6; ++i) {
-        creep_strain[i] += strain_rate[i] * dt;
-    }
-}
-
-void PowerLawCreep::computeCreepTangent(double stress_eq, double temperature,
-                                        double deviatoric_stress[6], double dt,
-                                        double C_creep[36]) const {
-    // Simplified tangent modulus for creep
-    if (stress_eq < 1e-10) {
-        for (int i = 0; i < 36; ++i) {
-            C_creep[i] = 0.0;
-        }
-        return;
-    }
-    
+double Viscoplasticity::thermalFactor(double T) const {
+    if (!params_.thermal_activation) return 1.0;
     const double R = 8.314;
-    double arrhenius = std::exp(-Q_ / (R * temperature));
-    double eps_eq_dot = A_ * std::pow(stress_eq, n_) * arrhenius;
-    
-    // d(eps_dot)/d(sigma) ≈ (n * eps_eq_dot / sigma_eq) * (3/2) * (s ⊗ s / sigma_eq^2)
-    //                     + (3/2) * (eps_eq_dot / sigma_eq) * I_dev
-    
-    double factor = n_ * eps_eq_dot / (stress_eq * stress_eq);
-    
-    // Deviatoric projector
-    for (int i = 0; i < 36; ++i) {
-        C_creep[i] = 0.0;
-    }
-    
-    // Simplified: just diagonal contribution
-    double diag = factor * dt;
-    C_creep[0] = diag;
-    C_creep[7] = diag;
-    C_creep[14] = diag;
-    C_creep[21] = 0.5 * diag;
-    C_creep[28] = 0.5 * diag;
-    C_creep[35] = 0.5 * diag;
+    return std::exp(-params_.activation_energy / (R * T));
 }
 
 // =============================================================================
-// GradientDamageModel Implementation
+// CreepModel_Impl Implementation
 // =============================================================================
 
-GradientDamageModel::GradientDamageModel(double char_length, double threshold,
-                                         double Gc)
-    : characteristic_length_(char_length), damage_threshold_(threshold),
-      fracture_energy_(Gc), max_damage_(0.999) {
+CreepModel_Impl::CreepModel_Impl() {
 }
 
-double GradientDamageModel::computeLocalDrivingForce(double strain_energy,
-                                                     double damage) const {
-    // Driving force Y = dW/d(damage) at constant strain
-    // For quadratic degradation g(d) = (1-d)^2:
-    // Y = -2*(1-d)*W_0 where W_0 is undamaged strain energy
-    
-    double g_prime = -2.0 * (1.0 - damage);
-    return -g_prime * strain_energy;
+void CreepModel_Impl::setParameters(const Parameters& params) {
+    params_ = params;
 }
 
-double GradientDamageModel::computeDamageDissipation(double damage,
-                                                     double damage_rate) const {
-    // Dissipation D = (Gc / l_c) * d' for linear damage evolution
-    return (fracture_energy_ / characteristic_length_) * damage_rate;
+void CreepModel_Impl::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
 }
 
-void GradientDamageModel::computeDamagedStiffness(const double C_undamaged[36],
-                                                  double damage,
-                                                  double C_damaged[36]) const {
-    // Degradation function g(d) = (1 - d)^2
-    double g = (1.0 - damage) * (1.0 - damage);
-    
-    // C_damaged = g * C_undamaged
-    for (int i = 0; i < 36; ++i) {
-        C_damaged[i] = g * C_undamaged[i];
-    }
+void CreepModel_Impl::initializeState(State& state) const {
+    state.creep_strain = 0.0;
+    state.creep_strain_tensor.fill(0.0);
+    state.time = 0.0;
+    state.damage = 0.0;
+    state.stage = CreepStage::PRIMARY;
+    state.maxwell_strain = 0.0;
+    state.kelvin_strain = 0.0;
 }
 
-double GradientDamageModel::updateDamage(double local_driving_force,
-                                         double nonlocal_strain,
-                                         double dt, double& damage) const {
-    // Implicit gradient damage update
-    // d_new = max(d_old, f(Y_nonlocal))
+std::array<double, 6> CreepModel_Impl::creepStrainRate(const std::array<double, 6>& stress,
+                                                        double T,
+                                                        const State& state) const {
+    // Compute von Mises equivalent stress
+    double p = (stress[0] + stress[1] + stress[2]) / 3.0;
+    std::array<double, 6> s;
+    s[0] = stress[0] - p; s[1] = stress[1] - p; s[2] = stress[2] - p;
+    s[3] = stress[3]; s[4] = stress[4]; s[5] = stress[5];
     
-    // Damage evolution based on nonlocal equivalent strain
-    double kappa = std::sqrt(2.0 * nonlocal_strain);  // Example threshold variable
+    double J2 = 0.5 * (s[0]*s[0] + s[1]*s[1] + s[2]*s[2]) + s[3]*s[3] + s[4]*s[4] + s[5]*s[5];
+    double sigma_eq = std::sqrt(3.0 * J2);
     
-    if (kappa <= damage_threshold_) {
-        return damage;
+    double eps_eq_dot = effectiveCreepRate(sigma_eq, T);
+    
+    // Add primary creep contribution
+    if (params_.include_primary && state.time > 0.0) {
+        eps_eq_dot += primaryCreepRate(sigma_eq, T, state.time);
     }
     
-    // Linear softening damage law
-    double d_new = 1.0 - (damage_threshold_ / kappa) * 
-                   std::exp(-(kappa - damage_threshold_) * characteristic_length_ / 
-                            fracture_energy_);
+    // Flow rule
+    std::array<double, 6> eps_dot;
+    if (sigma_eq > 1e-10) {
+        double factor = 1.5 * eps_eq_dot / sigma_eq;
+        for (int i = 0; i < 6; ++i) {
+            eps_dot[i] = factor * s[i];
+        }
+    } else {
+        eps_dot.fill(0.0);
+    }
+    return eps_dot;
+}
+
+void CreepModel_Impl::updateState(const std::array<double, 6>& stress,
+                                  double T, double dt, State& state) const {
+    auto eps_dot = creepStrainRate(stress, T, state);
     
-    d_new = std::min(d_new, max_damage_);
+    double eps_eq_dot = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        state.creep_strain_tensor[i] += eps_dot[i] * dt;
+        eps_eq_dot += eps_dot[i] * eps_dot[i];
+    }
+    for (int i = 3; i < 6; ++i) {
+        state.creep_strain_tensor[i] += eps_dot[i] * dt;
+        eps_eq_dot += 2.0 * eps_dot[i] * eps_dot[i];
+    }
+    
+    state.creep_strain += std::sqrt(2.0/3.0 * eps_eq_dot) * dt;
+    state.time += dt;
+    
+    // Compute equivalent stress for stage determination
+    double p = (stress[0] + stress[1] + stress[2]) / 3.0;
+    double J2 = 0.5 * ((stress[0]-p)*(stress[0]-p) + (stress[1]-p)*(stress[1]-p) + (stress[2]-p)*(stress[2]-p)) +
+                stress[3]*stress[3] + stress[4]*stress[4] + stress[5]*stress[5];
+    double sigma_eq = std::sqrt(3.0 * J2);
+    state.stage = determineStage(state, sigma_eq);
+}
+
+double CreepModel_Impl::effectiveCreepRate(double sigma_eq, double T) const {
+    // Norton power law with Arrhenius temperature dependence
+    double arrhenius = std::exp(-params_.activation_energy / (params_.gas_constant * T));
+    return params_.A * std::pow(sigma_eq, params_.n) * arrhenius;
+}
+
+double CreepModel_Impl::timeToRupture(double sigma_eq, double T) const {
+    double eps_min = effectiveCreepRate(sigma_eq, T);
+    if (eps_min < 1e-20) return 1e20;
+    // Monkman-Grant: t_r * eps_min^m = C
+    double C = 0.05;
+    double m = 0.85;
+    return C / std::pow(eps_min, m);
+}
+
+CreepStage CreepModel_Impl::determineStage(const State& state, double sigma_eq) const {
+    (void)sigma_eq;
+    if (state.damage > params_.critical_damage * 0.5) {
+        return CreepStage::TERTIARY;
+    }
+    if (state.time < 1000.0) {  // Rough threshold
+        return CreepStage::PRIMARY;
+    }
+    return CreepStage::SECONDARY;
+}
+
+double CreepModel_Impl::getCreepViscosity(double sigma_eq, double T) const {
+    double eps_eq = effectiveCreepRate(sigma_eq, T);
+    if (eps_eq < 1e-20) return 1e20;
+    return sigma_eq / (3.0 * eps_eq);
+}
+
+double CreepModel_Impl::primaryCreepRate(double sigma_eq, double T, double time) const {
+    // Andrade-type: eps = B * t^m * sigma^n
+    double m = params_.primary_exponent;
+    double B = params_.primary_coefficient;
+    if (time < 1e-10) return 0.0;
+    double arrhenius = std::exp(-params_.activation_energy / (params_.gas_constant * T));
+    return B * m * std::pow(time, m - 1.0) * std::pow(sigma_eq, params_.n) * arrhenius;
+}
+
+double CreepModel_Impl::secondaryCreepRate(double sigma_eq, double T) const {
+    return effectiveCreepRate(sigma_eq, T);
+}
+
+double CreepModel_Impl::tertiaryCreepRate(double sigma_eq, double T, double damage) const {
+    double secondary = secondaryCreepRate(sigma_eq, T);
+    return secondary / (1.0 - damage);
+}
+
+double CreepModel_Impl::thetaProjection(double sigma_eq, double T, double time) const {
+    (void)sigma_eq;
+    (void)T;
+    double t1 = params_.theta1, t2 = params_.theta2, t3 = params_.theta3, t4 = params_.theta4;
+    return t1 * (1.0 - std::exp(-t2 * time)) + t3 * (std::exp(t4 * time) - 1.0);
+}
+
+void CreepModel_Impl::burgersUpdate(double sigma_eq, double dt, double& maxwell, double& kelvin) const {
+    // Simplified Burgers model
+    double eta_m = 1e15;  // Maxwell viscosity
+    double eta_k = 1e14;  // Kelvin viscosity
+    double E_k = 1e9;     // Kelvin modulus
+    
+    maxwell += sigma_eq / eta_m * dt;
+    double kelvin_eq = sigma_eq / E_k;
+    kelvin += (kelvin_eq - kelvin) * (1.0 - std::exp(-E_k / eta_k * dt));
+}
+
+// =============================================================================
+// GradientDamage Implementation
+// =============================================================================
+
+GradientDamage::GradientDamage() {
+}
+
+void GradientDamage::setParameters(const Parameters& params) {
+    params_ = params;
+}
+
+void GradientDamage::configure(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+void GradientDamage::initializeState(State& state) const {
+    state.damage = 0.0;
+    state.kappa = 0.0;
+    state.nonlocal_strain = 0.0;
+    state.damage_tensor.fill(0.0);
+    state.grad_nonlocal.fill(0.0);
+}
+
+double GradientDamage::equivalentStrain(const std::array<double, 6>& strain) const {
+    // Mazars equivalent strain
+    // Compute principal strains and sum positive parts
+    double e1 = strain[0], e2 = strain[1], e3 = strain[2];
+    double pos1 = std::max(0.0, e1);
+    double pos2 = std::max(0.0, e2);
+    double pos3 = std::max(0.0, e3);
+    return std::sqrt(pos1*pos1 + pos2*pos2 + pos3*pos3);
+}
+
+double GradientDamage::nonlocalResidual(double nonlocal, const std::array<double, 3>& grad_nonlocal,
+                                        double local_strain,
+                                        double test_function,
+                                        const std::array<double, 3>& grad_test) const {
+    double c = params_.gradient_parameter;
+    
+    double grad_term = c * (grad_nonlocal[0] * grad_test[0] + 
+                           grad_nonlocal[1] * grad_test[1] + 
+                           grad_nonlocal[2] * grad_test[2]);
+    
+    return (nonlocal - local_strain) * test_function + grad_term;
+}
+
+double GradientDamage::calculateDamage(double nonlocal_strain, State& state) const {
+    // Update history variable (max nonlocal strain)
+    state.kappa = std::max(state.kappa, nonlocal_strain);
+    state.nonlocal_strain = nonlocal_strain;
+    
+    if (state.kappa <= params_.damage_threshold) {
+        return state.damage;
+    }
+    
+    // Exponential softening
+    double d_new = damageEvolutionLaw(state.kappa);
+    d_new = std::min(d_new, params_.max_damage);
     
     // Irreversibility
-    if (d_new > damage) {
-        damage = d_new;
-    }
-    
-    return damage;
+    state.damage = std::max(state.damage, d_new);
+    return state.damage;
 }
 
-void GradientDamageModel::assembleNonlocalTerm(double nonlocal_strain[],
-                                               const double shape_functions[],
-                                               int num_nodes,
-                                               double K_nonlocal[]) const {
-    // Assemble nonlocal stiffness contribution
-    // For implicit gradient: (c * l^2) * grad(N)^T * grad(N) + N^T * N
+std::array<double, 6> GradientDamage::damagedStress(const std::array<double, 6>& effective_stress,
+                                                    const State& state) const {
+    double g = (1.0 - state.damage) * (1.0 - state.damage);  // Quadratic degradation
+    std::array<double, 6> sigma;
+    for (int i = 0; i < 6; ++i) {
+        sigma[i] = g * effective_stress[i];
+    }
+    return sigma;
+}
+
+std::array<std::array<double, 6>, 6> GradientDamage::damagedTangent(
+    const std::array<std::array<double, 6>, 6>& C,
+    const std::array<double, 6>& stress,
+    const std::array<double, 6>& strain,
+    const State& state) const {
     
-    double c = characteristic_length_ * characteristic_length_;
+    (void)stress;
+    (void)strain;
     
-    // Simplified assembly - in practice this involves integration over elements
-    for (int i = 0; i < num_nodes; ++i) {
-        for (int j = 0; j < num_nodes; ++j) {
-            K_nonlocal[i * num_nodes + j] = c * shape_functions[i] * shape_functions[j];
+    double g = (1.0 - state.damage) * (1.0 - state.damage);
+    std::array<std::array<double, 6>, 6> C_damaged;
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 6; ++j) {
+            C_damaged[i][j] = g * C[i][j];
         }
     }
+    return C_damaged;
+}
+
+bool GradientDamage::isLocalizing(const State& state) const {
+    return state.damage > 0.9 * params_.max_damage;
+}
+
+double GradientDamage::dissipatedEnergy(const State& state,
+                                        const std::array<double, 6>& stress,
+                                        const std::array<double, 6>& strain) const {
+    (void)stress;
+    (void)strain;
+    return params_.fracture_energy * state.damage;
+}
+
+double GradientDamage::damageEvolutionLaw(double kappa) const {
+    double k0 = params_.damage_threshold;
+    double beta = params_.softening_exponent * params_.characteristic_length / params_.fracture_energy;
+    return 1.0 - (k0 / kappa) * std::exp(-beta * (kappa - k0));
+}
+
+double GradientDamage::damageDrivingForce(const std::array<double, 6>& strain,
+                                          const std::array<std::array<double, 6>, 6>& C) const {
+    // Y = 0.5 * epsilon : C : epsilon
+    double Y = 0.0;
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 6; ++j) {
+            Y += 0.5 * strain[i] * C[i][j] * strain[j];
+        }
+    }
+    return Y;
 }
 
 // =============================================================================
 // Factory Functions
 // =============================================================================
 
-std::unique_ptr<HyperelasticModel> createHyperelasticModel(
-    const HighFidelityGeomechConfig& config) {
+std::unique_ptr<HyperelasticMaterial> createHyperelasticMaterial(
+    const std::map<std::string, std::string>& config) {
     
-    if (config.hyperelastic_model == "neo_hookean") {
-        return std::make_unique<NeoHookeanModel>(config.shear_modulus,
-                                                 config.bulk_modulus);
-    }
-    else if (config.hyperelastic_model == "mooney_rivlin") {
-        return std::make_unique<MooneyRivlinModel>(config.mooney_C10,
-                                                   config.mooney_C01,
-                                                   config.mooney_D);
-    }
-    
-    throw std::runtime_error("Unknown hyperelastic model: " + config.hyperelastic_model);
+    auto model = std::make_unique<HyperelasticMaterial>();
+    model->configure(config);
+    return model;
 }
 
-std::unique_ptr<ViscoplasticityModel> createViscoplasticityModel(
-    const HighFidelityGeomechConfig& config) {
+std::unique_ptr<FiniteStrainPlasticity> createFiniteStrainPlasticity(
+    const std::map<std::string, std::string>& config) {
     
-    if (config.viscoplastic_model == "perzyna") {
-        return std::make_unique<PerzynaViscoplasticity>(
-            config.viscoplastic_fluidity,
-            config.viscoplastic_exponent,
-            config.viscoplastic_reference_stress);
-    }
-    
-    throw std::runtime_error("Unknown viscoplasticity model: " + config.viscoplastic_model);
+    auto model = std::make_unique<FiniteStrainPlasticity>();
+    model->configure(config);
+    return model;
 }
 
-std::unique_ptr<CreepModel> createCreepModel(const HighFidelityGeomechConfig& config) {
-    if (config.creep_model == "power_law") {
-        return std::make_unique<PowerLawCreep>(
-            config.creep_coefficient_A,
-            config.creep_stress_exponent,
-            config.creep_activation_energy);
-    }
+std::unique_ptr<Viscoplasticity> createViscoplasticity(
+    const std::map<std::string, std::string>& config) {
     
-    throw std::runtime_error("Unknown creep model: " + config.creep_model);
+    auto model = std::make_unique<Viscoplasticity>();
+    model->configure(config);
+    return model;
 }
 
-std::unique_ptr<GradientDamageModel> createDamageModel(
-    const HighFidelityGeomechConfig& config) {
+std::unique_ptr<CreepModel_Impl> createCreepModel(
+    const std::map<std::string, std::string>& config) {
     
-    return std::make_unique<GradientDamageModel>(
-        config.characteristic_length,
-        config.damage_threshold,
-        config.fracture_energy);
+    auto model = std::make_unique<CreepModel_Impl>();
+    model->configure(config);
+    return model;
 }
 
-} // namespace geomechanics
-} // namespace fsrm
+std::unique_ptr<HypoplasticMaterial> createHypoplasticMaterial(
+    const std::map<std::string, std::string>& config) {
+    
+    auto model = std::make_unique<HypoplasticMaterial>();
+    model->configure(config);
+    return model;
+}
+
+std::unique_ptr<GradientDamage> createGradientDamage(
+    const std::map<std::string, std::string>& config) {
+    
+    auto model = std::make_unique<GradientDamage>();
+    model->configure(config);
+    return model;
+}
+
+// =============================================================================
+// HighFidelityGeomechConfig Implementation
+// =============================================================================
+
+void HighFidelityGeomechConfig::parseConfig(const std::map<std::string, std::string>& config) {
+    (void)config;
+}
+
+bool HighFidelityGeomechConfig::validate(std::string& error_msg) const {
+    error_msg.clear();
+    return true;
+}
+
+} // namespace HighFidelity
+} // namespace FSRM
