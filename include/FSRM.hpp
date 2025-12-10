@@ -283,6 +283,116 @@ struct SimulationConfig {
     // =========================================================================
     FluidModelType fluid_model = FluidModelType::SINGLE_COMPONENT;
     SolidModelType solid_model = SolidModelType::ELASTIC;
+    
+    // =========================================================================
+    // HIGH-FIDELITY OPTIONS (Optional Advanced Features)
+    // =========================================================================
+    // These are optional extensions that provide higher physical fidelity
+    // at the cost of additional computational expense. Enable only when
+    // the additional accuracy is required.
+    
+    // --- High-Fidelity Fluid Flow ---
+    bool enable_high_fidelity_flow = false;      ///< Master switch for advanced flow
+    bool enable_non_darcy_flow = false;          ///< Forchheimer non-Darcy correction
+    bool enable_klinkenberg = false;             ///< Gas slippage in tight formations
+    bool enable_dual_porosity = false;           ///< Matrix-fracture continuum
+    bool enable_dual_permeability = false;       ///< Matrix flow in dual-porosity
+    bool enable_triple_porosity = false;         ///< Matrix-fracture-vug system
+    bool enable_non_isothermal_flow = false;     ///< Temperature-dependent flow
+    bool enable_dynamic_relperm = false;         ///< Rate-dependent rel perm (CDC)
+    bool enable_miscible_flow = false;           ///< Miscible/near-miscible EOR
+    
+    // Non-Darcy parameters
+    double forchheimer_beta = 1e5;               ///< Non-Darcy coefficient [1/m]
+    std::string beta_correlation = "geertsma";   ///< constant, cooke, geertsma, etc.
+    
+    // Dual-porosity parameters
+    double matrix_porosity = 0.2;                ///< Matrix continuum porosity
+    double matrix_permeability = 1e-18;          ///< Matrix permeability [m²]
+    double matrix_block_size = 1.0;              ///< Matrix block dimension [m]
+    double fracture_porosity = 0.01;             ///< Fracture continuum porosity
+    double fracture_permeability = 1e-12;        ///< Fracture permeability [m²]
+    std::string shape_factor_model = "kazemi";   ///< kazemi, coats, gilman, lemonnier
+    
+    // Miscible flow parameters
+    double minimum_miscibility_pressure = 15e6;  ///< MMP [Pa]
+    double todd_longstaff_omega = 0.67;          ///< Mixing parameter
+    double longitudinal_dispersivity = 0.1;      ///< α_L [m]
+    double transverse_dispersivity = 0.01;       ///< α_T [m]
+    
+    // --- High-Fidelity Geomechanics ---
+    bool enable_high_fidelity_geomech = false;   ///< Master switch for advanced geomech
+    bool enable_finite_strain = false;           ///< Large deformation analysis
+    bool enable_viscoplasticity = false;         ///< Rate-dependent plasticity
+    bool enable_creep = false;                   ///< Time-dependent deformation
+    bool enable_hypoplasticity = false;          ///< Granular material model
+    bool enable_gradient_damage = false;         ///< Non-local damage regularization
+    
+    // Finite strain model
+    std::string hyperelastic_model = "neo_hookean"; ///< neo_hookean, mooney_rivlin, ogden
+    std::string plasticity_formulation = "multiplicative"; ///< multiplicative, hypoelastic
+    
+    // Viscoplasticity parameters
+    std::string viscoplastic_model = "perzyna";  ///< perzyna, duvaut_lions
+    double viscoplastic_fluidity = 1e-6;         ///< Fluidity parameter [1/(Pa·s)]
+    double viscoplastic_exponent = 3.0;          ///< Rate exponent
+    
+    // Creep parameters
+    std::string creep_model = "power_law";       ///< power_law, norton, lemaitre
+    double creep_coefficient_A = 1e-30;          ///< Creep coefficient
+    double creep_stress_exponent = 4.0;          ///< Stress exponent n
+    double creep_activation_energy = 54e3;       ///< Q [J/mol]
+    
+    // --- Advanced Coupled Physics ---
+    bool enable_advanced_coupling = false;       ///< Master switch for advanced coupling
+    bool enable_full_biot_dynamics = false;      ///< Full Biot with slow P-wave
+    bool enable_thm_coupling = false;            ///< Thermo-Hydro-Mechanical
+    bool enable_thmc_coupling = false;           ///< Add Chemical to THM
+    bool enable_unsaturated_flow = false;        ///< Partially saturated mechanics
+    bool enable_multiscale_coupling = false;     ///< FE² / homogenization
+    
+    // Full Biot parameters
+    std::string biot_formulation = "u_p";        ///< u_p, u_w, u_p_w
+    bool biot_high_frequency = true;             ///< Include inertial coupling
+    double biot_tortuosity = 2.0;                ///< Porous media tortuosity
+    
+    // THM coupling
+    std::string thm_coupling_type = "iterative"; ///< sequential, iterative, monolithic
+    double thermal_expansion_solid = 1e-5;       ///< α_T [1/K]
+    double thermal_expansion_fluid = 2.1e-4;     ///< β_T [1/K]
+    double thermal_pressurization_coeff = 0.1e6; ///< Λ [Pa/K]
+    
+    // Unsaturated flow
+    std::string swrc_model = "van_genuchten";    ///< van_genuchten, brooks_corey
+    double vg_alpha = 0.01;                      ///< Van Genuchten α [1/Pa]
+    double vg_n = 1.5;                           ///< Van Genuchten n
+    double residual_saturation = 0.1;            ///< S_r
+    
+    // --- High-Fidelity Numerics ---
+    bool enable_high_fidelity_numerics = false;  ///< Master switch for advanced numerics
+    bool enable_dg_stabilization = false;        ///< Discontinuous Galerkin
+    bool enable_supg_stabilization = false;      ///< SUPG/GLS for advection
+    bool enable_advanced_time_integration = false; ///< Higher-order time schemes
+    bool enable_amr = false;                     ///< Adaptive mesh refinement
+    bool enable_p_adaptivity = false;            ///< Polynomial adaptivity
+    bool enable_physics_preconditioner = false;  ///< Physics-based preconditioning
+    
+    // DG parameters
+    std::string dg_flux_type = "upwind";         ///< upwind, lax_friedrichs, roe
+    std::string dg_penalty_type = "sipg";        ///< sipg, nipg, bassi_rebay
+    double dg_penalty_coefficient = 10.0;        ///< Penalty σ
+    
+    // Time integration
+    std::string time_scheme = "backward_euler";  ///< backward_euler, newmark, generalized_alpha
+    double newmark_beta = 0.25;                  ///< Newmark β
+    double newmark_gamma = 0.5;                  ///< Newmark γ
+    double generalized_alpha_rho = 0.5;          ///< ρ_∞ for gen-α
+    
+    // AMR parameters
+    std::string refinement_indicator = "gradient"; ///< gradient, residual, recovery
+    double refine_fraction = 0.3;                ///< Top fraction to refine
+    double coarsen_fraction = 0.1;               ///< Bottom fraction to coarsen
+    int max_refinement_level = 5;                ///< Maximum refinement depth
 };
 
 /**
