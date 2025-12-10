@@ -460,7 +460,7 @@ private:
 // =============================================================================
 
 /**
- * @brief Non-isothermal multiphase flow model
+ * @brief Non-isothermal multiphase flow model for reservoir simulations
  * 
  * Extends standard multiphase flow with thermal effects:
  * - Temperature-dependent fluid properties
@@ -469,6 +469,22 @@ private:
  * - Thermal expansion effects
  * 
  * Couples with TwoPhaseFlow and FluidModel for property calculations.
+ * 
+ * @note Relationship to other thermal modules:
+ * 
+ * - **ThermalPressurization.hpp**: Fault-focused thermal physics for earthquake
+ *   mechanics. Models frictional heating and 1D diffusion across narrow fault
+ *   shear zones. Use for dynamic rupture simulations.
+ * 
+ * - **PhysicsKernel.hpp (ThermalKernel)**: Basic FE thermal kernel for heat
+ *   conduction/convection. This class extends those capabilities with
+ *   multiphase-specific effects.
+ * 
+ * - **AdvancedCoupledPhysics.hpp (THMCoupling)**: Coupling framework that can
+ *   use this class's thermal calculations for reservoir THM simulations.
+ * 
+ * This class is specifically designed for reservoir/subsurface flow with
+ * multiple fluid phases. For geothermal or EOR applications.
  */
 class NonIsothermalMultiphaseFlow {
 public:

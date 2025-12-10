@@ -33,6 +33,7 @@
 #include "FluidModel.hpp"
 #include "MaterialModel.hpp"
 #include "PhysicsKernel.hpp"
+#include "ThermalPressurization.hpp"  // For fault-focused thermal pressurization
 #include "HighFidelityFluidFlow.hpp"
 #include "HighFidelityGeomechanics.hpp"
 #include <vector>
@@ -286,7 +287,20 @@ enum class THMCouplingType {
 };
 
 /**
- * @brief Thermal coupling effects
+ * @brief Thermal coupling effects for THM simulations
+ * 
+ * @note For fault-specific thermal pressurization (frictional heating during
+ *       dynamic rupture), use ThermalPressurization class from 
+ *       ThermalPressurization.hpp instead. This struct is for general THM
+ *       coupling in reservoir/geomechanics simulations.
+ * 
+ * Relationship to existing thermal modules:
+ * - ThermalPressurization.hpp: Fault-focused, models 1D diffusion across shear
+ *   zone with rate-state friction coupling. Use for earthquake simulations.
+ * - PhysicsKernel.hpp (ThermalKernel): Basic heat conduction/convection FE kernel.
+ *   THMCoupling uses this as its thermal solver.
+ * - HighFidelityFluidFlow.hpp (NonIsothermalMultiphaseFlow): Multiphase reservoir
+ *   thermal effects. Can be used with THMCoupling for reservoir simulations.
  */
 struct ThermalCouplingEffects {
     // T → M (Thermal to Mechanical)
@@ -297,11 +311,18 @@ struct ThermalCouplingEffects {
     double thermal_expansion_fluid = 2.1e-4;  ///< β_T [1/K]
     double viscosity_temperature_coeff = 0.02; ///< dln(μ)/dT
     
-    // T → (H,M) (Thermal pressurization)
+    // T → (H,M) (Thermal pressurization coefficient)
+    // Note: For fault-zone thermal pressurization, use ThermalPressurization class
+    // which provides full diffusion equations. This Lambda is for bulk THM coupling.
     double Lambda = 0.1e6;                    ///< ∂p/∂T at const vol [Pa/K]
     
-    // Frictional heating
+    // Frictional heating (for bulk plastic dissipation)
+    // Note: For fault frictional heating, use ThermalPressurization class
     double heat_partition = 0.5;              ///< Fraction to solid
+    
+    // Optional: Use ThermalPressurization for detailed fault physics
+    bool use_fault_thermal_pressurization = false;
+    std::shared_ptr<ThermalPressurization> fault_tp_model = nullptr;
 };
 
 /**
@@ -483,6 +504,30 @@ public:
                        std::array<std::array<double, 3>, 3>& J_MH,
                        std::array<std::array<double, 6>, 6>& J_MM) const;
     
+    /**
+     * @brief Enable fault thermal pressurization
+     * 
+     * For fault zones, use the ThermalPressurization model from
+     * ThermalPressurization.hpp which solves 1D diffusion equations
+     * across the shear zone. This provides more accurate physics than
+     * the bulk Lambda coefficient for localized shearing.
+     * 
+     * @param tp ThermalPressurization instance (will be stored in params)
+     */
+    void enableFaultThermalPressurization(std::shared_ptr<ThermalPressurization> tp);
+    
+    /**
+     * @brief Get fault thermal pressurization contribution
+     * 
+     * If fault TP is enabled, returns additional pore pressure change
+     * from the detailed 1D diffusion model.
+     * 
+     * @param state Current TP state at fault
+     * @param dt Time step
+     * @return Additional delta_p from fault TP
+     */
+    double getFaultTPContribution(ThermalPressurization::State& state, double dt) const;
+    
 private:
     Parameters params_;
     
@@ -497,6 +542,12 @@ private:
     bool H_to_M_coupled_ = true;
     bool M_to_T_coupled_ = false;
     bool M_to_H_coupled_ = true;
+    
+    // Fault thermal pressurization integration
+    // Uses ThermalPressurization from ThermalPressurization.hpp for detailed
+    // fault-zone physics (1D diffusion equations across shear zone)
+    bool use_fault_tp_ = false;
+    std::shared_ptr<ThermalPressurization> fault_tp_model_ = nullptr;
 };
 
 

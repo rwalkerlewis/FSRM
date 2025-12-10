@@ -316,6 +316,33 @@ void THMCoupling::iterativeCoupling(FieldState& state, const double dt,
     }
 }
 
+void THMCoupling::enableFaultThermalPressurization(
+    std::shared_ptr<FSRM::ThermalPressurization> tp) {
+    // Store the fault TP model in the thermal effects configuration
+    // This allows using the detailed 1D diffusion model for fault zones
+    // instead of the simpler bulk Lambda coefficient
+    fault_tp_model_ = tp;
+    use_fault_tp_ = (tp != nullptr);
+}
+
+double THMCoupling::getFaultTPContribution(
+    FSRM::ThermalPressurization::State& state, double dt) const {
+    
+    if (!use_fault_tp_ || !fault_tp_model_) {
+        return 0.0;
+    }
+    
+    // Store initial pore pressure
+    double p_initial = state.pore_pressure;
+    
+    // Update the ThermalPressurization state using the detailed model
+    // This solves the 1D diffusion equations across the fault zone
+    fault_tp_model_->update(state, dt);
+    
+    // Return the pore pressure change from the detailed fault TP model
+    return state.pore_pressure - p_initial;
+}
+
 // =============================================================================
 // THMCCoupling Implementation
 // =============================================================================
