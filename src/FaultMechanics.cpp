@@ -383,6 +383,7 @@ public:
      */
     double getFrictionVelocityDerivative(double slip_rate, double state_var,
                                          double sigma_n_eff) const {
+        (void)sigma_n_eff;  // Reserved for pressure-dependent flash heating
         double V = std::max(slip_rate, 1e-20);
         double theta = std::max(state_var, 1e-10);
         
@@ -492,6 +493,7 @@ public:
     }
     
     double getStateEvolutionRate(double slip_rate, double state_var) const override {
+        (void)state_var;  // Slip-based evolution doesn't depend on current state
         // State = cumulative slip
         return std::abs(slip_rate);
     }
@@ -1307,6 +1309,8 @@ double rateChange(double stress_change, double stressing_rate,
 double coulombStressChange(double sxx, double syy, double sxy,
                            double receiver_strike, double receiver_dip,
                            double receiver_rake, double mu) {
+    (void)receiver_dip;  // Reserved for 3D implementation
+    (void)receiver_rake;  // Reserved for 3D implementation
     // Resolve 2D stress onto receiver fault orientation
     double phi = receiver_strike;
     
@@ -1493,6 +1497,7 @@ void SplitNodeFault::createSplitNodePairs(const FaultGeometry& geom) {
 
 void SplitNodeFault::duplicateNodesAlongFault(std::vector<double>& node_coords,
                                               std::vector<int>& connectivity) {
+    (void)connectivity;  // Reserved for future mesh topology updates
     // Duplicate nodes on fault to create split topology
     // This modifies the mesh by adding new nodes
     
@@ -1791,6 +1796,7 @@ void SplitNodeFault::assembleContactResidual(const double* displacement,
 void SplitNodeFault::assembleContactJacobian(const double* displacement,
                                              double* jacobian,
                                              double pore_pressure) const {
+    (void)pore_pressure;  // Reserved for pressure-dependent contact stiffness
     // Assemble contact contributions to Jacobian matrix
     // This is a sparse contribution - only affects split node DOFs
     
