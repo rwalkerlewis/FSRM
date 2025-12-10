@@ -25,6 +25,11 @@ set(UNIT_TEST_SOURCES
     # unit/test_viscoelastic_attenuation.cpp  # Disabled: API mismatch
     # unit/test_friction_laws.cpp  # Disabled: API mismatch
     # unit/test_fourier_neural_operator.cpp  # Disabled: API mismatch
+    # High-Fidelity Module Unit Tests
+    unit/test_high_fidelity_numerics.cpp
+    unit/test_high_fidelity_fluid_flow.cpp
+    unit/test_high_fidelity_geomechanics.cpp
+    unit/test_advanced_coupled_physics.cpp
 )
 
 # Functional Tests - Test features working correctly
@@ -42,6 +47,9 @@ set(PHYSICS_TEST_SOURCES
     physics/test_mms_wave_propagation.cpp
     physics/test_analytical_solutions.cpp
     physics/test_thermoporoelastic_consolidation.cpp
+    # High-Fidelity MMS and Coupling Tests
+    physics/test_mms_high_fidelity.cpp
+    physics/test_coupling_consistency.cpp
 )
 
 # Integration Tests - Full-scale end-to-end tests
@@ -50,6 +58,8 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_full_simulation.cpp
     integration/test_restart.cpp
     # integration/test_scec_tpv_benchmarks.cpp  # Disabled: API mismatch
+    # High-Fidelity Integration Tests
+    integration/test_high_fidelity_integration.cpp
 )
 
 # Performance Tests - Benchmarks and scaling tests
@@ -229,6 +239,16 @@ if(GTest_FOUND)
     add_test(NAME Unit.PyLithFault
         COMMAND run_unit_tests --gtest_filter=*PyLith*.*:*Cohesive*.*:*SlipTimeFn*.*)
     
+    # High-Fidelity Module Unit Tests
+    add_test(NAME Unit.HighFidelityNumerics
+        COMMAND run_unit_tests --gtest_filter=*SUPG*.*:*PETScTime*.*:*PAdaptivity*.*:*Preconditioner*.*)
+    add_test(NAME Unit.HighFidelityFluidFlow
+        COMMAND run_unit_tests --gtest_filter=*NonDarcy*.*:*DualPorosity*.*:*NonIsothermal*.*:*DynamicRelPerm*.*:*Miscible*.*)
+    add_test(NAME Unit.HighFidelityGeomechanics
+        COMMAND run_unit_tests --gtest_filter=*FiniteStrain*.*:*Viscoplasticity*.*:*Creep*.*:*Hypoplasticity*.*:*GradientDamage*.*)
+    add_test(NAME Unit.AdvancedCoupledPhysics
+        COMMAND run_unit_tests --gtest_filter=*FullBiot*.*:*THMCoupling*.*:*THMC*.*:*Unsaturated*.*:*MultiScale*.*)
+    
     # Functional tests
     add_test(NAME Functional.SimulatorInit 
         COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)
@@ -251,6 +271,16 @@ if(GTest_FOUND)
     add_test(NAME Physics.ThermoporoelasticConsolidation 
         COMMAND run_physics_tests --gtest_filter=ThermoporoelasticConsolidationTest.*)
     
+    # High-Fidelity MMS and Coupling Tests
+    add_test(NAME Physics.MMS.HighFidelity
+        COMMAND run_physics_tests --gtest_filter=MMS*.*:*Convergence*.*)
+    add_test(NAME Physics.CouplingConsistency
+        COMMAND run_physics_tests --gtest_filter=*CouplingConsistency*.*:*Conservation*.*)
+    add_test(NAME Physics.BiotCoupling
+        COMMAND run_physics_tests --gtest_filter=*BiotCoupling*.*:*Gassmann*.*:*Skempton*.*)
+    add_test(NAME Physics.THMConsistency
+        COMMAND run_physics_tests --gtest_filter=*THM*.*:*Thermal*.*:*Unsaturated*.*)
+    
     # Integration tests (longer running)
     add_test(NAME Integration.FullSimulation 
         COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -258,6 +288,16 @@ if(GTest_FOUND)
         COMMAND run_integration_tests --gtest_filter=RestartTest.*)
     add_test(NAME Integration.SCEC_TPV
         COMMAND run_integration_tests --gtest_filter=*TPV*.*:*LOH*.*)
+    
+    # High-Fidelity Integration Tests
+    add_test(NAME Integration.HighFidelityReservoir
+        COMMAND run_integration_tests --gtest_filter=*Reservoir*.*:*NonDarcy*.*:*DualPorosity*.*:*Miscible*.*)
+    add_test(NAME Integration.HighFidelityGeomechanics
+        COMMAND run_integration_tests --gtest_filter=*Geomechanics*.*:*FiniteStrain*.*:*Viscoplastic*.*:*Creep*.*)
+    add_test(NAME Integration.HighFidelityCoupled
+        COMMAND run_integration_tests --gtest_filter=*Coupled*.*:*THM*.*:*Biot*.*:*MultiScale*.*)
+    add_test(NAME Integration.EndToEndScenarios
+        COMMAND run_integration_tests --gtest_filter=*EndToEnd*.*:*CO2Sequestration*.*:*Geothermal*.*)
     
     # Performance tests
     add_test(NAME Performance.Benchmarks 
@@ -312,6 +352,10 @@ if(GTest_FOUND)
         Unit.FrictionLaws
         Unit.FourierNeuralOperator
         Unit.PyLithFault
+        Unit.HighFidelityNumerics
+        Unit.HighFidelityFluidFlow
+        Unit.HighFidelityGeomechanics
+        Unit.AdvancedCoupledPhysics
         PROPERTIES 
             TIMEOUT 60
             LABELS "unit;quick"
@@ -335,6 +379,10 @@ if(GTest_FOUND)
         Physics.MMS.WavePropagation
         Physics.AnalyticalSolutions
         Physics.ThermoporoelasticConsolidation
+        Physics.MMS.HighFidelity
+        Physics.CouplingConsistency
+        Physics.BiotCoupling
+        Physics.THMConsistency
         PROPERTIES 
             TIMEOUT 180
             LABELS "physics;mms"
@@ -345,6 +393,10 @@ if(GTest_FOUND)
         Integration.FullSimulation
         Integration.Restart
         Integration.SCEC_TPV
+        Integration.HighFidelityReservoir
+        Integration.HighFidelityGeomechanics
+        Integration.HighFidelityCoupled
+        Integration.EndToEndScenarios
         PROPERTIES 
             TIMEOUT 600
             LABELS "integration;slow"
@@ -485,6 +537,31 @@ add_custom_target(test_all
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
     DEPENDS run_all_tests
     COMMENT "Running all tests"
+)
+
+# High-Fidelity specific test targets
+add_custom_target(test_high_fidelity_unit
+    COMMAND ${CMAKE_CTEST_COMMAND} -R "Unit.HighFidelity|Unit.AdvancedCoupled" --output-on-failure
+    DEPENDS run_unit_tests
+    COMMENT "Running high-fidelity unit tests"
+)
+
+add_custom_target(test_high_fidelity_mms
+    COMMAND ${CMAKE_CTEST_COMMAND} -R "MMS.HighFidelity|CouplingConsistency|BiotCoupling|THMConsistency" --output-on-failure
+    DEPENDS run_physics_tests
+    COMMENT "Running high-fidelity MMS and coupling tests"
+)
+
+add_custom_target(test_high_fidelity_integration
+    COMMAND ${CMAKE_CTEST_COMMAND} -R "Integration.HighFidelity|EndToEnd" --output-on-failure
+    DEPENDS run_integration_tests
+    COMMENT "Running high-fidelity integration tests"
+)
+
+add_custom_target(test_high_fidelity_all
+    COMMAND ${CMAKE_CTEST_COMMAND} -R "HighFidelity|Coupled|THM|Biot|EndToEnd" --output-on-failure
+    DEPENDS run_all_tests
+    COMMENT "Running all high-fidelity tests"
 )
 
 # ============================================================================

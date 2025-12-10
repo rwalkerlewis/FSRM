@@ -30,7 +30,11 @@ tests/
 │   ├── test_fracture_model.cpp # Fracture/fault models
 │   ├── test_eclipse_io.cpp     # Eclipse I/O
 │   ├── test_fluid_model.cpp    # Generic fluid models
-│   └── test_material_model.cpp # Generic material models
+│   ├── test_material_model.cpp # Generic material models
+│   ├── test_high_fidelity_numerics.cpp    # SUPG, time integration, p-adapt
+│   ├── test_high_fidelity_fluid_flow.cpp  # Non-Darcy, dual porosity
+│   ├── test_high_fidelity_geomechanics.cpp # Finite strain, creep, damage
+│   └── test_advanced_coupled_physics.cpp  # Biot, THM, THMC, multiscale
 ├── functional/                 # Functional tests
 │   ├── test_simulator_init.cpp
 │   ├── test_solver_convergence.cpp
@@ -40,10 +44,13 @@ tests/
 │   ├── test_mms_diffusion.cpp
 │   ├── test_mms_elasticity.cpp
 │   ├── test_mms_wave_propagation.cpp
-│   └── test_analytical_solutions.cpp
+│   ├── test_analytical_solutions.cpp
+│   ├── test_mms_high_fidelity.cpp     # MMS for high-fidelity modules
+│   └── test_coupling_consistency.cpp  # Cross-module coupling tests
 ├── integration/                # Integration tests
 │   ├── test_full_simulation.cpp
-│   └── test_restart.cpp
+│   ├── test_restart.cpp
+│   └── test_high_fidelity_integration.cpp # End-to-end high-fidelity
 └── performance/                # Performance tests
     ├── test_benchmarks.cpp
     └── test_scaling.cpp
@@ -85,6 +92,36 @@ Benchmarking and parallel scaling:
 - **Benchmarks**: Kernel timing and memory access
 - **Scaling**: MPI parallel performance
 
+### High-Fidelity Module Tests
+Comprehensive tests for advanced physics and numerical methods:
+
+#### Unit Tests
+- **HighFidelityNumerics**: SUPG stabilization, PETSc time integration, p-adaptivity
+- **HighFidelityFluidFlow**: Non-Darcy, dual/triple porosity, dynamic rel perm, miscible flow
+- **HighFidelityGeomechanics**: Finite strain, viscoplasticity, creep, hypoplasticity, gradient damage
+- **AdvancedCoupledPhysics**: Full Biot dynamics, THM, THMC, unsaturated flow, multi-scale
+
+#### MMS Tests
+- Non-Darcy flow convergence
+- Dual porosity transfer consistency
+- THM coupling verification
+- Biot poroelasticity (Terzaghi analytical)
+- Viscoplasticity overstress formulation
+- Gradient damage regularization
+
+#### Coupling Consistency Tests
+- Gassmann relation verification
+- Skempton-Biot consistency
+- THM reduces to Biot when isothermal
+- THMC reduces to THM without chemistry
+- Voigt-Reuss-Hashin-Shtrikman bounds
+
+#### Integration Tests
+- Reservoir simulation scenarios (non-Darcy, dual porosity, miscible)
+- Geomechanics scenarios (finite strain, creep, damage)
+- Coupled physics scenarios (Biot dynamics, THM, THMC)
+- End-to-end scenarios (CO2 sequestration, geothermal EGS)
+
 ## Building Tests
 
 ```bash
@@ -112,6 +149,23 @@ ctest -L "performance"   # Performance tests
 ### Specific Test
 ```bash
 ctest -R "Unit.ConfigReader"
+```
+
+### High-Fidelity Tests
+```bash
+# All high-fidelity tests
+make test_high_fidelity_all
+
+# By category
+make test_high_fidelity_unit
+make test_high_fidelity_mms
+make test_high_fidelity_integration
+
+# With CTest
+ctest -R "HighFidelity" --output-on-failure
+ctest -R "THM" --output-on-failure
+ctest -R "Biot" --output-on-failure
+ctest -R "Coupling" --output-on-failure
 ```
 
 ### Verbose Output
