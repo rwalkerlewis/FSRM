@@ -114,6 +114,8 @@ void SinglePhaseFluid::setDensity(double rho_ref, double P_ref, double T_ref) {
 }
 
 void SinglePhaseFluid::setViscosity(double mu_ref, double P_ref, double T_ref) {
+    (void)P_ref;  // Reserved for future use
+    (void)T_ref;  // Reserved for future use
     viscosity_ref = mu_ref;
     // Allow separate reference for viscosity
 }
@@ -325,6 +327,7 @@ double BlackOilFluid::getKrw(double Sw) const {
 }
 
 double BlackOilFluid::getKro(double So, double Sg) const {
+    (void)Sg;  // Reserved for three-phase correlations
     if (So <= Sor) return 0.0;
     
     double So_norm = (So - Sor) / (1.0 - Swc - Sor - Sgc);
@@ -480,6 +483,7 @@ double BlackOilFluid::vazquezBeggsRs(double P) const {
 }
 
 double BlackOilFluid::vazquezBeggsBo(double P, double Rs) const {
+    (void)P;  // Pressure dependency captured in Rs correlation
     double T = 350.0;
     double T_F = (T - 273.15) * 9.0/5.0 + 32.0;
     
@@ -879,6 +883,7 @@ double BrineFluid::getDensity(double P, double T) const {
 }
 
 double BrineFluid::getViscosity(double P, double T) const {
+    (void)P;  // Pressure effect on viscosity is minimal for typical reservoir conditions
     // Kestin et al. (1981) correlation
     double T_C = T - 273.15;
     double m = salinity / 0.058443;  // Molality (NaCl)
@@ -960,6 +965,7 @@ double CO2Fluid::getCompressibility(double P, double T) const {
 }
 
 void CO2Fluid::configure(const std::map<std::string, std::string>& config) {
+    (void)config;  // CO2 properties are fixed, configuration reserved for future extensions
     // CO2 has fixed critical properties
 }
 

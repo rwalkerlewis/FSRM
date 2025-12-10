@@ -373,6 +373,9 @@ public:
     void writeInventory(const std::string& filename) const;
     void writeDecayCurves(const std::string& filename, double t_max, int n_points) const;
     
+    // Database access
+    std::shared_ptr<RadionuclideDatabase> getDatabase() const { return database_; }
+    
 private:
     std::shared_ptr<RadionuclideDatabase> database_;
     std::string fissile_type_;

@@ -267,6 +267,8 @@ ViscoelasticMaterial::ViscoelasticMaterial(ViscoType type)
 StressTensor ViscoelasticMaterial::computeStress(const StrainTensor& strain,
                                                   double P_pore,
                                                   double T) const {
+    (void)P_pore;  // Reserved for poroelastic coupling
+    (void)T;  // Reserved for thermoelastic effects
     // For instantaneous response, use elastic moduli
     double E = E_instantaneous;
     double nu = poisson_ratio;
@@ -291,6 +293,7 @@ StressTensor ViscoelasticMaterial::computeStressRate(const StrainTensor& strain,
                                                       const StrainTensor& strain_rate,
                                                       const StressTensor& current_stress,
                                                       double dt) const {
+    (void)strain;  // Current state tracked in stress history
     // Compute stress increment
     StressTensor stress_rate;
     
@@ -340,6 +343,8 @@ StressTensor ViscoelasticMaterial::computeStressRate(const StrainTensor& strain,
 }
 
 std::array<double, 36> ViscoelasticMaterial::getStiffnessMatrix(double P, double T) const {
+    (void)P;  // Reserved for pressure-dependent moduli
+    (void)T;  // Reserved for temperature-dependent moduli
     // Return instantaneous stiffness
     double E = E_instantaneous;
     double nu = poisson_ratio;
@@ -450,6 +455,7 @@ PoroelasticMaterial::PoroelasticMaterial()
 StressTensor PoroelasticMaterial::computeStress(const StrainTensor& strain,
                                                  double P_pore,
                                                  double T) const {
+    (void)T;  // Reserved for thermoporoelastic effects
     // Total stress = effective stress - α*P*I
     StressTensor effective = computeEffectiveStress(strain);
     return computeTotalStress(effective, P_pore);
@@ -482,6 +488,8 @@ StressTensor PoroelasticMaterial::computeTotalStress(const StressTensor& effecti
 }
 
 std::array<double, 36> PoroelasticMaterial::getStiffnessMatrix(double P, double T) const {
+    (void)P;  // Reserved for pressure-dependent moduli
+    (void)T;  // Reserved for temperature-dependent moduli
     double lambda = bulk_modulus_drained - 2.0*shear_modulus/3.0;
     double mu = shear_modulus;
     
@@ -614,6 +622,8 @@ ElastoplasticMaterial::ElastoplasticMaterial(FailureCriterion crit)
 StressTensor ElastoplasticMaterial::computeStress(const StrainTensor& strain,
                                                    double P_pore,
                                                    double T) const {
+    (void)P_pore;  // Reserved for poroelastic coupling
+    (void)T;  // Reserved for thermoelastic effects
     // Elastic trial stress
     double lambda = youngs_modulus * poisson_ratio / 
                    ((1.0 + poisson_ratio) * (1.0 - 2.0*poisson_ratio));
@@ -701,6 +711,8 @@ StressTensor ElastoplasticMaterial::computePlasticCorrection(const StressTensor&
 }
 
 std::array<double, 36> ElastoplasticMaterial::getStiffnessMatrix(double P, double T) const {
+    (void)P;  // Reserved for pressure-dependent moduli
+    (void)T;  // Reserved for temperature-dependent moduli
     // Return elastic stiffness (tangent would be different during plastic flow)
     double lambda = youngs_modulus * poisson_ratio / 
                    ((1.0 + poisson_ratio) * (1.0 - 2.0*poisson_ratio));
@@ -831,6 +843,8 @@ AnisotropicMaterial::AnisotropicMaterial(bool vertical_ti)
 StressTensor AnisotropicMaterial::computeStress(const StrainTensor& strain,
                                                  double P_pore,
                                                  double T) const {
+    (void)P_pore;  // Reserved for poroelastic coupling
+    (void)T;  // Reserved for thermoelastic effects
     StressTensor stress;
     
     if (is_VTI) {
@@ -855,6 +869,8 @@ StressTensor AnisotropicMaterial::computeStress(const StrainTensor& strain,
 }
 
 std::array<double, 36> AnisotropicMaterial::getStiffnessMatrix(double P, double T) const {
+    (void)P;  // Reserved for pressure-dependent moduli
+    (void)T;  // Reserved for temperature-dependent moduli
     std::array<double, 36> C{};
     
     if (is_VTI) {
