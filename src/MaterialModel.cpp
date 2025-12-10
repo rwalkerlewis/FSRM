@@ -550,8 +550,8 @@ double PoroelasticMaterial::getSlowPWaveVelocity() const {
     double rho_f = density_fluid;
     double mobility = permeability / fluid_viscosity;
     
-    // Characteristic frequency
-    double omega_c = porosity / (mobility * rho_f);
+    // Characteristic frequency (for transition between viscous and inertial regimes)
+    (void)(porosity / (mobility * rho_f));  // omega_c, used for regime determination
     
     // At low frequency (quasi-static), slow wave is diffusive
     // Velocity estimate
@@ -923,8 +923,8 @@ void AnisotropicMaterial::setThomsenParameters(double eps, double del, double ga
     gamma = gam;
     
     // Update stiffness from Thomsen parameters
-    double VP0 = std::sqrt(C33 / density);
-    double VS0 = std::sqrt(C44 / density);
+    // Reference velocities: VP0 = sqrt(C33/rho), VS0 = sqrt(C44/rho)
+    // These define the relationship between Thomsen parameters and stiffness
     
     C11 = C33 * (1.0 + 2.0 * epsilon);
     C66 = C44 * (1.0 + 2.0 * gamma);

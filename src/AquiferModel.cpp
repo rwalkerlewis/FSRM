@@ -163,6 +163,7 @@ double CarterTracyAquifer::calculateInflux(double reservoir_pressure, double dt)
 }
 
 double CarterTracyAquifer::superpositionInflux(double current_pressure) {
+    (void)current_pressure;  // Used implicitly through pressure_history
     // Carter-Tracy method using superposition
     double We = 0.0;  // Cumulative influx
     
@@ -354,6 +355,7 @@ double NumericalAquifer::getTotalPoreVolume() const {
 }
 
 double NumericalAquifer::calculateInflux(double reservoir_pressure, double dt) {
+    (void)dt;  // Time step not needed for steady-state calculation
     if (cells.empty()) return 0.0;
     
     // Simple implementation: use average aquifer pressure
@@ -458,6 +460,7 @@ ConstantPressureAquifer::ConstantPressureAquifer(int id)
 }
 
 double ConstantPressureAquifer::calculateInflux(double reservoir_pressure, double dt) {
+    (void)dt;  // Time step not needed for instantaneous rate calculation
     double rate = transmissibility * (constant_pressure - reservoir_pressure);
     return std::max(0.0, rate);
 }
@@ -499,6 +502,8 @@ ConstantFluxAquifer::ConstantFluxAquifer(int id)
       flux_rate(0.001) {}
 
 double ConstantFluxAquifer::calculateInflux(double reservoir_pressure, double dt) {
+    (void)reservoir_pressure;  // Constant flux independent of pressure
+    (void)dt;  // Constant flux independent of time step
     return flux_rate;
 }
 

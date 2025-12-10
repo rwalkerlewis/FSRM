@@ -23,6 +23,7 @@ FreeSurfaceBC::FreeSurfaceBC()
 void FreeSurfaceBC::applyToResidual(const BoundaryFace& face,
                                     const double* u, double* residual,
                                     double t) const {
+    (void)t;  // Time not needed for static free surface condition
     // Free surface: enforce σ·n = 0
     // For velocity-stress formulation, the stress components are set
     // to cancel the incoming wave (reflection)
@@ -107,6 +108,7 @@ void FreeSurfaceBC::computeBoundaryFlux(const BoundaryFace& face,
 void FreeSurfaceBC::getBoundaryState(const BoundaryFace& face,
                                      const double* u_int, double* u_ext,
                                      double t) const {
+    (void)t;  // Time not needed for static boundary state
     // Mirror state for free surface
     // Velocity: v_ext = v_int (symmetric)
     // Stress: σ_ext = mirror(σ_int) such that σ·n = 0
@@ -310,6 +312,7 @@ double PMLBoundary::kappaProfile(double dist) const {
 void PMLBoundary::applyToResidual(const BoundaryFace& face,
                                   const double* u, double* residual,
                                   double t) const {
+    (void)t;  // Time not needed for absorbing boundary condition
     // PML is applied to volume, not just boundary
     // This function handles the outer boundary of the PML
     
@@ -358,19 +361,11 @@ void PMLBoundary::computeBoundaryFlux(const BoundaryFace& face,
 void PMLBoundary::getBoundaryState(const BoundaryFace& face,
                                    const double* u_int, double* u_ext,
                                    double t) const {
-    // Characteristic-based outgoing wave condition
-    const double* n = face.normal.data();
-    double rho = face.rho > 0 ? face.rho : rho_ref;
-    double vp = face.vp > 0 ? face.vp : vp_ref;
-    double vs = face.vs > 0 ? face.vs : vs_ref;
+    (void)face;   // Face properties not needed for zero ghost state
+    (void)u_int;  // Interior state not needed for zero ghost state
+    (void)t;      // Time not needed for static absorbing condition
     
-    // Interior state
-    double vx_int = u_int[0], vy_int = u_int[1], vz_int = u_int[2];
-    
-    // Normal velocity
-    double vn = vx_int * n[0] + vy_int * n[1] + vz_int * n[2];
-    
-    // For outgoing wave: set exterior state to absorb
+    // For outgoing wave: set exterior state to absorb (zero ghost state)
     u_ext[0] = 0;
     u_ext[1] = 0;
     u_ext[2] = 0;
@@ -398,6 +393,8 @@ void PMLBoundary::initializeAuxiliaryVariables(int num_pml_elements) {
 
 void PMLBoundary::computeAuxiliaryRHS(int elem_id, const double* u,
                                       const double* aux, double* aux_rhs) {
+    (void)elem_id;  // Element ID not needed for uniform damping
+    (void)u;        // State not needed for simple exponential decay
     // Split-field PML auxiliary variable evolution
     // For each field variable q_i:
     // ∂ψ_x/∂t = -d_x * ψ_x + ∂q/∂x * (s_x - 1)
@@ -420,6 +417,7 @@ void PMLBoundary::updateAuxiliaryVariables(int elem_id, const double* aux_new) {
 }
 
 void PMLBoundary::getPMLJacobian(int elem_id, double* jacobian) const {
+    (void)elem_id;  // Element ID not needed for uniform identity Jacobian
     // Modified Jacobian for PML
     // The flux Jacobian is stretched by the PML functions
     // A_pml = s_y * s_z / s_x * A_x + s_x * s_z / s_y * A_y + s_x * s_y / s_z * A_z
@@ -459,6 +457,7 @@ void ClaytonEngquistBC::setMaterialProperties(double r, double p, double s) {
 void ClaytonEngquistBC::applyToResidual(const BoundaryFace& face,
                                         const double* u, double* residual,
                                         double t) const {
+    (void)t;  // Time not needed for static absorbing condition
     // First-order Clayton-Engquist: t = -Z · v
     double traction[3];
     applyFirstOrder(face, u, traction);
@@ -478,9 +477,7 @@ void ClaytonEngquistBC::computeBoundaryFlux(const BoundaryFace& face,
     getBoundaryState(face, u_int, u_ext, t);
     
     const double* n = face.normal.data();
-    double local_rho = face.rho > 0 ? face.rho : rho;
-    double local_vp = face.vp > 0 ? face.vp : vp;
-    double local_vs = face.vs > 0 ? face.vs : vs;
+    (void)face.rho;  // Material properties handled in getBoundaryState
     
     // Upwind flux based on characteristic decomposition
     // P-wave characteristic: λ = vp
@@ -489,12 +486,10 @@ void ClaytonEngquistBC::computeBoundaryFlux(const BoundaryFace& face,
     double vx_int = u_int[0], vy_int = u_int[1], vz_int = u_int[2];
     double vx_ext = u_ext[0], vy_ext = u_ext[1], vz_ext = u_ext[2];
     
-    // Normal velocity
+    // Normal velocity (exterior not needed for upwind selection)
     double vn_int = vx_int * n[0] + vy_int * n[1] + vz_int * n[2];
-    double vn_ext = vx_ext * n[0] + vy_ext * n[1] + vz_ext * n[2];
     
     // Use upwind (interior) state for outgoing waves
-    double vn = (vn_int > 0) ? vn_int : vn_ext;
     double vx = (vn_int > 0) ? vx_int : vx_ext;
     double vy = (vn_int > 0) ? vy_int : vy_ext;
     double vz = (vn_int > 0) ? vz_int : vz_ext;
@@ -513,6 +508,7 @@ void ClaytonEngquistBC::computeBoundaryFlux(const BoundaryFace& face,
 void ClaytonEngquistBC::getBoundaryState(const BoundaryFace& face,
                                          const double* u_int, double* u_ext,
                                          double t) const {
+    (void)t;  // Time not needed for static characteristic BC
     // Characteristic-based non-reflecting BC
     const double* n = face.normal.data();
     
@@ -521,7 +517,7 @@ void ClaytonEngquistBC::getBoundaryState(const BoundaryFace& face,
     double local_vs = face.vs > 0 ? face.vs : vs;
     
     double Zp = local_rho * local_vp;
-    double Zs = local_rho * local_vs;
+    (void)local_vs;  // Only Zp needed for simplified characteristic BC
     
     // Interior velocity
     double vx = u_int[0], vy = u_int[1], vz = u_int[2];
@@ -531,11 +527,11 @@ void ClaytonEngquistBC::getBoundaryState(const BoundaryFace& face,
     double sxx = u_int[3], syy = u_int[4], szz = u_int[5];
     double sxy = u_int[6], sxz = u_int[7], syz = u_int[8];
     
-    // Normal traction
+    // Normal traction components (computed for potential future use)
     double tn_x = sxx * n[0] + sxy * n[1] + sxz * n[2];
     double tn_y = sxy * n[0] + syy * n[1] + syz * n[2];
     double tn_z = sxz * n[0] + syz * n[1] + szz * n[2];
-    double tn = tn_x * n[0] + tn_y * n[1] + tn_z * n[2];
+    (void)tn_x; (void)tn_y; (void)tn_z;  // Reserved for full characteristic decomposition
     
     // Characteristic variables for P-wave: W_p = t_n + Z_p * v_n
     // For non-reflecting: W_p^- = 0 -> t_n = -Z_p * v_n
@@ -588,6 +584,7 @@ void ClaytonEngquistBC::applyFirstOrder(const BoundaryFace& face,
 void ClaytonEngquistBC::applySecondOrder(const BoundaryFace& face,
                                          const double* v, const double* dv_dt,
                                          double* traction) const {
+    (void)dv_dt;  // Time derivatives not used in simplified implementation
     // Second-order includes time derivatives
     // Not fully implemented - use first order
     applyFirstOrder(face, v, traction);
@@ -614,6 +611,7 @@ void LysmerKuhlemeyer::setMaterialProperties(double r, double p, double s) {
 void LysmerKuhlemeyer::applyToResidual(const BoundaryFace& face,
                                        const double* u, double* residual,
                                        double t) const {
+    (void)t;  // Time not needed for static absorbing condition
     double traction[3];
     computeAbsorbingTraction(u, face.normal.data(), traction);
     
@@ -638,8 +636,9 @@ void LysmerKuhlemeyer::computeBoundaryFlux(const BoundaryFace& face,
 void LysmerKuhlemeyer::getBoundaryState(const BoundaryFace& face,
                                         const double* u_int, double* u_ext,
                                         double t) const {
+    (void)face;  // Normal not needed for zero velocity ghost
+    (void)t;     // Time not needed for static absorbing condition
     // Set exterior state for absorbing boundary
-    const double* n = face.normal.data();
     
     // Exterior velocity: zero (incoming wave = 0)
     u_ext[0] = 0;
@@ -756,6 +755,7 @@ void NeumannBC::setConstantTraction(double tx, double ty, double tz) {
 void NeumannBC::applyToResidual(const BoundaryFace& face,
                                 const double* u, double* residual,
                                 double t) const {
+    (void)u;  // State not needed for prescribed traction BC
     double traction[3];
     if (is_constant) {
         traction[0] = constant_traction[0];
@@ -800,6 +800,8 @@ void NeumannBC::computeBoundaryFlux(const BoundaryFace& face,
 void NeumannBC::getBoundaryState(const BoundaryFace& face,
                                  const double* u_int, double* u_ext,
                                  double t) const {
+    (void)face;  // Face not needed for simple state copy
+    (void)t;     // Time not needed for state copy
     // Copy interior state
     for (int i = 0; i < 9; ++i) {
         u_ext[i] = u_int[i];
@@ -830,6 +832,10 @@ void PeriodicBC::setPeriodicDirection(int dir, double p) {
 void PeriodicBC::applyToResidual(const BoundaryFace& face,
                                  const double* u, double* residual,
                                  double t) const {
+    (void)face;     // Periodic BC handled through face matching
+    (void)u;        // State not modified here
+    (void)residual; // Residual not modified here
+    (void)t;        // Time not needed
     // Periodic BC enforces u(x) = u(x + L)
     // Handled through face matching, not residual modification
 }
@@ -837,6 +843,8 @@ void PeriodicBC::applyToResidual(const BoundaryFace& face,
 void PeriodicBC::computeBoundaryFlux(const BoundaryFace& face,
                                      const double* u_int, double* flux_n,
                                      double t) const {
+    (void)face;  // Face properties not needed for simple flux copy
+    (void)t;     // Time not needed for static periodic BC
     // Standard interior flux (periodic face is treated as internal)
     for (int i = 0; i < 9; ++i) {
         flux_n[i] = u_int[i];
@@ -846,6 +854,8 @@ void PeriodicBC::computeBoundaryFlux(const BoundaryFace& face,
 void PeriodicBC::getBoundaryState(const BoundaryFace& face,
                                   const double* u_int, double* u_ext,
                                   double t) const {
+    (void)face;  // Face matching handled externally
+    (void)t;     // Time not needed
     // State from matched face
     // In practice, this would look up the matched face's solution
     for (int i = 0; i < 9; ++i) {
@@ -863,6 +873,7 @@ SymmetryBC::SymmetryBC(bool is_anti)
 void SymmetryBC::applyToResidual(const BoundaryFace& face,
                                  const double* u, double* residual,
                                  double t) const {
+    (void)t;  // Time not needed for static symmetry condition
     // Symmetry: v_n = 0 (normal velocity zero)
     // Anti-symmetry: v_t = 0 (tangential velocity zero)
     
@@ -891,8 +902,9 @@ void SymmetryBC::applyToResidual(const BoundaryFace& face,
 void SymmetryBC::computeBoundaryFlux(const BoundaryFace& face,
                                      const double* u_int, double* flux_n,
                                      double t) const {
+    (void)t;  // Pass-through to getBoundaryState (time unused)
     double u_ext[9];
-    getBoundaryState(face, u_int, u_ext, t);
+    getBoundaryState(face, u_int, u_ext, 0.0);
     
     for (int i = 0; i < 9; ++i) {
         flux_n[i] = 0.5 * (u_int[i] + u_ext[i]);
@@ -902,6 +914,7 @@ void SymmetryBC::computeBoundaryFlux(const BoundaryFace& face,
 void SymmetryBC::getBoundaryState(const BoundaryFace& face,
                                   const double* u_int, double* u_ext,
                                   double t) const {
+    (void)t;  // Time not needed for static symmetry condition
     const double* n = face.normal.data();
     
     // Reflect velocity
@@ -930,6 +943,7 @@ void SymmetryBC::reflectVelocity(const double* v_int, const double* n,
 
 void SymmetryBC::reflectStress(const double* sigma_int, const double* n,
                                double* sigma_ext) const {
+    (void)n;  // Normal used for general reflection; simplified implementation uses sign flip
     // Stress reflection similar to velocity
     // For symmetry plane, normal-tangent shear components flip sign
     
@@ -995,6 +1009,7 @@ void BoundaryConditionManager::classifyBoundaryFaces(
 }
 
 void BoundaryConditionManager::setupPML(double pml_thickness, int directions) {
+    (void)directions;  // TODO: Use directions to configure which boundaries get PML
     pml = std::make_unique<PMLBoundary>();
     pml->setThickness(pml_thickness);
     

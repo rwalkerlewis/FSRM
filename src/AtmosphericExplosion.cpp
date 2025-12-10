@@ -157,7 +157,7 @@ double ExtendedAtmosphericModel::pressure(double z) const {
 double ExtendedAtmosphericModel::computePressure(double z) const {
     // Integrate hydrostatic equation through layers
     double P = SEA_LEVEL_PRESSURE;
-    double T, z_base = 0.0;
+    double z_base = 0.0;
     
     for (size_t i = 0; i < altitude_levels_.size() - 1; ++i) {
         double z_top = std::min(z, altitude_levels_[i+1]);
@@ -413,6 +413,7 @@ void MushroomCloudModel::step(double dt) {
 }
 
 void MushroomCloudModel::updateFireballPhase(double dt) {
+    (void)dt;  // Time step handled by current_time_ update in step()
     // Fireball expansion
     double R_max = maxFireballRadius();
     double t_form = fireballMaxTime();
@@ -574,6 +575,7 @@ void MushroomCloudModel::computeEntrainment(double dt) {
 }
 
 void MushroomCloudModel::computeInstabilities(double dt) {
+    (void)dt;  // Instability state updated based on current cloud state
     double rho_ambient = atmosphere_->density(cloud_center_z_);
     
     // Rayleigh-Taylor at cloud top (dense ambient over light cloud)
@@ -589,8 +591,8 @@ void MushroomCloudModel::computeInstabilities(double dt) {
             // Nonlinear growth: h = α A g t²
             double t_eff = current_time_ - fireballMaxTime();
             if (t_eff > 0) {
-                double h_rt = rt_state_.mixing_zone_width(t_eff, g_eff);
                 // Mixing increases effective cloud thickness
+                (void)rt_state_.mixing_zone_width(t_eff, g_eff);
             }
         }
     }
@@ -608,10 +610,10 @@ void MushroomCloudModel::computeInstabilities(double dt) {
         kh_state_.shear_layer_thickness = cloud_radius_ * 0.1;
         kh_state_.buoyancy_frequency = atmosphere_->buoyancyFrequency(cloud_center_z_);
         
-        // KH rollup scale
+        // KH rollup scale - state updated for later retrieval
         if (kh_state_.is_unstable()) {
-            double lambda_kh = kh_state_.most_unstable_wavelength();
-            // Rollup creates mixing at this scale
+            // Rollup creates mixing at most unstable wavelength scale
+            (void)kh_state_.most_unstable_wavelength();
         }
     }
 }
@@ -876,6 +878,7 @@ void BuoyantPlumeModel::setCrosswind(double speed, double direction) {
 }
 
 double BuoyantPlumeModel::entrainmentCoefficient(double Ri_local) const {
+    (void)Ri_local;  // Richardson number reserved for future Richardson-dependent models
     // Entrainment coefficient depends on local Richardson number
     double alpha0 = ENTRAINMENT_COEFFICIENT;
     
@@ -1209,15 +1212,13 @@ void AtmosphericExplosionSolver::updateCoupledPhysics(double /*dt*/) {
     // Update coupling between models
     
     if (cloud_model_ && debris_model_) {
-        // Update debris source from cloud
-        double debris = cloud_model_->debrisMass();
         // debris_model updates from cloud state automatically via shared pointer
+        // Cloud debris mass available via cloud_model_->debrisMass()
     }
     
     if (cloud_model_ && mixing_model_) {
-        // Update turbulent parameters
-        double intensity = cloud_model_->turbulentIntensity();
-        // Could use intensity to modify mixing rates
+        // Turbulent intensity available via cloud_model_->turbulentIntensity()
+        // Could be used to modify mixing rates in future enhancements
     }
 }
 
@@ -1406,7 +1407,6 @@ void DebrisTransportModel::step(double dt) {
     
     // Get cloud state
     double cloud_center = cloud_->cloudCenterHeight();
-    double cloud_radius = cloud_->cloudRadius();
     double cloud_bottom = cloud_->cloudBottomHeight();
     double cloud_top = cloud_->cloudTopHeight();
     

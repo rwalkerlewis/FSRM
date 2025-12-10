@@ -231,6 +231,7 @@ PetscErrorCode HessianErrorEstimator::estimate(DM dm, Vec solution,
 }
 
 PetscErrorCode HessianErrorEstimator::recoverHessian(DM dm, Vec solution, Vec hessian) {
+    (void)solution;  // TODO: Use solution for full Hessian recovery
     PetscFunctionBeginUser;
     
     // Simplified Hessian recovery using finite differences
@@ -474,6 +475,7 @@ PetscReal FeatureErrorEstimator::computeFeatureDistance(PetscReal x, PetscReal y
 
 PetscErrorCode FeatureErrorEstimator::estimate(DM dm, Vec solution,
                                                std::vector<CellErrorIndicator>& errors) {
+    (void)solution;  // Feature detection uses geometry, not solution
     PetscFunctionBeginUser;
     
     PetscInt cStart, cEnd;
@@ -1383,6 +1385,7 @@ PetscErrorCode AdaptiveMeshRefinement::writeErrorField(const std::string& filena
 std::shared_ptr<ErrorEstimator> createErrorEstimator(
     RefinementCriterion criterion,
     const std::map<std::string, PetscReal>& params) {
+    (void)params;  // TODO: Use params to configure estimators
     
     switch (criterion) {
         case RefinementCriterion::GRADIENT:

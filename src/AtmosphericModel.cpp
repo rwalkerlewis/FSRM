@@ -31,7 +31,6 @@ double geopotentialToGeometric(double geopotential_alt) {
 
 double gravity(double altitude, double latitude) {
     // Gravity variation with altitude and latitude
-    const double g0 = AtmosphereConstants::G0;
     const double r = AtmosphereConstants::EARTH_RADIUS;
     
     // Latitude correction (WGS84 approximation)
@@ -363,6 +362,7 @@ double HumidityProfile::getSpecificHumidity(double altitude, double temperature,
 }
 
 double HumidityProfile::getAbsoluteHumidity(double altitude, double temperature, double pressure) const {
+    (void)pressure;  // Absolute humidity depends on vapor pressure and temperature, not total pressure
     double rh = getRelativeHumidity(altitude);
     double e_s = saturationVaporPressure(temperature);
     double e = rh * e_s;
@@ -370,6 +370,7 @@ double HumidityProfile::getAbsoluteHumidity(double altitude, double temperature,
 }
 
 double HumidityProfile::getVaporPressure(double altitude, double temperature, double pressure) const {
+    (void)pressure;  // Vapor pressure derived from saturation pressure and relative humidity
     double rh = getRelativeHumidity(altitude);
     return rh * saturationVaporPressure(temperature);
 }
@@ -396,9 +397,9 @@ double HumidityProfile::dewPoint(double temperature, double relative_humidity) {
 }
 
 double HumidityProfile::wetBulbTemperature(double temperature, double relative_humidity, double pressure) {
+    (void)pressure;  // Simplified psychrometric equation at standard pressure
     // Iterative solution using psychrometric equation
     double T_wb = temperature;
-    double T_C = temperature - 273.15;
     
     for (int iter = 0; iter < 20; iter++) {
         double e_s_wb = saturationVaporPressure(T_wb);

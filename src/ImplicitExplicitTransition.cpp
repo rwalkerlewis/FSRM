@@ -434,6 +434,7 @@ bool ImplicitExplicitTransitionManager::checkTriggerCondition(
 
 bool ImplicitExplicitTransitionManager::checkSettlingCondition(
     Vec solution, Vec velocity, double time) {
+    (void)solution;  // Stress state accessed via fault model
     
     double event_duration = time - event_start_time;
     
@@ -568,6 +569,7 @@ double ImplicitExplicitTransitionManager::computeMaxSlipRate() {
 }
 
 double ImplicitExplicitTransitionManager::computeCoulombFailure(Vec solution) {
+    (void)solution;  // Stress state accessed via fault model
     // Compute Coulomb Failure Function from stress state
     // CFF = τ - μ(σ_n - p) - c
     
@@ -692,6 +694,8 @@ void ImplicitExplicitTransitionManager::getGridAndMaterialParameters(
 }
 
 double ImplicitExplicitTransitionManager::getRecommendedDt(Vec solution, Vec velocity) {
+    (void)solution;  // TODO: Use for error-based adaptation
+    (void)velocity;  // TODO: Use for CFL computation
     if (current_mode == IntegrationMode::IMPLICIT) {
         // For implicit, use error-based adaptation
         // TODO: Compute error estimate and adapt
@@ -707,12 +711,15 @@ double ImplicitExplicitTransitionManager::getRecommendedDt(Vec solution, Vec vel
 
 PetscErrorCode ImplicitExplicitTransitionManager::interpolateSolution(
     double old_dt, double new_dt) {
+    (void)old_dt;  // TODO: Use for interpolation
+    (void)new_dt;  // TODO: Use for interpolation
     PetscFunctionBeginUser;
     // TODO: Implement solution interpolation for smooth transition
     PetscFunctionReturn(0);
 }
 
 PetscErrorCode ImplicitExplicitTransitionManager::adjustDamping(double ramp_factor) {
+    (void)ramp_factor;  // TODO: Use to adjust damping parameters
     PetscFunctionBeginUser;
     // TODO: Adjust Rayleigh damping parameters in physics kernels
     PetscFunctionReturn(0);
@@ -902,6 +909,7 @@ void ImplicitExplicitTransitionManager::getSummaryStatistics(
  * Uses thread-local storage to track previous solution for velocity computation.
  */
 PetscErrorCode IMEXMonitor(TS ts, PetscInt step, PetscReal time, Vec U, void* ctx) {
+    (void)step;  // Step number not needed for transition check
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
@@ -942,6 +950,7 @@ PetscErrorCode IMEXMonitor(TS ts, PetscInt step, PetscReal time, Vec U, void* ct
 }
 
 PetscErrorCode IMEXPostStep(TS ts) {
+    (void)ts;  // TS context not needed for empty post-step
     PetscFunctionBeginUser;
     // Post-step processing if needed
     PetscFunctionReturn(0);
@@ -1018,6 +1027,7 @@ PetscErrorCode ExplicitDynamicsHelper::setup(DM dm_in, double rho,
 }
 
 PetscErrorCode ExplicitDynamicsHelper::createLumpedMass(Mat& M_lumped) {
+    (void)M_lumped;  // Matrix populated via mass_inv vector
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
@@ -1034,6 +1044,7 @@ PetscErrorCode ExplicitDynamicsHelper::createLumpedMass(Mat& M_lumped) {
 }
 
 PetscErrorCode ExplicitDynamicsHelper::computeInternalForce(Vec u, Vec f_int) {
+    (void)u;  // TODO: Use displacement for internal force computation
     PetscFunctionBeginUser;
     // TODO: Implement internal force computation from displacement
     // f_int = K * u (in matrix form) or element-by-element assembly

@@ -134,9 +134,9 @@ void GnuplotViz::plot2DField(const std::vector<std::vector<double>>& data,
     
     script.close();
     
-    // Execute gnuplot from output directory
+    // Execute gnuplot from output directory (ignore return - visualization is optional)
     std::string cmd = "cd " + output_dir_ + " && gnuplot " + filename + ".gp 2>/dev/null";
-    system(cmd.c_str());
+    (void)system(cmd.c_str());
     
     current_wells_.clear();
 }
@@ -191,7 +191,7 @@ void GnuplotViz::plotLines(const std::vector<double>& x,
     script.close();
     
     std::string cmd = "cd " + output_dir_ + " && gnuplot " + filename + ".gp 2>/dev/null";
-    system(cmd.c_str());
+    (void)system(cmd.c_str());
 }
 
 void GnuplotViz::plotMultiPanel(const std::vector<std::vector<std::vector<double>>>& data_panels,
@@ -259,7 +259,7 @@ void GnuplotViz::plotMultiPanel(const std::vector<std::vector<std::vector<double
     script.close();
     
     std::string cmd = "cd " + output_dir_ + " && gnuplot " + filename + ".gp 2>/dev/null";
-    system(cmd.c_str());
+    (void)system(cmd.c_str());
 }
 
 } // namespace FSRM
