@@ -504,6 +504,27 @@ std::vector<ConfigReader::WellConfig> ConfigReader::parseWells() {
             well.min_bhp = getDouble(section, "min_bhp", 5e6);
             well.diameter = getDouble(section, "diameter", 0.2);
             well.skin = getDouble(section, "skin", 0.0);
+            
+            // Wellbore hydraulics / THP control
+            well.enable_wellbore_model = getBool(section, "enable_wellbore_model", false);
+            well.wellbore_depth = getDouble(section, "wellbore_depth", 0.0);
+            well.tubing_id = getDouble(section, "tubing_id", 0.1);
+            well.tubing_roughness = getDouble(section, "tubing_roughness", 1.5e-5);
+            // Backward-compatible key name used in tutorial
+            if (hasKey(section, "wellbore_roughness") && !hasKey(section, "tubing_roughness")) {
+                well.tubing_roughness = getDouble(section, "wellbore_roughness", 1.5e-5);
+            }
+            well.drag_reduction_factor = getDouble(section, "drag_reduction_factor", 0.0);
+            well.wellbore_fluid_density = getDouble(section, "wellbore_fluid_density", 1000.0);
+            well.wellbore_fluid_viscosity = getDouble(section, "wellbore_fluid_viscosity", 0.001);
+            well.friction_correlation = getString(section, "friction_correlation",
+                                                  getString(section, "friction_model", "HAALAND"));
+            
+            // Optional power-law rheology
+            well.use_power_law = getBool(section, "use_power_law", false);
+            well.k_prime = getDouble(section, "k_prime", 0.0);
+            well.n_prime = getDouble(section, "n_prime", 1.0);
+            
             wells.push_back(well);
         }
     }

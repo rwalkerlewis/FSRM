@@ -13,6 +13,7 @@ set(UNIT_TEST_SOURCES
     unit/test_config_reader.cpp
     unit/test_physics_kernels.cpp
     unit/test_well_model.cpp
+    unit/test_wellbore_hydraulics.cpp
     unit/test_fracture_model.cpp
     unit/test_eclipse_io.cpp
     unit/test_fluid_model.cpp
