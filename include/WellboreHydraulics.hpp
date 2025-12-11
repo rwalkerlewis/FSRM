@@ -480,6 +480,12 @@ public:
     // Drag reduction
     void setDragReduction(double dr) { drag_reduction_ = dr; }
     
+    // Model tuning / correlation selection
+    void setFrictionCorrelation(FrictionModel::Correlation corr) { friction_model_.setCorrelation(corr); }
+    void setPerforationErosionCoefficient(double c) { perf_friction_.setErosionCoefficient(c); }
+    void setMinPerforationDischargeCoefficient(double cd) { perf_friction_.setMinDischargeCoeff(cd); }
+    void setTortuosityCoefficient(double c) { nwb_friction_.setTortuosityCoefficient(c); }
+    
 private:
     std::vector<WellboreSegment> segments_;
     WellboreCompletion completion_;

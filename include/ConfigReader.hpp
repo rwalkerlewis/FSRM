@@ -149,6 +149,21 @@ public:
         double min_bhp;
         double diameter;
         double skin;
+        
+        // Wellbore hydraulics / THP control
+        bool enable_wellbore_model = false;
+        double wellbore_depth = 0.0;               // m (measured depth)
+        double tubing_id = 0.1;                    // m
+        double tubing_roughness = 1.5e-5;          // m
+        double drag_reduction_factor = 0.0;        // 0..1
+        double wellbore_fluid_density = 1000.0;    // kg/m3
+        double wellbore_fluid_viscosity = 0.001;   // Pa-s
+        std::string friction_correlation = "HAALAND"; // HAALAND, SWAMEE_JAIN, CHEN, COLEBROOK_WHITE
+        
+        // Optional non-Newtonian (power-law) rheology
+        bool use_power_law = false;
+        double k_prime = 0.0;                      // Pa*s^n
+        double n_prime = 1.0;                      // -
     };
     
     struct FractureConfig {

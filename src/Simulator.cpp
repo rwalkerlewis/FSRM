@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <algorithm>
 
 namespace FSRM {
 
@@ -79,6 +80,78 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     if (reader.parseFluidProperties(fluid)) {
         fluid_props.clear();
         fluid_props.push_back(fluid);
+    }
+    
+    // Parse and configure wells
+    auto well_cfgs = reader.parseWells();
+    for (const auto& wc : well_cfgs) {
+        WellType wt = WellType::PRODUCER;
+        if (wc.type == "INJECTOR") wt = WellType::INJECTOR;
+        if (wc.type == "PRODUCER") wt = WellType::PRODUCER;
+        
+        ierr = addWell(wc.name, wt); CHKERRQ(ierr);
+        
+        // Find well object and configure it
+        for (auto& w : wells) {
+            if (w->getName() != wc.name) continue;
+            
+            // Basic completion (single-cell completion)
+            WellCompletion comp;
+            comp.i = wc.i;
+            comp.j = wc.j;
+            comp.k = wc.k;
+            comp.diameter = wc.diameter;
+            comp.skin_factor = wc.skin;
+            comp.is_open = true;
+            comp.well_index = 1e-12; // default; can be overridden later
+            w->addCompletion(comp);
+            
+            // Control mode
+            if (wc.control_mode == "BHP") {
+                w->setControl(WellControlMode::BHP_CONTROL, wc.target_value);
+            } else if (wc.control_mode == "THP") {
+                w->setControl(WellControlMode::THP_CONTROL, wc.target_value);
+            } else if (wc.control_mode == "RESERVOIR_VOIDAGE") {
+                w->setControl(WellControlMode::RESERVOIR_VOIDAGE, wc.target_value);
+            } else {
+                w->setControl(WellControlMode::RATE_CONTROL, wc.target_value);
+            }
+            
+            // Wellbore model (legacy toggles)
+            w->enableWellboreModel(wc.enable_wellbore_model);
+            w->setWellboreRoughness(wc.tubing_roughness);
+            w->setWellboreGeometry(wc.tubing_id * 0.5, wc.tubing_id * 0.5);
+            
+            // High-fidelity hydraulics configuration for THP/BHP conversion
+            if (wc.enable_wellbore_model) {
+                WellModel::WellboreHydraulicsOptions opts;
+                opts.measured_depth = wc.wellbore_depth;
+                opts.tubing_id = wc.tubing_id;
+                opts.roughness = wc.tubing_roughness;
+                opts.drag_reduction_factor = wc.drag_reduction_factor;
+                opts.fluid_density = wc.wellbore_fluid_density;
+                opts.fluid_viscosity = wc.wellbore_fluid_viscosity;
+                opts.use_power_law = wc.use_power_law;
+                opts.k_prime = wc.k_prime;
+                opts.n_prime = wc.n_prime;
+                
+                std::string corr = wc.friction_correlation;
+                std::transform(corr.begin(), corr.end(), corr.begin(), ::toupper);
+                if (corr == "COLEBROOK_WHITE") {
+                    opts.friction_correlation = FrictionModel::Correlation::COLEBROOK_WHITE;
+                } else if (corr == "SWAMEE_JAIN") {
+                    opts.friction_correlation = FrictionModel::Correlation::SWAMEE_JAIN;
+                } else if (corr == "CHEN") {
+                    opts.friction_correlation = FrictionModel::Correlation::CHEN;
+                } else {
+                    opts.friction_correlation = FrictionModel::Correlation::HAALAND;
+                }
+                
+                w->configureWellboreHydraulics(opts);
+            }
+            
+            break;
+        }
     }
     
     // Initialize with loaded config

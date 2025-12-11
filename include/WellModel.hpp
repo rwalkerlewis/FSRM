@@ -2,9 +2,11 @@
 #define WELL_MODEL_HPP
 
 #include "FSRM.hpp"
+#include "WellboreHydraulics.hpp"
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
 
 namespace FSRM {
 
@@ -91,6 +93,32 @@ public:
     void setWellboreGeometry(double inner_radius, double outer_radius);
     void setWellboreRoughness(double roughness);
     
+    // High-fidelity wellbore hydraulics (THP/BHP conversion and breakdown)
+    struct WellboreHydraulicsOptions {
+        double measured_depth = 0.0;                 // Total measured depth (m)
+        double tubing_id = 0.1;                      // Tubing inner diameter (m)
+        double roughness = 1.5e-5;                   // Roughness (m)
+        double drag_reduction_factor = 0.0;          // 0..1
+        
+        // Fluid properties for the wellbore model
+        double fluid_density = 1000.0;               // kg/m^3
+        double fluid_viscosity = 0.001;              // Pa*s
+        
+        // Optional power-law rheology (if enabled)
+        bool use_power_law = false;
+        double k_prime = 0.0;                        // Pa*s^n
+        double n_prime = 1.0;                        // -
+        
+        // Friction correlation (defaults to Haaland)
+        FrictionModel::Correlation friction_correlation =
+            FrictionModel::Correlation::HAALAND;
+    };
+    
+    void configureWellboreHydraulics(const WellboreHydraulicsOptions& options);
+    double computeBHPFromTHP(double thp, double rate) const;
+    double computeTHPFromBHP(double bhp_in, double rate) const;
+    std::map<std::string, double> computeWellborePressureBreakdown(double thp, double rate) const;
+    
     // Drift flux model for multiphase flow in wellbore
     void computeWellborePressureDrop(const std::vector<double>& phase_rates,
                                     double depth_interval,
@@ -126,6 +154,11 @@ protected:
     double wellbore_inner_radius;
     double wellbore_outer_radius;
     double wellbore_roughness;
+    
+    // Optional high-fidelity wellbore hydraulics engine
+    bool use_wellbore_hydraulics_ = false;
+    WellboreHydraulicsOptions wellbore_hydraulics_options_;
+    mutable std::unique_ptr<WellboreHydraulicsCalculator> wellbore_hydraulics_;
     
     // Performance data
     double total_rate;

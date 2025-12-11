@@ -143,6 +143,93 @@ void WellModel::setWellboreRoughness(double roughness) {
     wellbore_roughness = roughness;
 }
 
+void WellModel::configureWellboreHydraulics(const WellboreHydraulicsOptions& options) {
+    wellbore_hydraulics_options_ = options;
+    use_wellbore_hydraulics_ = true;
+    
+    // Lazily (re)build a simple vertical wellbore from surface to MD.
+    if (!wellbore_hydraulics_) {
+        wellbore_hydraulics_ = std::make_unique<WellboreHydraulicsCalculator>();
+    }
+    
+    // Configure correlation and drag reduction.
+    wellbore_hydraulics_->setFrictionCorrelation(options.friction_correlation);
+    wellbore_hydraulics_->setDragReduction(options.drag_reduction_factor);
+    
+    const double md_total = std::max(0.0, options.measured_depth);
+    const double d = std::max(1e-6, options.tubing_id);
+    
+    // Build a 2-point survey: straight vertical well (inc=0) with constant diameter.
+    std::vector<double> md = {0.0, md_total};
+    std::vector<double> inc = {0.0, 0.0};
+    std::vector<double> azi = {0.0, 0.0};
+    std::vector<double> diam = {d, d};
+    
+    wellbore_hydraulics_->buildFromSurvey(md, inc, azi, diam, options.roughness);
+}
+
+double WellModel::computeBHPFromTHP(double thp, double rate) const {
+    if (!use_wellbore_hydraulics_ || !wellbore_hydraulics_) {
+        // Fallback: no wellbore model, THP ~ BHP
+        return thp;
+    }
+    
+    const auto& o = wellbore_hydraulics_options_;
+    const double q = std::abs(rate);
+    
+    // If no flow, only hydrostatic head matters; calculator handles this.
+    const auto profile = wellbore_hydraulics_->calculatePressureProfile(
+        thp, q, o.fluid_density, o.fluid_viscosity,
+        o.use_power_law ? o.k_prime : 0.0,
+        o.use_power_law ? o.n_prime : 1.0
+    );
+    
+    if (profile.empty()) return thp;
+    return profile.back();
+}
+
+double WellModel::computeTHPFromBHP(double bhp_in, double rate) const {
+    if (!use_wellbore_hydraulics_ || !wellbore_hydraulics_) {
+        return bhp_in;
+    }
+    
+    const auto& o = wellbore_hydraulics_options_;
+    const double q = std::abs(rate);
+    
+    // Compute dp_total by running profile from 0 surface pressure.
+    (void)wellbore_hydraulics_->calculatePressureProfile(
+        0.0, q, o.fluid_density, o.fluid_viscosity,
+        o.use_power_law ? o.k_prime : 0.0,
+        o.use_power_law ? o.n_prime : 1.0
+    );
+    
+    const auto breakdown = wellbore_hydraulics_->getPressureBreakdown();
+    const double dp_total =
+        (breakdown.count("hydrostatic") ? breakdown.at("hydrostatic") : 0.0) +
+        (breakdown.count("friction") ? breakdown.at("friction") : 0.0) +
+        (breakdown.count("perforations") ? breakdown.at("perforations") : 0.0) +
+        (breakdown.count("near_wellbore") ? breakdown.at("near_wellbore") : 0.0);
+    
+    return bhp_in - dp_total;
+}
+
+std::map<std::string, double> WellModel::computeWellborePressureBreakdown(double thp, double rate) const {
+    if (!use_wellbore_hydraulics_ || !wellbore_hydraulics_) {
+        return {};
+    }
+    
+    const auto& o = wellbore_hydraulics_options_;
+    const double q = std::abs(rate);
+    
+    (void)wellbore_hydraulics_->calculatePressureProfile(
+        thp, q, o.fluid_density, o.fluid_viscosity,
+        o.use_power_law ? o.k_prime : 0.0,
+        o.use_power_law ? o.n_prime : 1.0
+    );
+    
+    return wellbore_hydraulics_->getPressureBreakdown();
+}
+
 void WellModel::computeWellborePressureDrop(const std::vector<double>& phase_rates,
                                             double depth_interval,
                                             double& dp) const {
@@ -154,26 +241,40 @@ void WellModel::computeWellborePressureDrop(const std::vector<double>& phase_rat
         total_rate += rate;
     }
     
-    // Hydrostatic component
-    double rho_avg = 1000.0;  // Average mixture density
-    double g = 9.81;
-    double dp_hydrostatic = rho_avg * g * depth_interval;
+    // Hydrostatic component (positive with increasing depth)
+    const double rho = (use_wellbore_hydraulics_ ? wellbore_hydraulics_options_.fluid_density : 1000.0);
+    const double mu = (use_wellbore_hydraulics_ ? wellbore_hydraulics_options_.fluid_viscosity : 0.001);
+    const double g = 9.80665;
+    const double dp_hydrostatic = rho * g * depth_interval;
     
-    // Frictional component (Darcy-Weisbach)
-    double velocity = total_rate / (M_PI * wellbore_inner_radius * wellbore_inner_radius);
-    double mu_avg = 0.001;  // Average viscosity
-    double Re = rho_avg * velocity * 2.0 * wellbore_inner_radius / mu_avg;
-    
-    double friction_factor = 64.0 / Re;  // Laminar flow
-    if (Re > 2300.0) {
-        // Turbulent: Colebrook-White
-        double relative_roughness = wellbore_roughness / (2.0 * wellbore_inner_radius);
-        friction_factor = std::pow(1.0 / (-2.0 * std::log10(relative_roughness / 3.7 + 
-                                    5.74 / std::pow(Re, 0.9))), 2.0);
+    // Frictional component (Darcy-Weisbach / Fanning internally via FrictionModel)
+    double dp_friction = 0.0;
+    if (total_rate > 0.0 && wellbore_inner_radius > 0.0 && rho > 0.0 && mu > 0.0) {
+        const double area = M_PI * wellbore_inner_radius * wellbore_inner_radius;
+        const double velocity = total_rate / area;
+        
+        FrictionModel fm;
+        if (use_wellbore_hydraulics_) {
+            fm.setCorrelation(wellbore_hydraulics_options_.friction_correlation);
+        }
+        
+        const double diameter = 2.0 * wellbore_inner_radius;
+        double grad = 0.0;
+        if (use_wellbore_hydraulics_ && wellbore_hydraulics_options_.use_power_law) {
+            grad = fm.powerLawFrictionGradient(velocity, rho,
+                                               wellbore_hydraulics_options_.k_prime,
+                                               wellbore_hydraulics_options_.n_prime,
+                                               diameter, wellbore_roughness);
+        } else {
+            grad = fm.newtonianFrictionGradient(velocity, rho, mu, diameter, wellbore_roughness);
+        }
+        
+        if (use_wellbore_hydraulics_) {
+            grad = fm.applyDragReduction(grad, wellbore_hydraulics_options_.drag_reduction_factor);
+        }
+        
+        dp_friction = grad * depth_interval;
     }
-    
-    double dp_friction = friction_factor * rho_avg * velocity * velocity * 
-                        depth_interval / (2.0 * 2.0 * wellbore_inner_radius);
     
     dp = dp_hydrostatic + dp_friction;
 }
