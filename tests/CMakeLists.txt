@@ -18,6 +18,9 @@ set(UNIT_TEST_SOURCES
     unit/test_eclipse_io.cpp
     unit/test_fluid_model.cpp
     unit/test_material_model.cpp
+    unit/test_near_field_explosion.cpp
+    unit/test_atmospheric_explosion.cpp
+    unit/test_radiation_physics.cpp
     # unit/test_discontinuous_galerkin.cpp  # Disabled: API mismatch
     unit/test_seismic_source.cpp
     unit/test_boundary_conditions.cpp
@@ -219,6 +222,12 @@ if(GTest_FOUND)
         COMMAND run_unit_tests --gtest_filter=*SeismicSource*.*:*MomentTensor*.*:*Receiver*.*)
     add_test(NAME Unit.BoundaryConditions
         COMMAND run_unit_tests --gtest_filter=*BoundaryCondition*.*)
+    add_test(NAME Unit.NuclearNearField
+        COMMAND run_unit_tests --gtest_filter=NearFieldExplosionTest.*:ShockAttenuationModelTest.*:RDPSeismicSourceTest.*:NearFieldExplosionConfigTest.*)
+    add_test(NAME Unit.NuclearAtmospheric
+        COMMAND run_unit_tests --gtest_filter=AtmosphericExplosionTest.*:AtmosphericExplosionConfigTest.*)
+    add_test(NAME Unit.NuclearRadiation
+        COMMAND run_unit_tests --gtest_filter=RadiationPhysicsTest.*:RadiationPhysicsConfigTest.*)
     add_test(NAME Unit.PlasticityModel
         COMMAND run_unit_tests --gtest_filter=*Plasticity*.*:*DruckerPrager*.*:*VonMises*.*)
     add_test(NAME Unit.ViscoelasticAttenuation
@@ -308,6 +317,9 @@ if(GTest_FOUND)
         Unit.DiscontinuousGalerkin
         Unit.SeismicSource
         Unit.BoundaryConditions
+        Unit.NuclearNearField
+        Unit.NuclearAtmospheric
+        Unit.NuclearRadiation
         Unit.PlasticityModel
         Unit.ViscoelasticAttenuation
         Unit.FrictionLaws
