@@ -470,6 +470,26 @@ mpirun -np 4 fsrm -c config/underground_nuclear_test_1kt_shallow.config
 mpirun -np 8 fsrm -c config/underground_nuclear_test_decoupled_salt_10kt.config
 ```
 
+#### Historical-inspired geology + geography (Gmsh + CRS)
+
+These configs emphasize **site geology** (layered materials) and **geographic CRS**
+handling (WGS84 lon/lat → UTM/local meters), suitable as bases for historically
+anchored scenarios:
+
+```bash
+# Gasbuggy-style layered site model (Gmsh physical volumes + CRS transform)
+mpirun -np 4 fsrm -c config/historical_gasbuggy_1967_site_geology_gmsh.config
+
+# Gnome-style salt host model (Gmsh physical volume + CRS transform)
+mpirun -np 4 fsrm -c config/historical_gnome_1961_site_geology_salt_gmsh.config
+
+# Sedan-style near-surface alluvium+tuff model (Gmsh + CRS)
+mpirun -np 4 fsrm -c config/historical_sedan_1962_site_geology_cratering.config
+
+# Starfish-Prime-style high-altitude EMP context (geographic CRS + EMP knobs)
+mpirun -np 64 fsrm -c config/historical_starfish_prime_1962_high_altitude_emp.config
+```
+
 ### Example 2: Atmospheric Detonation
 
 ```bash

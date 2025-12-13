@@ -620,6 +620,10 @@ Configuration files define all simulation parameters:
 | `config/underground_explosion_near_field.config` | **Near-field underground explosion** |
 | `config/underground_explosion_near_field_1kt_shallow.config` | **Near-field underground explosion (1 kt shallow)** |
 | `config/underground_explosion_near_field_decoupled_salt_10kt.config` | **Near-field underground explosion (decoupled salt cavity)** |
+| `config/historical_gasbuggy_1967_site_geology_gmsh.config` | **Gasbuggy-inspired layered geology + CRS (Gmsh mesh)** |
+| `config/historical_gnome_1961_site_geology_salt_gmsh.config` | **Gnome-inspired salt geology + CRS (Gmsh mesh)** |
+| `config/historical_sedan_1962_site_geology_cratering.config` | **Sedan-inspired alluvium+tuff site model + CRS (Gmsh mesh)** |
+| `config/historical_starfish_prime_1962_high_altitude_emp.config` | **Starfish-Prime-inspired EMP scenario (geographic context)** |
 | `config/buckley_leverett_2d.config` | 2D waterflooding with Buckley-Leverett |
 | `config/coupled_reservoir_2d.config` | Coupled flow-geomechanics |
 | `config/spe1_benchmark.config` | SPE1 benchmark problem |
