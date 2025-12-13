@@ -623,6 +623,9 @@ public:
     void updateWithCascade(double sxx, double syy, double szz,
                           double sxy, double sxz, double syz,
                           double pore_pressure, double shear_modulus, double dt);
+
+    // Enable/disable stress-transfer cascades (used by updateWithCascade)
+    void enableStressTransfer(bool enable) { use_stress_transfer = enable; }
     
     // Access faults
     SeismicFaultModel* getFault(size_t index);

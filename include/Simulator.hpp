@@ -113,6 +113,25 @@ private:
     std::unique_ptr<ImplicitExplicitTransitionManager> imex_manager;
     ConfigReader::IMEXConfig imex_config;
     
+    // Seismicity / fault network configuration (optional)
+    ConfigReader::SeismicityConfig seismicity_config_;
+    std::string seismic_catalog_file_;
+
+    // Synthetic "nuclear trigger" stress pulse (optional, for historical nuclear test demos)
+    bool nuclear_trigger_enabled_ = false;
+    double nuclear_trigger_time0_ = 10.0;
+    double nuclear_trigger_rise_ = 0.5;
+    double nuclear_trigger_decay_ = 60.0;
+    double nuclear_trigger_dsigma_ = 0.0;
+    double nuclear_trigger_dtau_ = 2.0e6;
+    double nuclear_trigger_dpore_ = 0.0;
+    double last_fault_update_time_ = -1.0;
+
+    // Estimated velocity for IMEX monitor (finite difference)
+    Vec solution_prev_ = nullptr;
+    Vec velocity_est_ = nullptr;
+    double prev_time_ = 0.0;
+    
     // Fault models for induced seismicity
     std::unique_ptr<FaultNetwork> fault_network;
     

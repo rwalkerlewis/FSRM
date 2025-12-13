@@ -26,6 +26,8 @@ Simulator::Simulator(MPI_Comm comm_in)
 Simulator::~Simulator() {
     if (solution) VecDestroy(&solution);
     if (solution_old) VecDestroy(&solution_old);
+    if (solution_prev_) VecDestroy(&solution_prev_);
+    if (velocity_est_) VecDestroy(&velocity_est_);
     if (jacobian) MatDestroy(&jacobian);
     if (ts) TSDestroy(&ts);
     if (dm) DMDestroy(&dm);
@@ -80,6 +82,36 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     if (reader.parseFluidProperties(fluid)) {
         fluid_props.clear();
         fluid_props.push_back(fluid);
+    }
+
+    // Parse fault network (for induced seismicity / IMEX)
+    if (config.enable_faults) {
+        fault_network = reader.parseFaultNetwork();
+    }
+
+    // Parse IMEX configuration (if present)
+    ConfigReader::IMEXConfig imex_cfg;
+    if (reader.parseIMEXConfig(imex_cfg) && imex_cfg.enabled) {
+        // IMEX manager is configured later after TS/DM exist; we only store for now.
+        imex_config = imex_cfg;
+    }
+
+    // Parse seismicity config and catalog path (optional)
+    ConfigReader::SeismicityConfig seis_cfg;
+    if (reader.parseSeismicityConfig(seis_cfg)) {
+        seismicity_config_ = seis_cfg;
+        seismic_catalog_file_ = reader.getString("SEISMICITY", "catalog_file", "");
+    }
+
+    // Optional synthetic stress pulse to emulate an underground nuclear test trigger
+    if (reader.hasSection("NUCLEAR_TRIGGER")) {
+        nuclear_trigger_enabled_ = reader.getBool("NUCLEAR_TRIGGER", "enabled", true);
+        nuclear_trigger_time0_ = reader.getDouble("NUCLEAR_TRIGGER", "time0", 10.0);
+        nuclear_trigger_rise_ = reader.getDouble("NUCLEAR_TRIGGER", "rise_time", 0.5);
+        nuclear_trigger_decay_ = reader.getDouble("NUCLEAR_TRIGGER", "decay_time", 60.0);
+        nuclear_trigger_dsigma_ = reader.getDouble("NUCLEAR_TRIGGER", "delta_sigma_n", 0.0);
+        nuclear_trigger_dtau_ = reader.getDouble("NUCLEAR_TRIGGER", "delta_tau", 2.0e6);
+        nuclear_trigger_dpore_ = reader.getDouble("NUCLEAR_TRIGGER", "delta_pore_pressure", 0.0);
     }
     
     // Parse and configure wells
@@ -312,12 +344,30 @@ PetscErrorCode Simulator::setupGmshGrid() {
     if (!gmsh_io->validate()) {
         SETERRQ(comm, PETSC_ERR_ARG_WRONG, "Gmsh mesh validation failed");
     }
-    
-    // Create DMPlex from Gmsh mesh
-    if (grid_config.gmsh_boundaries.empty()) {
-        ierr = gmsh_io->createDMPlex(comm, &dm); CHKERRQ(ierr);
+
+    // Configure domain mappings (materials / faults / boundaries) if provided.
+    // Note: mappings are parsed into grid_config by ConfigReader::parseGridConfig().
+    bool have_mappings = !grid_config.gmsh_material_domains.empty() || !grid_config.gmsh_fault_surfaces.empty();
+    if (have_mappings) {
+        for (const auto& [physical_group, material_section] : grid_config.gmsh_material_domains) {
+            gmsh_io->addMaterialMapping(physical_group, material_section);
+        }
+        for (const auto& [physical_group, fault_section, use_split] : grid_config.gmsh_fault_surfaces) {
+            gmsh_io->addFaultMapping(physical_group, fault_section, use_split);
+        }
+    }
+    if (!grid_config.gmsh_boundaries.empty()) {
+        gmsh_io->setBoundaryNames(grid_config.gmsh_boundaries);
+        have_mappings = true;
+    }
+
+    if (have_mappings) {
+        if (!gmsh_io->processDomains()) {
+            SETERRQ(comm, PETSC_ERR_ARG_WRONG, "Failed to process Gmsh domain mappings");
+        }
+        ierr = gmsh_io->createDMPlexFull(comm, &dm); CHKERRQ(ierr);
     } else {
-        ierr = gmsh_io->createDMPlexWithBoundaries(comm, &dm, grid_config.gmsh_boundaries); CHKERRQ(ierr);
+        ierr = gmsh_io->createDMPlex(comm, &dm); CHKERRQ(ierr);
     }
     
     // Update grid config with actual mesh dimensions
@@ -655,8 +705,18 @@ PetscErrorCode Simulator::setupTimeStepper() {
     ierr = TSSetIFunction(ts, nullptr, FormFunction, this); CHKERRQ(ierr);
     ierr = TSSetIJacobian(ts, nullptr, nullptr, FormJacobian, this); CHKERRQ(ierr);
     
-    // Set monitor
+    // Set monitor (may be overridden by IMEX setup, see below)
     ierr = TSMonitorSet(ts, MonitorFunction, this, nullptr); CHKERRQ(ierr);
+
+    // If IMEX was configured during config parsing, initialize it now (TS/DM exist).
+    if (imex_config.enabled) {
+        ierr = setupIMEXTransition(imex_config); CHKERRQ(ierr);
+        // IMEX setup registers its own monitor; restore our monitor so we can:
+        // - write outputs
+        // - update fault network
+        // - call imex_manager->checkAndTransition() ourselves
+        ierr = TSMonitorSet(ts, MonitorFunction, this, nullptr); CHKERRQ(ierr);
+    }
     
     // Set from options
     ierr = TSSetFromOptions(ts); CHKERRQ(ierr);
@@ -996,6 +1056,91 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
     if (step % sim->config.output_frequency == 0) {
         ierr = sim->writeOutput(step); CHKERRQ(ierr);
     }
+
+    // Estimate velocity from finite difference (needed by IMEX manager)
+    if (sim->imex_manager) {
+        if (!sim->solution_prev_) {
+            ierr = VecDuplicate(U, &sim->solution_prev_); CHKERRQ(ierr);
+            ierr = VecCopy(U, sim->solution_prev_); CHKERRQ(ierr);
+            sim->prev_time_ = static_cast<double>(t);
+        } else {
+            double dt = static_cast<double>(t) - sim->prev_time_;
+            if (dt <= 0.0) dt = sim->config.dt_initial;
+            if (!sim->velocity_est_) {
+                ierr = VecDuplicate(U, &sim->velocity_est_); CHKERRQ(ierr);
+            }
+            // velocity_est = (U - U_prev) / dt
+            ierr = VecCopy(U, sim->velocity_est_); CHKERRQ(ierr);
+            ierr = VecAXPY(sim->velocity_est_, -1.0, sim->solution_prev_); CHKERRQ(ierr);
+            ierr = VecScale(sim->velocity_est_, 1.0 / dt); CHKERRQ(ierr);
+            ierr = VecCopy(U, sim->solution_prev_); CHKERRQ(ierr);
+            sim->prev_time_ = static_cast<double>(t);
+        }
+    }
+
+    // Update fault network with a simplified background stress + optional nuclear trigger pulse.
+    if (sim->fault_network && sim->seismicity_config_.enable_seismicity) {
+        double dt = sim->config.dt_initial;
+        if (sim->last_fault_update_time_ >= 0.0) {
+            dt = static_cast<double>(t) - sim->last_fault_update_time_;
+            if (dt <= 0.0) dt = sim->config.dt_initial;
+        }
+        sim->last_fault_update_time_ = static_cast<double>(t);
+
+        // Background stress model: simple lithostatic + horizontal ratio.
+        const double rho = 2700.0;
+        const double g = 9.81;
+        // Use median fault depth if available
+        double depth = 3000.0;
+        if (sim->fault_network->numFaults() > 0) {
+            auto* f0 = sim->fault_network->getFault(0);
+            if (f0) depth = std::max(1.0, f0->getGeometry().z);
+        }
+        const double szz = rho * g * depth;          // Pa
+        const double k0 = 0.7;                       // Shmin/Shv ratio (typical)
+        const double sxx = k0 * szz;
+        const double syy = k0 * szz;
+
+        double sxy = 0.0, sxz = 0.0, syz = 0.0;
+        double pore = 0.0;
+
+        // Optional nuclear trigger pulse: apply a transient shear/normal stress change.
+        if (sim->nuclear_trigger_enabled_) {
+            const double tt = static_cast<double>(t);
+            const double t0 = sim->nuclear_trigger_time0_;
+            if (tt >= t0) {
+                const double tr = std::max(1e-6, sim->nuclear_trigger_rise_);
+                const double td = std::max(1e-6, sim->nuclear_trigger_decay_);
+                // Smooth rise then exponential decay
+                double rise = 1.0 - std::exp(-(tt - t0) / tr);
+                double decay = std::exp(-(tt - t0) / td);
+                double amp = rise * decay;
+                // Apply as shear stress on xz component (illustrative)
+                sxz += amp * sim->nuclear_trigger_dtau_;
+                // Apply as normal stress change on vertical (illustrative)
+                // Positive = more compression; negative could unclamp
+                // Here we use the provided delta_sigma_n directly.
+                // (Applied to szz as simplest proxy.)
+                (void)szz;
+                pore += amp * sim->nuclear_trigger_dpore_;
+                // Note: delta_sigma_n is not directly applied to full tensor here;
+                // it is available for future extensions.
+            }
+        }
+
+        const double shear_modulus = 30.0e9;  // Pa (order-of-magnitude)
+        if (sim->seismicity_config_.enable_stress_transfer) {
+            sim->fault_network->enableStressTransfer(true);
+            sim->fault_network->updateWithCascade(sxx, syy, szz, sxy, sxz, syz, pore, shear_modulus, dt);
+        } else {
+            sim->fault_network->update(sxx, syy, szz, sxy, sxz, syz, pore, shear_modulus, dt);
+        }
+    }
+
+    // Let IMEX manager check for transitions (requires a velocity vector)
+    if (sim->imex_manager && sim->velocity_est_) {
+        ierr = sim->imex_manager->checkAndTransition(U, sim->velocity_est_, static_cast<double>(t)); CHKERRQ(ierr);
+    }
     
     PetscFunctionReturn(0);
 }
@@ -1084,6 +1229,25 @@ PetscErrorCode Simulator::writeSummary() {
         summary << "Total timesteps: " << timestep << "\n";
         summary << "Final time: " << current_time << "\n";
         summary.close();
+    }
+
+    // Write seismic catalog if requested and events exist
+    if (rank == 0 && fault_network && !seismic_catalog_file_.empty()) {
+        std::ofstream cat(seismic_catalog_file_);
+        cat << "time_s,magnitude,moment_Nm,slip_m,stress_drop_Pa,duration_s,area_m2,x_m,y_m,z_m,type\n";
+        for (const auto& ev : fault_network->getAllEvents()) {
+            cat << ev.time << ","
+                << ev.magnitude << ","
+                << ev.moment << ","
+                << ev.slip << ","
+                << ev.stress_drop << ","
+                << ev.duration << ","
+                << ev.area << ","
+                << ev.x << ","
+                << ev.y << ","
+                << ev.z << ","
+                << ev.type << "\n";
+        }
     }
     
     PetscFunctionReturn(0);

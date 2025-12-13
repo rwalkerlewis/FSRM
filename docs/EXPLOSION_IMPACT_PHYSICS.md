@@ -488,6 +488,9 @@ mpirun -np 4 fsrm -c config/historical_sedan_1962_site_geology_cratering.config
 
 # Starfish-Prime-style high-altitude EMP context (geographic CRS + EMP knobs)
 mpirun -np 64 fsrm -c config/historical_starfish_prime_1962_high_altitude_emp.config
+
+# Faultless-style nearby fault network + induced seismicity trigger (Gmsh faults + IMEX)
+mpirun -np 4 fsrm -c config/historical_faultless_1968_fault_network_induced_seismicity.config
 ```
 
 ### Example 2: Atmospheric Detonation

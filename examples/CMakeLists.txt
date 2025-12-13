@@ -239,6 +239,7 @@ message(STATUS "  - historical_gasbuggy_1967_site_geology_gmsh.config (Gasbuggy 
 message(STATUS "  - historical_gnome_1961_site_geology_salt_gmsh.config (Gnome salt site geology + CRS)")
 message(STATUS "  - historical_sedan_1962_site_geology_cratering.config (Sedan site geology + CRS)")
 message(STATUS "  - historical_starfish_prime_1962_high_altitude_emp.config (Starfish Prime context)")
+message(STATUS "  - historical_faultless_1968_fault_network_induced_seismicity.config (Faultless fault network + induced seismicity)")
 message(STATUS "  - impact_event.config                    (asteroid impact)")
 message(STATUS "  Features: cavity formation, damage zones, spall, seismic source")
 message(STATUS "  References: CRAM3D methodology, NTS empirical relations")

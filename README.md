@@ -624,6 +624,7 @@ Configuration files define all simulation parameters:
 | `config/historical_gnome_1961_site_geology_salt_gmsh.config` | **Gnome-inspired salt geology + CRS (Gmsh mesh)** |
 | `config/historical_sedan_1962_site_geology_cratering.config` | **Sedan-inspired alluvium+tuff site model + CRS (Gmsh mesh)** |
 | `config/historical_starfish_prime_1962_high_altitude_emp.config` | **Starfish-Prime-inspired EMP scenario (geographic context)** |
+| `config/historical_faultless_1968_fault_network_induced_seismicity.config` | **Faultless-inspired fault network + induced seismicity trigger (Gmsh + IMEX)** |
 | `config/buckley_leverett_2d.config` | 2D waterflooding with Buckley-Leverett |
 | `config/coupled_reservoir_2d.config` | Coupled flow-geomechanics |
 | `config/spe1_benchmark.config` | SPE1 benchmark problem |
