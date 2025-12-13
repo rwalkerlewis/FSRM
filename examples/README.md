@@ -607,6 +607,10 @@ mpirun -np 8 ./pinatubo_plinian -vei 6 -end_time 36000
 # Larger yield with detailed damage
 ./underground_explosion_near_field -yield 10.0 -depth 500 -detailed
 
+# Config-driven near-field setups (the example accepts an optional config file)
+./underground_explosion_near_field config/underground_explosion_near_field_1kt_shallow.config
+./underground_explosion_near_field config/underground_explosion_near_field_decoupled_salt_10kt.config
+
 # Generate seismograms for monitoring stations
 ./underground_explosion_near_field -yield 5.0 -stations IMS
 ```

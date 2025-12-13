@@ -460,6 +460,16 @@ mpirun -np 16 fsrm -c config/underground_nuclear_test.config
 # - mb/Ms discrimination ratios
 ```
 
+#### Variants (additional nuclear test example configs)
+
+```bash
+# Low-yield, shallow burial (monitoring/discrimination workflow demo)
+mpirun -np 4 fsrm -c config/underground_nuclear_test_1kt_shallow.config
+
+# Decoupled / weakly coupled salt-cavity scenario (lower coupling for given yield)
+mpirun -np 8 fsrm -c config/underground_nuclear_test_decoupled_salt_10kt.config
+```
+
 ### Example 2: Atmospheric Detonation
 
 ```bash
@@ -472,6 +482,16 @@ mpirun -np 64 fsrm -c config/atmospheric_nuclear_test.config
 # - Prompt radiation doses
 # - EMP field time histories
 # - Fallout patterns (if surface burst)
+```
+
+#### Variants (additional atmospheric nuclear example configs)
+
+```bash
+# Surface burst emphasizing fallout + deposition mapping
+mpirun -np 32 fsrm -c config/atmospheric_nuclear_test_surface_fallout_50kt.config
+
+# High-altitude burst emphasizing EMP + ionospheric effects
+mpirun -np 64 fsrm -c config/atmospheric_nuclear_test_high_altitude_emp_1400kt.config
 ```
 
 ### Example 3: Asteroid Impact
