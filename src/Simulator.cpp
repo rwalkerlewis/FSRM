@@ -5,8 +5,325 @@
 #include "ExplosionImpactPhysics.hpp"
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
+#include <limits>
+
+namespace {
+
+struct GmshPhysicalName {
+    int dim = -1;
+    int tag = -1;
+    std::string name;
+};
+
+// Parse only the $PhysicalNames section from a .msh file.
+// This works for both ASCII and binary Gmsh meshes because the header sections are ASCII.
+static std::unordered_map<std::string, GmshPhysicalName>
+parseGmshPhysicalNames(const std::string& filename) {
+    std::unordered_map<std::string, GmshPhysicalName> out;
+
+    std::ifstream file(filename, std::ios::in | std::ios::binary);
+    if (!file.is_open()) return out;
+
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line != "$PhysicalNames") continue;
+
+        // Next line: number of physical names
+        if (!std::getline(file, line)) break;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        int n = 0;
+        {
+            std::istringstream iss(line);
+            iss >> n;
+        }
+
+        for (int i = 0; i < n; ++i) {
+            if (!std::getline(file, line)) break;
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+
+            std::istringstream iss(line);
+            int dim = -1, tag = -1;
+            iss >> dim >> tag;
+
+            // The rest of the line is the quoted name; allow spaces.
+            std::string rest;
+            std::getline(iss, rest);
+            auto q0 = rest.find('"');
+            auto q1 = rest.rfind('"');
+            std::string name;
+            if (q0 != std::string::npos && q1 != std::string::npos && q1 > q0) {
+                name = rest.substr(q0 + 1, q1 - q0 - 1);
+            } else {
+                // Fallback: third token as name (may still be quoted)
+                std::istringstream iss2(line);
+                std::string nameTok;
+                iss2 >> dim >> tag >> nameTok;
+                if (!nameTok.empty() && nameTok.front() == '"') nameTok.erase(nameTok.begin());
+                if (!nameTok.empty() && nameTok.back() == '"') nameTok.pop_back();
+                name = nameTok;
+            }
+
+            if (!name.empty()) out[name] = GmshPhysicalName{dim, tag, name};
+        }
+
+        // Consume until end marker, then stop scanning to avoid hitting binary blocks.
+        while (std::getline(file, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line == "$EndPhysicalNames") break;
+        }
+        break;
+    }
+
+    return out;
+}
+
+static PetscErrorCode computeDMBoundingBox(MPI_Comm comm, DM dm, std::array<double, 3>& bmin, std::array<double, 3>& bmax) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    bmin = {std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::max()};
+    bmax = {std::numeric_limits<double>::lowest(),
+            std::numeric_limits<double>::lowest(),
+            std::numeric_limits<double>::lowest()};
+
+    PetscInt cdim = 0;
+    ierr = DMGetCoordinateDim(dm, &cdim); CHKERRQ(ierr);
+    if (cdim <= 0) PetscFunctionReturn(0);
+
+    Vec coords = nullptr;
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    if (!coords) {
+        ierr = DMGetCoordinates(dm, &coords); CHKERRQ(ierr);
+    }
+    if (!coords) PetscFunctionReturn(0);
+
+    PetscSection csec = nullptr;
+    ierr = DMGetCoordinateSection(dm, &csec); CHKERRQ(ierr);
+    if (!csec) PetscFunctionReturn(0);
+
+    PetscInt vStart = 0, vEnd = 0;
+    ierr = DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd); CHKERRQ(ierr);
+
+    const PetscScalar* a = nullptr;
+    ierr = VecGetArrayRead(coords, &a); CHKERRQ(ierr);
+    for (PetscInt v = vStart; v < vEnd; ++v) {
+        PetscInt dof = 0, off = 0;
+        ierr = PetscSectionGetDof(csec, v, &dof); CHKERRQ(ierr);
+        if (dof <= 0) continue;
+        ierr = PetscSectionGetOffset(csec, v, &off); CHKERRQ(ierr);
+        for (PetscInt d = 0; d < std::min<PetscInt>(cdim, 3); ++d) {
+            double x = static_cast<double>(a[off + d]);
+            bmin[d] = std::min(bmin[d], x);
+            bmax[d] = std::max(bmax[d], x);
+        }
+        if (cdim < 3) {
+            for (PetscInt d = cdim; d < 3; ++d) {
+                bmin[d] = std::min(bmin[d], 0.0);
+                bmax[d] = std::max(bmax[d], 0.0);
+            }
+        }
+    }
+    ierr = VecRestoreArrayRead(coords, &a); CHKERRQ(ierr);
+
+    // Reduce across ranks
+    double gmin[3] = {bmin[0], bmin[1], bmin[2]};
+    double gmax[3] = {bmax[0], bmax[1], bmax[2]};
+    MPI_Allreduce(MPI_IN_PLACE, gmin, 3, MPI_DOUBLE, MPI_MIN, comm);
+    MPI_Allreduce(MPI_IN_PLACE, gmax, 3, MPI_DOUBLE, MPI_MAX, comm);
+    bmin = {gmin[0], gmin[1], gmin[2]};
+    bmax = {gmax[0], gmax[1], gmax[2]};
+
+    PetscFunctionReturn(0);
+}
+
+static PetscErrorCode applyGmshNameMappingsToDM(
+    MPI_Comm comm,
+    DM dm,
+    const std::unordered_map<std::string, GmshPhysicalName>& physicalNames,
+    const std::vector<std::pair<std::string, std::string>>& materialMappings,
+    const std::vector<std::tuple<std::string, std::string, bool>>& faultMappings,
+    const std::vector<std::string>& boundaryNames
+) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    struct NamedLabel {
+        std::string name;
+        DMLabel label = nullptr;
+    };
+
+    // Collect DM labels (prefer PETSc's "* Sets" labels; avoid generic labels like "depth").
+    PetscInt nlabels = 0;
+    ierr = DMGetNumLabels(dm, &nlabels); CHKERRQ(ierr);
+    std::vector<NamedLabel> labels;
+    labels.reserve(static_cast<size_t>(std::max<PetscInt>(0, nlabels)));
+    for (PetscInt i = 0; i < nlabels; ++i) {
+        const char* lname = nullptr;
+        DMLabel lbl = nullptr;
+        ierr = DMGetLabelName(dm, i, &lname); CHKERRQ(ierr);
+        if (!lname) continue;
+        ierr = DMGetLabel(dm, lname, &lbl); CHKERRQ(ierr);
+        if (!lbl) continue;
+
+        std::string n(lname);
+        // Skip labels that are not physical-group markers.
+        if (n == "depth" || n == "celltype" || n == "Material" || n == "Boundary" || n == "Fault") continue;
+        labels.push_back(NamedLabel{n, lbl});
+    }
+
+    auto findPhysicalTag = [&](const std::string& group) -> int {
+        auto it = physicalNames.find(group);
+        if (it == physicalNames.end()) return -1;
+        return it->second.tag;
+    };
+
+    // Build mapping tables keyed by Gmsh physical tag.
+    std::unordered_map<int, int> physTagToMaterialId;
+    std::unordered_set<int> materialPhysTags;
+    {
+        int nextId = 0;
+        for (const auto& [group, materialSection] : materialMappings) {
+            (void)materialSection; // material section is stored elsewhere; here we only label numeric IDs
+            int tag = findPhysicalTag(group);
+            if (tag < 0) {
+                PetscPrintf(comm, "Warning: material physical group '%s' not found in $PhysicalNames\n", group.c_str());
+                continue;
+            }
+            if (!physTagToMaterialId.count(tag)) {
+                physTagToMaterialId[tag] = nextId++;
+            }
+            materialPhysTags.insert(tag);
+        }
+    }
+
+    std::unordered_map<int, int> physTagToFaultId;
+    std::unordered_set<int> faultPhysTags;
+    {
+        int nextId = 0;
+        for (const auto& tup : faultMappings) {
+            const auto& group = std::get<0>(tup);
+            int tag = findPhysicalTag(group);
+            if (tag < 0) {
+                PetscPrintf(comm, "Warning: fault physical group '%s' not found in $PhysicalNames\n", group.c_str());
+                continue;
+            }
+            if (!physTagToFaultId.count(tag)) {
+                physTagToFaultId[tag] = nextId++;
+            }
+            faultPhysTags.insert(tag);
+        }
+    }
+
+    std::unordered_map<int, int> physTagToBoundaryId;
+    std::unordered_set<int> boundaryPhysTags;
+    {
+        int nextId = 0;
+        for (const auto& group : boundaryNames) {
+            int tag = findPhysicalTag(group);
+            if (tag < 0) {
+                PetscPrintf(comm, "Warning: boundary physical group '%s' not found in $PhysicalNames\n", group.c_str());
+                continue;
+            }
+            if (!physTagToBoundaryId.count(tag)) {
+                physTagToBoundaryId[tag] = nextId++;
+            }
+            boundaryPhysTags.insert(tag);
+        }
+    }
+
+    auto matchTagForPoint = [&](PetscInt point,
+                                const std::unordered_set<int>& wanted,
+                                const std::vector<NamedLabel>& sources) -> int {
+        if (wanted.empty()) return -1;
+        for (const auto& nl : sources) {
+            PetscInt v = -1;
+            DMLabelGetValue(nl.label, point, &v);
+            if (v >= 0 && wanted.count(static_cast<int>(v))) return static_cast<int>(v);
+        }
+        return -1;
+    };
+
+    // Material label on cells (height 0)
+    if (!materialPhysTags.empty()) {
+        DMLabel matLbl = nullptr;
+        ierr = DMCreateLabel(dm, "Material"); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, "Material", &matLbl); CHKERRQ(ierr);
+
+        // Prefer PETSc's Gmsh "Cell Sets" label if present.
+        std::vector<NamedLabel> cellSources;
+        for (const auto& nl : labels) {
+            if (nl.name == "Cell Sets") cellSources.push_back(nl);
+        }
+        const auto& sources = cellSources.empty() ? labels : cellSources;
+
+        PetscInt cStart = 0, cEnd = 0;
+        ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+        for (PetscInt c = cStart; c < cEnd; ++c) {
+            int tag = matchTagForPoint(c, materialPhysTags, sources);
+            if (tag < 0) continue;
+            auto it = physTagToMaterialId.find(tag);
+            if (it == physTagToMaterialId.end()) continue;
+            ierr = DMLabelSetValue(matLbl, c, it->second); CHKERRQ(ierr);
+        }
+    }
+
+    // Fault/Boundary labels on faces (height 1)
+    if (!faultPhysTags.empty() || !boundaryPhysTags.empty()) {
+        PetscInt fStart = 0, fEnd = 0;
+        ierr = DMPlexGetHeightStratum(dm, 1, &fStart, &fEnd); CHKERRQ(ierr);
+
+        // Prefer PETSc's Gmsh "Face Sets" label if present.
+        std::vector<NamedLabel> faceSources;
+        for (const auto& nl : labels) {
+            if (nl.name == "Face Sets") faceSources.push_back(nl);
+        }
+        const auto& sources = faceSources.empty() ? labels : faceSources;
+
+        DMLabel faultLbl = nullptr;
+        if (!faultPhysTags.empty()) {
+            ierr = DMCreateLabel(dm, "Fault"); CHKERRQ(ierr);
+            ierr = DMGetLabel(dm, "Fault", &faultLbl); CHKERRQ(ierr);
+        }
+        DMLabel bndLbl = nullptr;
+        if (!boundaryPhysTags.empty()) {
+            ierr = DMCreateLabel(dm, "Boundary"); CHKERRQ(ierr);
+            ierr = DMGetLabel(dm, "Boundary", &bndLbl); CHKERRQ(ierr);
+        }
+
+        for (PetscInt f = fStart; f < fEnd; ++f) {
+            if (faultLbl) {
+                int tag = matchTagForPoint(f, faultPhysTags, sources);
+                if (tag >= 0) {
+                    auto it = physTagToFaultId.find(tag);
+                    if (it != physTagToFaultId.end()) {
+                        ierr = DMLabelSetValue(faultLbl, f, it->second); CHKERRQ(ierr);
+                    }
+                }
+            }
+            if (bndLbl) {
+                int tag = matchTagForPoint(f, boundaryPhysTags, sources);
+                if (tag >= 0) {
+                    auto it = physTagToBoundaryId.find(tag);
+                    if (it != physTagToBoundaryId.end()) {
+                        ierr = DMLabelSetValue(bndLbl, f, it->second); CHKERRQ(ierr);
+                    }
+                }
+            }
+        }
+    }
+
+    PetscFunctionReturn(0);
+}
+
+} // namespace
 
 namespace FSRM {
 
@@ -464,59 +781,40 @@ PetscErrorCode Simulator::setupGmshGrid() {
         PetscPrintf(comm, "Loading Gmsh mesh: %s\n", grid_config.mesh_file.c_str());
     }
     
-    // Load the Gmsh file
-    if (!gmsh_io->readMshFile(grid_config.mesh_file)) {
-        SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Failed to read Gmsh mesh file");
-    }
-    
-    if (rank == 0) {
-        gmsh_io->printStatistics();
-    }
-    
-    // Validate mesh
-    if (!gmsh_io->validate()) {
-        SETERRQ(comm, PETSC_ERR_ARG_WRONG, "Gmsh mesh validation failed");
-    }
+    // Use PETSc's built-in Gmsh reader (supports ASCII and binary .msh).
+    ierr = DMPlexCreateGmshFromFile(comm, grid_config.mesh_file.c_str(), PETSC_TRUE, &dm); CHKERRQ(ierr);
 
     // Configure domain mappings (materials / faults / boundaries) if provided.
-    // Note: mappings are parsed into grid_config by ConfigReader::parseGridConfig().
-    bool have_mappings = !grid_config.gmsh_material_domains.empty() || !grid_config.gmsh_fault_surfaces.empty();
-    if (have_mappings) {
-        for (const auto& [physical_group, material_section] : grid_config.gmsh_material_domains) {
-            gmsh_io->addMaterialMapping(physical_group, material_section);
-        }
-        for (const auto& [physical_group, fault_section, use_split] : grid_config.gmsh_fault_surfaces) {
-            gmsh_io->addFaultMapping(physical_group, fault_section, use_split);
-        }
-    }
-    if (!grid_config.gmsh_boundaries.empty()) {
-        gmsh_io->setBoundaryNames(grid_config.gmsh_boundaries);
-        have_mappings = true;
-    }
+    // We map by *physical group name* using $PhysicalNames (ASCII even for binary meshes),
+    // and apply labels onto the PETSc DM based on whatever labels the reader created.
+    const bool have_mappings =
+        !grid_config.gmsh_material_domains.empty() ||
+        !grid_config.gmsh_fault_surfaces.empty() ||
+        !grid_config.gmsh_boundaries.empty();
 
     if (have_mappings) {
-        if (!gmsh_io->processDomains()) {
-            SETERRQ(comm, PETSC_ERR_ARG_WRONG, "Failed to process Gmsh domain mappings");
-        }
-        ierr = gmsh_io->createDMPlexFull(comm, &dm); CHKERRQ(ierr);
-    } else {
-        ierr = gmsh_io->createDMPlex(comm, &dm); CHKERRQ(ierr);
-    }
-    
-    // Update grid config with actual mesh dimensions
-    auto mesh = gmsh_io->getMesh();
-    if (mesh) {
-        mesh->computeBoundingBox();
-        grid_config.Lx = mesh->getLx();
-        grid_config.Ly = mesh->getLy();
-        grid_config.Lz = mesh->getLz();
-        
-        // Apply coordinate transformation if configured
-        if (coord_manager->isConfigured()) {
-            // Transform the mesh coordinates
-            // Note: This would require modifying the DM coordinates which is done below
+        auto physicalNames = parseGmshPhysicalNames(grid_config.mesh_file);
+        if (physicalNames.empty()) {
+            PetscPrintf(comm,
+                        "Warning: no $PhysicalNames section found in '%s'. "
+                        "Name-based mappings (materials/faults/boundaries) may not be applied.\n",
+                        grid_config.mesh_file.c_str());
+        } else {
+            ierr = applyGmshNameMappingsToDM(
+                comm, dm, physicalNames,
+                grid_config.gmsh_material_domains,
+                grid_config.gmsh_fault_surfaces,
+                grid_config.gmsh_boundaries
+            ); CHKERRQ(ierr);
         }
     }
+
+    // Update grid config with actual mesh dimensions from DM coordinates
+    std::array<double, 3> bmin, bmax;
+    ierr = computeDMBoundingBox(comm, dm, bmin, bmax); CHKERRQ(ierr);
+    grid_config.Lx = bmax[0] - bmin[0];
+    grid_config.Ly = bmax[1] - bmin[1];
+    grid_config.Lz = bmax[2] - bmin[2];
     
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
     ierr = DMViewFromOptions(dm, nullptr, "-dm_view"); CHKERRQ(ierr);
