@@ -117,6 +117,11 @@ private:
     ConfigReader::SeismicityConfig seismicity_config_;
     std::string seismic_catalog_file_;
 
+    // Explosion coupling (used to drive faults and dynamics from explosion physics)
+    // Implemented as a PIMPL in Simulator.cpp to avoid pulling large headers here.
+    struct ExplosionCoupling;
+    std::unique_ptr<ExplosionCoupling> explosion_;
+
     // Synthetic "nuclear trigger" stress pulse (optional, for historical nuclear test demos)
     bool nuclear_trigger_enabled_ = false;
     double nuclear_trigger_time0_ = 10.0;
