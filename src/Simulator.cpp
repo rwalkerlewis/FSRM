@@ -1229,6 +1229,54 @@ PetscErrorCode Simulator::setupPhysics() {
     use_fem_time_residual_ = false;
     if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
         ierr = PetscDSSetResidual(prob, 0, f0_SinglePhase, f1_SinglePhase); CHKERRQ(ierr);
+        // Provide a basic Jacobian for pressure diffusion
+        // g0 = phi*ct*shift, g3 = (k/mu)*I
+        // For now, reuse the multiphase pressure Jacobian with default constants.
+        ierr = PetscDSSetJacobian(prob, 0, 0, g0_BlackOilPressurePressure, nullptr, nullptr, g3_BlackOilPressurePressure); CHKERRQ(ierr);
+        use_fem_time_residual_ = true;
+    } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+        // Set constants used by the black-oil PETScFE callbacks (see comment in f0/f1).
+        // Use the first material/fluid property set as a uniform medium default.
+        const MaterialProperties mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        const FluidProperties flu = fluid_props.empty() ? FluidProperties() : fluid_props[0];
+
+        // Convert permeability from mD -> m^2
+        constexpr double mD_to_m2 = 9.869233e-16;
+
+        PetscScalar constants[19];
+        constants[0]  = mat.porosity;
+        constants[1]  = mat.permeability_x * mD_to_m2;
+        constants[2]  = mat.permeability_y * mD_to_m2;
+        constants[3]  = mat.permeability_z * mD_to_m2;
+        constants[4]  = flu.water_compressibility;
+        constants[5]  = flu.oil_compressibility;
+        constants[6]  = flu.gas_compressibility;
+        constants[7]  = flu.water_viscosity;
+        constants[8]  = flu.oil_viscosity;
+        constants[9]  = flu.gas_viscosity;
+        constants[10] = flu.water_residual_saturation;
+        constants[11] = flu.residual_saturation;       // Sor
+        constants[12] = flu.gas_residual_saturation;
+        constants[13] = flu.corey_exponent_water;
+        constants[14] = flu.corey_exponent_oil;
+        constants[15] = flu.corey_exponent_gas;
+        constants[16] = flu.kr_max_water;
+        constants[17] = flu.kr_max_oil;
+        constants[18] = flu.kr_max_gas;
+
+        ierr = PetscDSSetConstants(prob, 19, constants); CHKERRQ(ierr);
+
+        // Pressure equation
+        ierr = PetscDSSetResidual(prob, 0, f0_BlackOilPressure, f1_BlackOilPressure); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, 0, 0, g0_BlackOilPressurePressure, nullptr, nullptr, g3_BlackOilPressurePressure); CHKERRQ(ierr);
+
+        // Safe placeholders for saturation fields (keep constant)
+        ierr = PetscDSSetResidual(prob, 1, f0_BlackOilSw, f1_Zero); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, 1, 1, g0_Identity, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+
+        ierr = PetscDSSetResidual(prob, 2, f0_BlackOilSg, f1_Zero); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, 2, 2, g0_Identity, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+
         use_fem_time_residual_ = true;
     }
     
@@ -1783,7 +1831,7 @@ void Simulator::f0_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscReal phi = 0.2;  // porosity
     const PetscReal ct = 1.0e-9; // compressibility
     
-    f0[0] = phi * ct * u_t[0];
+    f0[0] = phi * ct * u_t[uOff[0]];
 }
 
 void Simulator::f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
@@ -1810,8 +1858,302 @@ void Simulator::f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscReal mobility = k / mu;
     
     for (int d = 0; d < dim; ++d) {
-        f1[d] = mobility * u_x[d];
+        f1[d] = mobility * u_x[uOff_x[0] + d];
     }
+}
+
+// -----------------------------------------------------------------------------
+// Multiphase (black-oil) pressure residual/Jacobian for PETScFE
+// -----------------------------------------------------------------------------
+namespace {
+// Constants layout used by Simulator black-oil PETScFE callbacks:
+//   [0]  phi        (porosity)
+//   [1]  kx         (m^2)
+//   [2]  ky         (m^2)
+//   [3]  kz         (m^2)
+//   [4]  cw         (1/Pa)
+//   [5]  co         (1/Pa)
+//   [6]  cg         (1/Pa)
+//   [7]  mu_w       (Pa*s)
+//   [8]  mu_o       (Pa*s)
+//   [9]  mu_g       (Pa*s)
+//   [10] Swr        (-)
+//   [11] Sor        (-)
+//   [12] Sgr        (-)
+//   [13] nw         (-)
+//   [14] no         (-)
+//   [15] ng         (-)
+//   [16] krw0       (-)
+//   [17] kro0       (-)
+//   [18] krg0       (-)
+static inline PetscScalar clamp01(PetscScalar v) {
+    return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+}
+static inline PetscScalar safeDenom(PetscScalar v) {
+    const PetscScalar eps = 1e-12;
+    return std::abs(v) < eps ? (v >= 0 ? eps : -eps) : v;
+}
+static inline void blackOilRelPermCorey(const PetscScalar Sw, const PetscScalar Sg,
+                                       const PetscScalar Swr, const PetscScalar Sor, const PetscScalar Sgr,
+                                       const PetscScalar nw, const PetscScalar no, const PetscScalar ng,
+                                       const PetscScalar krw0, const PetscScalar kro0, const PetscScalar krg0,
+                                       PetscScalar& krw, PetscScalar& kro, PetscScalar& krg) {
+    PetscScalar So = 1.0 - Sw - Sg;
+    if (So < 0.0) So = 0.0;
+    const PetscScalar denom = safeDenom(1.0 - Swr - Sor - Sgr);
+
+    const PetscScalar Swe = clamp01((Sw - Swr) / denom);
+    const PetscScalar Sge = clamp01((Sg - Sgr) / denom);
+    const PetscScalar Soe = clamp01((So - Sor) / denom);
+
+    // Corey endpoints
+    krw = krw0 * std::pow(Swe, nw);
+    kro = kro0 * std::pow(Soe, no);
+    krg = krg0 * std::pow(Sge, ng);
+}
+static inline PetscScalar getConst(PetscInt numConstants, const PetscScalar c[], PetscInt idx, PetscScalar fallback) {
+    return (numConstants > idx) ? c[idx] : fallback;
+}
+} // namespace
+
+void Simulator::f0_BlackOilPressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                    const PetscInt uOff[], const PetscInt uOff_x[],
+                                    const PetscScalar u[], const PetscScalar u_t[],
+                                    const PetscScalar u_x[], const PetscInt aOff[],
+                                    const PetscInt aOff_x[], const PetscScalar a[],
+                                    const PetscScalar a_x[], const PetscScalar a_t[],
+                                    PetscReal t,
+                                    const PetscReal x[], PetscInt numConstants,
+                                    const PetscScalar constants[], PetscScalar f0[]) {
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff_x; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x;
+
+    const PetscScalar Sw = u[uOff[1]];
+    const PetscScalar Sg = u[uOff[2]];
+    PetscScalar So = 1.0 - Sw - Sg;
+    if (So < 0.0) So = 0.0;
+
+    const PetscScalar phi = getConst(numConstants, constants, 0, 0.2);
+    const PetscScalar cw  = getConst(numConstants, constants, 4, 4.5e-10);
+    const PetscScalar co  = getConst(numConstants, constants, 5, 1.5e-9);
+    const PetscScalar cg  = getConst(numConstants, constants, 6, 1.0e-8);
+
+    const PetscScalar ct_eff = Sw * cw + So * co + Sg * cg;
+    const PetscScalar P_t = u_t[uOff[0]];
+    f0[0] = phi * ct_eff * P_t;
+}
+
+void Simulator::f1_BlackOilPressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                    const PetscInt uOff[], const PetscInt uOff_x[],
+                                    const PetscScalar u[], const PetscScalar u_t[],
+                                    const PetscScalar u_x[], const PetscInt aOff[],
+                                    const PetscInt aOff_x[], const PetscScalar a[],
+                                    const PetscScalar a_x[], const PetscScalar a_t[],
+                                    PetscReal t,
+                                    const PetscReal x[], PetscInt numConstants,
+                                    const PetscScalar constants[], PetscScalar f1[]) {
+    (void)Nf; (void)NfAux;
+    (void)u_t;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x;
+
+    const PetscScalar Sw = u[uOff[1]];
+    const PetscScalar Sg = u[uOff[2]];
+
+    const PetscScalar kx = getConst(numConstants, constants, 1, 100e-15);
+    const PetscScalar ky = getConst(numConstants, constants, 2, 100e-15);
+    const PetscScalar kz = getConst(numConstants, constants, 3, 10e-15);
+
+    const PetscScalar mu_w = getConst(numConstants, constants, 7, 1e-3);
+    const PetscScalar mu_o = getConst(numConstants, constants, 8, 5e-3);
+    const PetscScalar mu_g = getConst(numConstants, constants, 9, 1e-5);
+
+    const PetscScalar Swr = getConst(numConstants, constants, 10, 0.2);
+    const PetscScalar Sor = getConst(numConstants, constants, 11, 0.2);
+    const PetscScalar Sgr = getConst(numConstants, constants, 12, 0.05);
+
+    const PetscScalar nw = getConst(numConstants, constants, 13, 2.0);
+    const PetscScalar no = getConst(numConstants, constants, 14, 2.0);
+    const PetscScalar ng = getConst(numConstants, constants, 15, 2.0);
+
+    const PetscScalar krw0 = getConst(numConstants, constants, 16, 0.5);
+    const PetscScalar kro0 = getConst(numConstants, constants, 17, 1.0);
+    const PetscScalar krg0 = getConst(numConstants, constants, 18, 0.8);
+
+    PetscScalar krw, kro, krg;
+    blackOilRelPermCorey(Sw, Sg, Swr, Sor, Sgr, nw, no, ng, krw0, kro0, krg0, krw, kro, krg);
+
+    const PetscScalar lambda_t = (krw / mu_w) + (kro / mu_o) + (krg / mu_g);
+
+    // f1 is the diffusive flux coefficient in PETSc's weak form:
+    // F = ∫ (f0 * v + f1 · ∇v) dV
+    // For -div( K*lambda*grad(P) ), we provide f1 = K*lambda*grad(P).
+    for (PetscInt d = 0; d < dim; ++d) {
+        PetscScalar kd = kx;
+        if (dim == 2) {
+            kd = (d == 0) ? kx : kz; // common 2D x-z convention
+        } else if (dim == 3) {
+            kd = (d == 0) ? kx : (d == 1 ? ky : kz);
+        }
+        f1[d] = kd * lambda_t * u_x[uOff_x[0] + d];
+    }
+}
+
+void Simulator::g0_BlackOilPressurePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                            const PetscInt uOff[], const PetscInt uOff_x[],
+                                            const PetscScalar u[], const PetscScalar u_t[],
+                                            const PetscScalar u_x[], const PetscInt aOff[],
+                                            const PetscInt aOff_x[], const PetscScalar a[],
+                                            const PetscScalar a_x[], const PetscScalar a_t[],
+                                            PetscReal t, PetscReal u_tShift,
+                                            const PetscReal x[], PetscInt numConstants,
+                                            const PetscScalar constants[], PetscScalar g0[]) {
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x;
+
+    const PetscScalar Sw = u[uOff[1]];
+    const PetscScalar Sg = u[uOff[2]];
+    PetscScalar So = 1.0 - Sw - Sg;
+    if (So < 0.0) So = 0.0;
+
+    const PetscScalar phi = getConst(numConstants, constants, 0, 0.2);
+    const PetscScalar cw  = getConst(numConstants, constants, 4, 4.5e-10);
+    const PetscScalar co  = getConst(numConstants, constants, 5, 1.5e-9);
+    const PetscScalar cg  = getConst(numConstants, constants, 6, 1.0e-8);
+
+    const PetscScalar ct_eff = Sw * cw + So * co + Sg * cg;
+    g0[0] = phi * ct_eff * u_tShift;
+}
+
+void Simulator::g3_BlackOilPressurePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                            const PetscInt uOff[], const PetscInt uOff_x[],
+                                            const PetscScalar u[], const PetscScalar u_t[],
+                                            const PetscScalar u_x[], const PetscInt aOff[],
+                                            const PetscInt aOff_x[], const PetscScalar a[],
+                                            const PetscScalar a_x[], const PetscScalar a_t[],
+                                            PetscReal t, PetscReal u_tShift,
+                                            const PetscReal x[], PetscInt numConstants,
+                                            const PetscScalar constants[], PetscScalar g3[]) {
+    (void)Nf; (void)NfAux;
+    (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)u_tShift; (void)x;
+
+    const PetscScalar Sw = u[uOff[1]];
+    const PetscScalar Sg = u[uOff[2]];
+
+    const PetscScalar kx = getConst(numConstants, constants, 1, 100e-15);
+    const PetscScalar ky = getConst(numConstants, constants, 2, 100e-15);
+    const PetscScalar kz = getConst(numConstants, constants, 3, 10e-15);
+
+    const PetscScalar mu_w = getConst(numConstants, constants, 7, 1e-3);
+    const PetscScalar mu_o = getConst(numConstants, constants, 8, 5e-3);
+    const PetscScalar mu_g = getConst(numConstants, constants, 9, 1e-5);
+
+    const PetscScalar Swr = getConst(numConstants, constants, 10, 0.2);
+    const PetscScalar Sor = getConst(numConstants, constants, 11, 0.2);
+    const PetscScalar Sgr = getConst(numConstants, constants, 12, 0.05);
+
+    const PetscScalar nw = getConst(numConstants, constants, 13, 2.0);
+    const PetscScalar no = getConst(numConstants, constants, 14, 2.0);
+    const PetscScalar ng = getConst(numConstants, constants, 15, 2.0);
+
+    const PetscScalar krw0 = getConst(numConstants, constants, 16, 0.5);
+    const PetscScalar kro0 = getConst(numConstants, constants, 17, 1.0);
+    const PetscScalar krg0 = getConst(numConstants, constants, 18, 0.8);
+
+    PetscScalar krw, kro, krg;
+    blackOilRelPermCorey(Sw, Sg, Swr, Sor, Sgr, nw, no, ng, krw0, kro0, krg0, krw, kro, krg);
+    const PetscScalar lambda_t = (krw / mu_w) + (kro / mu_o) + (krg / mu_g);
+
+    // Initialize to zero then fill diagonal (assume diagonal permeability tensor)
+    const PetscInt n = dim * dim;
+    for (PetscInt i = 0; i < n; ++i) g3[i] = 0.0;
+
+    if (dim == 2) {
+        g3[0] = kx * lambda_t; // xx
+        g3[3] = kz * lambda_t; // zz (2D x-z convention)
+    } else if (dim == 3) {
+        g3[0] = kx * lambda_t; // xx
+        g3[4] = ky * lambda_t; // yy
+        g3[8] = kz * lambda_t; // zz
+    } else {
+        // Fallback: isotropic with kx
+        for (PetscInt d = 0; d < dim; ++d) {
+            g3[d * dim + d] = kx * lambda_t;
+        }
+    }
+}
+
+void Simulator::f0_BlackOilSw(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                              const PetscInt uOff[], const PetscInt uOff_x[],
+                              const PetscScalar u[], const PetscScalar u_t[],
+                              const PetscScalar u_x[], const PetscInt aOff[],
+                              const PetscInt aOff_x[], const PetscScalar a[],
+                              const PetscScalar a_x[], const PetscScalar a_t[],
+                              PetscReal t,
+                              const PetscReal x[], PetscInt numConstants,
+                              const PetscScalar constants[], PetscScalar f0[]) {
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff_x; (void)u; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x; (void)numConstants; (void)constants;
+    // Keep Sw constant unless a full saturation equation is wired in.
+    f0[0] = u_t[uOff[1]];
+}
+
+void Simulator::f0_BlackOilSg(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                              const PetscInt uOff[], const PetscInt uOff_x[],
+                              const PetscScalar u[], const PetscScalar u_t[],
+                              const PetscScalar u_x[], const PetscInt aOff[],
+                              const PetscInt aOff_x[], const PetscScalar a[],
+                              const PetscScalar a_x[], const PetscScalar a_t[],
+                              PetscReal t,
+                              const PetscReal x[], PetscInt numConstants,
+                              const PetscScalar constants[], PetscScalar f0[]) {
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff_x; (void)u; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x; (void)numConstants; (void)constants;
+    // Keep Sg constant unless a full saturation equation is wired in.
+    f0[0] = u_t[uOff[2]];
+}
+
+void Simulator::f1_Zero(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                        const PetscInt uOff[], const PetscInt uOff_x[],
+                        const PetscScalar u[], const PetscScalar u_t[],
+                        const PetscScalar u_x[], const PetscInt aOff[],
+                        const PetscInt aOff_x[], const PetscScalar a[],
+                        const PetscScalar a_x[], const PetscScalar a_t[],
+                        PetscReal t,
+                        const PetscReal x[], PetscInt numConstants,
+                        const PetscScalar constants[], PetscScalar f1[]) {
+    (void)Nf; (void)NfAux;
+    (void)uOff; (void)uOff_x; (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x; (void)numConstants; (void)constants;
+    for (PetscInt d = 0; d < dim; ++d) f1[d] = 0.0;
+}
+
+void Simulator::g0_Identity(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                            const PetscInt uOff[], const PetscInt uOff_x[],
+                            const PetscScalar u[], const PetscScalar u_t[],
+                            const PetscScalar u_x[], const PetscInt aOff[],
+                            const PetscInt aOff_x[], const PetscScalar a[],
+                            const PetscScalar a_x[], const PetscScalar a_t[],
+                            PetscReal t, PetscReal u_tShift,
+                            const PetscReal x[], PetscInt numConstants,
+                            const PetscScalar constants[], PetscScalar g0[]) {
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff; (void)uOff_x; (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x; (void)numConstants; (void)constants;
+    // For f0 = u_t, the Jacobian contribution is shift * I.
+    g0[0] = u_tShift;
 }
 
 PetscErrorCode Simulator::writeOutput(int step) {

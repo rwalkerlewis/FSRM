@@ -193,6 +193,103 @@ private:
                               PetscReal t,
                               const PetscReal x[], PetscInt numConstants,
                               const PetscScalar constants[], PetscScalar f1[]);
+
+    // ---------------------------------------------------------------------
+    // Multiphase (black-oil) PETScFE pointwise functions
+    //
+    // Field layout for FluidModelType::BLACK_OIL in this Simulator:
+    //   field 0: pressure_        (P)
+    //   field 1: saturation_w_    (Sw)
+    //   field 2: saturation_g_    (Sg)
+    //
+    // The multiphase pressure equation implemented here is a simplified
+    // "total mobility" form suitable for a consistent PETScFE residual:
+    //   phi * ct_eff(Sw,Sg) * dP/dt - div( K * lambda_t(Sw,Sg) * grad(P) ) = 0
+    //
+    // Saturation fields are currently provided safe placeholder residuals
+    // (Sw_t = 0, Sg_t = 0) so the PETSc FEM assembly does not crash when
+    // these fields exist in the DM.
+    // ---------------------------------------------------------------------
+    static void f0_BlackOilPressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                   const PetscInt uOff[], const PetscInt uOff_x[],
+                                   const PetscScalar u[], const PetscScalar u_t[],
+                                   const PetscScalar u_x[], const PetscInt aOff[],
+                                   const PetscInt aOff_x[], const PetscScalar a[],
+                                   const PetscScalar a_x[], const PetscScalar a_t[],
+                                   PetscReal t,
+                                   const PetscReal x[], PetscInt numConstants,
+                                   const PetscScalar constants[], PetscScalar f0[]);
+
+    static void f1_BlackOilPressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                   const PetscInt uOff[], const PetscInt uOff_x[],
+                                   const PetscScalar u[], const PetscScalar u_t[],
+                                   const PetscScalar u_x[], const PetscInt aOff[],
+                                   const PetscInt aOff_x[], const PetscScalar a[],
+                                   const PetscScalar a_x[], const PetscScalar a_t[],
+                                   PetscReal t,
+                                   const PetscReal x[], PetscInt numConstants,
+                                   const PetscScalar constants[], PetscScalar f1[]);
+
+    static void g0_BlackOilPressurePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                           const PetscInt uOff[], const PetscInt uOff_x[],
+                                           const PetscScalar u[], const PetscScalar u_t[],
+                                           const PetscScalar u_x[], const PetscInt aOff[],
+                                           const PetscInt aOff_x[], const PetscScalar a[],
+                                           const PetscScalar a_x[], const PetscScalar a_t[],
+                                           PetscReal t, PetscReal u_tShift,
+                                           const PetscReal x[], PetscInt numConstants,
+                                           const PetscScalar constants[], PetscScalar g0[]);
+
+    static void g3_BlackOilPressurePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                           const PetscInt uOff[], const PetscInt uOff_x[],
+                                           const PetscScalar u[], const PetscScalar u_t[],
+                                           const PetscScalar u_x[], const PetscInt aOff[],
+                                           const PetscInt aOff_x[], const PetscScalar a[],
+                                           const PetscScalar a_x[], const PetscScalar a_t[],
+                                           PetscReal t, PetscReal u_tShift,
+                                           const PetscReal x[], PetscInt numConstants,
+                                           const PetscScalar constants[], PetscScalar g3[]);
+
+    // Placeholder saturation residuals/Jacobians (keep constant in time)
+    static void f0_BlackOilSw(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                             const PetscInt uOff[], const PetscInt uOff_x[],
+                             const PetscScalar u[], const PetscScalar u_t[],
+                             const PetscScalar u_x[], const PetscInt aOff[],
+                             const PetscInt aOff_x[], const PetscScalar a[],
+                             const PetscScalar a_x[], const PetscScalar a_t[],
+                             PetscReal t,
+                             const PetscReal x[], PetscInt numConstants,
+                             const PetscScalar constants[], PetscScalar f0[]);
+
+    static void f0_BlackOilSg(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                             const PetscInt uOff[], const PetscInt uOff_x[],
+                             const PetscScalar u[], const PetscScalar u_t[],
+                             const PetscScalar u_x[], const PetscInt aOff[],
+                             const PetscInt aOff_x[], const PetscScalar a[],
+                             const PetscScalar a_x[], const PetscScalar a_t[],
+                             PetscReal t,
+                             const PetscReal x[], PetscInt numConstants,
+                             const PetscScalar constants[], PetscScalar f0[]);
+
+    static void f1_Zero(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                        const PetscInt uOff[], const PetscInt uOff_x[],
+                        const PetscScalar u[], const PetscScalar u_t[],
+                        const PetscScalar u_x[], const PetscInt aOff[],
+                        const PetscInt aOff_x[], const PetscScalar a[],
+                        const PetscScalar a_x[], const PetscScalar a_t[],
+                        PetscReal t,
+                        const PetscReal x[], PetscInt numConstants,
+                        const PetscScalar constants[], PetscScalar f1[]);
+
+    static void g0_Identity(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                           const PetscInt uOff[], const PetscInt uOff_x[],
+                           const PetscScalar u[], const PetscScalar u_t[],
+                           const PetscScalar u_x[], const PetscInt aOff[],
+                           const PetscInt aOff_x[], const PetscScalar a[],
+                           const PetscScalar a_x[], const PetscScalar a_t[],
+                           PetscReal t, PetscReal u_tShift,
+                           const PetscReal x[], PetscInt numConstants,
+                           const PetscScalar constants[], PetscScalar g0[]);
     
     // Helper functions
     PetscErrorCode setupStructuredGrid();
