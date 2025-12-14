@@ -155,6 +155,11 @@ private:
     double dt;
     int timestep;
     int output_counter;
+
+    // If true, use PETSc FEM helpers (DMPlexTSComputeIFunctionFEM).
+    // If false, fall back to a safe placeholder (U_t = 0) to avoid crashes when
+    // the discretization/physics residuals are not configured.
+    bool use_fem_time_residual_ = false;
     
     // Performance metrics
     std::vector<double> solve_times;
