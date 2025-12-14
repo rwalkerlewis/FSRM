@@ -1,4 +1,5 @@
 #include "Simulator.hpp"
+#include "PetscFEFluidFlow.hpp"
 #include "Visualization.hpp"
 #include "ConfigReader.hpp"
 #include "ImplicitExplicitTransition.hpp"
@@ -1228,7 +1229,55 @@ PetscErrorCode Simulator::setupPhysics() {
     // PETSc will crash during assembly.
     use_fem_time_residual_ = false;
     if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
-        ierr = PetscDSSetResidual(prob, 0, f0_SinglePhase, f1_SinglePhase); CHKERRQ(ierr);
+        ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_SinglePhase, PetscFEFluidFlow::f1_SinglePhase); CHKERRQ(ierr);
+        // Provide a basic Jacobian for pressure diffusion
+        // g0 = phi*ct*shift, g3 = (k/mu)*I
+        // For now, reuse the multiphase pressure Jacobian with default constants.
+        ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
+        use_fem_time_residual_ = true;
+    } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+        // Set constants used by the black-oil PETScFE callbacks (see comment in f0/f1).
+        // Use the first material/fluid property set as a uniform medium default.
+        const MaterialProperties mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        const FluidProperties flu = fluid_props.empty() ? FluidProperties() : fluid_props[0];
+
+        // Convert permeability from mD -> m^2
+        constexpr double mD_to_m2 = 9.869233e-16;
+
+        PetscScalar constants[19];
+        constants[0]  = mat.porosity;
+        constants[1]  = mat.permeability_x * mD_to_m2;
+        constants[2]  = mat.permeability_y * mD_to_m2;
+        constants[3]  = mat.permeability_z * mD_to_m2;
+        constants[4]  = flu.water_compressibility;
+        constants[5]  = flu.oil_compressibility;
+        constants[6]  = flu.gas_compressibility;
+        constants[7]  = flu.water_viscosity;
+        constants[8]  = flu.oil_viscosity;
+        constants[9]  = flu.gas_viscosity;
+        constants[10] = flu.water_residual_saturation;
+        constants[11] = flu.residual_saturation;       // Sor
+        constants[12] = flu.gas_residual_saturation;
+        constants[13] = flu.corey_exponent_water;
+        constants[14] = flu.corey_exponent_oil;
+        constants[15] = flu.corey_exponent_gas;
+        constants[16] = flu.kr_max_water;
+        constants[17] = flu.kr_max_oil;
+        constants[18] = flu.kr_max_gas;
+
+        ierr = PetscDSSetConstants(prob, 19, constants); CHKERRQ(ierr);
+
+        // Pressure equation
+        ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_BlackOilPressure, PetscFEFluidFlow::f1_BlackOilPressure); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
+
+        // Safe placeholders for saturation fields (keep constant)
+        ierr = PetscDSSetResidual(prob, 1, PetscFEFluidFlow::f0_BlackOilSw, PetscFEFluidFlow::f1_Zero); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, 1, 1, PetscFEFluidFlow::g0_Identity, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+
+        ierr = PetscDSSetResidual(prob, 2, PetscFEFluidFlow::f0_BlackOilSg, PetscFEFluidFlow::f1_Zero); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, 2, 2, PetscFEFluidFlow::g0_Identity, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+
         use_fem_time_residual_ = true;
     }
     
@@ -1760,59 +1809,6 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
     PetscFunctionReturn(0);
 }
 
-// Pointwise residual functions
-void Simulator::f0_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-                               const PetscInt uOff[], const PetscInt uOff_x[],
-                               const PetscScalar u[], const PetscScalar u_t[],
-                               const PetscScalar u_x[], const PetscInt aOff[],
-                               const PetscInt aOff_x[], const PetscScalar a[],
-                               const PetscScalar a_x[], const PetscScalar a_t[],
-                               PetscReal t,
-                               const PetscReal x[], PetscInt numConstants,
-                               const PetscScalar constants[], PetscScalar f0[]) {
-    // Suppress unused parameter warnings - part of PETSc pointwise function interface
-    (void)dim; (void)Nf; (void)NfAux;
-    (void)uOff; (void)uOff_x;
-    (void)u; (void)u_x;
-    (void)aOff; (void)aOff_x;
-    (void)a; (void)a_x; (void)a_t;
-    (void)t; (void)x;
-    (void)numConstants; (void)constants;
-    
-    // Accumulation term: phi * ct * dP/dt
-    const PetscReal phi = 0.2;  // porosity
-    const PetscReal ct = 1.0e-9; // compressibility
-    
-    f0[0] = phi * ct * u_t[0];
-}
-
-void Simulator::f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-                               const PetscInt uOff[], const PetscInt uOff_x[],
-                               const PetscScalar u[], const PetscScalar u_t[],
-                               const PetscScalar u_x[], const PetscInt aOff[],
-                               const PetscInt aOff_x[], const PetscScalar a[],
-                               const PetscScalar a_x[], const PetscScalar a_t[],
-                               PetscReal t,
-                               const PetscReal x[], PetscInt numConstants,
-                               const PetscScalar constants[], PetscScalar f1[]) {
-    // Suppress unused parameter warnings - part of PETSc pointwise function interface
-    (void)Nf; (void)NfAux;
-    (void)uOff; (void)uOff_x;
-    (void)u; (void)u_t;
-    (void)aOff; (void)aOff_x;
-    (void)a; (void)a_x; (void)a_t;
-    (void)t; (void)x;
-    (void)numConstants; (void)constants;
-    
-    // Flux term: -k/mu * grad(P)
-    const PetscReal k = 100.0e-15;  // permeability (m^2)
-    const PetscReal mu = 0.001;      // viscosity (Pa·s)
-    const PetscReal mobility = k / mu;
-    
-    for (int d = 0; d < dim; ++d) {
-        f1[d] = mobility * u_x[d];
-    }
-}
 
 PetscErrorCode Simulator::writeOutput(int step) {
     PetscFunctionBeginUser;

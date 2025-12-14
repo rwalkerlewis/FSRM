@@ -173,27 +173,6 @@ private:
     static PetscErrorCode MonitorFunction(TS ts, PetscInt step, PetscReal t, 
                                          Vec U, void *ctx);
     
-    // Residual and Jacobian pointwise functions
-    static void f0_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-                              const PetscInt uOff[], const PetscInt uOff_x[],
-                              const PetscScalar u[], const PetscScalar u_t[],
-                              const PetscScalar u_x[], const PetscInt aOff[],
-                              const PetscInt aOff_x[], const PetscScalar a[],
-                              const PetscScalar a_x[], const PetscScalar a_t[],
-                              PetscReal t,
-                              const PetscReal x[], PetscInt numConstants,
-                              const PetscScalar constants[], PetscScalar f0[]);
-    
-    static void f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-                              const PetscInt uOff[], const PetscInt uOff_x[],
-                              const PetscScalar u[], const PetscScalar u_t[],
-                              const PetscScalar u_x[], const PetscInt aOff[],
-                              const PetscInt aOff_x[], const PetscScalar a[],
-                              const PetscScalar a_x[], const PetscScalar a_t[],
-                              PetscReal t,
-                              const PetscReal x[], PetscInt numConstants,
-                              const PetscScalar constants[], PetscScalar f1[]);
-    
     // Helper functions
     PetscErrorCode setupStructuredGrid();
     PetscErrorCode setupUnstructuredGrid();
