@@ -834,8 +834,10 @@ PetscErrorCode Simulator::setupStructuredGrid() {
     
     // Create DMPlex for structured grid
     PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
-    PetscReal lower[3] = {0.0, 0.0, 0.0};
-    PetscReal upper[3] = {grid_config.Lx, grid_config.Ly, grid_config.Lz};
+    PetscReal lower[3] = {grid_config.origin_x, grid_config.origin_y, grid_config.origin_z};
+    PetscReal upper[3] = {grid_config.origin_x + grid_config.Lx,
+                          grid_config.origin_y + grid_config.Ly,
+                          grid_config.origin_z + grid_config.Lz};
     ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
                               faces,
                               lower, upper, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
@@ -885,6 +887,9 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     PetscFE fe;
     
     switch (config.fluid_model) {
+        case FluidModelType::NONE:
+            // No fluid fields
+            break;
         case FluidModelType::SINGLE_COMPONENT:
             // Single pressure field
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
@@ -954,6 +959,8 @@ PetscErrorCode Simulator::setupPhysics() {
     
     // Add physics kernels based on configuration
     switch (config.fluid_model) {
+        case FluidModelType::NONE:
+            break;
         case FluidModelType::SINGLE_COMPONENT: {
             auto kernel = std::make_shared<SinglePhaseFlowKernel>();
             ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
