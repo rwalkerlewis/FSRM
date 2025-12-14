@@ -21,6 +21,7 @@
 #include <functional>
 #include <cmath>
 #include <map>
+#include <complex>
 
 namespace FSRM {
 

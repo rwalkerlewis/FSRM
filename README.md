@@ -608,12 +608,23 @@ Configuration files define all simulation parameters:
 |-------------|-------------|
 | `config/multistage_frac_complete.config` | **Complete multi-stage fracturing (ResFrac-equivalent)** |
 | `config/underground_nuclear_test.config` | **Underground nuclear explosion with seismic waves** |
+| `config/underground_nuclear_test_1kt_shallow.config` | **Underground nuclear test (1 kt shallow) for monitoring examples** |
+| `config/underground_nuclear_test_decoupled_salt_10kt.config` | **Underground nuclear test (decoupled salt cavity) with reduced coupling** |
 | `config/atmospheric_nuclear_test.config` | **Atmospheric nuclear detonation with EMP & radiation** |
+| `config/atmospheric_nuclear_test_surface_fallout_50kt.config` | **Surface burst emphasizing fallout + deposition** |
+| `config/atmospheric_nuclear_test_high_altitude_emp_1400kt.config` | **High-altitude burst emphasizing EMP + ionosphere** |
 | `config/impact_event.config` | **Asteroid/meteorite impact with crater formation** |
 | `config/cascadia_m9_tsunami.config` | **Cascadia M9.0 earthquake-tsunami simulation** |
 | `config/infrasound_example.config` | **Atmospheric infrasound propagation** |
 | `config/egs_optimization.config` | **Enhanced Geothermal System optimization** |
 | `config/underground_explosion_near_field.config` | **Near-field underground explosion** |
+| `config/underground_explosion_near_field_1kt_shallow.config` | **Near-field underground explosion (1 kt shallow)** |
+| `config/underground_explosion_near_field_decoupled_salt_10kt.config` | **Near-field underground explosion (decoupled salt cavity)** |
+| `config/historical_gasbuggy_1967_site_geology_gmsh.config` | **Gasbuggy-inspired layered geology + CRS (Gmsh mesh)** |
+| `config/historical_gnome_1961_site_geology_salt_gmsh.config` | **Gnome-inspired salt geology + CRS (Gmsh mesh)** |
+| `config/historical_sedan_1962_site_geology_cratering.config` | **Sedan-inspired alluvium+tuff site model + CRS (Gmsh mesh)** |
+| `config/historical_starfish_prime_1962_high_altitude_emp.config` | **Starfish-Prime-inspired EMP scenario (geographic context)** |
+| `config/historical_faultless_1968_fault_network_induced_seismicity.config` | **Faultless-inspired fault network + induced seismicity trigger (Gmsh + IMEX)** |
 | `config/buckley_leverett_2d.config` | 2D waterflooding with Buckley-Leverett |
 | `config/coupled_reservoir_2d.config` | Coupled flow-geomechanics |
 | `config/spe1_benchmark.config` | SPE1 benchmark problem |

@@ -108,6 +108,13 @@ $$M_{ij} = M_{iso} \begin{pmatrix} 1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1 \end{pmat
 ### Configuration Example
 
 ```ini
+[SIMULATION]
+# Controls how explosions are coupled into the solve.
+# - PROXY: reduced-order / triggering-only paths
+# - COUPLED_ANALYTIC: integrated analytic coupling (e.g., spherical cavity stress)
+# - FULL_PDE: full coupled blast+shock+wave PDE everywhere (not implemented in this build)
+explosion_solve_mode = COUPLED_ANALYTIC
+
 [EXPLOSION_SOURCE]
 type = NUCLEAR_UNDERGROUND
 yield_kt = 150.0
@@ -462,6 +469,39 @@ mpirun -np 16 fsrm -c config/underground_nuclear_test.config
 # - mb/Ms discrimination ratios
 ```
 
+#### Variants (additional nuclear test example configs)
+
+```bash
+# Low-yield, shallow burial (monitoring/discrimination workflow demo)
+mpirun -np 4 fsrm -c config/underground_nuclear_test_1kt_shallow.config
+
+# Decoupled / weakly coupled salt-cavity scenario (lower coupling for given yield)
+mpirun -np 8 fsrm -c config/underground_nuclear_test_decoupled_salt_10kt.config
+```
+
+#### Historical-inspired geology + geography (Gmsh + CRS)
+
+These configs emphasize **site geology** (layered materials) and **geographic CRS**
+handling (WGS84 lon/lat → UTM/local meters), suitable as bases for historically
+anchored scenarios:
+
+```bash
+# Gasbuggy-style layered site model (Gmsh physical volumes + CRS transform)
+mpirun -np 4 fsrm -c config/historical_gasbuggy_1967_site_geology_gmsh.config
+
+# Gnome-style salt host model (Gmsh physical volume + CRS transform)
+mpirun -np 4 fsrm -c config/historical_gnome_1961_site_geology_salt_gmsh.config
+
+# Sedan-style near-surface alluvium+tuff model (Gmsh + CRS)
+mpirun -np 4 fsrm -c config/historical_sedan_1962_site_geology_cratering.config
+
+# Starfish-Prime-style high-altitude EMP context (geographic CRS + EMP knobs)
+mpirun -np 64 fsrm -c config/historical_starfish_prime_1962_high_altitude_emp.config
+
+# Faultless-style nearby fault network + induced seismicity trigger (Gmsh faults + IMEX)
+mpirun -np 4 fsrm -c config/historical_faultless_1968_fault_network_induced_seismicity.config
+```
+
 ### Example 2: Atmospheric Detonation
 
 ```bash
@@ -474,6 +514,16 @@ mpirun -np 64 fsrm -c config/atmospheric_nuclear_test.config
 # - Prompt radiation doses
 # - EMP field time histories
 # - Fallout patterns (if surface burst)
+```
+
+#### Variants (additional atmospheric nuclear example configs)
+
+```bash
+# Surface burst emphasizing fallout + deposition mapping
+mpirun -np 32 fsrm -c config/atmospheric_nuclear_test_surface_fallout_50kt.config
+
+# High-altitude burst emphasizing EMP + ionospheric effects
+mpirun -np 64 fsrm -c config/atmospheric_nuclear_test_high_altitude_emp_1400kt.config
 ```
 
 ### Example 3: Asteroid Impact
