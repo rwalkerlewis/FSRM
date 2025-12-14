@@ -11,6 +11,7 @@
 #include "CoordinateSystem.hpp"
 #include "ImplicitExplicitTransition.hpp"
 #include "ConfigReader.hpp"
+#include "SeismometerNetwork.hpp"
 #include <memory>
 #include <vector>
 
@@ -108,6 +109,11 @@ private:
     
     // Coordinate system manager
     std::unique_ptr<CoordinateSystemManager> coord_manager;
+
+    // Seismometer output (stations/seismograms)
+    std::unique_ptr<SeismometerNetwork> seismometers_;
+    SeismometerOutputConfig seismo_out_cfg_;
+    std::vector<SeismometerSpec> seismo_specs_;
     
     // IMEX transition manager for induced seismicity
     std::unique_ptr<ImplicitExplicitTransitionManager> imex_manager;
