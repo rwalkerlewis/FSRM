@@ -60,6 +60,9 @@ Fast, isolated tests for individual classes and functions:
 - **EclipseIO**: Eclipse format file I/O
 - **FluidModel**: Generic fluid models (SinglePhase, BlackOil, Compositional, Brine, CO2)
 - **MaterialModel**: Generic material models (LinearElastic, Poroelastic, Viscoelastic, Elastoplastic, Anisotropic)
+- **Nuclear test modeling**: Near-field underground explosion, atmospheric mushroom cloud scaling, prompt radiation/fallout basics
+  - Tests live in: `tests/unit/test_near_field_explosion.cpp`, `tests/unit/test_atmospheric_explosion.cpp`, `tests/unit/test_radiation_physics.cpp`
+  - Run via CTest: `ctest -R "Unit.Nuclear" --output-on-failure`
 
 ### Functional Tests
 Tests for specific features and module integration:

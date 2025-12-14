@@ -78,14 +78,16 @@ The explosion creates concentric zones of decreasing damage:
         └──────────────────────────────────────┘
 ```
 
-Scaling relations (in granite, W in kilotons):
+Scaling relations (granite-like host rock, \(W\) in kilotons TNT equivalent) are implemented in `include/NearFieldExplosion.hpp` and covered by unit tests.
 
 | Zone | Radius (m) | Formula |
 |------|------------|---------|
-| Cavity | 55 × W^0.3 | Empirical |
-| Crushed | ~2 × cavity | Pervasive fracturing |
-| Fractured | ~5 × cavity | Radial fractures |
-| Damaged | ~10 × cavity | Detectable damage |
+| Cavity | \(55 \times W^{0.295} \times (\rho/2.65)^{-1/3.4}\) | Empirical (NTS-style) |
+| Crushed | \(\approx 2.5 \times\) cavity | Pervasive comminution |
+| Fractured | \(\approx 5 \times\) cavity | Radial fractures |
+| Damaged | \(\approx 10 \times\) cavity | Detectable damage |
+
+See: `tests/unit/test_near_field_explosion.cpp` for regression coverage of these scalings.
 
 ### Seismic Source Model (Mueller-Murphy)
 
@@ -539,7 +541,7 @@ mpirun -np 128 fsrm -c config/impact_event.config
 
 ## See Also
 
-- [Wave Propagation](./WAVE_PROPAGATION.md) - Seismic wave physics
-- [Plasticity Models](./PLASTICITY_MODELS.md) - Material failure
+- [Wave Propagation](../tutorials/09_WAVE_PROPAGATION.md) - Seismic wave physics
+- [Physics Models](./PHYSICS_MODELS.md) - Material failure and constitutive models
 - [Configuration Reference](./CONFIGURATION.md) - Full config options
 - [Benchmarks](./BENCHMARKS.md) - Validation suite
