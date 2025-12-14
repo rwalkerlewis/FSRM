@@ -751,7 +751,7 @@ project/
 
 **Causes & Solutions:**
 - Wrong file path → Check path in config file
-- Binary format → Convert to ASCII: `gmsh mesh.msh -o mesh_ascii.msh -format msh2`
+- Binary format → Supported (via PETSc DMPlex Gmsh reader). If you still want to debug in ASCII: `gmsh mesh.msh -o mesh_ascii.msh -format msh4 -bin 0`
 - Corrupted file → Regenerate mesh
 
 ### "No physical groups found"

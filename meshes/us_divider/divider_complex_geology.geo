@@ -13,9 +13,11 @@
 //   - Nested near-source damage halos (crushed / fractured / damaged)
 //   - Strong local mesh refinement near faults, source, halos, and heterogeneities
 //
-// Output must be ASCII (.msh binary not supported by FSRM):
+// Output can be ASCII or binary (FSRM uses PETSc's Gmsh reader):
 //   gmsh -3 meshes/us_divider/divider_complex_geology.geo \
-//        -format msh4 -bin 0 -o meshes/us_divider/divider_complex_geology_3d.msh
+//        -format msh4 -bin 0 -o meshes/us_divider/divider_complex_geology_3d_ascii.msh
+//   gmsh -3 meshes/us_divider/divider_complex_geology.geo \
+//        -format msh4 -bin 1 -o meshes/us_divider/divider_complex_geology_3d_bin.msh
 // ============================================================================
 
 SetFactory("OpenCASCADE");
@@ -346,6 +348,6 @@ Mesh.Optimize = 1;
 // Avoid “overlapping facets” false-positives for nearly-coplanar fragment faces.
 Mesh.AngleToleranceFacetOverlap = 0.05;
 
-// Keep output ASCII MSH v4
+// Output MSH v4.1 (ASCII or binary; set Mesh.Binary accordingly)
 Mesh.MshFileVersion = 4.1;
 Mesh.Binary = 0;
