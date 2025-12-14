@@ -3,6 +3,7 @@
 #include "ConfigReader.hpp"
 #include "ImplicitExplicitTransition.hpp"
 #include "ExplosionImpactPhysics.hpp"
+#include "SeismometerNetwork.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -486,6 +487,123 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     
     // Parse grid configuration
     reader.parseGridConfig(grid_config);
+
+    // Parse seismometers (optional)
+    seismo_specs_.clear();
+    seismo_out_cfg_ = SeismometerOutputConfig{};
+    if (reader.hasSection("SEISMOMETERS")) {
+        auto strtoupper_local = [](std::string s) {
+            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+            return s;
+        };
+        auto split_local = [](const std::string& s, char delim) {
+            std::vector<std::string> out;
+            std::stringstream ss(s);
+            std::string item;
+            while (std::getline(ss, item, delim)) {
+                // trim
+                auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+                size_t b = 0;
+                while (b < item.size() && is_space(static_cast<unsigned char>(item[b]))) ++b;
+                size_t e = item.size();
+                while (e > b && is_space(static_cast<unsigned char>(item[e - 1]))) --e;
+                std::string t = item.substr(b, e - b);
+                if (!t.empty()) out.push_back(t);
+            }
+            return out;
+        };
+
+        seismo_out_cfg_.enabled = reader.getBool("SEISMOMETERS", "enabled", true);
+        seismo_out_cfg_.output_dir = reader.getString("SEISMOMETERS", "output_dir", seismo_out_cfg_.output_dir);
+        seismo_out_cfg_.start_time_utc = reader.getString("SEISMOMETERS", "start_time_utc", seismo_out_cfg_.start_time_utc);
+
+        std::string formats = reader.getString("SEISMOMETERS", "formats", "SAC,MSEED");
+        formats = strtoupper_local(formats);
+        seismo_out_cfg_.write_sac = (formats.find("SAC") != std::string::npos);
+        seismo_out_cfg_.write_mseed = (formats.find("MSEED") != std::string::npos) || (formats.find("MINISEED") != std::string::npos);
+
+        double default_sr = reader.getDouble("SEISMOMETERS", "default_sample_rate_hz", 100.0);
+        std::string default_quantity = strtoupper_local(reader.getString("SEISMOMETERS", "default_quantity", "VELOCITY"));
+
+        auto parseQuantity = [&](const std::string& q) {
+            std::string uq = strtoupper_local(q);
+            if (uq == "DISPLACEMENT") return SeismoQuantity::DISPLACEMENT;
+            if (uq == "ACCELERATION") return SeismoQuantity::ACCELERATION;
+            return SeismoQuantity::VELOCITY;
+        };
+
+        // Station sections: [SEISMOMETER_*]
+        for (const auto& sec : reader.getSections()) {
+            if (sec.find("SEISMOMETER_") != 0) continue;
+
+            SeismometerSpec s;
+            s.network = reader.getString(sec, "net", reader.getString(sec, "network", s.network));
+            s.station = reader.getString(sec, "sta", reader.getString(sec, "station", s.station));
+            s.location = reader.getString(sec, "loc", reader.getString(sec, "location", s.location));
+            s.sample_rate_hz = reader.getDouble(sec, "sample_rate_hz", default_sr);
+            s.quantity = parseQuantity(reader.getString(sec, "quantity", default_quantity));
+
+            // Channels: "BHN,BHE,BHZ"
+            std::string ch = reader.getString(sec, "channels", "");
+            if (!ch.empty()) {
+                auto parts = split_local(ch, ',');
+                if (parts.size() >= 3) {
+                    s.channels = {parts[0], parts[1], parts[2]};
+                }
+            }
+
+            // Location by model coords
+            if (reader.hasKey(sec, "location_xyz")) {
+                auto v = reader.getDoubleArray(sec, "location_xyz");
+                if (v.size() >= 3) {
+                    s.coord_type = SeismoCoordinateType::MODEL_XYZ;
+                    s.x = v[0]; s.y = v[1]; s.z = v[2];
+                }
+            } else if (reader.hasKey(sec, "location")) {
+                // Back-compat: location = x,y,z
+                auto v = reader.getDoubleArray(sec, "location");
+                if (v.size() >= 3) {
+                    s.coord_type = SeismoCoordinateType::MODEL_XYZ;
+                    s.x = v[0]; s.y = v[1]; s.z = v[2];
+                }
+            }
+
+            // Location by grid indices: grid = i,j,k
+            if (reader.hasKey(sec, "grid")) {
+                auto v = reader.getDoubleArray(sec, "grid");
+                if (v.size() >= 3) {
+                    s.coord_type = SeismoCoordinateType::GRID_INDEX;
+                    s.i = static_cast<int>(std::llround(v[0]));
+                    s.j = static_cast<int>(std::llround(v[1]));
+                    s.k = static_cast<int>(std::llround(v[2]));
+                    std::string gm = strtoupper_local(reader.getString(sec, "grid_mode", "CELL_CENTER"));
+                    s.grid_mode = (gm == "NODE") ? GridIndexMode::NODE : GridIndexMode::CELL_CENTER;
+                }
+            }
+
+            // Location by geographic coords: geo = lon,lat,elev
+            if (reader.hasKey(sec, "geo")) {
+                auto v = reader.getDoubleArray(sec, "geo");
+                if (v.size() >= 2) {
+                    s.coord_type = SeismoCoordinateType::GEOGRAPHIC;
+                    s.lon = v[0];
+                    s.lat = v[1];
+                    s.elev = (v.size() >= 3) ? v[2] : 0.0;
+                }
+            }
+
+            // Instrument performance knobs
+            s.instrument.highpass_corner_hz = reader.getDouble(sec, "highpass_corner_hz", 0.0);
+            s.instrument.lowpass_corner_hz = reader.getDouble(sec, "lowpass_corner_hz", 0.0);
+            s.instrument.noise_std = reader.getDouble(sec, "noise_std", 0.0);
+            s.instrument.gain = reader.getDouble(sec, "gain", 1.0);
+            s.instrument.adc_bits = reader.getInt(sec, "adc_bits", 0);
+            s.instrument.full_scale = reader.getDouble(sec, "full_scale", 0.0);
+            s.instrument.clip = reader.getDouble(sec, "clip", 0.0);
+
+            seismo_specs_.push_back(std::move(s));
+        }
+    }
     
     // Parse material properties
     std::vector<MaterialProperties> props;
@@ -834,8 +952,10 @@ PetscErrorCode Simulator::setupStructuredGrid() {
     
     // Create DMPlex for structured grid
     PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
-    PetscReal lower[3] = {0.0, 0.0, 0.0};
-    PetscReal upper[3] = {grid_config.Lx, grid_config.Ly, grid_config.Lz};
+    PetscReal lower[3] = {grid_config.origin_x, grid_config.origin_y, grid_config.origin_z};
+    PetscReal upper[3] = {grid_config.origin_x + grid_config.Lx,
+                          grid_config.origin_y + grid_config.Ly,
+                          grid_config.origin_z + grid_config.Lz};
     ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
                               faces,
                               lower, upper, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
@@ -873,6 +993,14 @@ PetscErrorCode Simulator::setupFields() {
     ierr = VecDuplicate(solution, &solution_old); CHKERRQ(ierr);
     
     ierr = PetscObjectSetName((PetscObject)solution, "solution"); CHKERRQ(ierr);
+
+    // Initialize seismometers after fields exist (so we can subselect displacement_)
+    if (seismo_out_cfg_.enabled && !seismo_specs_.empty()) {
+        seismometers_ = std::make_unique<SeismometerNetwork>(comm);
+        seismometers_->setOutputConfig(seismo_out_cfg_);
+        seismometers_->setStations(seismo_specs_);
+        ierr = seismometers_->initialize(dm, grid_config, coord_manager.get()); CHKERRQ(ierr);
+    }
     
     PetscFunctionReturn(0);
 }
@@ -885,9 +1013,13 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     PetscFE fe;
     
     switch (config.fluid_model) {
+        case FluidModelType::NONE:
+            // No fluid fields
+            break;
         case FluidModelType::SINGLE_COMPONENT:
             // Single pressure field
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             break;
@@ -895,14 +1027,17 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         case FluidModelType::BLACK_OIL:
             // Pressure + saturations
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_w_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "saturation_w_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_g_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "saturation_g_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             break;
@@ -910,6 +1045,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         case FluidModelType::COMPOSITIONAL:
             // Pressure + compositions
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
@@ -918,6 +1054,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
                 char name[256];
                 snprintf(name, sizeof(name), "composition_%d_", i);
                 ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, name, -1, &fe); CHKERRQ(ierr);
+                ierr = PetscObjectSetName((PetscObject)fe, name); CHKERRQ(ierr);
                 ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
                 fe_fields.push_back(fe);
             }
@@ -930,6 +1067,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Add geomechanics field if enabled
     if (config.enable_geomechanics) {
         ierr = PetscFECreateDefault(comm, 3, 3, PETSC_FALSE, "displacement_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
@@ -937,6 +1075,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Add thermal field if enabled
     if (config.enable_thermal) {
         ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "temperature_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscObjectSetName((PetscObject)fe, "temperature_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
@@ -954,6 +1093,8 @@ PetscErrorCode Simulator::setupPhysics() {
     
     // Add physics kernels based on configuration
     switch (config.fluid_model) {
+        case FluidModelType::NONE:
+            break;
         case FluidModelType::SINGLE_COMPONENT: {
             auto kernel = std::make_shared<SinglePhaseFlowKernel>();
             ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
@@ -1080,8 +1221,16 @@ PetscErrorCode Simulator::setupPhysics() {
         ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
     }
     
-    // Setup residual and Jacobian functions
-    ierr = PetscDSSetResidual(prob, 0, f0_SinglePhase, f1_SinglePhase); CHKERRQ(ierr);
+    // Setup residuals for PETSc FEM time integration.
+    // NOTE: At present we only have a consistent PETSc FEM residual for the
+    // single-phase pressure equation. Other physics kernels are not wired into
+    // DMPlexTSComputeIFunctionFEM yet, so we must not enable the FEM path or
+    // PETSc will crash during assembly.
+    use_fem_time_residual_ = false;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        ierr = PetscDSSetResidual(prob, 0, f0_SinglePhase, f1_SinglePhase); CHKERRQ(ierr);
+        use_fem_time_residual_ = true;
+    }
     
     PetscFunctionReturn(0);
 }
@@ -1108,22 +1257,25 @@ PetscErrorCode Simulator::setupTimeStepper() {
     ierr = TSCreate(comm, &ts); CHKERRQ(ierr);
     ierr = TSSetDM(ts, dm); CHKERRQ(ierr);
     ierr = TSSetProblemType(ts, TS_NONLINEAR); CHKERRQ(ierr);
+
+    // Create Jacobian matrix (required by TSSetIJacobian callbacks)
+    if (!jacobian) {
+        ierr = DMCreateMatrix(dm, &jacobian); CHKERRQ(ierr);
+        ierr = MatZeroEntries(jacobian); CHKERRQ(ierr);
+    }
     
     // Set time stepping method
-    // Use implicit methods for quasi-static, explicit or implicit for dynamic
+    // NOTE: TSALPHA2 is a *second-order* integrator that requires TSSetI2Function/I2Jacobian.
+    // This code currently provides only TSSetIFunction/IJacobian (first-order form).
+    // To keep simulations stable/runnable, use backward Euler for now.
     if (config.use_dynamic_mode || config.enable_elastodynamics || config.enable_poroelastodynamics) {
-        // For wave propagation, use second-order time integrator
-        ierr = TSSetType(ts, TSALPHA2); CHKERRQ(ierr);  // Generalized-alpha for dynamics
-        
-        // Set parameters for optimal stability and accuracy
-        PetscReal alpha_m = 0.5;  // Spectral radius
-        PetscReal alpha_f = 0.5;
-        // PetscReal gamma = 0.5 + alpha_m - alpha_f;  // Not used in current implementation
-        // These can be set via TSAlpha2SetParams if needed
-    } else {
-        // Quasi-static: use backward Euler
-        ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm,
+                        "Warning: dynamic mode requested, but second-order TSALPHA2 callbacks are not configured. "
+                        "Falling back to TSBEULER for stability.\n");
+        }
     }
+    ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
     
     // Set time parameters
     ierr = TSSetTime(ts, config.start_time); CHKERRQ(ierr);
@@ -1134,7 +1286,7 @@ PetscErrorCode Simulator::setupTimeStepper() {
     
     // Set residual and Jacobian functions
     ierr = TSSetIFunction(ts, nullptr, FormFunction, this); CHKERRQ(ierr);
-    ierr = TSSetIJacobian(ts, nullptr, nullptr, FormJacobian, this); CHKERRQ(ierr);
+    ierr = TSSetIJacobian(ts, jacobian, jacobian, FormJacobian, this); CHKERRQ(ierr);
     
     // Set monitor (may be overridden by IMEX setup, see below)
     ierr = TSMonitorSet(ts, MonitorFunction, this, nullptr); CHKERRQ(ierr);
@@ -1448,9 +1600,16 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
     
     // Zero out residual
     ierr = VecSet(F, 0.0); CHKERRQ(ierr);
-    
-    // Compute residual from DMPlex
-    ierr = DMPlexTSComputeIFunctionFEM(sim->dm, t, U, U_t, F, ctx); CHKERRQ(ierr);
+
+    if (sim->use_fem_time_residual_) {
+        // Compute residual from DMPlex FEM discretization
+        ierr = DMPlexTSComputeIFunctionFEM(sim->dm, t, U, U_t, F, ctx); CHKERRQ(ierr);
+    } else {
+        // Safe fallback: enforce U_t = 0 (no time evolution) to keep simulations
+        // runnable even when residuals aren't configured for the selected fields.
+        // F = U_t
+        ierr = VecCopy(U_t, F); CHKERRQ(ierr);
+    }
     
     PetscFunctionReturn(0);
 }
@@ -1463,8 +1622,18 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
     Simulator *sim = static_cast<Simulator*>(ctx);
     PetscErrorCode ierr;
     
-    // Compute Jacobian from DMPlex
-    ierr = DMPlexTSComputeIJacobianFEM(sim->dm, t, U, U_t, a, J, P, ctx); CHKERRQ(ierr);
+    if (sim->use_fem_time_residual_) {
+        // Compute Jacobian from DMPlex FEM discretization
+        ierr = DMPlexTSComputeIJacobianFEM(sim->dm, t, U, U_t, a, J, P, ctx); CHKERRQ(ierr);
+    } else {
+        // Jacobian for F = U_t is simply shift * I in PETSc's implicit form.
+        ierr = MatZeroEntries(P); CHKERRQ(ierr);
+        ierr = MatShift(P, a); CHKERRQ(ierr);
+        if (J != P) {
+            ierr = MatZeroEntries(J); CHKERRQ(ierr);
+            ierr = MatShift(J, a); CHKERRQ(ierr);
+        }
+    }
     
     PetscFunctionReturn(0);
 }
@@ -1486,6 +1655,11 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
     // Write output if necessary
     if (step % sim->config.output_frequency == 0) {
         ierr = sim->writeOutput(step); CHKERRQ(ierr);
+    }
+
+    // Sample seismometers (if enabled)
+    if (sim->seismometers_) {
+        ierr = sim->seismometers_->sample(static_cast<double>(t), U); CHKERRQ(ierr);
     }
 
     // Estimate velocity from finite difference (needed by IMEX manager)
@@ -1670,6 +1844,11 @@ PetscErrorCode Simulator::writeSummary() {
         summary << "Total timesteps: " << timestep << "\n";
         summary << "Final time: " << current_time << "\n";
         summary.close();
+    }
+
+    // Write seismometer outputs (rank 0)
+    if (seismometers_) {
+        PetscErrorCode ierr = seismometers_->finalizeAndWrite(); CHKERRQ(ierr);
     }
 
     // Write seismic catalog if requested and events exist

@@ -317,9 +317,18 @@ bool ConfigReader::parseSimulationConfig(SimulationConfig& config) {
     
     // Fluid model
     std::string fluid_model = getString("SIMULATION", "fluid_model", "SINGLE_COMPONENT");
-    if (fluid_model == "SINGLE_COMPONENT") config.fluid_model = FluidModelType::SINGLE_COMPONENT;
-    else if (fluid_model == "BLACK_OIL") config.fluid_model = FluidModelType::BLACK_OIL;
-    else if (fluid_model == "COMPOSITIONAL") config.fluid_model = FluidModelType::COMPOSITIONAL;
+    std::transform(fluid_model.begin(), fluid_model.end(), fluid_model.begin(), ::toupper);
+    if (fluid_model == "NONE" || fluid_model == "OFF" || fluid_model == "DISABLED") {
+        config.fluid_model = FluidModelType::NONE;
+    } else if (fluid_model == "SINGLE_COMPONENT") {
+        config.fluid_model = FluidModelType::SINGLE_COMPONENT;
+    } else if (fluid_model == "BLACK_OIL") {
+        config.fluid_model = FluidModelType::BLACK_OIL;
+    } else if (fluid_model == "COMPOSITIONAL") {
+        config.fluid_model = FluidModelType::COMPOSITIONAL;
+    } else if (fluid_model == "THERMAL_COMPOSITIONAL") {
+        config.fluid_model = FluidModelType::THERMAL_COMPOSITIONAL;
+    }
     
     // Solid model
     std::string solid_model = getString("SIMULATION", "solid_model", "ELASTIC");

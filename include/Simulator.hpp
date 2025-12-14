@@ -11,6 +11,7 @@
 #include "CoordinateSystem.hpp"
 #include "ImplicitExplicitTransition.hpp"
 #include "ConfigReader.hpp"
+#include "SeismometerNetwork.hpp"
 #include <memory>
 #include <vector>
 
@@ -108,6 +109,11 @@ private:
     
     // Coordinate system manager
     std::unique_ptr<CoordinateSystemManager> coord_manager;
+
+    // Seismometer output (stations/seismograms)
+    std::unique_ptr<SeismometerNetwork> seismometers_;
+    SeismometerOutputConfig seismo_out_cfg_;
+    std::vector<SeismometerSpec> seismo_specs_;
     
     // IMEX transition manager for induced seismicity
     std::unique_ptr<ImplicitExplicitTransitionManager> imex_manager;
@@ -149,6 +155,11 @@ private:
     double dt;
     int timestep;
     int output_counter;
+
+    // If true, use PETSc FEM helpers (DMPlexTSComputeIFunctionFEM).
+    // If false, fall back to a safe placeholder (U_t = 0) to avoid crashes when
+    // the discretization/physics residuals are not configured.
+    bool use_fem_time_residual_ = false;
     
     // Performance metrics
     std::vector<double> solve_times;

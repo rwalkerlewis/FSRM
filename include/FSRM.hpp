@@ -28,6 +28,7 @@ class EclipseIO;
 
 // Enumerations
 enum class FluidModelType {
+    NONE,                  ///< No fluid flow model (dry rock / mechanics-only)
     SINGLE_COMPONENT,
     BLACK_OIL,
     COMPOSITIONAL,
