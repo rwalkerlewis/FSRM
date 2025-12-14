@@ -259,8 +259,29 @@ PetscErrorCode SeismometerNetwork::initialize(DM dm,
         PetscFunctionReturn(0);
     }
 
-    // Create subDM for displacement and an index set to extract the subvector
-    PetscCall(DMCreateSubDM(dm_, 1, &disp_field, &disp_is_, &disp_dm_));
+    // Compute interpolation layout offsets (interp_result_ packs all field components)
+    disp_offset_ = 0;
+    dof_per_point_ = 0;
+    disp_components_ = 3;
+    PetscInt running = 0;
+    for (PetscInt f = 0; f < nfields; ++f) {
+        PetscObject obj = nullptr;
+        PetscInt nc = 1;
+        PetscCall(DMGetField(dm_, f, nullptr, &obj));
+        if (obj) {
+            PetscClassId cid = 0;
+            PetscCall(PetscObjectGetClassId(obj, &cid));
+            if (cid == PETSCFE_CLASSID) {
+                PetscCall(PetscFEGetNumComponents((PetscFE)obj, &nc));
+            }
+        }
+        if (f == disp_field) {
+            disp_offset_ = running;
+            disp_components_ = nc;
+        }
+        running += nc;
+    }
+    dof_per_point_ = running;
 
     // Setup interpolation
     PetscCall(DMInterpolationCreate(comm_, &interp_));
@@ -275,7 +296,7 @@ PetscErrorCode SeismometerNetwork::initialize(DM dm,
     }
 
     PetscCall(DMInterpolationAddPoints(interp_, static_cast<PetscInt>(stations_.size()), pts.data()));
-    PetscCall(DMInterpolationSetUp(interp_, disp_dm_, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(DMInterpolationSetUp(interp_, dm_, PETSC_FALSE, PETSC_FALSE));
     PetscCall(DMInterpolationGetVector(interp_, &interp_result_));
 
     initialized_ = true;
@@ -292,24 +313,32 @@ PetscErrorCode SeismometerNetwork::sample(double t, Vec U) {
     }
     last_sample_time_ = t;
 
-    // Extract displacement subvector and interpolate at station points
-    Vec subU = nullptr;
-    PetscCall(VecGetSubVector(U, disp_is_, &subU));
-    PetscCall(DMInterpolationEvaluate(interp_, disp_dm_, subU, interp_result_));
-    PetscCall(VecRestoreSubVector(U, disp_is_, &subU));
+    // Interpolate full solution at station points (then pick displacement components by offset).
+    Vec locU = nullptr;
+    PetscCall(DMGetLocalVector(dm_, &locU));
+    PetscCall(DMGlobalToLocalBegin(dm_, U, INSERT_VALUES, locU));
+    PetscCall(DMGlobalToLocalEnd(dm_, U, INSERT_VALUES, locU));
+    PetscCall(DMInterpolationEvaluate(interp_, dm_, locU, interp_result_));
+    PetscCall(DMRestoreLocalVector(dm_, &locU));
 
     // Only rank 0 stores and writes traces (avoids duplicates).
     if (rank_ != 0) PetscFunctionReturn(0);
 
     const PetscScalar* a = nullptr;
     PetscCall(VecGetArrayRead(interp_result_, &a));
-    // interp_result_ layout: [ux0,uy0,uz0, ux1,uy1,uz1, ...]
+    PetscInt nloc = 0;
+    PetscCall(VecGetLocalSize(interp_result_, &nloc));
+    PetscInt stride = (stations_.empty()) ? 0 : (nloc / static_cast<PetscInt>(stations_.size()));
+    if (stride <= 0) stride = dof_per_point_;
+    // interp_result_ layout: point-major blocks, with displacement starting at disp_offset_
     for (size_t p = 0; p < stations_.size(); ++p) {
         auto& st = stations_[p];
         st.t.push_back(t);
-        st.disp.push_back({static_cast<double>(a[3*p + 0]),
-                           static_cast<double>(a[3*p + 1]),
-                           static_cast<double>(a[3*p + 2])});
+        const PetscInt base = static_cast<PetscInt>(p) * stride + disp_offset_;
+        const double ux = (base + 0 < nloc) ? static_cast<double>(a[base + 0]) : 0.0;
+        const double uy = (base + 1 < nloc) ? static_cast<double>(a[base + 1]) : 0.0;
+        const double uz = (base + 2 < nloc) ? static_cast<double>(a[base + 2]) : 0.0;
+        st.disp.push_back({ux, uy, uz});
     }
     PetscCall(VecRestoreArrayRead(interp_result_, &a));
 

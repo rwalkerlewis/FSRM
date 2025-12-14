@@ -1019,6 +1019,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         case FluidModelType::SINGLE_COMPONENT:
             // Single pressure field
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             break;
@@ -1026,14 +1027,17 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         case FluidModelType::BLACK_OIL:
             // Pressure + saturations
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_w_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "saturation_w_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_g_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "saturation_g_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             break;
@@ -1041,6 +1045,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         case FluidModelType::COMPOSITIONAL:
             // Pressure + compositions
             ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
@@ -1049,6 +1054,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
                 char name[256];
                 snprintf(name, sizeof(name), "composition_%d_", i);
                 ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, name, -1, &fe); CHKERRQ(ierr);
+                ierr = PetscObjectSetName((PetscObject)fe, name); CHKERRQ(ierr);
                 ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
                 fe_fields.push_back(fe);
             }
@@ -1061,6 +1067,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Add geomechanics field if enabled
     if (config.enable_geomechanics) {
         ierr = PetscFECreateDefault(comm, 3, 3, PETSC_FALSE, "displacement_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
@@ -1068,6 +1075,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Add thermal field if enabled
     if (config.enable_thermal) {
         ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "temperature_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscObjectSetName((PetscObject)fe, "temperature_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }

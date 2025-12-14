@@ -178,12 +178,17 @@ private:
     SeismometerOutputConfig out_cfg_;
     std::vector<StationRuntime> stations_;
 
-    // PETSc interpolation setup (displacement field subDM)
+    // PETSc interpolation setup
     DM dm_ = nullptr;
     DM disp_dm_ = nullptr;
     IS disp_is_ = nullptr;
     DMInterpolationInfo interp_ = nullptr;
     Vec interp_result_ = nullptr;
+
+    // Interpolation layout (interp_result_ stores all field components)
+    PetscInt dof_per_point_ = 0;   // total dof per interpolation point
+    PetscInt disp_offset_ = 0;     // displacement offset within point block
+    PetscInt disp_components_ = 3; // displacement components (expected 3)
 
     // Sampling control
     double last_sample_time_ = -1.0e300;
