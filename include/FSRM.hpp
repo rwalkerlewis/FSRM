@@ -183,6 +183,18 @@ struct SimulationConfig {
     bool enable_near_field_damage = false;         // Cavity/damage zone evolution
     bool enable_hydrodynamic = false;              // High-pressure shock flow
     bool enable_crater_formation = false;          // Impact cratering
+
+    // =========================================================================
+    // Explosion PDE solve mode
+    // =========================================================================
+    // PROXY:
+    //   - Use simplified coupling/triggering paths (e.g., synthetic or reduced-order triggers).
+    // COUPLED_ANALYTIC:
+    //   - Use integrated analytic/phenomenological coupling (e.g., spherical cavity stress fields).
+    // FULL_PDE:
+    //   - Solve the full coupled PDE system (blast + shock + wave propagation everywhere).
+    //     Note: this requires dedicated PDE kernels and assembly support.
+    std::string explosion_solve_mode = "COUPLED_ANALYTIC";
     
     // =========================================================================
     // Physics Flags - Atmospheric

@@ -296,6 +296,24 @@ bool ConfigReader::parseSimulationConfig(SimulationConfig& config) {
     config.enable_particle_transport = getBool("SIMULATION", "enable_particle_transport", false);
     config.enable_faults = getBool("SIMULATION", "enable_faults", false);
     config.enable_tidal_forces = getBool("SIMULATION", "enable_tidal_forces", false);
+    config.enable_elastodynamics = getBool("SIMULATION", "enable_elastodynamics", false);
+    config.enable_poroelastodynamics = getBool("SIMULATION", "enable_poroelastodynamics", false);
+
+    config.enable_explosion_source = getBool("SIMULATION", "enable_explosion_source", false);
+    config.enable_near_field_damage = getBool("SIMULATION", "enable_near_field_damage", false);
+    config.enable_hydrodynamic = getBool("SIMULATION", "enable_hydrodynamic", false);
+    config.enable_crater_formation = getBool("SIMULATION", "enable_crater_formation", false);
+
+    config.enable_atmospheric_blast = getBool("SIMULATION", "enable_atmospheric_blast", false);
+    config.enable_atmospheric_acoustic = getBool("SIMULATION", "enable_atmospheric_acoustic", false);
+    config.enable_infrasound = getBool("SIMULATION", "enable_infrasound", false);
+    config.enable_thermal_radiation = getBool("SIMULATION", "enable_thermal_radiation", false);
+    config.enable_emp = getBool("SIMULATION", "enable_emp", false);
+    config.enable_fallout = getBool("SIMULATION", "enable_fallout", false);
+
+    config.explosion_solve_mode = getString("SIMULATION", "explosion_solve_mode", config.explosion_solve_mode);
+    std::transform(config.explosion_solve_mode.begin(), config.explosion_solve_mode.end(),
+                   config.explosion_solve_mode.begin(), ::toupper);
     
     // Fluid model
     std::string fluid_model = getString("SIMULATION", "fluid_model", "SINGLE_COMPONENT");
@@ -308,6 +326,9 @@ bool ConfigReader::parseSimulationConfig(SimulationConfig& config) {
     if (solid_model == "ELASTIC") config.solid_model = SolidModelType::ELASTIC;
     else if (solid_model == "VISCOELASTIC") config.solid_model = SolidModelType::VISCOELASTIC;
     else if (solid_model == "POROELASTIC") config.solid_model = SolidModelType::POROELASTIC;
+    else if (solid_model == "THERMOELASTIC") config.solid_model = SolidModelType::THERMOELASTIC;
+    else if (solid_model == "ELASTODYNAMIC") config.solid_model = SolidModelType::ELASTODYNAMIC;
+    else if (solid_model == "POROELASTODYNAMIC") config.solid_model = SolidModelType::POROELASTODYNAMIC;
     
     // Output format
     config.output_format = getString("SIMULATION", "output_format", "HDF5");

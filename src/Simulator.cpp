@@ -150,6 +150,22 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     
     // Parse simulation configuration
     reader.parseSimulationConfig(config);
+
+    // Explosion PDE solve mode selection (explicit knob)
+    if (!config.explosion_solve_mode.empty()) {
+        if (config.explosion_solve_mode != "PROXY" &&
+            config.explosion_solve_mode != "COUPLED_ANALYTIC" &&
+            config.explosion_solve_mode != "FULL_PDE") {
+            SETERRQ(comm, PETSC_ERR_ARG_WRONG,
+                    ("Invalid SIMULATION.explosion_solve_mode='" + config.explosion_solve_mode +
+                     "'. Valid: PROXY, COUPLED_ANALYTIC, FULL_PDE").c_str());
+        }
+        if (config.explosion_solve_mode == "FULL_PDE") {
+            SETERRQ(comm, PETSC_ERR_SUP,
+                    "SIMULATION.explosion_solve_mode=FULL_PDE requested, but a full coupled blast+shock+wave PDE solver is not implemented in this build. "
+                    "Use SIMULATION.explosion_solve_mode=COUPLED_ANALYTIC (integrated spherical-cavity stress coupling) or PROXY.");
+        }
+    }
     
     // Parse grid configuration
     reader.parseGridConfig(grid_config);

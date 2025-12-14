@@ -106,6 +106,13 @@ $$M_{ij} = M_{iso} \begin{pmatrix} 1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1 \end{pmat
 ### Configuration Example
 
 ```ini
+[SIMULATION]
+# Controls how explosions are coupled into the solve.
+# - PROXY: reduced-order / triggering-only paths
+# - COUPLED_ANALYTIC: integrated analytic coupling (e.g., spherical cavity stress)
+# - FULL_PDE: full coupled blast+shock+wave PDE everywhere (not implemented in this build)
+explosion_solve_mode = COUPLED_ANALYTIC
+
 [EXPLOSION_SOURCE]
 type = NUCLEAR_UNDERGROUND
 yield_kt = 150.0
