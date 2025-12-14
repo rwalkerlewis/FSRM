@@ -621,6 +621,44 @@ mpirun -np 8 ./pinatubo_plinian -vei 6 -end_time 36000
 - `seismograms_*.dat` - Velocity seismograms
 - `source_time_function.dat` - Equivalent moment rate
 
+#### Operation Dominic (1962) - Historical-Inspired Config Examples ⭐ **NEW**
+
+These configs extend the nuclear testing example suite with **Operation Dominic / Fishbowl**
+style scenarios. They follow the same pattern as `historical_starfish_prime_1962_high_altitude_emp.config`:
+consistent naming, explicit intent, and parameters chosen for *educational what-if analysis* (not an
+authoritative reconstruction).
+
+**High-altitude EMP / ionosphere (Fishbowl-style):**
+- `historical_starfish_prime_1962_high_altitude_emp.config` (existing)
+  - **What it demonstrates**: Extreme high-altitude EMP + wide-footprint field outputs
+  - **Baseline**: 1.4 Mt class, ~400 km altitude example
+- `historical_kingfish_1962_high_altitude_emp_410kt.config`
+  - **What it demonstrates**: Lower-yield (~410 kt) high-altitude EMP case (~95 km style) with receiver arrays
+  - **Good for**: Comparing E1/E2/E3 scaling vs Starfish at similar domain size
+- `historical_bluegill_triple_prime_1962_high_altitude_emp_400kt.config`
+  - **What it demonstrates**: Medium/high-altitude (~48 km style) EMP case with orthogonal receiver lines
+  - **Good for**: Altitude sensitivity studies (footprint vs local peak field)
+
+**Low-altitude blast/thermal vs surface-fallout contrast:**
+- `historical_checkmate_1962_low_altitude_airburst_10kt.config`
+  - **What it demonstrates**: Low-altitude airburst (blast + thermal + prompt dose) with fallout disabled
+  - **Good for**: \"Airburst\" baseline runs where crater/ejecta-driven fallout is intentionally excluded
+- `historical_tightrope_1962_surface_burst_fallout_10kt.config`
+  - **What it demonstrates**: Surface burst emphasizing fallout formation/deposition and coupled ground response
+  - **Good for**: Downwind deposition patterns and dose-rate/contamination map outputs
+
+**Usage:**
+```bash
+# High-altitude EMP cases
+./simulator -c config/historical_starfish_prime_1962_high_altitude_emp.config
+./simulator -c config/historical_kingfish_1962_high_altitude_emp_410kt.config
+./simulator -c config/historical_bluegill_triple_prime_1962_high_altitude_emp_400kt.config
+
+# Airburst vs surface burst comparison
+./simulator -c config/historical_checkmate_1962_low_altitude_airburst_10kt.config
+./simulator -c config/historical_tightrope_1962_surface_burst_fallout_10kt.config
+```
+
 ### GPU-Accelerated Examples
 
 #### `gpu_elastodynamics.config`
