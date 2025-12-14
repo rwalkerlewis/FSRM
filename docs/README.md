@@ -9,6 +9,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [QUICK_START.md](QUICK_START.md) | Get started in 5 minutes |
 | [USER_GUIDE.md](USER_GUIDE.md) | Complete user manual |
 | [CONFIGURATION.md](CONFIGURATION.md) | Configuration file reference |
+| [CODE_INTERACTION_DIAGRAMS.md](CODE_INTERACTION_DIAGRAMS.md) | **How the code modules interact (diagrams)** |
 | [PHYSICS_MODELS.md](PHYSICS_MODELS.md) | Physics and mathematical models |
 | [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) | **Unified physics kernel and GPU architecture** |
 | [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md) | Numerical approaches and algorithms |
@@ -41,9 +42,11 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 - **Building**: [DEVELOPMENT.md](DEVELOPMENT.md)
 - **Testing**: [BENCHMARKS.md](BENCHMARKS.md)
 - **API Reference**: [API_REFERENCE.md](API_REFERENCE.md)
+- **Code Interactions**: [CODE_INTERACTION_DIAGRAMS.md](CODE_INTERACTION_DIAGRAMS.md)
 
 ### By Topic
 - **Physics**: [PHYSICS_MODELS.md](PHYSICS_MODELS.md)
+- **System Architecture**: [CODE_INTERACTION_DIAGRAMS.md](CODE_INTERACTION_DIAGRAMS.md)
 - **Physics Kernels & GPU**: [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) ⭐
 - **Numerical Methods**: [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md)
 - **GPU Deployment**: [DEPLOYMENT.md](DEPLOYMENT.md#gpu-configuration)
