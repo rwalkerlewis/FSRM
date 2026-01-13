@@ -1,0 +1,111 @@
+# FSRM Clang-Format Configuration
+# Based on Google style with modifications for FSRM conventions
+---
+Language: Cpp
+BasedOnStyle: Google
+
+# Indentation
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -2
+
+# Braces - Allman style (opening brace on new line)
+BreakBeforeBraces: Allman
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+
+# Line length
+ColumnLimit: 100
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+
+# Arguments and parameters
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: false
+BinPackParameters: false
+
+# Includes
+IncludeBlocks: Regroup
+IncludeCategories:
+  # FSRM headers first
+  - Regex: '^".*\.hpp"'
+    Priority: 1
+  - Regex: '^".*\.h"'
+    Priority: 2
+  # PETSc headers
+  - Regex: '^<(petscsys|petsc|petscvec|petscmat|petscksp|petscsnes|petscdm|petscts).*>'
+    Priority: 3
+  # MPI
+  - Regex: '^<mpi\.h>'
+    Priority: 4
+  # HDF5
+  - Regex: '^<(hdf5|H5).*>'
+    Priority: 5
+  # System headers
+  - Regex: '^<.*>'
+    Priority: 6
+
+# Namespaces
+CompactNamespaces: false
+FixNamespaceComments: true
+NamespaceIndentation: None
+
+# Pointers and references
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+# Spaces
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: true
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Other
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 2
+Cpp11BracedListStyle: true
+IndentCaseLabels: true
+IndentWrappedFunctionNames: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+ReflowComments: true
+SortIncludes: true
+SortUsingDeclarations: true
+Standard: c++17
+
+# Comments - preserve Doxygen comments
+CommentPragmas: '^ IWYU pragma:|^\\brief|^\\param|^\\return|^\\see|^\\note|^\\warning'
+---
+Language: Proto
+BasedOnStyle: Google
+---

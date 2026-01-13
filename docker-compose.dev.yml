@@ -1,0 +1,126 @@
+version: '3.8'
+
+# Docker Compose for FSRM Development Environment
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml exec fsrm-dev bash
+
+services:
+  fsrm-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        USERNAME: developer
+        USER_UID: 1000
+        USER_GID: 1000
+    image: fsrm-dev:latest
+    container_name: fsrm-dev
+    hostname: fsrm-dev
+    
+    # Keep container running
+    stdin_open: true
+    tty: true
+    
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 8G
+    
+    # Mount volumes
+    volumes:
+      # Source code (bind mount for live editing)
+      - .:/workspace:cached
+      # Persist build directory across container restarts
+      - fsrm-build:/workspace/build
+      # Persist bash history
+      - fsrm-bashhistory:/home/developer/.bash_history
+      # Persist VS Code extensions
+      - fsrm-vscode-extensions:/home/developer/.vscode-server/extensions
+      # Optional: mount data directories
+      - ./data:/data
+      - ./output:/output
+    
+    # Working directory
+    working_dir: /workspace
+    
+    # Environment variables
+    environment:
+      - PETSC_DIR=/usr/lib/petsc
+      - OMP_NUM_THREADS=1
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - DISPLAY=${DISPLAY:-:0}
+    
+    # Enable IPC for MPI and debugging
+    ipc: host
+    
+    # Security options for debugging
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    
+    # Ports
+    ports:
+      - "8888:8888"   # Jupyter
+      - "8080:8080"   # ParaView web
+      - "5000:5000"   # Generic dev server
+    
+    # Network
+    networks:
+      - fsrm-dev-network
+    
+    # Default command
+    command: /bin/bash
+
+  # Optional: Jupyter Lab service
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: fsrm-dev:latest
+    container_name: fsrm-jupyter
+    hostname: fsrm-jupyter
+    
+    volumes:
+      - .:/workspace:cached
+      - fsrm-build:/workspace/build
+      - ./notebooks:/notebooks
+      - ./data:/data
+      - ./output:/output
+    
+    working_dir: /notebooks
+    
+    environment:
+      - PETSC_DIR=/usr/lib/petsc
+      - JUPYTER_TOKEN=fsrm
+    
+    ports:
+      - "8889:8888"
+    
+    networks:
+      - fsrm-dev-network
+    
+    command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+    
+    profiles:
+      - jupyter  # Only start with: docker compose --profile jupyter up
+
+volumes:
+  fsrm-build:
+    name: fsrm-build-cache
+  fsrm-bashhistory:
+    name: fsrm-bash-history
+  fsrm-vscode-extensions:
+    name: fsrm-vscode-extensions
+
+networks:
+  fsrm-dev-network:
+    name: fsrm-dev-network
+    driver: bridge

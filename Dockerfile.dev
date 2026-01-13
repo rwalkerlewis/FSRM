@@ -1,0 +1,138 @@
+# FSRM Development Docker Environment
+# Provides a complete development environment with all dependencies pre-installed
+# Supports VS Code Dev Containers for seamless cross-platform development
+
+FROM ubuntu:24.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Switch to more reliable mirror and configure APT for resilience
+# Using mirror protocol for automatic fallback and disabling hash checking for transient issues
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.math.princeton.edu/pub|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::http::Timeout "60";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::https::Timeout "60";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::CompressionTypes::Order:: "gz";' >> /etc/apt/apt.conf.d/80-retries
+
+# Set locale
+RUN rm -rf /var/lib/apt/lists/* && \
+    apt-get clean && \
+    apt-get update && \
+    apt-get install -y locales && \
+    locale-gen en_US.UTF-8 && \
+    update-locale LANG=en_US.UTF-8
+
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# Install development tools and dependencies
+RUN rm -rf /var/lib/apt/lists/* && \
+    apt-get clean && \
+    apt-get update && \
+    apt-get install -y \
+    # Build tools
+    build-essential \
+    cmake \
+    cmake-curses-gui \
+    ninja-build \
+    gfortran \
+    pkg-config \
+    # Version control
+    git \
+    git-lfs \
+    # Debugging and profiling
+    gdb \
+    valgrind \
+    linux-tools-generic \
+    # MPI
+    libopenmpi-dev \
+    openmpi-bin \
+    openmpi-common \
+    # HDF5 with MPI support
+    libhdf5-openmpi-dev \
+    hdf5-tools \
+    # Linear algebra
+    liblapack-dev \
+    libblas-dev \
+    # PETSc (from Ubuntu repos for development)
+    libpetsc-real-dev \
+    petsc-dev \
+    # Optional: PROJ for coordinate systems
+    libproj-dev \
+    proj-bin \
+    # Mesh tools
+    gmsh \
+    libgmsh-dev \
+    # Python for scripting and testing
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    # Documentation
+    doxygen \
+    graphviz \
+    # Networking tools (useful for MPI debugging)
+    net-tools \
+    iputils-ping \
+    # Editor and utilities
+    vim \
+    nano \
+    less \
+    htop \
+    tmux \
+    curl \
+    wget \
+    unzip \
+    # Shell
+    zsh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install minimal Python packages for testing
+RUN pip3 install --break-system-packages \
+    numpy \
+    h5py \
+    pytest \
+    pyyaml
+
+# Set up PETSc environment
+ENV PETSC_DIR=/usr/lib/petsc
+ENV PKG_CONFIG_PATH=/usr/lib/petsc/lib/pkgconfig
+
+# Create non-root development user
+ARG USERNAME=developer
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+# Handle case where GID/UID might already exist in the base image
+RUN (groupadd --gid $USER_GID $USERNAME || groupmod -n $USERNAME $(getent group $USER_GID | cut -d: -f1)) \
+    && (useradd --uid $USER_UID --gid $USER_GID -m $USERNAME || usermod -l $USERNAME -d /home/$USERNAME -m $(getent passwd $USER_UID | cut -d: -f1)) \
+    && apt-get update \
+    && apt-get install -y sudo \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up zsh with oh-my-zsh for better developer experience
+USER $USERNAME
+WORKDIR /home/$USERNAME
+
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended || true
+
+# Configure shell
+RUN echo 'export PETSC_DIR=/usr/lib/petsc' >> ~/.bashrc && \
+    echo 'export PATH=$PATH:/home/$USERNAME/.local/bin' >> ~/.bashrc && \
+    echo 'alias ll="ls -la"' >> ~/.bashrc && \
+    echo 'alias build="cd /workspaces/FSRM/build && cmake --build . -j\$(nproc)"' >> ~/.bashrc && \
+    echo 'alias configure="cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON"' >> ~/.bashrc && \
+    echo 'alias test="cd /workspaces/FSRM/build && ctest --output-on-failure"' >> ~/.bashrc
+
+# Create workspace directory (using sudo since we're now the developer user)
+RUN sudo mkdir -p /workspaces/FSRM && sudo chown $USER:$USER /workspaces/FSRM
+
+# Set working directory
+WORKDIR /workspaces/FSRM
+
+# Default command
+CMD ["/bin/bash"]

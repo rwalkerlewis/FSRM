@@ -1,0 +1,54 @@
+# EditorConfig - https://editorconfig.org
+# FSRM coding standards
+
+root = true
+
+# Default settings for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# C++ source files
+[*.{cpp,hpp,c,h,cu,cuh}]
+indent_size = 2
+max_line_length = 100
+
+# CMake files
+[{CMakeLists.txt,*.cmake}]
+indent_size = 2
+
+# Configuration files
+[*.config]
+indent_size = 2
+
+# YAML files
+[*.{yml,yaml}]
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# Markdown files
+[*.md]
+trim_trailing_whitespace = false
+
+# Shell scripts
+[*.sh]
+indent_size = 2
+
+# Python files
+[*.py]
+indent_size = 4
+
+# Makefiles
+[Makefile]
+indent_style = tab
+
+# Dockerfile
+[Dockerfile*]
+indent_size = 2

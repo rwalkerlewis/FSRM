@@ -1,0 +1,53 @@
+{
+  "name": "FSRM Development",
+  "dockerFile": "../Dockerfile.dev",
+  "context": "..",
+
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/FSRM,type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/FSRM",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "twxs.cmake",
+        "mhutchie.git-graph",
+        "xaver.clang-format"
+      ],
+      "settings": {
+        "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+        "C_Cpp.default.cppStandard": "c++17",
+        "cmake.configureOnOpen": true,
+        "cmake.buildDirectory": "${workspaceFolder}/build",
+        "cmake.generator": "Unix Makefiles",
+        "cmake.configureArgs": [
+          "-DCMAKE_BUILD_TYPE=Debug",
+          "-DENABLE_TESTING=ON",
+          "-DBUILD_EXAMPLES=ON"
+        ],
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.associations": {
+          "*.config": "ini"
+        },
+        "editor.formatOnSave": true,
+        "editor.tabSize": 2
+      }
+    }
+  },
+
+  "containerEnv": {
+    "PETSC_DIR": "/usr/lib/petsc",
+    "OMP_NUM_THREADS": "1",
+    "OMPI_ALLOW_RUN_AS_ROOT": "1",
+    "OMPI_ALLOW_RUN_AS_ROOT_CONFIRM": "1"
+  },
+
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt", "seccomp=unconfined"
+  ],
+
+  "postCreateCommand": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON || true",
+  "postStartCommand": "echo 'FSRM ready. Run: cd build && make -j$(nproc)'"
+}
