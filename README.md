@@ -610,6 +610,7 @@ Configuration files define all simulation parameters:
 | `config/underground_nuclear_test.config` | **Underground nuclear explosion with seismic waves** |
 | `config/underground_nuclear_test_1kt_shallow.config` | **Underground nuclear test (1 kt shallow) for monitoring examples** |
 | `config/underground_nuclear_test_decoupled_salt_10kt.config` | **Underground nuclear test (decoupled salt cavity) with reduced coupling** |
+| `config/lop_nor_2020_decoupled_granite.config` | **Lop Nor 2020-06-22 decoupled nuclear test in granite (1 kt, DF≈70)** |
 | `config/atmospheric_nuclear_test.config` | **Atmospheric nuclear detonation with EMP & radiation** |
 | `config/atmospheric_nuclear_test_surface_fallout_50kt.config` | **Surface burst emphasizing fallout + deposition** |
 | `config/atmospheric_nuclear_test_high_altitude_emp_1400kt.config` | **High-altitude burst emphasizing EMP + ionosphere** |
