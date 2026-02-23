@@ -420,6 +420,425 @@ def plot_record_section_zoomed(results_processed, fname="waveform_gather_zoomed"
     return outpath
 
 
+def plot_record_section_distance_scaled(results_processed, 
+                                        fname="waveform_gather_distance_scaled"):
+    """
+    Record section with Y-axis scaled to true epicentral distance.
+    
+    This allows theoretical phase arrivals to be shown as smooth straight lines
+    through the origin (t = d/v), making it easy to identify phases and measure
+    apparent velocities.
+    
+    Waveform amplitudes are scaled to fit the vertical spacing between stations.
+    """
+    from scipy.interpolate import interp1d
+    
+    n = len(results_processed)
+    if n == 0:
+        print("No traces to plot.")
+        return
+    
+    fig = plt.figure(figsize=(18, 14))
+    gs = GridSpec(1, 20, figure=fig, wspace=0.05)
+    ax_main = fig.add_subplot(gs[0, :17])
+    ax_info = fig.add_subplot(gs[0, 17:])
+    ax_info.axis("off")
+    
+    # Get distance range
+    distances = np.array([r[2] for r in results_processed])
+    dist_min = np.min(distances)
+    dist_max = np.max(distances)
+    
+    # Add padding to distance range
+    dist_pad = (dist_max - dist_min) * 0.08
+    y_min = max(0, dist_min - dist_pad)
+    y_max = dist_max + dist_pad
+    
+    # Time window settings
+    TMIN, TMAX = -20, 500  # seconds relative to origin
+    
+    # Theoretical phase velocities (km/s) and colors
+    phases = {
+        "Pn": {"vel": 8.1, "color": "#1f77b4", "ls": "-", "lw": 1.2},
+        "Pg": {"vel": 6.1, "color": "#2ca02c", "ls": "--", "lw": 1.0},
+        "Sn": {"vel": 4.6, "color": "#d62728", "ls": "-", "lw": 1.2},
+        "Lg": {"vel": 3.5, "color": "#ff7f0e", "ls": "--", "lw": 1.0},
+    }
+    
+    # Calculate waveform amplitude scaling
+    # Scale waveforms so they don't overlap with neighbors
+    distances_sorted = np.sort(distances)
+    if len(distances_sorted) > 1:
+        # Use a reasonable spacing - ignore very small gaps from clustered stations
+        spacings = np.diff(distances_sorted)
+        # Filter out tiny spacings (stations at nearly same distance)
+        significant_spacings = spacings[spacings > 20]  # at least 20 km apart
+        if len(significant_spacings) > 0:
+            min_spacing = np.min(significant_spacings)
+        else:
+            min_spacing = (dist_max - dist_min) / n  # fallback: even spacing
+    else:
+        min_spacing = 100
+    
+    # Waveform half-height - ensure it's visible but doesn't overlap
+    # Use at least 40 km height, or 40% of spacing
+    waveform_height = max(40, min_spacing * 0.40)
+    
+    # ── Draw smooth theoretical phase arrival lines ──
+    # These are straight lines from origin: t = d / v
+    d_line = np.linspace(0, y_max * 1.2, 500)
+    
+    for phase_name, props in phases.items():
+        vel = props["vel"]
+        t_line = d_line / vel  # travel time = distance / velocity
+        
+        # Only plot within time window
+        mask = (t_line >= TMIN) & (t_line <= TMAX)
+        if np.any(mask):
+            ax_main.plot(t_line[mask], d_line[mask], 
+                        color=props["color"], 
+                        ls=props["ls"], 
+                        lw=props["lw"],
+                        alpha=0.85,
+                        label=f"{phase_name} ({vel:.1f} km/s)",
+                        zorder=10)
+    
+    # ── Plot waveforms at their true distances ──
+    for i, (net, sta, dist_km, az, tr, inv, desc) in enumerate(results_processed):
+        times = _time_axis(tr, EVENT_TIME)
+        data = tr.data.copy()
+        
+        # Window to time range
+        mask = (times >= TMIN) & (times <= TMAX)
+        t_plot = times[mask]
+        d_plot = data[mask]
+        
+        # Normalize and scale
+        peak = np.max(np.abs(d_plot))
+        if peak > 0:
+            d_plot = d_plot / peak * waveform_height
+        
+        # Plot waveform centered at this station's distance
+        y_waveform = d_plot + dist_km
+        
+        # Fill positive and negative wiggles
+        ax_main.fill_between(t_plot, y_waveform, dist_km,
+                            where=(d_plot > 0), 
+                            color="black", alpha=0.35, zorder=4)
+        ax_main.fill_between(t_plot, y_waveform, dist_km,
+                            where=(d_plot < 0), 
+                            color="gray", alpha=0.20, zorder=4)
+        
+        # Plot trace line
+        ax_main.plot(t_plot, y_waveform, 'k-', lw=0.6, alpha=0.9, zorder=5)
+        
+        # Baseline at station distance
+        ax_main.axhline(dist_km, color='#bbbbbb', lw=0.3, zorder=1)
+        
+        # Station label on left edge
+        ax_main.text(TMIN - 5, dist_km, f"{net}.{sta}",
+                    fontsize=8, fontweight="bold", 
+                    ha="right", va="center", color="#333",
+                    clip_on=False)
+    
+    # ── Mark phase arrivals on each waveform ──
+    for i, (net, sta, dist_km, az, tr, inv, desc) in enumerate(results_processed):
+        for phase_name, props in phases.items():
+            t_arr = dist_km / props["vel"]
+            if TMIN <= t_arr <= TMAX:
+                ax_main.plot(t_arr, dist_km, 'o', 
+                            color=props["color"], 
+                            markersize=4, 
+                            markeredgecolor='white',
+                            markeredgewidth=0.5,
+                            zorder=11)
+    
+    # ── Axis formatting ──
+    ax_main.set_xlabel("Time after origin (s)", fontsize=12, fontweight="bold")
+    ax_main.set_ylabel("Epicentral Distance (km)", fontsize=12, fontweight="bold")
+    ax_main.set_xlim(TMIN, TMAX)
+    ax_main.set_ylim(y_min, y_max)
+    
+    ax_main.xaxis.set_minor_locator(AutoMinorLocator(5))
+    ax_main.yaxis.set_minor_locator(AutoMinorLocator(5))
+    ax_main.grid(True, which="major", ls="-", alpha=0.15)
+    ax_main.grid(True, which="minor", ls=":", alpha=0.08)
+    
+    # Legend for phases
+    ax_main.legend(loc="upper left", fontsize=10, 
+                  title="Theoretical Phase Arrivals", title_fontsize=10,
+                  framealpha=0.95, edgecolor="#aaa", fancybox=True)
+    
+    # ── Info panel ──
+    info_lines = [
+        "Event Information",
+        "═" * 26,
+        "",
+        f"Date:   2020-06-22",
+        f"Time:   ~09:18 UTC",
+        f"Lat:    {EVENT_LAT:.3f}°N",
+        f"Lon:    {EVENT_LON:.3f}°E",
+        f"Depth:  ~{EVENT_DEPTH_KM} km",
+        f"mb:     ~2.75 (NORSAR)",
+        "",
+        "Processing",
+        "─" * 26,
+        f"Filter: {FREQMIN}–{FREQMAX} Hz",
+        f"Response: removed",
+        f"Output: velocity",
+        "",
+        "Phase Velocities",
+        "─" * 26,
+        f"Pn (mantle P): 8.1 km/s",
+        f"Pg (crustal P): 6.1 km/s",
+        f"Sn (mantle S): 4.6 km/s",
+        f"Lg (crustal S): 3.5 km/s",
+        "",
+        "Stations",
+        "─" * 26,
+    ]
+    for net, sta, dist_km, az, tr, inv, desc in results_processed:
+        info_lines.append(f"{net}.{sta:5s} {dist_km:6.0f} km")
+    
+    ax_info.text(0.08, 0.98, "\n".join(info_lines),
+                transform=ax_info.transAxes, fontfamily="monospace",
+                fontsize=8, va="top", ha="left",
+                bbox=dict(boxstyle="round,pad=0.5", fc="#f9f9f4", ec="#bbb"))
+    
+    # ── Title ──
+    title = ("Waveform Gather — Lop Nor Event 2020-06-22 09:18 UTC\n"
+             f"Distance-scaled record section with theoretical phase arrivals (BHZ, {FREQMIN}–{FREQMAX} Hz)")
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.98)
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    outpath = os.path.join(OUTDIR, f"{fname}.png")
+    fig.savefig(outpath, dpi=200, bbox_inches="tight")
+    print(f"\nSaved: {outpath}")
+    plt.close(fig)
+    return outpath
+
+
+def plot_record_section_long_period(results_raw, 
+                                    fname="waveform_gather_long_period"):
+    """
+    Record section with long-period filtering for moment tensor inversion.
+    
+    Uses 0.02-0.10 Hz bandpass (10-50 s period) - the standard band for
+    regional moment tensor inversion of surface waves.
+    
+    Y-axis is true epicentral distance with smooth phase arrival lines.
+    """
+    from scipy.signal import butter, filtfilt
+    
+    # Long-period filter band for MT inversion
+    LP_FREQMIN = 0.02  # Hz (50 s period)
+    LP_FREQMAX = 0.10  # Hz (10 s period)
+    
+    n = len(results_raw)
+    if n == 0:
+        print("No traces to plot.")
+        return
+    
+    # Process traces with long-period filter
+    results_processed = []
+    print(f"  Applying long-period filter ({LP_FREQMIN}–{LP_FREQMAX} Hz)...")
+    for net, sta, dist_km, az, tr_orig, inv, desc in results_raw:
+        tr = tr_orig.copy()
+        try:
+            # Remove instrument response first
+            tr.detrend('demean')
+            tr.detrend('linear')
+            tr.taper(0.05)
+            try:
+                tr.remove_response(inventory=inv, output='VEL',
+                                  water_level=60,
+                                  pre_filt=[LP_FREQMIN * 0.5, LP_FREQMIN,
+                                           LP_FREQMAX, LP_FREQMAX * 1.5])
+            except Exception:
+                pass  # Continue without response removal if it fails
+            
+            # Apply long-period bandpass filter
+            tr.filter('bandpass', freqmin=LP_FREQMIN, freqmax=LP_FREQMAX,
+                     corners=3, zerophase=True)
+            results_processed.append((net, sta, dist_km, az, tr, inv, desc))
+        except Exception as e:
+            print(f"    {net}.{sta}: filter failed - {e}")
+    
+    if len(results_processed) == 0:
+        print("No traces after filtering.")
+        return
+    
+    fig = plt.figure(figsize=(18, 14))
+    gs = GridSpec(1, 20, figure=fig, wspace=0.05)
+    ax_main = fig.add_subplot(gs[0, :17])
+    ax_info = fig.add_subplot(gs[0, 17:])
+    ax_info.axis("off")
+    
+    # Get distance range
+    distances = np.array([r[2] for r in results_processed])
+    dist_min = np.min(distances)
+    dist_max = np.max(distances)
+    
+    # Add padding to distance range
+    dist_pad = (dist_max - dist_min) * 0.08
+    y_min = max(0, dist_min - dist_pad)
+    y_max = dist_max + dist_pad
+    
+    # Time window - longer for surface waves
+    TMIN, TMAX = -50, 800  # seconds relative to origin
+    
+    # Theoretical phase velocities for long-period waves
+    phases = {
+        "Pn": {"vel": 8.1, "color": "#1f77b4", "ls": "-", "lw": 1.2},
+        "Sn": {"vel": 4.6, "color": "#d62728", "ls": "-", "lw": 1.2},
+        "Rayleigh": {"vel": 3.2, "color": "#9467bd", "ls": "-", "lw": 1.2},
+        "Love": {"vel": 3.8, "color": "#8c564b", "ls": "--", "lw": 1.0},
+    }
+    
+    # Calculate waveform amplitude scaling
+    distances_sorted = np.sort(distances)
+    if len(distances_sorted) > 1:
+        spacings = np.diff(distances_sorted)
+        significant_spacings = spacings[spacings > 20]
+        if len(significant_spacings) > 0:
+            min_spacing = np.min(significant_spacings)
+        else:
+            min_spacing = (dist_max - dist_min) / n
+    else:
+        min_spacing = 100
+    
+    waveform_height = max(50, min_spacing * 0.45)
+    
+    # ── Plot waveforms at their true distances ──
+    for i, (net, sta, dist_km, az, tr, inv, desc) in enumerate(results_processed):
+        times = _time_axis(tr, EVENT_TIME)
+        data = tr.data.copy()
+        
+        # Window to time range
+        mask = (times >= TMIN) & (times <= TMAX)
+        t_plot = times[mask]
+        d_plot = data[mask]
+        
+        # Normalize and scale
+        peak = np.max(np.abs(d_plot))
+        if peak > 0:
+            d_plot = d_plot / peak * waveform_height
+        
+        # Plot waveform centered at this station's distance
+        y_waveform = d_plot + dist_km
+        
+        # Fill positive and negative wiggles
+        ax_main.fill_between(t_plot, y_waveform, dist_km,
+                            where=(d_plot > 0), 
+                            color="black", alpha=0.35, zorder=4)
+        ax_main.fill_between(t_plot, y_waveform, dist_km,
+                            where=(d_plot < 0), 
+                            color="gray", alpha=0.20, zorder=4)
+        
+        # Plot trace line
+        ax_main.plot(t_plot, y_waveform, 'k-', lw=0.6, alpha=0.9, zorder=5)
+        
+        # Baseline at station distance
+        ax_main.axhline(dist_km, color='#bbbbbb', lw=0.3, zorder=1)
+        
+        # Station label on left edge
+        ax_main.text(TMIN - 10, dist_km, f"{net}.{sta}",
+                    fontsize=8, fontweight="bold", 
+                    ha="right", va="center", color="#333",
+                    clip_on=False)
+    
+    # ── Draw smooth theoretical phase arrival lines ──
+    d_line = np.linspace(0, y_max * 1.2, 500)
+    
+    for phase_name, props in phases.items():
+        vel = props["vel"]
+        t_line = d_line / vel
+        
+        mask = (t_line >= TMIN) & (t_line <= TMAX)
+        if np.any(mask):
+            ax_main.plot(t_line[mask], d_line[mask], 
+                        color=props["color"], 
+                        ls=props["ls"], 
+                        lw=props["lw"],
+                        alpha=0.85,
+                        label=f"{phase_name} ({vel:.1f} km/s)",
+                        zorder=10)
+    
+    # ── Mark phase arrivals on each waveform ──
+    for i, (net, sta, dist_km, az, tr, inv, desc) in enumerate(results_processed):
+        for phase_name, props in phases.items():
+            t_arr = dist_km / props["vel"]
+            if TMIN <= t_arr <= TMAX:
+                ax_main.plot(t_arr, dist_km, 'o', 
+                            color=props["color"], 
+                            markersize=4, 
+                            markeredgecolor='white',
+                            markeredgewidth=0.5,
+                            zorder=11)
+    
+    # ── Axis formatting ──
+    ax_main.set_xlabel("Time after origin (s)", fontsize=12, fontweight="bold")
+    ax_main.set_ylabel("Epicentral Distance (km)", fontsize=12, fontweight="bold")
+    ax_main.set_xlim(TMIN, TMAX)
+    ax_main.set_ylim(y_min, y_max)
+    
+    ax_main.xaxis.set_minor_locator(AutoMinorLocator(5))
+    ax_main.yaxis.set_minor_locator(AutoMinorLocator(5))
+    ax_main.grid(True, which="major", ls="-", alpha=0.15)
+    ax_main.grid(True, which="minor", ls=":", alpha=0.08)
+    
+    # Legend for phases
+    ax_main.legend(loc="upper left", fontsize=10, 
+                  title="Theoretical Phase Arrivals", title_fontsize=10,
+                  framealpha=0.95, edgecolor="#aaa", fancybox=True)
+    
+    # ── Info panel ──
+    info_lines = [
+        "Long-Period Filter",
+        "═" * 26,
+        "",
+        f"Bandpass: {LP_FREQMIN}–{LP_FREQMAX} Hz",
+        f"Period:   {1/LP_FREQMAX:.0f}–{1/LP_FREQMIN:.0f} s",
+        "",
+        "Used for moment tensor",
+        "inversion (surface waves)",
+        "",
+        "Event Information",
+        "─" * 26,
+        f"Date:   2020-06-22",
+        f"Time:   ~09:18 UTC",
+        f"Lat:    {EVENT_LAT:.3f}°N",
+        f"Lon:    {EVENT_LON:.3f}°E",
+        "",
+        "Surface Wave Velocities",
+        "─" * 26,
+        f"Rayleigh: 3.2 km/s",
+        f"Love:     3.8 km/s",
+        "",
+        "Stations",
+        "─" * 26,
+    ]
+    for net, sta, dist_km, az, tr, inv, desc in results_processed:
+        info_lines.append(f"{net}.{sta:5s} {dist_km:6.0f} km")
+    
+    ax_info.text(0.08, 0.98, "\n".join(info_lines),
+                transform=ax_info.transAxes, fontfamily="monospace",
+                fontsize=8, va="top", ha="left",
+                bbox=dict(boxstyle="round,pad=0.5", fc="#f9f9f4", ec="#bbb"))
+    
+    # ── Title ──
+    title = ("Waveform Gather — Lop Nor Event 2020-06-22 09:18 UTC\n"
+             f"Long-period filter ({LP_FREQMIN}–{LP_FREQMAX} Hz) for moment tensor inversion")
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.98)
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    outpath = os.path.join(OUTDIR, f"{fname}.png")
+    fig.savefig(outpath, dpi=200, bbox_inches="tight")
+    print(f"\nSaved: {outpath}")
+    plt.close(fig)
+    return outpath
+
+
 def plot_spectrograms(results_processed, fname="spectrograms"):
     """Plot spectrograms for each station, 2 columns."""
     n = len(results_processed)
@@ -636,11 +1055,21 @@ def main():
     plot_record_section_zoomed(processed,
                                fname="observed_waveform_gather_zoomed")
 
-    # 5. Plot spectrograms
+    # 5. Plot distance-scaled record section with smooth phase lines
+    print("Generating distance-scaled record section with phase arrivals ...")
+    plot_record_section_distance_scaled(processed,
+                                        fname="observed_waveform_gather_distance_scaled")
+
+    # 6. Plot long-period filtered record section (for MT inversion band)
+    print("Generating long-period filtered record section (0.02–0.10 Hz) ...")
+    plot_record_section_long_period(raw_results,
+                                    fname="observed_waveform_gather_long_period")
+
+    # 7. Plot spectrograms
     print("Generating spectrograms ...")
     plot_spectrograms(processed, fname="observed_spectrograms")
 
-    # 6. Close-up on PS23 / WMQ
+    # 8. Close-up on PS23 / WMQ
     print("Generating PS23/WMQ close-up ...")
     plot_closeup_ps23(processed, fname="observed_closeup_ps23")
 

@@ -7,6 +7,10 @@ and produces publication-quality figures showing full-wavefield results.
 
 Usage:
     python scripts/visualize_fsrm_lop_nor.py
+
+Related scripts:
+    plot_lop_nor_2020_station_map.py  — PyGMT map of event and recording stations
+    fetch_lop_nor_2020_waveforms.py   — Download real seismic waveforms from IRIS
 """
 
 import os
