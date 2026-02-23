@@ -817,16 +817,41 @@ void ThermalKernelGPU::computeEffectivePropertiesGPU() {
 // Factory functions
 
 std::shared_ptr<PhysicsKernel> createGPUKernelExtended(PhysicsType type) {
+#ifdef USE_CUDA
+    // Check that a GPU is actually available before creating GPU kernels
+    GPUManager& gpu = GPUManager::getInstance();
+    if (!gpu.isAvailable()) {
+        return nullptr;
+    }
+#endif
+
     switch (type) {
+        // --- Core reservoir physics ---
         case PhysicsType::FLUID_FLOW:
             return std::make_shared<SinglePhaseFlowKernelGPU>();
+
+        // --- Dynamic wave propagation ---
         case PhysicsType::ELASTODYNAMICS:
             return std::make_shared<ElastodynamicsKernelGPU>();
         case PhysicsType::POROELASTODYNAMICS:
             return std::make_shared<PoroelastodynamicsKernelGPU>();
+
 #ifdef USE_CUDA
-        // Extended kernels
-        // Note: Full implementations would be added here
+        // --- Extended GPU kernels (require CUDA build) ---
+        case PhysicsType::THERMAL:
+            return std::make_shared<ThermalKernelGPU>();
+        case PhysicsType::GEOMECHANICS:
+            return std::make_shared<GeomechanicsKernelGPU>();
+        case PhysicsType::HYDRODYNAMIC:
+            return std::make_shared<HydrodynamicKernelGPU>();
+        case PhysicsType::ATMOSPHERIC_BLAST:
+            return std::make_shared<AtmosphericBlastKernelGPU>();
+        case PhysicsType::INFRASOUND:
+            return std::make_shared<InfrasoundKernelGPU>();
+        case PhysicsType::TSUNAMI:
+            return std::make_shared<TsunamiKernelGPU>();
+        case PhysicsType::FALLOUT:
+            return std::make_shared<FalloutKernelGPU>();
 #endif
         default:
             return nullptr;
@@ -835,15 +860,23 @@ std::shared_ptr<PhysicsKernel> createGPUKernelExtended(PhysicsType type) {
 
 bool hasExtendedGPUKernel(PhysicsType type) {
     switch (type) {
+        // Core reservoir physics
         case PhysicsType::FLUID_FLOW:
+        // Dynamic wave propagation
         case PhysicsType::ELASTODYNAMICS:
         case PhysicsType::POROELASTODYNAMICS:
+        // Extended physics
         case PhysicsType::THERMAL:
         case PhysicsType::GEOMECHANICS:
         case PhysicsType::HYDRODYNAMIC:
+        // Atmospheric / explosion physics
         case PhysicsType::ATMOSPHERIC_BLAST:
         case PhysicsType::INFRASOUND:
+        case PhysicsType::FALLOUT:
+        // Surface water
         case PhysicsType::TSUNAMI:
+        // Particle transport
+        case PhysicsType::PARTICLE_TRANSPORT:
             return true;
         default:
             return false;
@@ -852,15 +885,23 @@ bool hasExtendedGPUKernel(PhysicsType type) {
 
 std::vector<PhysicsType> getAvailableGPUKernels() {
     return {
+        // Core reservoir physics
         PhysicsType::FLUID_FLOW,
+        // Dynamic wave propagation
         PhysicsType::ELASTODYNAMICS,
         PhysicsType::POROELASTODYNAMICS,
+        // Extended physics
         PhysicsType::THERMAL,
         PhysicsType::GEOMECHANICS,
         PhysicsType::HYDRODYNAMIC,
+        // Atmospheric / explosion physics
         PhysicsType::ATMOSPHERIC_BLAST,
         PhysicsType::INFRASOUND,
-        PhysicsType::TSUNAMI
+        PhysicsType::FALLOUT,
+        // Surface water
+        PhysicsType::TSUNAMI,
+        // Particle transport
+        PhysicsType::PARTICLE_TRANSPORT
     };
 }
 
