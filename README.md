@@ -611,6 +611,10 @@ Configuration files define all simulation parameters:
 | `config/underground_nuclear_test_1kt_shallow.config` | **Underground nuclear test (1 kt shallow) for monitoring examples** |
 | `config/underground_nuclear_test_decoupled_salt_10kt.config` | **Underground nuclear test (decoupled salt cavity) with reduced coupling** |
 | `config/lop_nor_2020_decoupled_granite.config` | **Lop Nor 2020-06-22 decoupled nuclear test in granite (1 kt, DF≈70)** |
+| `config/dprk_2017_punggye_ri_far_field_seismograms.config` | **DPRK 2017 — far-field synthetic seismograms (wave equation, GPU-ready)** |
+| `config/dprk_2017_punggye_ri_far_field_seismograms_gpu.config` | **DPRK 2017 — GPU-only far-field seismograms (CUDA required)** |
+| `config/dprk_2017_punggye_ri_coupled_granite.config` | **DPRK 2017 — coupled 250 kt test, near-field elastoplastic (GPU-ready)** |
+| `config/dprk_2017_punggye_ri_coupled_granite_quick.config` | **DPRK 2017 — quick-run workstation variant (GPU-ready)** |
 | `config/atmospheric_nuclear_test.config` | **Atmospheric nuclear detonation with EMP & radiation** |
 | `config/atmospheric_nuclear_test_surface_fallout_50kt.config` | **Surface burst emphasizing fallout + deposition** |
 | `config/atmospheric_nuclear_test_high_altitude_emp_1400kt.config` | **High-altitude burst emphasizing EMP + ionosphere** |
