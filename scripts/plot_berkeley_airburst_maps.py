@@ -22,6 +22,7 @@ import os
 import tempfile
 import numpy as np
 import pygmt
+import xarray as xr
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Configuration
@@ -136,6 +137,214 @@ def radius_to_circle_coords(radius_m, n=361, lon0=EVENT_LON, lat0=EVENT_LAT):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Terrain-Aware Damage Functions
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def load_terrain_grid(region, resolution="03s"):
+    """
+    Load DEM data for a region using PyGMT's earth_relief.
+    
+    Args:
+        region: [lon_min, lon_max, lat_min, lat_max]
+        resolution: Grid resolution (e.g., "03s" for 3 arc-seconds)
+    
+    Returns:
+        xarray DataArray with elevation in meters
+    """
+    grid = pygmt.datasets.load_earth_relief(resolution=resolution, region=region)
+    return grid
+
+
+def compute_line_of_sight_factor(dem_grid, burst_lon=EVENT_LON, burst_lat=EVENT_LAT,
+                                  burst_height=BURST_HEIGHT):
+    """
+    Compute line-of-sight visibility from burst point to each grid cell.
+    Fully vectorized — processes entire grid in one pass per ray sample.
+
+    Returns:
+        2D numpy array of visibility factors: 1 = visible, 0 = blocked.
+    """
+    lons = dem_grid.lon.values
+    lats = dem_grid.lat.values
+    elev = dem_grid.values
+    ny, nx = elev.shape
+
+    burst_elev = float(dem_grid.interp(lon=burst_lon, lat=burst_lat).values)
+    burst_z = burst_elev + burst_height
+
+    # Grid spacing
+    dlon = lons[1] - lons[0] if nx > 1 else 1.0
+    dlat = lats[1] - lats[0] if ny > 1 else 1.0
+
+    # Burst in fractional grid indices
+    burst_i = (burst_lon - lons[0]) / dlon
+    burst_j = (burst_lat - lats[0]) / dlat
+
+    # Target grid indices
+    target_i, target_j = np.meshgrid(np.arange(nx, dtype=float),
+                                      np.arange(ny, dtype=float))
+
+    los_factor = np.ones((ny, nx), dtype=float)
+    N_SAMPLES = 25
+
+    for t in np.linspace(0.1, 0.9, N_SAMPLES):
+        # Sample position along ray for every pixel simultaneously
+        sample_i = burst_i + t * (target_i - burst_i)
+        sample_j = burst_j + t * (target_j - burst_j)
+
+        sample_i = np.clip(sample_i, 0, nx - 1.001)
+        sample_j = np.clip(sample_j, 0, ny - 1.001)
+
+        i0 = sample_i.astype(int)
+        j0 = sample_j.astype(int)
+        i1 = np.minimum(i0 + 1, nx - 1)
+        j1 = np.minimum(j0 + 1, ny - 1)
+
+        di = sample_i - i0
+        dj = sample_j - j0
+
+        # Bilinear interpolation of terrain
+        sample_elev = (
+            (1 - di) * (1 - dj) * elev[j0, i0] +
+            di * (1 - dj) * elev[j0, i1] +
+            (1 - di) * dj * elev[j1, i0] +
+            di * dj * elev[j1, i1]
+        )
+
+        # Ray height at parameter t
+        ray_height = burst_z + t * (elev - burst_z)
+
+        # Block where terrain exceeds ray
+        los_factor[sample_elev > ray_height] = 0.0
+
+    return los_factor
+
+
+def compute_blast_terrain_factor(dem_grid, burst_lon=EVENT_LON, burst_lat=EVENT_LAT,
+                                  burst_height=BURST_HEIGHT):
+    """
+    Compute terrain modification factor for blast waves.
+    Fully vectorized — no per-pixel loops.
+
+    Returns 2D array of factors to multiply base overpressure by.
+    """
+    lons = dem_grid.lon.values
+    lats = dem_grid.lat.values
+    elev = dem_grid.values
+    ny, nx = elev.shape
+
+    burst_elev = float(dem_grid.interp(lon=burst_lon, lat=burst_lat).values)
+    burst_z = burst_elev + burst_height
+
+    dlat = lats[1] - lats[0] if ny > 1 else 0.0001
+    dlon = lons[1] - lons[0] if nx > 1 else 0.0001
+    cos_lat = np.cos(np.radians(burst_lat))
+
+    grad_lon = np.gradient(elev, axis=1) / (dlon * 111320.0 * cos_lat)
+    grad_lat = np.gradient(elev, axis=0) / (dlat * 111320.0)
+
+    lon_grid, lat_grid = np.meshgrid(lons, lats)
+    dx = (lon_grid - burst_lon) * 111320.0 * cos_lat
+    dy = (lat_grid - burst_lat) * 111320.0
+    dist = np.sqrt(dx**2 + dy**2)
+    dist_safe = np.maximum(dist, 1.0)
+
+    ux = dx / dist_safe
+    uy = dy / dist_safe
+
+    slope_toward_blast = -(grad_lon * ux + grad_lat * uy)
+    height_diff = elev - burst_z
+
+    blast_factor = np.ones((ny, nx), dtype=float)
+    far = dist > 50
+
+    # Forward-facing slopes — enhanced reflection
+    m_fwd = far & (slope_toward_blast > 0.1)
+    blast_factor = np.where(m_fwd,
+                            1.0 + np.minimum(slope_toward_blast * 2, 1.0),
+                            blast_factor)
+
+    # Behind a ridge — significant shielding
+    m_ridge = far & ~m_fwd & (height_diff > 100) & (slope_toward_blast < -0.1)
+    blast_factor = np.where(m_ridge,
+                            0.3 + 0.4 * np.exp(-height_diff / 300),
+                            blast_factor)
+
+    # Elevated terrain with mild shielding
+    m_elev = far & ~m_fwd & ~m_ridge & (height_diff > 50)
+    blast_factor = np.where(m_elev, 0.7, blast_factor)
+
+    return blast_factor
+
+
+def compute_terrain_aware_effects(region, resolution="03s"):
+    """
+    Compute terrain-aware damage grids for all effects.
+    
+    Returns dict with gridded damage values accounting for topography.
+    """
+    print("    Loading DEM data...")
+    dem = load_terrain_grid(region, resolution)
+    
+    lons = dem.lon.values
+    lats = dem.lat.values
+    elev = dem.values
+    ny, nx = elev.shape
+    
+    print(f"    Computing effects on {nx}x{ny} grid...")
+    
+    # Get burst ground elevation
+    burst_elev = float(dem.interp(lon=EVENT_LON, lat=EVENT_LAT).values)
+    
+    # Compute distances and base effects
+    lon_grid, lat_grid = np.meshgrid(lons, lats)
+    dx = (lon_grid - EVENT_LON) * 111320.0 * np.cos(np.radians(EVENT_LAT))
+    dy = (lat_grid - EVENT_LAT) * 111320.0
+    ground_range = np.sqrt(dx**2 + dy**2)
+    
+    # Slant range accounting for terrain elevation relative to burst
+    dz = elev - (burst_elev + BURST_HEIGHT)
+    slant_range = np.sqrt(ground_range**2 + dz**2)
+    
+    print("    Computing line-of-sight visibility...")
+    los_factor = compute_line_of_sight_factor(dem)
+    
+    print("    Computing blast terrain factors...")
+    blast_terrain = compute_blast_terrain_factor(dem)
+    
+    # Base overpressure (flat terrain)
+    base_overpressure = peak_overpressure_kpa(ground_range)
+    
+    # Terrain-modified overpressure
+    terrain_overpressure = base_overpressure * blast_terrain
+    
+    # Thermal fluence with LOS blocking
+    base_thermal = thermal_fluence_kj(slant_range)
+    terrain_thermal = base_thermal * los_factor
+    
+    # Prompt radiation with LOS blocking
+    base_radiation = prompt_radiation_gy(slant_range)
+    terrain_radiation = base_radiation * los_factor
+    
+    return {
+        'lons': lons,
+        'lats': lats,
+        'elevation': elev,
+        'ground_range': ground_range,
+        'slant_range': slant_range,
+        'los_factor': los_factor,
+        'blast_terrain_factor': blast_terrain,
+        'overpressure_flat': base_overpressure,
+        'overpressure_terrain': terrain_overpressure,
+        'thermal_flat': base_thermal,
+        'thermal_terrain': terrain_thermal,
+        'radiation_flat': base_radiation,
+        'radiation_terrain': terrain_radiation,
+        'dem': dem,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Map 1: Regional Overview
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -217,11 +426,7 @@ def map01_regional_overview():
     os.unlink(legend_file)
 
     fig.basemap(region=region, projection=projection,
-                map_scale="g-121.7/37.3+c37.8+w20k+f+l")
-
-    # Add terrain note
-    fig.text(x=-122.25, y=37.25, text="Topography: SRTM 3-arcsec DEM. Hills may provide shielding.",
-             font="7p,Helvetica-Oblique,gray40", justify="ML")
+                map_scale="jBC+o0c/-1.2c+c37.8+w20k+f+l")
 
     with fig.inset(position="jTR+w4c+o0.3c", box="+p0.5p+gwhite"):
         fig.coast(region=[-130, -110, 30, 45], projection="M?",
@@ -310,7 +515,7 @@ def map02_blast_damage():
     os.unlink(legend_file)
 
     fig.basemap(region=region, projection=projection,
-                map_scale=f"g{EVENT_LON+0.12}/{EVENT_LAT-0.1}+c{EVENT_LAT}+w5k+f+l")
+                map_scale=f"jBC+o0c/-1.2c+c{EVENT_LAT}+w5k+f+l")
 
     output = os.path.join(OUTDIR, "map02_blast_damage.png")
     fig.savefig(output, dpi=300)
@@ -393,7 +598,7 @@ def map03_thermal_radiation():
     os.unlink(legend_file)
 
     fig.basemap(region=region, projection=projection,
-                map_scale=f"g{EVENT_LON+0.11}/{EVENT_LAT-0.1}+c{EVENT_LAT}+w5k+f+l")
+                map_scale=f"jBC+o0c/-1.2c+c{EVENT_LAT}+w5k+f+l")
 
     output = os.path.join(OUTDIR, "map03_thermal_radiation.png")
     fig.savefig(output, dpi=300)
@@ -498,7 +703,7 @@ def map04_fallout_plume():
     os.unlink(legend_file)
 
     fig.basemap(region=region, projection=projection,
-                map_scale=f"g-121.8/37.3+c37.7+w20k+f+l")
+                map_scale="jBC+o0c/-1.2c+c37.7+w20k+f+l")
 
     output = os.path.join(OUTDIR, "map04_fallout_plume.png")
     fig.savefig(output, dpi=300)
@@ -586,7 +791,7 @@ def map05_combined_effects():
     os.unlink(legend_file)
 
     fig.basemap(region=region, projection=projection,
-                map_scale=f"g{EVENT_LON+0.17}/{EVENT_LAT-0.15}+c{EVENT_LAT}+w10k+f+l")
+                map_scale=f"jBC+o0c/-1.2c+c{EVENT_LAT}+w10k+f+l")
 
     output = os.path.join(OUTDIR, "map05_combined_effects.png")
     fig.savefig(output, dpi=300)
@@ -669,9 +874,234 @@ def map06_radiation_zones():
     os.unlink(legend_file)
 
     fig.basemap(region=region, projection=projection,
-                map_scale=f"g{EVENT_LON+0.07}/{EVENT_LAT-0.07}+c{EVENT_LAT}+w2k+f+l")
+                map_scale=f"jBC+o0c/-1.2c+c{EVENT_LAT}+w2k+f+l")
 
     output = os.path.join(OUTDIR, "map06_radiation_zones.png")
+    fig.savefig(output, dpi=300)
+    print(f"  Saved {output}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Map 7: Terrain-Aware Blast Damage
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def map07_blast_terrain():
+    """
+    Blast damage zones with actual terrain interaction.
+    
+    Shows how Berkeley/Oakland Hills modify blast wave propagation:
+    - Enhanced overpressure on forward-facing slopes
+    - Reduced overpressure in terrain shadows
+    - Valley channeling effects
+    """
+    half = 0.16
+    region = [EVENT_LON - half, EVENT_LON + half,
+              EVENT_LAT - half * 0.8, EVENT_LAT + half * 0.8]
+    projection = "M18c"
+    
+    print("    Computing terrain-aware blast effects...")
+    effects = compute_terrain_aware_effects(region, resolution="03s")
+    
+    # Create grid for PyGMT
+    lons = effects['lons']
+    lats = effects['lats']
+    overpressure = effects['overpressure_terrain']
+    terrain_factor = effects['blast_terrain_factor']
+    
+    fig = pygmt.Figure()
+    
+    # First panel: terrain-modified overpressure
+    fig.grdimage(grid="@earth_relief_03s", region=region,
+                 projection=projection, shading=True, cmap="geo")
+    
+    fig.basemap(region=region, projection=projection,
+                frame=["WSne+tBlast Damage with Terrain Effects — 100 kT (50 m HOB)",
+                       "xa0.05f0.025", "ya0.05f0.025"])
+    
+    fig.coast(region=region, projection=projection, resolution="f",
+              water="lightblue", shorelines="0.3p,gray30")
+    
+    # Plot overpressure contours with terrain effects
+    damage_levels = [
+        (140.0, "darkred",   "2.5p", "Total destruction (>140 kPa)"),
+        (35.0,  "red",       "2p", "Severe damage (>35 kPa)"),
+        (14.0,  "orange",    "1.5p", "Buildings destroyed (>14 kPa)"),
+        (7.0,   "yellow",    "1.5p", "Moderate damage (>7 kPa)"),
+        (3.5,   "green",     "1p", "Light damage (>3.5 kPa)"),
+    ]
+    
+    # Create a temporary grid file for contouring
+    with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as f:
+        grid_file = f.name
+    
+    ds = xr.DataArray(overpressure, coords=[lats, lons], dims=['lat', 'lon'])
+    ds.to_netcdf(grid_file)
+    
+    for thresh, color, pen, label in damage_levels:
+        try:
+            fig.grdcontour(grid=grid_file, levels=thresh, limit=[thresh, thresh*1.001],
+                          pen=f"{pen},{color}", region=region, projection=projection)
+        except:
+            pass  # Contour level may not exist
+    
+    os.unlink(grid_file)
+    
+    # Mark ground zero
+    fig.plot(x=[EVENT_LON], y=[EVENT_LAT],
+             style="a0.5c", fill="red", pen="1p,black")
+    fig.text(x=EVENT_LON, y=EVENT_LAT + 0.008,
+             text="GZ (50m HOB)", font="8p,Helvetica-Bold,red", justify="BC")
+    
+    # Mark terrain features
+    terrain_labels = [
+        (-122.200, 37.876, "Berkeley\nHills"),
+        (-122.190, 37.830, "Oakland\nHills"),
+        (-122.240, 37.860, "Claremont\nCanyon"),
+    ]
+    for tlon, tlat, tname in terrain_labels:
+        if region[0] < tlon < region[1] and region[2] < tlat < region[3]:
+            fig.text(x=tlon, y=tlat, text=tname,
+                     font="6p,Helvetica-Oblique,brown", justify="MC")
+    
+    # Legend
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("L 7p,Helvetica-Bold,black L Terrain-Modified Overpressure:\n")
+        for thresh, color, pen, label in damage_levels:
+            f.write(f"S 0.2c - 0.4c - {pen},{color} 0.8c {label}\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Hills: shielding behind, enhancement on slopes\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Valleys: channeling may focus blast\n")
+        legend_file = f.name
+    
+    fig.legend(spec=legend_file, position="JBL+w8.5c+o0.3c/0.3c",
+               box="+p0.5p+gwhite@20+s")
+    os.unlink(legend_file)
+    
+    fig.basemap(region=region, projection=projection,
+                map_scale=f"jBC+o0c/-1.2c+c{EVENT_LAT}+w5k+f+l")
+    
+    output = os.path.join(OUTDIR, "map07_blast_terrain.png")
+    fig.savefig(output, dpi=300)
+    print(f"  Saved {output}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Map 8: Terrain-Aware Combined Effects
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def map08_combined_terrain():
+    """
+    Combined effects map with terrain interaction.
+    
+    Shows:
+    - Blast overpressure modified by terrain slope and shielding
+    - Thermal radiation blocked by hills (line-of-sight)
+    - Prompt radiation blocked by hills (line-of-sight)
+    - Dominant effect at each location
+    """
+    half = 0.18
+    region = [EVENT_LON - half, EVENT_LON + half,
+              EVENT_LAT - half * 0.85, EVENT_LAT + half * 0.85]
+    projection = "M18c"
+    
+    print("    Computing terrain-aware combined effects...")
+    effects = compute_terrain_aware_effects(region, resolution="03s")
+    
+    lons = effects['lons']
+    lats = effects['lats']
+    P = effects['overpressure_terrain']
+    Q = effects['thermal_terrain']
+    D = effects['radiation_terrain']
+    los = effects['los_factor']
+    
+    # Compute hazard indices
+    haz_blast = np.clip(P / 35.0, 0, 1)
+    haz_thermal = np.clip(Q / 670.0, 0, 1)
+    haz_rad = np.clip(D / 6.0, 0, 1)
+    haz_combined = np.maximum(np.maximum(haz_blast, haz_thermal), haz_rad)
+    
+    # Determine dominant effect
+    dominant = np.zeros_like(P)
+    dominant[haz_blast >= np.maximum(haz_thermal, haz_rad)] = 1
+    dominant[haz_thermal >= np.maximum(haz_blast, haz_rad)] = 2
+    dominant[haz_rad >= np.maximum(haz_blast, haz_thermal)] = 3
+    dominant[haz_combined < 0.01] = 0
+    
+    fig = pygmt.Figure()
+    
+    # Background terrain
+    fig.grdimage(grid="@earth_relief_03s", region=region,
+                 projection=projection, shading=True, cmap="geo")
+    
+    fig.basemap(region=region, projection=projection,
+                frame=["WSne+tCombined Effects with Terrain — 100 kT (50 m HOB)",
+                       "xa0.05f0.025", "ya0.05f0.025"])
+    
+    fig.coast(region=region, projection=projection, resolution="f",
+              water="lightblue", shorelines="0.3p,gray30")
+    
+    # Create grid files for plotting
+    
+    # Plot LOS shielded areas (where thermal/radiation is blocked)
+    with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as f:
+        los_file = f.name
+    ds_los = xr.DataArray(1.0 - los, coords=[lats, lons], dims=['lat', 'lon'])
+    ds_los.to_netcdf(los_file)
+    
+    # Areas with LOS shielding (>50% blocked)
+    try:
+        fig.grdcontour(grid=los_file, levels=0.5, limit=[0.5, 1.0],
+                      pen="1p,purple,-", region=region, projection=projection,
+                      annotation="0.5+f6p+gwhite")
+    except:
+        pass
+    os.unlink(los_file)
+    
+    # Plot combined hazard contours
+    with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as f:
+        haz_file = f.name
+    ds_haz = xr.DataArray(haz_combined, coords=[lats, lons], dims=['lat', 'lon'])
+    ds_haz.to_netcdf(haz_file)
+    
+    hazard_levels = [
+        (0.9, "darkred", "2p", "Very High (>90%)"),
+        (0.5, "red",     "1.5p", "High (>50%)"),
+        (0.25, "orange", "1p", "Moderate (>25%)"),
+        (0.1, "yellow",  "0.5p", "Low (>10%)"),
+    ]
+    
+    for thresh, color, pen, label in hazard_levels:
+        try:
+            fig.grdcontour(grid=haz_file, levels=thresh, limit=[thresh, thresh*1.001],
+                          pen=f"{pen},{color}", region=region, projection=projection)
+        except:
+            pass
+    os.unlink(haz_file)
+    
+    # Mark ground zero
+    fig.plot(x=[EVENT_LON], y=[EVENT_LAT],
+             style="a0.6c", fill="red", pen="1p,black")
+    
+    # Legend
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("L 7p,Helvetica-Bold,black L Combined Hazard Index:\n")
+        for thresh, color, pen, label in hazard_levels:
+            f.write(f"S 0.2c - 0.4c - {pen},{color} 0.8c {label}\n")
+        f.write("L 7p,Helvetica-Bold,black L\n")
+        f.write("L 7p,Helvetica-Bold,black L Terrain Effects:\n")
+        f.write("S 0.2c - 0.4c - 1p,purple,- 0.8c LOS shielding (thermal/rad)\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Hills block thermal & radiation\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Blast diffracts but is weakened\n")
+        legend_file = f.name
+    
+    fig.legend(spec=legend_file, position="JBL+w7.5c+o0.3c/0.3c",
+               box="+p0.5p+gwhite@20+s")
+    os.unlink(legend_file)
+    
+    fig.basemap(region=region, projection=projection,
+                map_scale=f"jBC+o0c/-1.2c+c{EVENT_LAT}+w5k+f+l")
+    
+    output = os.path.join(OUTDIR, "map08_combined_terrain.png")
     fig.savefig(output, dpi=300)
     print(f"  Saved {output}")
 
@@ -686,23 +1116,29 @@ def main():
     print("=" * 72)
     print()
 
-    print("[1/6] Regional overview ...")
+    print("[1/8] Regional overview ...")
     map01_regional_overview()
 
-    print("[2/6] Blast damage zones ...")
+    print("[2/8] Blast damage zones (flat terrain) ...")
     map02_blast_damage()
 
-    print("[3/6] Thermal & radiation zones ...")
+    print("[3/8] Thermal & radiation zones ...")
     map03_thermal_radiation()
 
-    print("[4/6] Fallout plume ...")
+    print("[4/8] Fallout plume ...")
     map04_fallout_plume()
 
-    print("[5/6] Combined effects ...")
+    print("[5/8] Combined effects (flat terrain) ...")
     map05_combined_effects()
 
-    print("[6/6] Radiation zones (close-up) ...")
+    print("[6/8] Radiation zones (close-up) ...")
     map06_radiation_zones()
+
+    print("[7/8] Blast damage with terrain interaction ...")
+    map07_blast_terrain()
+
+    print("[8/8] Combined effects with terrain interaction ...")
+    map08_combined_terrain()
 
     print()
     print("=" * 72)
