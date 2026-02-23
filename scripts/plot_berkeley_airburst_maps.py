@@ -49,7 +49,7 @@ JOULES_PER_KT = 4.184e12
 
 def peak_overpressure_kpa(ground_range_m, yield_kt=YIELD_KT, hob=BURST_HEIGHT):
     """
-    Peak static overpressure (kPa) using calibrated Glasstone-Dolan formula.
+    Peak static overpressure (kPa) using the Kinney-Graham (1985) formula.
     
     Reference for 1 kT optimal-height airburst:
         20 psi (140 kPa) at ~450m
@@ -59,37 +59,21 @@ def peak_overpressure_kpa(ground_range_m, yield_kt=YIELD_KT, hob=BURST_HEIGHT):
     """
     r = np.atleast_1d(np.asarray(ground_range_m, dtype=float))
     R = np.sqrt(r**2 + hob**2)
-    
-    # Scale factor for yield (cube root scaling)
-    W_scale = yield_kt ** (1.0 / 3.0)
-    
-    # Scaled distance (meters per kt^1/3)
-    Z = np.maximum(R / W_scale, 1.0)
-    
-    # Empirical fit calibrated to Glasstone-Dolan data for airburst
-    # Overpressure in kPa as function of scaled distance
-    P_kpa = np.where(
-        Z < 50,
-        # Very close range - extremely high overpressure
-        5000.0 * (50.0 / Z) ** 2.5,
-        np.where(
-            Z < 200,
-            # Close range (exponential decay)
-            1000.0 * np.exp(-0.015 * (Z - 50)),
-            np.where(
-                Z < 600,
-                # Mid range (power law)
-                200.0 * (200.0 / Z) ** 2.0,
-                np.where(
-                    Z < 2500,
-                    # Far range
-                    8.0 * (600.0 / Z) ** 1.8,
-                    # Very far range
-                    0.3 * (2500.0 / Z) ** 1.5
-                )
-            )
-        )
-    )
+
+    # Kinney-Graham (1985) free-air peak overpressure — continuous closed-form
+    # fit to compiled experimental data.
+    #   ΔP/P₀ = 808 [1 + (Z̄/4.5)²]
+    #           / {√[1+(Z̄/0.048)²] · √[1+(Z̄/0.32)²] · √[1+(Z̄/1.35)²]}
+    # where Z̄ = R / m_charge^{1/3} (m / kg^{1/3}).
+    # Ref: Kinney & Graham, "Explosive Shocks in Air", 2nd ed., 1985.
+    P0 = 101.325  # kPa
+    W_kg = max(yield_kt, 1e-12) * 1.0e6   # kt → kg TNT equivalent
+    Zbar = R / W_kg ** (1.0 / 3.0)         # scaled distance (m / kg^{1/3})
+    num = 808.0 * (1.0 + (Zbar / 4.5) ** 2)
+    d1 = np.sqrt(1.0 + (Zbar / 0.048) ** 2)
+    d2 = np.sqrt(1.0 + (Zbar / 0.32) ** 2)
+    d3 = np.sqrt(1.0 + (Zbar / 1.35) ** 2)
+    P_kpa = P0 * num / (d1 * d2 * d3)
     
     # Mach stem enhancement for low burst angles (increases overpressure)
     angle = np.arctan2(hob, np.maximum(r, 1.0))

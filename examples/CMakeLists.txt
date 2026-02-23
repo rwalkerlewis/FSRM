@@ -105,6 +105,9 @@ add_reservoir_example(cascadia_tsunami cascadia_tsunami.cpp)
 # Underground explosion with near-field damage physics
 add_reservoir_example(underground_explosion_near_field underground_explosion_near_field.cpp)
 
+# Nuclear airburst effects calculator (standalone, config-driven)
+add_reservoir_example(nuclear_airburst_effects nuclear_airburst_effects.cpp)
+
 # Volcano modeling examples
 add_reservoir_example(pinatubo_plinian pinatubo_plinian.cpp)
 add_reservoir_example(kilauea_effusive kilauea_effusive.cpp)

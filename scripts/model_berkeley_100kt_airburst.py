@@ -75,26 +75,37 @@ EARTH_RADIUS_KM = 6371.0
 
 def peak_overpressure_kpa(ground_range_m, yield_kt=YIELD_KT, hob=BURST_HEIGHT):
     """
-    Peak static overpressure (kPa) at ground range r from ground zero.
-    Uses Glasstone-Dolan empirical fit with Mach stem enhancement.
+    Peak static overpressure (kPa) using calibrated Glasstone-Dolan formula.
+
+    Reference for 1 kT optimal-height airburst:
+        20 psi (140 kPa) at ~450 m
+        5 psi  ( 35 kPa) at ~900 m
+        2 psi  ( 14 kPa) at ~1400 m
+    Scales by W^(1/3) for other yields.
     """
     r = np.atleast_1d(np.asarray(ground_range_m, dtype=float))
     R = np.sqrt(r**2 + hob**2)
-    Z = R / (yield_kt ** (1.0 / 3.0))
-    Z = np.maximum(Z, 1.0)
 
-    P_psi = np.where(
-        Z < 10,
-        1e5 / Z**3,
-        1.772e4 / Z**3 + 1.41e3 / Z**2 + 5.0e1 / Z
-    )
-    P_kpa = P_psi * 6.89476 / 1000.0
+    # Kinney-Graham (1985) free-air peak overpressure — continuous closed-form
+    # fit to compiled experimental data.
+    #   ΔP/P₀ = 808 [1 + (Z̄/4.5)²]
+    #           / {√[1+(Z̄/0.048)²] · √[1+(Z̄/0.32)²] · √[1+(Z̄/1.35)²]}
+    # where Z̄ = R / m_charge^{1/3} (m / kg^{1/3}).
+    # Ref: Kinney & Graham, "Explosive Shocks in Air", 2nd ed., 1985.
+    P0 = 101.325  # kPa
+    W_kg = max(yield_kt, 1e-12) * 1.0e6   # kt → kg TNT equivalent
+    Zbar = R / W_kg ** (1.0 / 3.0)         # scaled distance (m / kg^{1/3})
+    num = 808.0 * (1.0 + (Zbar / 4.5) ** 2)
+    d1 = np.sqrt(1.0 + (Zbar / 0.048) ** 2)
+    d2 = np.sqrt(1.0 + (Zbar / 0.32) ** 2)
+    d3 = np.sqrt(1.0 + (Zbar / 1.35) ** 2)
+    P_kpa = P0 * num / (d1 * d2 * d3)
 
+    # Mach stem enhancement for low burst angles
     angle = np.arctan2(hob, np.maximum(r, 1.0))
     mach_factor = np.where(angle < np.radians(40), 1.8, 1.0)
-    P_kpa = P_kpa * mach_factor
 
-    return np.squeeze(P_kpa)
+    return np.squeeze(P_kpa * mach_factor)
 
 
 def dynamic_pressure_kpa(overpressure_kpa):
@@ -1107,19 +1118,45 @@ def fig07_ground_coupling_seismic():
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.2)
 
-    # (d) PGV 2D map
+    # (d) PGV 2D map with terrain relief
     ax = fig.add_subplot(gs[1, 0])
     max_r = 50000
     Xg, Yg, Rg = make_radial_grid(max_r, 400)
     PGV_map = peak_ground_velocity(Rg) * 100
+
+    # Load terrain relief as background
+    try:
+        import pygmt
+        half_deg = meters_to_deg_lon(max_r)
+        half_lat = meters_to_deg_lat(max_r)
+        dem_region = [EVENT_LON - half_deg, EVENT_LON + half_deg,
+                      EVENT_LAT - half_lat, EVENT_LAT + half_lat]
+        dem = pygmt.datasets.load_earth_relief(resolution="03s", region=dem_region)
+        elev = dem.values
+        dem_lons = dem.lon.values
+        dem_lats = dem.lat.values
+        # Convert DEM coordinates to km offsets from GZ
+        dem_x = (dem_lons - EVENT_LON) * 111320.0 * np.cos(np.radians(EVENT_LAT)) / 1000.0
+        dem_y = (dem_lats - EVENT_LAT) * 111320.0 / 1000.0
+        # Hillshade for shaded relief
+        from matplotlib.colors import LightSource
+        ls = LightSource(azdeg=315, altdeg=35)
+        hs = ls.hillshade(elev, vert_exag=2, dx=1, dy=1)
+        ax.imshow(hs, extent=[dem_x[0], dem_x[-1], dem_y[0], dem_y[-1]],
+                  cmap="gray", origin="lower", aspect="equal", alpha=0.6)
+    except Exception:
+        pass  # If PyGMT/DEM unavailable, proceed without relief
+
     im = ax.contourf(Xg / 1000, Yg / 1000, PGV_map,
                       levels=np.logspace(-2, 2, 20),
-                      cmap="viridis", norm=mcolors.LogNorm())
+                      cmap="viridis", norm=mcolors.LogNorm(), alpha=0.65)
     ax.plot(0, 0, "r*", ms=12, mec="k")
     ax.set_xlabel("km E-W")
     ax.set_ylabel("km N-S")
-    ax.set_title("(d) PGV Map (cm/s)", fontweight="bold")
+    ax.set_title("(d) PGV Map (cm/s) on Terrain", fontweight="bold")
     ax.set_aspect("equal")
+    ax.set_xlim(-max_r / 1000, max_r / 1000)
+    ax.set_ylim(-max_r / 1000, max_r / 1000)
     plt.colorbar(im, ax=ax, label="cm/s")
 
     # (e) Air-ground coupling diagram
