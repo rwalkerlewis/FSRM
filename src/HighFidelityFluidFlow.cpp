@@ -214,6 +214,7 @@ double KlinkenbergCorrection::getKnudsenNumber(double P, double T, double Mw,
 }
 
 double KlinkenbergCorrection::meanFreePath(double P, double T, double Mw) const {
+    (void)Mw;
     // λ = k_B*T / (√2 * π * d² * P)
     // Using approximation: λ ≈ μ*√(π*R*T/(2*Mw)) / P
     // For air at STP: λ ≈ 68 nm
@@ -366,6 +367,8 @@ double DualPorosityModel::calculatePhaseTransfer(double P_m, double P_f,
 double DualPorosityModel::calculateCapillaryTransfer(double Sw_m, double Sw_f,
                                                      double Pc_m, double Pc_f,
                                                      double mu_w, double mu_o) const {
+    (void)Sw_m;
+    (void)Sw_f;
     if (!params_.include_capillary) return 0.0;
     
     // Counter-current imbibition
@@ -387,6 +390,7 @@ void DualPorosityModel::initializeMINC(MINCState& state, double P_init, double S
     // Shell volumes (nested spheres)
     double L = matrix_.block_size_x;
     double total_volume = L * L * L;
+    (void)total_volume;
     
     for (int i = 0; i < n; ++i) {
         double r_outer = L/2 * (1.0 - static_cast<double>(i)/n);
@@ -397,6 +401,7 @@ void DualPorosityModel::initializeMINC(MINCState& state, double P_init, double S
 
 void DualPorosityModel::updateMINC(MINCState& state, double P_fracture, double S_fracture,
                                     double mu, double dt) const {
+    (void)S_fracture;
     int n = params_.num_minc_shells;
     
     // Flow from outer shells to inner
@@ -610,6 +615,7 @@ double NonIsothermalMultiphaseFlow::saturationPressure(double T) const {
 double NonIsothermalMultiphaseFlow::getJouleThomsonCoefficient(double P, double T, 
                                                                double rho, double cp,
                                                                double thermal_expansion) const {
+    (void)P;
     // μ_JT = (1/cp) * (T*β/ρ - 1/ρ) = (T*β - 1)/(ρ*cp)
     return (T * thermal_expansion - 1.0) / (rho * cp);
 }
@@ -788,6 +794,7 @@ void MiscibleFlowModel::getEffectiveProperties(double S_s, double S_o, double P,
                                                double rho_s, double rho_o, 
                                                double mu_s, double mu_o,
                                                double& rho_eff, double& mu_eff) const {
+    (void)T;
     double F = getMiscibilityFactor(P);
     double omega = params_.mixing_parameter;
     

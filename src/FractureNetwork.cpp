@@ -1912,6 +1912,7 @@ void FractureNetwork::writeVTK(const std::string& filename) const {
     int total_vertices = 0;
     int n_sides = 8;
     for (const auto& frac : fractures_) {
+    (void)frac;
         total_vertices += n_sides;
     }
     

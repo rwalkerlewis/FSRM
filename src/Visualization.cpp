@@ -214,6 +214,8 @@ void Visualization::setOutputDirectory(const std::string& dir) {
 
 PetscErrorCode Visualization::writeSolution(Vec solution, DM dm, double time, int step,
                                            const std::string& filename) {
+    (void)time;
+    (void)step;
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
@@ -233,6 +235,7 @@ PetscErrorCode Visualization::writeSolution(Vec solution, DM dm, double time, in
 }
 
 PetscErrorCode Visualization::writeVTK(Vec solution, DM dm, const std::string& filename) {
+    (void)dm;
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
@@ -252,6 +255,7 @@ PetscErrorCode Visualization::writeVTU(Vec solution, DM dm, const std::string& f
 }
 
 PetscErrorCode Visualization::writeHDF5(Vec solution, DM dm, const std::string& filename) {
+    (void)dm;
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
@@ -315,18 +319,27 @@ PetscErrorCode Visualization::writeTemperatureField(Vec solution, DM dm, int ste
 }
 
 PetscErrorCode Visualization::writeVelocityField(Vec solution, DM dm, int step) {
+    (void)solution;
+    (void)dm;
+    (void)step;
     PetscFunctionBeginUser;
     // Compute velocity from pressure gradient and Darcy's law
     PetscFunctionReturn(0);
 }
 
 PetscErrorCode Visualization::writeStressField(Vec solution, DM dm, int step) {
+    (void)solution;
+    (void)dm;
+    (void)step;
     PetscFunctionBeginUser;
     // Compute stress from displacement field
     PetscFunctionReturn(0);
 }
 
 PetscErrorCode Visualization::writeStrainField(Vec solution, DM dm, int step) {
+    (void)solution;
+    (void)dm;
+    (void)step;
     PetscFunctionBeginUser;
     // Compute strain from displacement field
     PetscFunctionReturn(0);
@@ -355,7 +368,7 @@ void Visualization::plotPressureHistory(const std::vector<double>& times,
     script << "plot '" << full_path << ".dat' using 1:2 with lines lw 2 notitle\n";
     script.close();
     
-    system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str());
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotProductionHistory(const std::vector<double>& times,
@@ -397,7 +410,7 @@ void Visualization::plotProductionHistory(const std::vector<double>& times,
     script << "\n";
     script.close();
     
-    system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str());
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotConvergenceHistory(const std::vector<int>& iterations,
@@ -422,7 +435,7 @@ void Visualization::plotConvergenceHistory(const std::vector<int>& iterations,
     script << "plot '" << full_path << ".dat' using 1:2 with linespoints lw 2 notitle\n";
     script.close();
     
-    system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str());
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotContour2D(const std::vector<double>& x,
@@ -459,11 +472,12 @@ void Visualization::plotContour2D(const std::vector<double>& x,
     script << "splot '" << full_path << ".dat' using 1:2:3 with pm3d notitle\n";
     script.close();
     
-    system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str());
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plot3DField(Vec solution, DM dm, const std::string& field_name,
                                const std::string& filename) {
+    (void)field_name;
     // 3D visualization would use ParaView/VTK
     writeVTK(solution, dm, filename);
 }
@@ -519,7 +533,7 @@ void Visualization::plotScalability(const std::vector<int>& num_procs,
     script << "unset multiplot\n";
     script.close();
     
-    system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str());
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotConvergenceRate(const std::vector<double>& mesh_sizes,
@@ -548,7 +562,7 @@ void Visualization::plotConvergenceRate(const std::vector<double>& mesh_sizes,
            << expected_rate << ")'\n";
     script.close();
     
-    system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str());
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::generateAnimation(const std::vector<std::string>& vtk_files,
@@ -581,7 +595,7 @@ void Visualization::generateGnuplotScript(const std::string& script_content,
     script << script_content;
     script.close();
     
-    system(("gnuplot " + full_path + " 2>/dev/null").c_str());
+    { int _sys_ret = system(("gnuplot " + full_path + " 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 // ============================================================================
@@ -623,6 +637,7 @@ void PlotGenerator2D::drawField(const std::vector<std::vector<double>>& data,
 
 void PlotGenerator2D::drawColorbar(const ColorMap& cmap, double vmin, double vmax,
                                   const std::string& label) {
+    (void)label;
     int cbar_x = plot_width_ - margin_r_ + 20;
     int cbar_width = 30;
     int cbar_height = field_height_;
@@ -849,6 +864,8 @@ void Visualization::plot2DField(const std::vector<std::vector<double>>& data,
                                const std::string& colormap_name,
                                const std::string& filename,
                                double vmin, double vmax) {
+    (void)Lx;
+    (void)Ly;
     // Create appropriate colormap
     const ColorMap* cmap = nullptr;
     JetColorMap jet;

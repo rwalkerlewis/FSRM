@@ -44,13 +44,13 @@ double computeJ2(const std::array<double, 6>& stress) {
 }
 
 // Compute √(2*J2) - equivalent shear stress
-double computeEqShearStress(const std::array<double, 6>& stress) {
+__attribute__((unused)) double computeEqShearStress(const std::array<double, 6>& stress) {
     double J2 = computeJ2(stress);
     return std::sqrt(2.0 * J2);
 }
 
 // Compute von Mises equivalent stress √(3*J2)
-double computeVonMises(const std::array<double, 6>& stress) {
+__attribute__((unused)) double computeVonMises(const std::array<double, 6>& stress) {
     double J2 = computeJ2(stress);
     return std::sqrt(3.0 * J2);
 }
@@ -459,6 +459,7 @@ void MohrCoulombModel::setParameters(const Parameters& p) {
 
 double MohrCoulombModel::yieldFunction(const std::array<double, 6>& stress,
                                        double hardening_variable) const {
+    (void)hardening_variable;
     // Mohr-Coulomb in principal stress form:
     // F = (σ1 - σ3)/2 + (σ1 + σ3)/2 * sin(φ) - c * cos(φ) ≤ 0
     
@@ -479,6 +480,7 @@ void MohrCoulombModel::returnMapping(std::array<double, 6>& stress,
                                      const std::array<double, 6>& strain_increment,
                                      const std::array<std::array<double, 6>, 6>& C,
                                      bool& plastic_loading) {
+    (void)plastic_strain;
     // Elastic predictor
     std::array<double, 6> delta_stress;
     applyElasticModulus(C, strain_increment, delta_stress);
@@ -526,8 +528,10 @@ void MohrCoulombModel::returnMapping(std::array<double, 6>& stress,
     double sigma3 = sigma3_t + 2.0*G*(b_g/2.0)*delta_gamma - K*b_g*delta_gamma/3.0;
     double sigma2 = sigma2_t - K*(a_g - b_g)*delta_gamma/3.0;
     
+    
     // Check for return to edge/apex (simplified)
     double c_cos_phi = params.cohesion * cos_phi;
+    (void)c_cos_phi;
     
     // Tension cutoff
     if (sigma1 > params.tension_cutoff) {
@@ -570,6 +574,7 @@ void CapModel::setParameters(const Parameters& p) {
 }
 
 double CapModel::shearYield(const std::array<double, 6>& stress, double kappa) const {
+    (void)kappa;
     // Drucker-Prager type shear surface
     double sin_phi = std::sin(params.friction_angle);
     double cos_phi = std::cos(params.friction_angle);
@@ -606,6 +611,7 @@ void CapModel::returnMapping(std::array<double, 6>& stress,
                              const std::array<double, 6>& strain_increment,
                              const std::array<std::array<double, 6>, 6>& C,
                              bool& plastic_loading) {
+    (void)plastic_strain;
     // Elastic predictor
     std::array<double, 6> delta_stress;
     applyElasticModulus(C, strain_increment, delta_stress);
@@ -699,6 +705,7 @@ void CapModel::returnMapping(std::array<double, 6>& stress,
         
         // Harden cap position
         double eps_v_p = accumulated_plastic_strain;  // Volumetric plastic strain
+        (void)eps_v_p;
         double delta_X = params.cap_hardening_modulus * (1.0 - cap_position / params.initial_cap_position);
         cap_position += delta_X * 0.01;  // Increment
     }
@@ -920,6 +927,7 @@ void DamageModel::updateDamage(double& damage,
                                const std::array<double, 6>& stress,
                                const std::array<double, 6>& strain,
                                double dt) {
+    (void)stress;
     // Scalar damage model
     // Damage variable D ∈ [0, D_max]
     // Effective stress: σ_eff = σ / (1 - D)

@@ -1186,6 +1186,7 @@ ConfigReader::ValidationResult ConfigReader::validate() const {
 }
 
 std::vector<double> ConfigReader::parseDoubleArray(const std::string& value) const {
+    (void)value;
     return getDoubleArray("", "");  // Already implemented, reuse via split
 }
 

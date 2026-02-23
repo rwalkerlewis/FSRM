@@ -262,7 +262,9 @@ void OkadaModel::computeDisplacementField(const BathymetryGrid& grid,
     int n = grid.nlon * grid.nlat;
     uz_field.resize(n, 0.0);
     
+    #ifdef _OPENMP
     #pragma omp parallel for
+    #endif
     for (int j = 0; j < grid.nlat; ++j) {
         for (int i = 0; i < grid.nlon; ++i) {
             double lon = grid.lon_min + i * grid.dlon;
@@ -291,7 +293,9 @@ void OkadaModel::applyKajiuraFilter(const BathymetryGrid& grid,
     double dx = grid.dlon * EARTH_RADIUS * DEG_TO_RAD * std::cos(0.5 * (grid.lat_min + grid.lat_max) * DEG_TO_RAD);
     double dy = grid.dlat * EARTH_RADIUS * DEG_TO_RAD;
     
+    #ifdef _OPENMP
     #pragma omp parallel for
+    #endif
     for (int j = 0; j < ny; ++j) {
         for (int i = 0; i < nx; ++i) {
             double h = std::max(10.0, grid.depth[i + j * nx]);  // Water depth
@@ -648,7 +652,9 @@ double ShallowWaterSolver::computeCFL() const {
 void ShallowWaterSolver::applyBottomFriction(double dt_local) {
     if (config.friction_model == BottomFrictionModel::NONE) return;
     
+    #ifdef _OPENMP
     #pragma omp parallel for
+    #endif
     for (int j = 0; j < ny; ++j) {
         for (int i = 0; i < nx; ++i) {
             int k = idx(i, j);
@@ -737,7 +743,9 @@ double ShallowWaterSolver::step() {
     }
     
     // X-direction fluxes
+    #ifdef _OPENMP
     #pragma omp parallel for
+    #endif
     for (int j = 1; j < ny - 1; ++j) {
         for (int i = 1; i < nx - 1; ++i) {
             int k = idx(i, j);
@@ -770,7 +778,9 @@ double ShallowWaterSolver::step() {
     }
     
     // Y-direction fluxes
+    #ifdef _OPENMP
     #pragma omp parallel for
+    #endif
     for (int j = 1; j < ny - 1; ++j) {
         for (int i = 1; i < nx - 1; ++i) {
             int k = idx(i, j);

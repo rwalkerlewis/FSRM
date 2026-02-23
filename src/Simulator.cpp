@@ -5,6 +5,14 @@
 #include "ImplicitExplicitTransition.hpp"
 #include "ExplosionImpactPhysics.hpp"
 #include "SeismometerNetwork.hpp"
+
+// GPU kernel support — conditionally include GPU headers when built with CUDA
+#ifdef USE_CUDA
+#include "GPUManager.hpp"
+#include "PhysicsKernel_GPU.hpp"
+#include "PhysicsKernel_GPU_Extended.hpp"
+#endif
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -758,8 +766,59 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     // Initialize with loaded config
     ierr = initialize(config); CHKERRQ(ierr);
     
+    // =========================================================================
+    // GPU Initialization
+    // =========================================================================
+    // When use_gpu is requested, attempt to initialize the GPU backend.
+    // Depending on gpu_mode, either hard-fail (GPU_ONLY) or fall back to CPU.
+#ifdef USE_CUDA
+    if (config.use_gpu) {
+        GPUManager& gpu = GPUManager::getInstance();
+        if (gpu.initialize()) {
+            if (config.gpu_device_id >= 0) {
+                gpu.setDevice(config.gpu_device_id);
+            }
+            if (rank == 0) {
+                PetscPrintf(comm, "\n");
+                PetscPrintf(comm, "============================================================\n");
+                PetscPrintf(comm, "  GPU Acceleration Enabled\n");
+                PetscPrintf(comm, "============================================================\n");
+                gpu.printDeviceInfo();
+                PetscPrintf(comm, "\n");
+            }
+        } else {
+            if (config.gpu_mode == GPUExecutionMode::GPU_ONLY) {
+                SETERRQ(comm, PETSC_ERR_SUP,
+                        "GPU_ONLY mode requested but no CUDA-capable GPU is available. "
+                        "Set gpu_mode = CPU_FALLBACK to allow CPU execution.");
+            }
+            config.use_gpu = false;
+            if (rank == 0) {
+                PetscPrintf(comm, "Warning: GPU requested but not available. Falling back to CPU.\n");
+            }
+        }
+    }
+#else
+    if (config.use_gpu) {
+        if (rank == 0) {
+            PetscPrintf(comm, "Warning: use_gpu = true in config, but FSRM was built without "
+                              "CUDA support (ENABLE_CUDA=OFF). All physics will run on CPU.\n");
+        }
+        config.use_gpu = false;
+    }
+#endif
+
     if (rank == 0) {
         PetscPrintf(comm, "Configuration loaded successfully\n");
+        if (config.use_gpu) {
+            PetscPrintf(comm, "GPU execution: ENABLED (mode=%s)\n",
+                        config.gpu_mode == GPUExecutionMode::GPU_ONLY ? "GPU_ONLY" :
+                        config.gpu_mode == GPUExecutionMode::HYBRID ? "HYBRID" :
+                        config.gpu_mode == GPUExecutionMode::CPU_FALLBACK ? "CPU_FALLBACK" :
+                        "CPU_ONLY");
+        } else {
+            PetscPrintf(comm, "GPU execution: DISABLED (CPU-only mode)\n");
+        }
     }
     
     PetscFunctionReturn(0);
@@ -1092,21 +1151,50 @@ PetscErrorCode Simulator::setupPhysics() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
+    // =========================================================================
+    // Helper lambda: create a GPU kernel if use_gpu is enabled and the GPU
+    // implementation exists, otherwise fall back to the CPU kernel.
+    // =========================================================================
+    auto tryGPUKernel = [&](PhysicsType ptype) -> std::shared_ptr<PhysicsKernel> {
+#ifdef USE_CUDA
+        if (config.use_gpu) {
+            auto gpu_kernel = createGPUKernelExtended(ptype);
+            if (gpu_kernel) {
+                if (rank == 0) {
+                    PetscPrintf(comm, "  GPU kernel created for %s\n",
+                                gpu_kernel->getTypeName());
+                }
+                return gpu_kernel;
+            }
+            if (rank == 0 && config.gpu_verbose) {
+                PetscPrintf(comm, "  No GPU kernel for physics type %d, using CPU\n",
+                            static_cast<int>(ptype));
+            }
+        }
+#else
+        (void)ptype;  // suppress unused warning
+#endif
+        return nullptr;
+    };
+
     // Add physics kernels based on configuration
     switch (config.fluid_model) {
         case FluidModelType::NONE:
             break;
         case FluidModelType::SINGLE_COMPONENT: {
-            auto kernel = std::make_shared<SinglePhaseFlowKernel>();
+            auto kernel = tryGPUKernel(PhysicsType::FLUID_FLOW);
+            if (!kernel) kernel = std::make_shared<SinglePhaseFlowKernel>();
             ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
             break;
         }
         case FluidModelType::BLACK_OIL: {
-            auto kernel = std::make_shared<BlackOilKernel>();
+            auto kernel = tryGPUKernel(PhysicsType::FLUID_FLOW);
+            if (!kernel) kernel = std::make_shared<BlackOilKernel>();
             ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
             break;
         }
         case FluidModelType::COMPOSITIONAL: {
+            // No GPU kernel for compositional yet; use CPU
             auto kernel = std::make_shared<CompositionalKernel>(3); // 3 components
             ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
             break;
@@ -1119,7 +1207,10 @@ PetscErrorCode Simulator::setupPhysics() {
     if (config.enable_geomechanics) {
         // Choose between static and dynamic geomechanics
         if (config.solid_model == SolidModelType::ELASTODYNAMIC) {
-            auto kernel = std::make_shared<ElastodynamicsKernel>();
+            auto gpu_kernel = tryGPUKernel(PhysicsType::ELASTODYNAMICS);
+            auto kernel = gpu_kernel ? std::dynamic_pointer_cast<ElastodynamicsKernel>(gpu_kernel)
+                                     : std::make_shared<ElastodynamicsKernel>();
+            if (!kernel) kernel = std::make_shared<ElastodynamicsKernel>();
             if (!material_props.empty()) {
                 const MaterialProperties& mat = material_props[0];
                 kernel->setMaterialProperties(mat.youngs_modulus, mat.poisson_ratio, mat.density);
@@ -1133,7 +1224,10 @@ PetscErrorCode Simulator::setupPhysics() {
             }
             ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
         } else if (config.solid_model == SolidModelType::POROELASTODYNAMIC) {
-            auto kernel = std::make_shared<PoroelastodynamicsKernel>();
+            auto gpu_kernel = tryGPUKernel(PhysicsType::POROELASTODYNAMICS);
+            auto kernel = gpu_kernel ? std::dynamic_pointer_cast<PoroelastodynamicsKernel>(gpu_kernel)
+                                     : std::make_shared<PoroelastodynamicsKernel>();
+            if (!kernel) kernel = std::make_shared<PoroelastodynamicsKernel>();
             if (!material_props.empty()) {
                 const MaterialProperties& mat = material_props[0];
                 const FluidProperties& fluid = fluid_props.empty() ? FluidProperties() : fluid_props[0];
@@ -1159,14 +1253,22 @@ PetscErrorCode Simulator::setupPhysics() {
             }
             ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
         } else {
-            auto kernel = std::make_shared<GeomechanicsKernel>(config.solid_model);
-            ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
+            auto gpu_kernel = tryGPUKernel(PhysicsType::GEOMECHANICS);
+            if (gpu_kernel) {
+                ierr = addPhysicsKernel(gpu_kernel); CHKERRQ(ierr);
+            } else {
+                auto kernel = std::make_shared<GeomechanicsKernel>(config.solid_model);
+                ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
+            }
         }
     }
     
-    // Add standalone elastodynamics if enabled
+    // Add standalone elastodynamics if enabled (wave equation solver)
     if (config.enable_elastodynamics) {
-        auto kernel = std::make_shared<ElastodynamicsKernel>();
+        auto gpu_kernel = tryGPUKernel(PhysicsType::ELASTODYNAMICS);
+        auto kernel = gpu_kernel ? std::dynamic_pointer_cast<ElastodynamicsKernel>(gpu_kernel)
+                                 : std::make_shared<ElastodynamicsKernel>();
+        if (!kernel) kernel = std::make_shared<ElastodynamicsKernel>();
         if (!material_props.empty()) {
             const MaterialProperties& mat = material_props[0];
             kernel->setMaterialProperties(mat.youngs_modulus, mat.poisson_ratio, mat.density);
@@ -1181,9 +1283,12 @@ PetscErrorCode Simulator::setupPhysics() {
         ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
     }
     
-    // Add standalone poroelastodynamics if enabled
+    // Add standalone poroelastodynamics if enabled (coupled fluid-solid waves)
     if (config.enable_poroelastodynamics) {
-        auto kernel = std::make_shared<PoroelastodynamicsKernel>();
+        auto gpu_kernel = tryGPUKernel(PhysicsType::POROELASTODYNAMICS);
+        auto kernel = gpu_kernel ? std::dynamic_pointer_cast<PoroelastodynamicsKernel>(gpu_kernel)
+                                 : std::make_shared<PoroelastodynamicsKernel>();
+        if (!kernel) kernel = std::make_shared<PoroelastodynamicsKernel>();
         if (!material_props.empty()) {
             const MaterialProperties& mat = material_props[0];
             const FluidProperties& fluid = fluid_props.empty() ? FluidProperties() : fluid_props[0];
@@ -1212,13 +1317,15 @@ PetscErrorCode Simulator::setupPhysics() {
     
     // Add thermal if enabled
     if (config.enable_thermal) {
-        auto kernel = std::make_shared<ThermalKernel>();
+        auto gpu_kernel = tryGPUKernel(PhysicsType::THERMAL);
+        auto kernel = gpu_kernel ? gpu_kernel : std::make_shared<ThermalKernel>();
         ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
     }
     
     // Add particle transport if enabled
     if (config.enable_particle_transport) {
-        auto kernel = std::make_shared<ParticleTransportKernel>();
+        auto gpu_kernel = tryGPUKernel(PhysicsType::PARTICLE_TRANSPORT);
+        auto kernel = gpu_kernel ? gpu_kernel : std::make_shared<ParticleTransportKernel>();
         ierr = addPhysicsKernel(kernel); CHKERRQ(ierr);
     }
     
@@ -1824,6 +1931,7 @@ PetscErrorCode Simulator::writeOutput(int step) {
 }
 
 PetscErrorCode Simulator::writeCheckpoint(int step) {
+    (void)step;
     PetscFunctionBeginUser;
     // Implementation for checkpoint writing
     PetscFunctionReturn(0);
@@ -1946,6 +2054,8 @@ PetscErrorCode Simulator::updateFractureNetwork() {
 }
 
 PetscErrorCode Simulator::enableCoupling(PhysicsType type1, PhysicsType type2) {
+    (void)type1;
+    (void)type2;
     PetscFunctionBeginUser;
     // Enable coupling between physics
     PetscFunctionReturn(0);

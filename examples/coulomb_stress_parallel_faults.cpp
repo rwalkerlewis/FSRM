@@ -175,6 +175,8 @@ StressTensor computeOkadaStress(
     double slip,                            // Slip amount
     double mu, double nu)                   // Elastic parameters
 {
+    (void)dip_rad;
+    (void)nu;
     StressTensor stress = {0, 0, 0, 0, 0, 0};
     
     // Transform to fault-centered coordinates
@@ -378,6 +380,8 @@ void writeSnapshotImage(
     double Lx, double Lz,
     double source_x, double receiver_x)
 {
+    (void)title;
+    (void)Lz;
     // Use the built-in visualization class
     int plot_width = 800;
     int plot_height = 500;

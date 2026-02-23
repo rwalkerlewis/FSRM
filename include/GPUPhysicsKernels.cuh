@@ -22,10 +22,10 @@ namespace FSRM {
 namespace GPU {
 namespace Kernels {
 
-// Block sizes
-constexpr int BLOCK_1D = 256;
-constexpr int BLOCK_2D = 16;
-constexpr int BLOCK_3D = 8;
+// Block sizes (consistent naming: BLOCK_SIZE_{1D,2D,3D})
+constexpr int BLOCK_SIZE_1D = 256;
+constexpr int BLOCK_SIZE_2D = 16;
+constexpr int BLOCK_SIZE_3D = 8;
 
 // =============================================================================
 // Atmospheric Model Kernels
@@ -556,14 +556,14 @@ __device__ __forceinline__ double distance3D(
 /**
  * @brief Get optimal block size for 1D kernel
  */
-inline dim3 getBlocks1D(int n, int block_size = BLOCK_1D) {
+inline dim3 getBlocks1D(int n, int block_size = BLOCK_SIZE_1D) {
     return dim3((n + block_size - 1) / block_size);
 }
 
 /**
  * @brief Get optimal grid for 2D kernel
  */
-inline dim3 getBlocks2D(int nx, int ny, int block_size = BLOCK_2D) {
+inline dim3 getBlocks2D(int nx, int ny, int block_size = BLOCK_SIZE_2D) {
     return dim3((nx + block_size - 1) / block_size,
                 (ny + block_size - 1) / block_size);
 }
@@ -571,7 +571,7 @@ inline dim3 getBlocks2D(int nx, int ny, int block_size = BLOCK_2D) {
 /**
  * @brief Get optimal grid for 3D kernel
  */
-inline dim3 getBlocks3D(int nx, int ny, int nz, int block_size = BLOCK_3D) {
+inline dim3 getBlocks3D(int nx, int ny, int nz, int block_size = BLOCK_SIZE_3D) {
     return dim3((nx + block_size - 1) / block_size,
                 (ny + block_size - 1) / block_size,
                 (nz + block_size - 1) / block_size);

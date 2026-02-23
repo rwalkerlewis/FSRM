@@ -27,7 +27,7 @@
 
 #endif
 
-namespace ResSim {
+namespace FSRM {
 
 GPUManager::GPUManager() 
     : gpu_available(false), 
@@ -253,4 +253,4 @@ float GPUManager::stopTimer() {
 #endif
 }
 
-} // namespace ResSim
+} // namespace FSRM

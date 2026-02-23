@@ -287,6 +287,7 @@ void PoroelasticSolver::g0_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                               const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
                               PetscReal t, PetscReal u_tShift, const PetscReal x[],
                               PetscInt numConstants, const PetscScalar constants[], PetscScalar g0[]) {
+    (void)u_t;
     // Full Jacobian g0 = ∂f0/∂u for pressure equation
     //
     // The pressure equation in coupled poroelasticity:
@@ -324,6 +325,7 @@ void PoroelasticSolver::g0_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     // [7] = water residual saturation (Swr), [8] = oil residual saturation (Sor)
     // [9] = Corey exponent, [10] = max relative permeability
     PetscScalar ct = (numConstants > 0) ? constants[0] : 1e-9;      // Total compressibility [1/Pa]
+    (void)ct;
     PetscScalar alpha = (numConstants > 1) ? constants[1] : 1.0;    // Biot coefficient
     
     // Saturation-dependent compressibility (if two-phase)
@@ -382,7 +384,6 @@ void PoroelasticSolver::g0_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     }
     
     // Suppress remaining unused parameters
-    (void)u_t;
 }
 
 void PoroelasticSolver::g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
@@ -392,6 +393,7 @@ void PoroelasticSolver::g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                               const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
                               PetscReal t, PetscReal u_tShift, const PetscReal x[],
                               PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]) {
+    (void)uOff_x;
     // Full Jacobian g3 = ∂f1/∂(∇u) for pressure equation flux term
     //
     // The flux term in pressure equation:
@@ -617,16 +619,32 @@ void PoroelasticSolver::applyBoundaryConditions() {
 }
 
 void PoroelasticSolver::updateWellPerformance(double time, double dt) {
+    (void)time;
+    (void)dt;
     // TODO: Implement well source terms
 }
 
 PetscErrorCode PoroelasticSolver::FormIFunction(TS ts, PetscReal t, Vec X, Vec Xdot, Vec F, void* ctx) {
+    (void)ts;
+    (void)t;
+    (void)X;
+    (void)Xdot;
+    (void)F;
+    (void)ctx;
     // DMPlex uses pointwise functions, this is just a wrapper
     return 0;
 }
 
 PetscErrorCode PoroelasticSolver::FormIJacobian(TS ts, PetscReal t, Vec X, Vec Xdot,
                                                 PetscReal shift, Mat J, Mat P, void* ctx) {
+    (void)ts;
+    (void)t;
+    (void)X;
+    (void)Xdot;
+    (void)shift;
+    (void)J;
+    (void)P;
+    (void)ctx;
     // DMPlex uses pointwise functions, this is just a wrapper
     return 0;
 }

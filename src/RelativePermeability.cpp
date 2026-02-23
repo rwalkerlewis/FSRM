@@ -358,6 +358,7 @@ double ThreePhaseRelPerm::stoneI_oil(double Sw, double So, double Sg) const {
 }
 
 double ThreePhaseRelPerm::stoneII_oil(double Sw, double So, double Sg) const {
+    (void)So;
     if (!water_oil_ || !gas_oil_) return 0.0;
     
     double Swc = 0.2;
@@ -375,6 +376,7 @@ double ThreePhaseRelPerm::stoneII_oil(double Sw, double So, double Sg) const {
 }
 
 double ThreePhaseRelPerm::baker_oil(double Sw, double So, double Sg) const {
+    (void)So;
     if (!water_oil_ || !gas_oil_) return 0.0;
     
     // Baker linear interpolation

@@ -741,6 +741,7 @@ void NeuralPVTModel::load(const std::string& path) {
 }
 
 void NeuralPVTModel::exportONNX(const std::string& path) const {
+    (void)path;
     // ONNX export would require additional library
     std::cerr << "ONNX export not yet implemented\n";
 }
@@ -1146,6 +1147,7 @@ void NeuralFlashCalculator::load(const std::string& path) {
 }
 
 void NeuralFlashCalculator::exportONNX(const std::string& path) const {
+    (void)path;
     std::cerr << "ONNX export not yet implemented\n";
 }
 
@@ -1426,6 +1428,7 @@ void NeuralRelPermModel::load(const std::string& path) {
 }
 
 void NeuralRelPermModel::exportONNX(const std::string& path) const {
+    (void)path;
     std::cerr << "ONNX export not yet implemented\n";
 }
 
@@ -1685,6 +1688,7 @@ void NeuralPreconditioner::load(const std::string& path) {
 }
 
 void NeuralPreconditioner::exportONNX(const std::string& path) const {
+    (void)path;
     std::cerr << "ONNX export not yet implemented\n";
 }
 

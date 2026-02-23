@@ -34,13 +34,13 @@ PhysicsKernel (abstract base)
 │   ├── SinglePhaseFlowKernel
 │   │   └── SinglePhaseFlowKernelGPU
 │   ├── BlackOilKernel
-│   │   └── BlackOilKernelGPU (implemented)
+│   │   └── BlackOilKernelGPU
 │   └── CompositionalKernel
-│       └── CompositionalKernelGPU (implemented)
+│       └── CompositionalKernelGPU
 │
 ├── Mechanics Kernels
 │   ├── GeomechanicsKernel
-│   │   └── GeomechanicsKernelGPU (implemented)
+│   │   └── GeomechanicsKernelGPU
 │   ├── ElastodynamicsKernel
 │   │   └── ElastodynamicsKernelGPU
 │   └── PoroelastodynamicsKernel
@@ -48,17 +48,17 @@ PhysicsKernel (abstract base)
 │
 ├── Thermal Kernels
 │   └── ThermalKernel
-│       └── ThermalKernelGPU (implemented)
+│       └── ThermalKernelGPU
 │
 ├── Transport Kernels
 │   └── ParticleTransportKernel
-│       └── ParticleTransportKernelGPU (implemented)
+│       └── ParticleTransportKernelGPU
 │
 ├── Explosion/Impact Kernels
 │   ├── ExplosionSourceKernel
 │   ├── NearFieldDamageKernel
 │   ├── HydrodynamicKernel
-│   │   └── HydrodynamicKernelGPU (implemented)
+│   │   └── HydrodynamicKernelGPU
 │   └── CraterFormationKernel
 │
 ├── Atmospheric Kernels
@@ -69,6 +69,7 @@ PhysicsKernel (abstract base)
 │   ├── ThermalRadiationKernel
 │   ├── EMPKernel
 │   └── FalloutKernel
+│       └── FalloutKernelGPU
 │
 ├── Surface/Coupling Kernels
 │   ├── TsunamiKernel
@@ -159,10 +160,11 @@ FSRM supports four GPU execution modes controlled by `gpu_mode` configuration:
 
 ```cpp
 // Factory function for creating execution-appropriate kernels
+// createGPUKernelExtended() supports all 11 physics types
 std::shared_ptr<PhysicsKernel> createKernel(PhysicsType type, 
                                             GPUExecutionMode mode) {
     if (mode != GPUExecutionMode::CPU_ONLY) {
-        auto gpu_kernel = createGPUKernel(type);
+        auto gpu_kernel = createGPUKernelExtended(type);
         if (gpu_kernel) return gpu_kernel;
     }
     // Fall back to CPU kernel
@@ -180,6 +182,12 @@ if (gpu.isAvailable()) {
     // CPU fallback automatically engaged
 }
 ```
+
+### Simulator Integration
+
+`Simulator::setupPhysics()` uses `tryGPUKernel()` to automatically select GPU
+kernels when `config.use_gpu=true`. The simulator attempts GPU kernel creation
+first and falls back to CPU kernels if the GPU kernel is unavailable or fails.
 
 ---
 
@@ -246,9 +254,38 @@ pressure.copyToHost(host_pressure);
 | Explosion Source | ✓ | ○ | Nuclear/chemical sources |
 | Crater Formation | ✓ | ○ | Impact excavation |
 | EMP | ○ | ○ | Electromagnetic pulse |
-| Fallout | ○ | ○ | Radioactive transport |
+| Fallout | ✓ | ✓ | Radioactive transport |
 
 Legend: ✓ = Full support, ○ = CPU implementation available
+
+### GPU-Accelerated DG Wave Equation Solver
+
+The ADER-DG solver for elastic and poroelastic wave propagation is GPU-accelerated
+via `DGGPUContext` (declared in `DiscontinuousGalerkin.hpp`) and CUDA kernels
+in `DiscontinuousGalerkinGPU.cu`:
+
+- Volume integral computation (element-parallel stiffness × flux)
+- Rusanov numerical flux at element interfaces
+- ADER Cauchy-Kovalewski time predictor
+- Free-surface boundary conditions
+- PML absorbing boundaries
+- Moment tensor / explosion source injection
+- Local time stepping cluster synchronisation
+- Receiver/seismometer wavefield interpolation
+
+Conservative variables: Q = (σ_xx, σ_yy, σ_zz, σ_xy, σ_yz, σ_xz, v_x, v_y, v_z)
+
+Key files:
+- `include/DiscontinuousGalerkinGPU.cuh` — CUDA kernel declarations
+- `src/DiscontinuousGalerkinGPU.cu` — CUDA kernel implementations
+- `include/DiscontinuousGalerkin.hpp` — `DGGPUContext` class
+
+### Standard Naming Conventions
+
+- **Error macro:** `CUDA_CHECK(call)` — wraps CUDA API calls with error checking
+- **Block sizes:** `BLOCK_SIZE_1D` (256), `BLOCK_SIZE_2D` (16), `BLOCK_SIZE_3D` (8)
+- **DG-specific:** `DG_BLOCK_SIZE` (128) — for discontinuous Galerkin wave solver
+- **GPU kernel classes:** All follow the pattern `{PhysicsName}KernelGPU`
 
 ### CUDA Kernel Execution
 
@@ -489,7 +526,7 @@ $$\frac{\partial E}{\partial t} + \nabla \cdot ((E+p)\mathbf{v}) = \rho \mathbf{
 - Shock capturing via artificial viscosity or limiters
 - Multi-material interface tracking
 
-**GPU Acceleration:** Planned (ideal for GPU due to local computations)
+**GPU Acceleration:** Full support via `HydrodynamicKernelGPU`
 
 #### CraterFormationKernel
 
@@ -731,10 +768,10 @@ class DynamicPermeabilityModel {
 ```ini
 [SIMULATION]
 use_gpu = true
-gpu_mode = CPU_FALLBACK       # AUTO, GPU_ONLY, CPU_FALLBACK, HYBRID
+gpu_mode = CPU_FALLBACK       # CPU_ONLY, GPU_ONLY, HYBRID, CPU_FALLBACK
 gpu_device_id = 0             # GPU device to use
-gpu_memory_fraction = 0.8     # Fraction of GPU memory to use
-gpu_verbose = false           # Print GPU information
+gpu_verbose = true            # Print GPU information
+gpu_memory_fraction = 0.9     # Fraction of GPU memory to use
 
 # GPU solver options
 use_gpu_preconditioner = true

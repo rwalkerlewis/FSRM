@@ -339,8 +339,11 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
     double eps_yy = u_x[4];
     double eps_zz = u_x[8];
     double eps_xy = 0.5 * (u_x[1] + u_x[3]);
+    (void)eps_xy;
     double eps_xz = 0.5 * (u_x[2] + u_x[6]);
+    (void)eps_xz;
     double eps_yz = 0.5 * (u_x[5] + u_x[7]);
+    (void)eps_yz;
     
     // Pressure gradient
     double dp_dx = u_x[9];
@@ -647,6 +650,7 @@ bool PoroelastodynamicsKernel::checkStaticTrigger(const PetscScalar stress[], do
     
     // Use Coulomb failure criterion
     double s_xx = stress[0];
+    (void)s_xx;
     // double s_yy = stress[1];  // Not used in 2D failure criterion
     // double s_zz = stress[2];  // Not used in 2D failure criterion
     double s_xy = stress[3];

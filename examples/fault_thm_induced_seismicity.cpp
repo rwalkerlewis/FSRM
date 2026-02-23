@@ -333,6 +333,7 @@ int main(int argc, char* argv[]) {
     // Material properties
     double shear_modulus = getConfigDouble(config, "shear_modulus", 30e9);      // 30 GPa
     double bulk_density = getConfigDouble(config, "density", 2700.0);           // 2700 kg/m³
+    (void)bulk_density;
     
     // Initial stress state (at 5 km depth)
     double initial_normal_stress = getConfigDouble(config, "initial_normal_stress", 120e6);  // 120 MPa

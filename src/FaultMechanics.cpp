@@ -147,8 +147,8 @@ CoulombFriction::CoulombFriction()
 
 double CoulombFriction::getFriction(double slip_rate, double state_var,
                                     double sigma_n_eff) const {
-    // Suppress unused parameter warnings - part of standard interface
     (void)slip_rate;
+    // Suppress unused parameter warnings - part of standard interface
     (void)sigma_n_eff;
     
     // Use state_var as cumulative slip for slip-weakening
@@ -657,6 +657,7 @@ public:
         
         // Thermal diffusion time scale
         double t_th = params.w * params.w / params.alpha_th;
+        (void)t_th;
         
         // Simple evolution (adiabatic limit for short times)
         // dT/dt = τ*V / (ρc * 2w) - α_th * T'' / w²

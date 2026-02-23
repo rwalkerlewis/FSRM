@@ -36,7 +36,7 @@ double det3x3(const double F[9]) {
 /**
  * @brief Compute inverse of 3x3 matrix
  */
-void inv3x3(const double F[9], double Finv[9]) {
+__attribute__((unused)) void inv3x3(const double F[9], double Finv[9]) {
     double J = det3x3(F);
     if (std::abs(J) < 1e-30) {
         throw std::runtime_error("Singular deformation gradient");
@@ -57,7 +57,7 @@ void inv3x3(const double F[9], double Finv[9]) {
 /**
  * @brief Compute F^T * F (right Cauchy-Green tensor)
  */
-void computeRightCauchyGreen(const double F[9], double C[6]) {
+__attribute__((unused)) void computeRightCauchyGreen(const double F[9], double C[6]) {
     // C = F^T F in Voigt notation
     C[0] = F[0]*F[0] + F[3]*F[3] + F[6]*F[6]; // C_xx
     C[1] = F[1]*F[1] + F[4]*F[4] + F[7]*F[7]; // C_yy
@@ -77,7 +77,7 @@ double trace(const double T[6]) {
 /**
  * @brief Compute invariants of symmetric tensor
  */
-void computeInvariants(const double C[6], double& I1, double& I2, double& I3) {
+__attribute__((unused)) void computeInvariants(const double C[6], double& I1, double& I2, double& I3) {
     I1 = trace(C);
     I2 = 0.5 * (I1 * I1 - (C[0]*C[0] + C[1]*C[1] + C[2]*C[2] + 
                            2.0*(C[3]*C[3] + C[4]*C[4] + C[5]*C[5])));

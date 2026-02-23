@@ -644,10 +644,12 @@ void StreamlineTracerSolver::traceStreamlines() {
 void StreamlineTracerSolver::solve1D(Streamline& sl, 
                                       const std::string& tracer_name, 
                                       double dt) {
+    (void)dt;
     if (sl.x.size() < 2) return;
     
     auto& C = concentrations_[tracer_name];
     const auto& props = tracer_props_[tracer_name];
+    (void)props;
     
     // 1D advection along streamline using time-of-flight
     std::vector<double> C_sl(sl.x.size(), 0.0);

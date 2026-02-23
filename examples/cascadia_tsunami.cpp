@@ -405,6 +405,7 @@ int main(int argc, char** argv) {
         
         // Add gauges
         for (const auto& g : gauges) {
+        (void)g;
             // Note: gauges added internally in the solver
         }
         

@@ -653,7 +653,9 @@ void computeVolumeIntegral_optimized(
         
         for (size_t e = start; e < end; ++e) {
             const double* u_e = u + e * n_dof * n_var;
+            (void)u_e;
             const double* J_e = J + e * n_qp * 9;
+            (void)J_e;
             double* rhs_e = rhs + e * n_dof * n_var;
             
             // Compute flux at quadrature points
@@ -686,6 +688,11 @@ void computeSurfaceIntegral_optimized(
     int n_face, int n_dof, int n_var,
     ThreadPool& pool)
 {
+    (void)u;
+    (void)normals;
+    (void)M_inv;
+    (void)rhs;
+    (void)n_dof;
     pool.parallelFor(0, n_face, [&](size_t start, size_t end) {
         AlignedVector<double> u_L(n_var);
         AlignedVector<double> u_R(n_var);
@@ -693,7 +700,9 @@ void computeSurfaceIntegral_optimized(
         
         for (size_t f = start; f < end; ++f) {
             int e_L = face_neighbors[f * 2];
+            (void)e_L;
             int e_R = face_neighbors[f * 2 + 1];
+            (void)e_R;
             
             // Get face states
             // Compute numerical flux (Riemann solver)

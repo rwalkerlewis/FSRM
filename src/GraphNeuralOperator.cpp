@@ -595,6 +595,7 @@ Tensor GraphAttentionLayer::forward(const MeshGraph& graph) {
     
     const Tensor& x = graph.nodeFeatures();
     const auto& edges = graph.edges();
+    (void)edges;
     
     // Output dimension depends on whether we concat heads
     int out_dim = gat_config_.concat_heads ? node_dim : head_dim;
@@ -795,6 +796,7 @@ Tensor GraphNeuralOperator::forward(const MeshGraph& graph) {
 
 Tensor GraphNeuralOperator::backward(const Tensor& grad_output) {
     int num_nodes = cached_graph_.numNodes();
+    (void)num_nodes;
     
     // Backward through decoder
     Tensor grad_h = decoder_->backward(grad_output);
@@ -988,6 +990,7 @@ void GraphNeuralOperator::load(const std::string& path) {
 }
 
 void GraphNeuralOperator::exportONNX(const std::string& path) const {
+    (void)path;
     std::cerr << "ONNX export not yet implemented for GNO\n";
 }
 
@@ -1051,7 +1054,9 @@ MeshGraphNet::MeshGraphNet(const MGNConfig& config) : config_(config) {
 
 Tensor MeshGraphNet::step(const Tensor& current_state, const MeshGraph& mesh) {
     int num_nodes = mesh.numNodes();
+    (void)num_nodes;
     int feat_dim = config_.node_feature_dim;
+    (void)feat_dim;
     
     // Encode nodes (concatenate state with node type)
     Tensor encoded = node_encoder_->forward(current_state);
@@ -1412,6 +1417,7 @@ Tensor PhysicsInformedGNN::computePDEResidual(const MeshGraph& graph,
 
 void PhysicsInformedGNN::enforceMassConservation(Tensor& output, 
                                                   const MeshGraph& graph) {
+    (void)graph;
     // Ensure integral of output is conserved
     double sum = 0.0;
     for (double x : output.data) {
@@ -1492,6 +1498,7 @@ void computeEdgeFeaturesFromPositions(
 }
 
 MeshGraph buildGraphFromDMPlex(DM dm, bool include_boundary_edges) {
+    (void)include_boundary_edges;
     MeshGraph graph;
     graph.fromMesh(dm);
     graph.computeEdgeFeatures();

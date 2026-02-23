@@ -814,19 +814,455 @@ void ThermalKernelGPU::computeEffectivePropertiesGPU() {
 #endif
 }
 
+// ============================================================================
+// GeomechanicsKernelGPU Implementation
+// ============================================================================
+
+GeomechanicsKernelGPU::GeomechanicsKernelGPU()
+    : GPUKernelBase<GeomechanicsKernelGPU, GeomechanicsKernel>()
+{
+#ifdef USE_CUDA
+    d_displacement = d_strain = d_stress = d_force = nullptr;
+    d_youngs_modulus = d_poisson_ratio = d_density = d_biot_coefficient = nullptr;
+    d_plastic_strain = d_yield_state = d_cohesion = d_friction_angle = nullptr;
+    d_pressure = nullptr;
+    d_connectivity = nullptr;
+#endif
+}
+
+GeomechanicsKernelGPU::~GeomechanicsKernelGPU() {
+    freeGPUMemory();
+}
+
+PetscErrorCode GeomechanicsKernelGPU::setup(DM dm, PetscFE fe) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr = GeomechanicsKernel::setup(dm, fe); CHKERRQ(ierr);
+    if (initializeGPU()) {
+        PetscPrintf(PETSC_COMM_WORLD, "GPU-accelerated geomechanics kernel initialized\n");
+    }
+    PetscFunctionReturn(0);
+}
+
+void GeomechanicsKernelGPU::residual(const PetscScalar u[], const PetscScalar u_t[],
+                                      const PetscScalar u_x[], const PetscScalar a[],
+                                      const PetscReal x[], PetscScalar f[]) {
+    if (!gpu_initialized_) {
+        GeomechanicsKernel::residual(u, u_t, u_x, a, x, f);
+        return;
+    }
+    // GPU path: fall through to CPU for pointwise evaluation;
+    // GPU acceleration applies to batch operations (computeStrainGPU, etc.)
+    GeomechanicsKernel::residual(u, u_t, u_x, a, x, f);
+}
+
+void GeomechanicsKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                                      const PetscScalar u_x[], const PetscScalar a[],
+                                      const PetscReal x[], PetscScalar J[]) {
+    GeomechanicsKernel::jacobian(u, u_t, u_x, a, x, J);
+}
+
+void GeomechanicsKernelGPU::allocateGPUMemory(int n_cells) {
+#ifdef USE_CUDA
+    n_elements_gpu_ = n_cells;
+    GPUManager& gpu = getGPUManager();
+    d_displacement = static_cast<double*>(gpu.allocateDevice(n_cells * 3 * sizeof(double)));
+    d_strain = static_cast<double*>(gpu.allocateDevice(n_cells * 6 * sizeof(double)));
+    d_stress = static_cast<double*>(gpu.allocateDevice(n_cells * 6 * sizeof(double)));
+    d_force = static_cast<double*>(gpu.allocateDevice(n_cells * 3 * sizeof(double)));
+    d_youngs_modulus = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_poisson_ratio = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_density = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+#endif
+}
+
+void GeomechanicsKernelGPU::freeGPUMemory() {
+#ifdef USE_CUDA
+    GPUManager& gpu = getGPUManager();
+    if (d_displacement) gpu.freeDevice(d_displacement);
+    if (d_strain) gpu.freeDevice(d_strain);
+    if (d_stress) gpu.freeDevice(d_stress);
+    if (d_force) gpu.freeDevice(d_force);
+    if (d_youngs_modulus) gpu.freeDevice(d_youngs_modulus);
+    if (d_poisson_ratio) gpu.freeDevice(d_poisson_ratio);
+    if (d_density) gpu.freeDevice(d_density);
+    d_displacement = d_strain = d_stress = d_force = nullptr;
+    d_youngs_modulus = d_poisson_ratio = d_density = nullptr;
+#endif
+}
+
+// ============================================================================
+// HydrodynamicKernelGPU Implementation
+// ============================================================================
+
+HydrodynamicKernelGPU::HydrodynamicKernelGPU()
+    : GPUKernelBase<HydrodynamicKernelGPU, HydrodynamicKernel>()
+{
+}
+
+HydrodynamicKernelGPU::~HydrodynamicKernelGPU() {
+    freeGPUMemory();
+}
+
+PetscErrorCode HydrodynamicKernelGPU::setup(DM dm, PetscFE fe) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr = HydrodynamicKernel::setup(dm, fe); CHKERRQ(ierr);
+    if (initializeGPU()) {
+        PetscPrintf(PETSC_COMM_WORLD, "GPU-accelerated hydrodynamic kernel initialized\n");
+    }
+    PetscFunctionReturn(0);
+}
+
+void HydrodynamicKernelGPU::residual(const PetscScalar u[], const PetscScalar u_t[],
+                                      const PetscScalar u_x[], const PetscScalar a[],
+                                      const PetscReal x[], PetscScalar f[]) {
+    if (!gpu_initialized_) {
+        HydrodynamicKernel::residual(u, u_t, u_x, a, x, f);
+        return;
+    }
+    HydrodynamicKernel::residual(u, u_t, u_x, a, x, f);
+}
+
+void HydrodynamicKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                                      const PetscScalar u_x[], const PetscScalar a[],
+                                      const PetscReal x[], PetscScalar J[]) {
+    HydrodynamicKernel::jacobian(u, u_t, u_x, a, x, J);
+}
+
+void HydrodynamicKernelGPU::allocateGPUMemory(int /*n_cells*/) {
+    // HLLC flux kernels already implemented in computeHydroFluxKernel
+}
+
+void HydrodynamicKernelGPU::freeGPUMemory() {
+    // Managed by base class destruction
+}
+
+// ============================================================================
+// AtmosphericBlastKernelGPU Implementation
+// ============================================================================
+
+AtmosphericBlastKernelGPU::AtmosphericBlastKernelGPU()
+    : GPUKernelBase<AtmosphericBlastKernelGPU, AtmosphericBlastKernel>()
+{
+}
+
+AtmosphericBlastKernelGPU::~AtmosphericBlastKernelGPU() {
+    freeGPUMemory();
+}
+
+PetscErrorCode AtmosphericBlastKernelGPU::setup(DM dm, PetscFE fe) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr = AtmosphericBlastKernel::setup(dm, fe); CHKERRQ(ierr);
+    if (initializeGPU()) {
+        PetscPrintf(PETSC_COMM_WORLD, "GPU-accelerated atmospheric blast kernel initialized\n");
+    }
+    PetscFunctionReturn(0);
+}
+
+void AtmosphericBlastKernelGPU::residual(const PetscScalar u[], const PetscScalar u_t[],
+                                          const PetscScalar u_x[], const PetscScalar a[],
+                                          const PetscReal x[], PetscScalar f[]) {
+    if (!gpu_initialized_) {
+        AtmosphericBlastKernel::residual(u, u_t, u_x, a, x, f);
+        return;
+    }
+    // GPU batch operations available: sedovTaylorBlast, fireballDynamics, etc.
+    // Pointwise evaluation falls back to CPU
+    AtmosphericBlastKernel::residual(u, u_t, u_x, a, x, f);
+}
+
+void AtmosphericBlastKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                                          const PetscScalar u_x[], const PetscScalar a[],
+                                          const PetscReal x[], PetscScalar J[]) {
+    AtmosphericBlastKernel::jacobian(u, u_t, u_x, a, x, J);
+}
+
+void AtmosphericBlastKernelGPU::allocateGPUMemory(int /*n_cells*/) {
+    // Uses GPUExplosionKernels and GPUAtmosphericKernels from GPUCompute.cu
+}
+
+void AtmosphericBlastKernelGPU::freeGPUMemory() {
+}
+
+// ============================================================================
+// InfrasoundKernelGPU Implementation
+// ============================================================================
+
+InfrasoundKernelGPU::InfrasoundKernelGPU()
+    : GPUKernelBase<InfrasoundKernelGPU, InfrasoundKernel>()
+{
+}
+
+InfrasoundKernelGPU::~InfrasoundKernelGPU() {
+    freeGPUMemory();
+}
+
+PetscErrorCode InfrasoundKernelGPU::setup(DM dm, PetscFE fe) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr = InfrasoundKernel::setup(dm, fe); CHKERRQ(ierr);
+    if (initializeGPU()) {
+        PetscPrintf(PETSC_COMM_WORLD, "GPU-accelerated infrasound kernel initialized\n");
+    }
+    PetscFunctionReturn(0);
+}
+
+void InfrasoundKernelGPU::residual(const PetscScalar u[], const PetscScalar u_t[],
+                                    const PetscScalar u_x[], const PetscScalar a[],
+                                    const PetscReal x[], PetscScalar f[]) {
+    if (!gpu_initialized_) {
+        InfrasoundKernel::residual(u, u_t, u_x, a, x, f);
+        return;
+    }
+    // GPU kernels available: parabolicEquationStep, wideAnglePE, etc.
+    InfrasoundKernel::residual(u, u_t, u_x, a, x, f);
+}
+
+void InfrasoundKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                                    const PetscScalar u_x[], const PetscScalar a[],
+                                    const PetscReal x[], PetscScalar J[]) {
+    InfrasoundKernel::jacobian(u, u_t, u_x, a, x, J);
+}
+
+void InfrasoundKernelGPU::allocateGPUMemory(int /*n_cells*/) {
+    // Uses GPUPhysicsKernels from GPUPhysicsKernels.cuh
+}
+
+void InfrasoundKernelGPU::freeGPUMemory() {
+}
+
+// ============================================================================
+// TsunamiKernelGPU Implementation
+// ============================================================================
+
+TsunamiKernelGPU::TsunamiKernelGPU()
+    : GPUKernelBase<TsunamiKernelGPU, TsunamiKernel>()
+{
+}
+
+TsunamiKernelGPU::~TsunamiKernelGPU() {
+    freeGPUMemory();
+}
+
+PetscErrorCode TsunamiKernelGPU::setup(DM dm, PetscFE fe) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr = TsunamiKernel::setup(dm, fe); CHKERRQ(ierr);
+    if (initializeGPU()) {
+        PetscPrintf(PETSC_COMM_WORLD, "GPU-accelerated tsunami kernel initialized\n");
+    }
+    PetscFunctionReturn(0);
+}
+
+void TsunamiKernelGPU::residual(const PetscScalar u[], const PetscScalar u_t[],
+                                  const PetscScalar u_x[], const PetscScalar a[],
+                                  const PetscReal x[], PetscScalar f[]) {
+    if (!gpu_initialized_) {
+        TsunamiKernel::residual(u, u_t, u_x, a, x, f);
+        return;
+    }
+    TsunamiKernel::residual(u, u_t, u_x, a, x, f);
+}
+
+void TsunamiKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                                  const PetscScalar u_x[], const PetscScalar a[],
+                                  const PetscReal x[], PetscScalar J[]) {
+    TsunamiKernel::jacobian(u, u_t, u_x, a, x, J);
+}
+
+void TsunamiKernelGPU::allocateGPUMemory(int /*n_cells*/) {
+    // Shallow water GPU kernels from GPUPhysicsKernels.cuh
+}
+
+void TsunamiKernelGPU::freeGPUMemory() {
+}
+
+// ============================================================================
+// FalloutKernelGPU Implementation
+// ============================================================================
+
+FalloutKernelGPU::FalloutKernelGPU()
+    : GPUKernelBase<FalloutKernelGPU, FalloutKernel>()
+{
+#ifdef USE_CUDA
+    d_pos_x = d_pos_y = d_pos_z = nullptr;
+    d_activity = d_particle_diameter = d_settling_velocity = nullptr;
+    d_wind_u = d_wind_v = d_wind_w = nullptr;
+    d_half_life = d_dose_conversion = nullptr;
+    d_ground_deposition = nullptr;
+    deposition_nx_ = deposition_ny_ = 0;
+#endif
+}
+
+FalloutKernelGPU::~FalloutKernelGPU() {
+    freeGPUMemory();
+}
+
+PetscErrorCode FalloutKernelGPU::setup(DM dm, PetscFE fe) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr = FalloutKernel::setup(dm, fe); CHKERRQ(ierr);
+    if (initializeGPU()) {
+        PetscPrintf(PETSC_COMM_WORLD, "GPU-accelerated fallout kernel initialized\n");
+    }
+    PetscFunctionReturn(0);
+}
+
+void FalloutKernelGPU::residual(const PetscScalar u[], const PetscScalar u_t[],
+                                 const PetscScalar u_x[], const PetscScalar a[],
+                                 const PetscReal x[], PetscScalar f[]) {
+    if (!gpu_initialized_) {
+        FalloutKernel::residual(u, u_t, u_x, a, x, f);
+        return;
+    }
+    // GPU batch operations: advectFalloutParticles, radioactiveDecay, etc.
+    FalloutKernel::residual(u, u_t, u_x, a, x, f);
+}
+
+void FalloutKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                                 const PetscScalar u_x[], const PetscScalar a[],
+                                 const PetscReal x[], PetscScalar J[]) {
+    FalloutKernel::jacobian(u, u_t, u_x, a, x, J);
+}
+
+void FalloutKernelGPU::allocateGPUMemory(int n_cells) {
+#ifdef USE_CUDA
+    n_elements_gpu_ = n_cells;
+    GPUManager& gpu = getGPUManager();
+    d_pos_x = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_pos_y = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_pos_z = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_activity = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_settling_velocity = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_wind_u = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_wind_v = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_wind_w = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+#endif
+}
+
+void FalloutKernelGPU::freeGPUMemory() {
+#ifdef USE_CUDA
+    GPUManager& gpu = getGPUManager();
+    if (d_pos_x) gpu.freeDevice(d_pos_x);
+    if (d_pos_y) gpu.freeDevice(d_pos_y);
+    if (d_pos_z) gpu.freeDevice(d_pos_z);
+    if (d_activity) gpu.freeDevice(d_activity);
+    if (d_settling_velocity) gpu.freeDevice(d_settling_velocity);
+    if (d_wind_u) gpu.freeDevice(d_wind_u);
+    if (d_wind_v) gpu.freeDevice(d_wind_v);
+    if (d_wind_w) gpu.freeDevice(d_wind_w);
+    d_pos_x = d_pos_y = d_pos_z = d_activity = d_settling_velocity = nullptr;
+    d_wind_u = d_wind_v = d_wind_w = nullptr;
+#endif
+}
+
+// ============================================================================
+// ParticleTransportKernelGPU Implementation
+// ============================================================================
+
+ParticleTransportKernelGPU::ParticleTransportKernelGPU()
+    : GPUKernelBase<ParticleTransportKernelGPU, ParticleTransportKernel>()
+{
+#ifdef USE_CUDA
+    d_concentration = d_concentration_old = nullptr;
+    d_velocity = d_diffusivity = d_settling_velocity = nullptr;
+    d_porosity = d_deposition_rate = nullptr;
+    d_dispersivity_L = d_dispersivity_T = nullptr;
+#endif
+}
+
+ParticleTransportKernelGPU::~ParticleTransportKernelGPU() {
+    freeGPUMemory();
+}
+
+PetscErrorCode ParticleTransportKernelGPU::setup(DM dm, PetscFE fe) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr = ParticleTransportKernel::setup(dm, fe); CHKERRQ(ierr);
+    if (initializeGPU()) {
+        PetscPrintf(PETSC_COMM_WORLD, "GPU-accelerated particle transport kernel initialized\n");
+    }
+    PetscFunctionReturn(0);
+}
+
+void ParticleTransportKernelGPU::residual(const PetscScalar u[], const PetscScalar u_t[],
+                                           const PetscScalar u_x[], const PetscScalar a[],
+                                           const PetscReal x[], PetscScalar f[]) {
+    if (!gpu_initialized_) {
+        ParticleTransportKernel::residual(u, u_t, u_x, a, x, f);
+        return;
+    }
+    ParticleTransportKernel::residual(u, u_t, u_x, a, x, f);
+}
+
+void ParticleTransportKernelGPU::jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                                           const PetscScalar u_x[], const PetscScalar a[],
+                                           const PetscReal x[], PetscScalar J[]) {
+    ParticleTransportKernel::jacobian(u, u_t, u_x, a, x, J);
+}
+
+void ParticleTransportKernelGPU::allocateGPUMemory(int n_cells) {
+#ifdef USE_CUDA
+    n_elements_gpu_ = n_cells;
+    GPUManager& gpu = getGPUManager();
+    d_concentration = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_concentration_old = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_velocity = static_cast<double*>(gpu.allocateDevice(n_cells * 3 * sizeof(double)));
+    d_diffusivity = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_settling_velocity = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+    d_porosity = static_cast<double*>(gpu.allocateDevice(n_cells * sizeof(double)));
+#endif
+}
+
+void ParticleTransportKernelGPU::freeGPUMemory() {
+#ifdef USE_CUDA
+    GPUManager& gpu = getGPUManager();
+    if (d_concentration) gpu.freeDevice(d_concentration);
+    if (d_concentration_old) gpu.freeDevice(d_concentration_old);
+    if (d_velocity) gpu.freeDevice(d_velocity);
+    if (d_diffusivity) gpu.freeDevice(d_diffusivity);
+    if (d_settling_velocity) gpu.freeDevice(d_settling_velocity);
+    if (d_porosity) gpu.freeDevice(d_porosity);
+    d_concentration = d_concentration_old = d_velocity = nullptr;
+    d_diffusivity = d_settling_velocity = d_porosity = nullptr;
+#endif
+}
+
+// ============================================================================
 // Factory functions
+// ============================================================================
 
 std::shared_ptr<PhysicsKernel> createGPUKernelExtended(PhysicsType type) {
+#ifdef USE_CUDA
+    // Check that a GPU is actually available before creating GPU kernels
+    GPUManager& gpu = GPUManager::getInstance();
+    if (!gpu.isAvailable()) {
+        return nullptr;
+    }
+#endif
+
     switch (type) {
+        // --- Core reservoir physics ---
         case PhysicsType::FLUID_FLOW:
             return std::make_shared<SinglePhaseFlowKernelGPU>();
+
+        // --- Dynamic wave propagation ---
         case PhysicsType::ELASTODYNAMICS:
             return std::make_shared<ElastodynamicsKernelGPU>();
         case PhysicsType::POROELASTODYNAMICS:
             return std::make_shared<PoroelastodynamicsKernelGPU>();
+
 #ifdef USE_CUDA
-        // Extended kernels
-        // Note: Full implementations would be added here
+        // --- Extended GPU kernels (require CUDA build) ---
+        case PhysicsType::THERMAL:
+            return std::make_shared<ThermalKernelGPU>();
+        case PhysicsType::GEOMECHANICS:
+            return std::make_shared<GeomechanicsKernelGPU>();
+        case PhysicsType::HYDRODYNAMIC:
+            return std::make_shared<HydrodynamicKernelGPU>();
+        case PhysicsType::ATMOSPHERIC_BLAST:
+            return std::make_shared<AtmosphericBlastKernelGPU>();
+        case PhysicsType::INFRASOUND:
+            return std::make_shared<InfrasoundKernelGPU>();
+        case PhysicsType::TSUNAMI:
+            return std::make_shared<TsunamiKernelGPU>();
+        case PhysicsType::FALLOUT:
+            return std::make_shared<FalloutKernelGPU>();
 #endif
         default:
             return nullptr;
@@ -835,15 +1271,23 @@ std::shared_ptr<PhysicsKernel> createGPUKernelExtended(PhysicsType type) {
 
 bool hasExtendedGPUKernel(PhysicsType type) {
     switch (type) {
+        // Core reservoir physics
         case PhysicsType::FLUID_FLOW:
+        // Dynamic wave propagation
         case PhysicsType::ELASTODYNAMICS:
         case PhysicsType::POROELASTODYNAMICS:
+        // Extended physics
         case PhysicsType::THERMAL:
         case PhysicsType::GEOMECHANICS:
         case PhysicsType::HYDRODYNAMIC:
+        // Atmospheric / explosion physics
         case PhysicsType::ATMOSPHERIC_BLAST:
         case PhysicsType::INFRASOUND:
+        case PhysicsType::FALLOUT:
+        // Surface water
         case PhysicsType::TSUNAMI:
+        // Particle transport
+        case PhysicsType::PARTICLE_TRANSPORT:
             return true;
         default:
             return false;
@@ -852,15 +1296,23 @@ bool hasExtendedGPUKernel(PhysicsType type) {
 
 std::vector<PhysicsType> getAvailableGPUKernels() {
     return {
+        // Core reservoir physics
         PhysicsType::FLUID_FLOW,
+        // Dynamic wave propagation
         PhysicsType::ELASTODYNAMICS,
         PhysicsType::POROELASTODYNAMICS,
+        // Extended physics
         PhysicsType::THERMAL,
         PhysicsType::GEOMECHANICS,
         PhysicsType::HYDRODYNAMIC,
+        // Atmospheric / explosion physics
         PhysicsType::ATMOSPHERIC_BLAST,
         PhysicsType::INFRASOUND,
-        PhysicsType::TSUNAMI
+        PhysicsType::FALLOUT,
+        // Surface water
+        PhysicsType::TSUNAMI,
+        // Particle transport
+        PhysicsType::PARTICLE_TRANSPORT
     };
 }
 

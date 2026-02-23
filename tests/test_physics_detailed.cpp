@@ -43,9 +43,11 @@ private:
         double ct = 1e-9;         // total compressibility (1/Pa)
         double mu = 1e-3;         // viscosity (1 cP)
         double rho = 1000.0;      // density (kg/m^3)
+        (void)rho;
         
         // For steady state with no gradient, residual should be ~0
         double pressure = 10e6;   // 10 MPa
+        (void)pressure;
         double dP_dt = 0.0;
         double grad_P = 0.0;
         

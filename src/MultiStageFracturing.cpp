@@ -673,6 +673,7 @@ PerforationErosion::PerforationErosion()
 
 double PerforationErosion::calculateErosionRate(double velocity, double proppant_conc,
                                                   double proppant_hardness, double time) const {
+    (void)time;
     // API RP 19B erosion model
     // Erosion rate = C * V^n * conc * hardness^m
     double rate = erosion_coeff_ * std::pow(velocity, velocity_exp_) * 
@@ -702,6 +703,7 @@ std::pair<double, double> IsolationSimulator::simulateBallDrop(
     const std::vector<double>& well_md,
     const std::vector<double>& well_inc)
 {
+    (void)seat_diameter;
     if (well_md.empty() || well_inc.empty()) {
         return {0.0, 0.0};
     }
@@ -746,6 +748,7 @@ std::pair<double, double> IsolationSimulator::simulateBallDrop(
 
 double IsolationSimulator::calculateBallVelocity(double diameter, double fluid_density,
                                                    double fluid_viscosity, double inclination) const {
+    (void)fluid_viscosity;
     // Terminal velocity considering buoyancy and drag
     double g = 9.81;
     double delta_rho = ball_density_ - fluid_density;

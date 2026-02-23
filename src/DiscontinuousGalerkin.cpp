@@ -312,6 +312,7 @@ QuadratureRule QuadratureRule::grundmannMoellerTet(int order) {
                 double x2 = (2.0 * j + 1.0) / (2.0 * d);
                 double x3 = (2.0 * k + 1.0) / (2.0 * d);
                 double x4 = (2.0 * l + 1.0) / (2.0 * d);
+                (void)x4;
                 
                 // Convert barycentric to Cartesian
                 rule.points.push_back({x1, x2, x3});
@@ -1046,6 +1047,9 @@ PetscErrorCode DiscontinuousGalerkin::assembleSurfaceIntegrals(Vec U, Vec R) {
 }
 
 PetscErrorCode DiscontinuousGalerkin::assembleBoundaryConditions(Vec U, Vec R, double t) {
+    (void)t;
+    (void)U;
+    (void)R;
     PetscFunctionBeginUser;
     
     // Apply boundary conditions on external faces
@@ -1073,6 +1077,9 @@ PetscErrorCode DiscontinuousGalerkin::spatialOperator(Vec U, Vec R, double t) {
 }
 
 PetscErrorCode DiscontinuousGalerkin::assembleJacobian(Vec U, Mat J, double shift) {
+    (void)U;
+    (void)J;
+    (void)shift;
     PetscFunctionBeginUser;
     
     // Assemble Jacobian matrix for implicit time stepping
@@ -1245,6 +1252,7 @@ PetscErrorCode DiscontinuousGalerkin::applyLimiter(Vec U) {
 }
 
 PetscErrorCode DiscontinuousGalerkin::applyTVBLimiter(Vec U, double M) {
+    (void)M;
     PetscFunctionBeginUser;
     
     // TVB (Total Variation Bounded) limiter
@@ -1253,9 +1261,11 @@ PetscErrorCode DiscontinuousGalerkin::applyTVBLimiter(Vec U, double M) {
     PetscScalar *u;
     VecGetArray(U, &u);
     
+    
     for (int elem = 0; elem < num_elements; ++elem) {
         // Get cell average and slopes
         double u_avg = u[elem * num_dofs_per_elem];
+        (void)u_avg;
         
         // For higher-order, limit higher modes
         // This is a simplified version - full implementation needs
@@ -1357,6 +1367,7 @@ int DiscontinuousGalerkin::getTotalDofs() const {
 }
 
 const BasisFunctions* DiscontinuousGalerkin::getBasis(int element_id) const {
+    (void)element_id;
     if (!basis_functions.empty()) {
         return basis_functions[0].get();
     }
@@ -1364,6 +1375,7 @@ const BasisFunctions* DiscontinuousGalerkin::getBasis(int element_id) const {
 }
 
 double DiscontinuousGalerkin::detectTroubledCell(const double* u_elem, int elem_id) {
+    (void)elem_id;
     // Troubled cell indicator based on solution smoothness
     
     // Simple indicator: check if higher modes are significant
@@ -1381,6 +1393,7 @@ double DiscontinuousGalerkin::detectTroubledCell(const double* u_elem, int elem_
 
 void DiscontinuousGalerkin::applyLimiterToElement(double* u_elem, int elem_id, 
                                                    double indicator) {
+    (void)elem_id;
     // Scale down higher modes
     double scale = std::exp(-indicator);
     
@@ -1432,6 +1445,7 @@ PetscErrorCode ADERTimeIntegrator::step(Vec U, double dt, double t) {
 }
 
 double ADERTimeIntegrator::computeTimeStep(Vec U, double cfl_number) {
+    (void)U;
     // Compute stable time step based on CFL condition
     // dt = CFL * h / (c * (2p + 1))
     // where p is polynomial order and c is wave speed
@@ -1693,6 +1707,7 @@ int LocalTimeStepping::getElementCluster(int elem_id) const {
 
 PetscErrorCode LocalTimeStepping::computeElementTimeSteps(Vec U, 
                                                           std::vector<double>& dt_elements) {
+    (void)U;
     PetscFunctionBeginUser;
     
     int num_elements = dt_elements.size();
@@ -1780,6 +1795,7 @@ PetscErrorCode LocalTimeStepping::enforceMaxDifferenceProperty() {
 }
 
 double LocalTimeStepping::optimizeWiggleFactor(const std::vector<double>& dt_elements) {
+    (void)dt_elements;
     // Find optimal wiggle factor that minimizes computational cost
     return wiggle_factor_min;
 }
@@ -1820,6 +1836,8 @@ void LocalTimeStepping::mergeClusters(int cluster1, int cluster2) {
 
 PetscErrorCode LocalTimeStepping::updateCluster(int cluster_id, Vec U, 
                                                  double dt, double t) {
+    (void)U;
+    (void)t;
     PetscFunctionBeginUser;
     
     // Update elements in this cluster
@@ -1834,6 +1852,8 @@ PetscErrorCode LocalTimeStepping::updateCluster(int cluster_id, Vec U,
 }
 
 PetscErrorCode LocalTimeStepping::handleInterfacesBetweenClusters(Vec U, double t) {
+    (void)U;
+    (void)t;
     PetscFunctionBeginUser;
     
     // Handle flux exchanges at cluster boundaries

@@ -165,6 +165,8 @@ double computeTipVelocity_Viscosity(double net_pressure, double viscosity,
 
 // T-stress (secondary stress parameter) for constraint
 double computeTStress(double applied_stress, double crack_length, double a_over_W) {
+    (void)crack_length;
+    (void)a_over_W;
     // T-stress affects crack path stability
     // T = σ * f(a/W)
     // Simplified: T ≈ -σ for through crack

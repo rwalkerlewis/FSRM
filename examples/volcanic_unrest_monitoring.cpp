@@ -120,6 +120,7 @@ void printBanner(int rank) {
  * @brief Setup monitoring network
  */
 std::vector<GPSStation> setupGPSNetwork(double volcano_radius) {
+    (void)volcano_radius;
     std::vector<GPSStation> stations;
     
     // Summit station
@@ -215,6 +216,7 @@ void generateSeismicity(const MagmaChamberModel& chamber,
                         double chamber_overpressure,
                         std::vector<VolcanicSeismicEvent>& events,
                         std::mt19937& rng) {
+    (void)chamber;
     // Seismicity rate increases with overpressure
     double base_rate = 5.0;  // Events per day
     double rate_factor = 1.0 + chamber_overpressure / 5e6;  // Scale with MPa

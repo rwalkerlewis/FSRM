@@ -14,6 +14,8 @@ SinglePhaseFlowKernel::SinglePhaseFlowKernel()
       viscosity(0.001), density(1000.0) {}
 
 PetscErrorCode SinglePhaseFlowKernel::setup(DM dm, PetscFE fe) {
+    (void)dm;
+    (void)fe;
     PetscFunctionBeginUser;
     // Setup finite element spaces
     PetscFunctionReturn(0);
@@ -22,11 +24,11 @@ PetscErrorCode SinglePhaseFlowKernel::setup(DM dm, PetscFE fe) {
 void SinglePhaseFlowKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
                                      const PetscScalar u_x[], const PetscScalar a[],
                                      const PetscReal x[], PetscScalar f[]) {
-    // Suppress unused parameter warnings - these are part of the standard kernel interface
     (void)u;
     (void)u_x;
-    (void)a;
     (void)x;
+    (void)a;
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
     
     // Accumulation: phi * ct * dP/dt
     f[0] = porosity * compressibility * u_t[0];
@@ -59,6 +61,7 @@ void SinglePhaseFlowKernel::jacobian(const PetscScalar u[], const PetscScalar u_
     
     // Mobility for flux term
     double mobility = permeability / viscosity;
+    (void)mobility;
     
     // For a scalar field (pressure), J[0] is the combined Jacobian
     // In weak form: ∫ (g0 * φ_i * φ_j + g3 * ∇φ_i · ∇φ_j) dV
@@ -292,6 +295,7 @@ void BlackOilKernel::setRockProperties(double phi, double kx, double ky, double 
 
 // PVT functions (simplified correlations)
 double BlackOilKernel::oilDensity(double P, double Rs) const {
+    (void)Rs;
     // Simplified: slightly compressible liquid
     double P_ref = 1e5;  // 1 bar reference
     double rho_ref = fluid_props.oil_density_std;
@@ -644,9 +648,9 @@ void CompositionalKernel::flashCalculation(double P, double T,
                                           std::vector<double>& x,
                                           std::vector<double>& y,
                                           double& S_L, double& S_V) const {
-    // Suppress unused parameter warnings - would be used in full EOS calculation
     (void)P;
     (void)T;
+    // Suppress unused parameter warnings - would be used in full EOS calculation
     
     // Simplified flash calculation using Rachford-Rice
     // For detailed implementation, use proper EOS (Peng-Robinson, SRK, etc.)
@@ -857,11 +861,11 @@ PetscErrorCode ThermalKernel::setup(DM dm, PetscFE fe) {
 void ThermalKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
                             const PetscScalar u_x[], const PetscScalar a[],
                             const PetscReal x[], PetscScalar f[]) {
-    // Suppress unused parameter warnings - these are part of the standard kernel interface
     (void)u;
     (void)u_x;
     (void)a;
     (void)x;
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
     
     // u[0] = T (temperature)
     // u_x = [dT/dx, dT/dy, dT/dz]
@@ -969,10 +973,10 @@ PetscErrorCode ParticleTransportKernel::setup(DM dm, PetscFE fe) {
 void ParticleTransportKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
                                        const PetscScalar u_x[], const PetscScalar a[],
                                        const PetscReal x[], PetscScalar f[]) {
-    // Suppress unused parameter warnings - these are part of the standard kernel interface
     (void)u_x;
     (void)a;
     (void)x;
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
     
     // u[0] = C (concentration)
     
@@ -1130,11 +1134,11 @@ PetscErrorCode FracturePropagationKernel::setup(DM dm, PetscFE fe) {
 void FracturePropagationKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
                                          const PetscScalar u_x[], const PetscScalar a[],
                                          const PetscReal x[], PetscScalar f[]) {
-    // Suppress unused parameter warnings - these are part of the standard kernel interface
     (void)u_t;
     (void)u_x;
     (void)a;
     (void)x;
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
     
     // Cohesive zone model for fracture
     // u[0] = fracture opening displacement
@@ -1195,11 +1199,11 @@ PetscErrorCode TidalForcesKernel::setup(DM dm, PetscFE fe) {
 void TidalForcesKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
                                  const PetscScalar u_x[], const PetscScalar a[],
                                  const PetscReal x[], PetscScalar f[]) {
-    // Suppress unused parameter warnings - these are part of the standard kernel interface
     (void)u;
     (void)u_t;
     (void)u_x;
     (void)a;
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
     
     // Tidal forces add body force to stress equilibrium
     PetscScalar stress[6];
@@ -1212,12 +1216,12 @@ void TidalForcesKernel::residual(const PetscScalar u[], const PetscScalar u_t[],
 void TidalForcesKernel::jacobian(const PetscScalar u[], const PetscScalar u_t[],
                                  const PetscScalar u_x[], const PetscScalar a[],
                                  const PetscReal x[], PetscScalar J[]) {
-    // Suppress unused parameter warnings - these are part of the standard kernel interface
     (void)u;
     (void)u_t;
     (void)u_x;
     (void)a;
     (void)x;
+    // Suppress unused parameter warnings - these are part of the standard kernel interface
     
     // Tidal forcing doesn't depend on solution
     J[0] = 0.0;
@@ -1230,6 +1234,7 @@ void TidalForcesKernel::setLocationAndTime(double lat, double lon, double time) 
 }
 
 void TidalForcesKernel::computeTidalStress(const PetscReal x[], PetscScalar stress[]) {
+    (void)x;
     // Simplified tidal stress calculation
     // Full implementation would use lunar/solar ephemeris
     

@@ -165,6 +165,7 @@ double giordano2008_viscosity(double T_celsius, double SiO2, double TiO2,
 }
 
 double H2O_solubility(double P_MPa, double T_celsius, double SiO2_wt) {
+    (void)T_celsius;
     // Newman & Lowenstern (2002) - simplified power law
     // H2O solubility in wt%
     
@@ -190,6 +191,7 @@ double H2O_solubility(double P_MPa, double T_celsius, double SiO2_wt) {
 }
 
 double CO2_solubility(double P_MPa, double T_celsius, double SiO2_wt) {
+    (void)T_celsius;
     // CO2 solubility in wt% (much lower than H2O)
     
     if (P_MPa <= 0) return 0.0;
@@ -569,6 +571,7 @@ void MagmaChamberModel::update(double dt) {
 }
 
 double MagmaChamberModel::computePressureChange(double dV, double dm, double dT) {
+    (void)dm;
     // Pressure from compressibility
     double beta = getMagmaCompressibility();
     
@@ -587,6 +590,8 @@ double MagmaChamberModel::computePressureChange(double dV, double dm, double dT)
 }
 
 double MagmaChamberModel::computeVolatileExsolution(double dP, double dT) {
+    (void)dT;
+    (void)dP;
     // Check if volatiles can exsolve
     double P_sat = magma.getSaturationPressure();
     
@@ -602,6 +607,7 @@ double MagmaChamberModel::computeVolatileExsolution(double dP, double dT) {
 }
 
 double MagmaChamberModel::computeCrystallization(double dT, double dt) {
+    (void)dt;
     if (dT >= 0) return 0.0;  // Heating, no crystallization
     
     // Check if below liquidus
@@ -648,8 +654,10 @@ void MagmaChamberModel::mogiSource(double x, double y, double depth, double dV,
     double r = std::sqrt(x*x + y*y);
     double R = std::sqrt(r*r + depth*depth);
     
+    
     double nu = 0.25;  // Poisson's ratio
     double mu = VolcanoConstants::SHEAR_MODULUS_CRUST;  // Shear modulus (Pa)
+    (void)mu;
     
     // Use full elastic solution: C = (1-ν)/(πμ) * ΔP * V
     // For point source: C = (1-ν) * dV / π
@@ -862,6 +870,7 @@ bool ConduitFlowModel::solvesteadyState() {
 }
 
 void ConduitFlowModel::update(double dt) {
+    (void)dt;
     // Time-dependent update (simplified)
     solvesteadyState();
 }
@@ -1441,6 +1450,8 @@ bool PDCModel::isInundated(double x, double y) const {
 }
 
 std::vector<std::pair<double, PDCState>> PDCModel::getTimeSeriesAt(double x, double y) const {
+    (void)x;
+    (void)y;
     // This would require storing time history - returning empty for now
     return {};
 }
@@ -1568,6 +1579,7 @@ void LavaFlowModel::update(double dt) {
             // Surface slope (topography + lava surface)
             double h0 = state[idx].thickness;
             double total_z0 = z0 + h0;
+            (void)total_z0;
             
             double dz_dx = (z_xp - z_xm) / (2 * dx);
             double dz_dy = (z_yp - z_ym) / (2 * dy);
@@ -1808,6 +1820,7 @@ void LavaFlowModel::computeFluxes() {
 }
 
 void LavaFlowModel::advectTemperature(double dt) {
+    (void)dt;
     // Temperature advection with flow (used in update)
 }
 
@@ -1865,14 +1878,17 @@ void LaharModel::update(double dt) {
         }
     }
     
+    
     // Find source cell
     double x0 = nx / 2 * dx;  // Source position x
     double y0 = ny / 2 * dy;  // Source position y
     int i_src = nx / 2;
     int j_src = ny / 2;
     
+    
     if (source_rate > 0) {
         int idx = i_src + j_src * nx;
+        (void)idx;
         double A_cell = dx * dy;
         
         // Distribute source over Gaussian region for smoother input
@@ -2293,7 +2309,9 @@ void VolcanicDeformationModel::computeDisplacementField(
     uy.resize(n);
     uz.resize(n);
     
+#ifdef _OPENMP
     #pragma omp parallel for
+#endif
     for (size_t i = 0; i < n; ++i) {
         computeDisplacement(x_coords[i], y_coords[i], ux[i], uy[i], uz[i]);
     }
@@ -3063,6 +3081,9 @@ void TephraDispersalModel::initialize(const TephraSourceParameters& src) {
     
     // Default wind field (uniform)
     wind_field = [](double x, double y, double z, double& u, double& v, double& w) {
+        (void)x;
+        (void)y;
+        (void)z;
         u = 10.0;  // 10 m/s eastward
         v = 0.0;
         w = 0.0;
@@ -3074,6 +3095,7 @@ void TephraDispersalModel::initialize(const TephraSourceParameters& src) {
     };
     
     air_viscosity = [](double z) {
+        (void)z;
         return 1.8e-5;  // Approximately constant
     };
 }
@@ -3464,6 +3486,7 @@ void CoupledVolcanoSystem::setTopography(std::function<double(double, double)> e
 
 void CoupledVolcanoSystem::setAtmosphere(
     std::function<void(double, double&, double&, double&)> profile) {
+    (void)profile;
     // Store atmosphere profile for column and tephra models
 }
 

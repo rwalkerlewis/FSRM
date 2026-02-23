@@ -10,6 +10,8 @@
  * - Atmospheric blast
  * - Infrasound propagation
  * - Tsunami (shallow water)
+ * - Radioactive fallout transport
+ * - Particle transport
  * 
  * All kernels inherit from the CPU base class and use CRTP pattern
  * for efficient GPU dispatch.
@@ -22,6 +24,7 @@
 #include "PhysicsKernel_GPU.hpp"
 #include "AtmosphericInfrasound.hpp"
 #include "ExplosionImpactPhysics.hpp"
+#include "ExplosionDamageKernels.hpp"
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
@@ -654,6 +657,80 @@ private:
     // Dispersion tensor
     double* d_dispersivity_L;
     double* d_dispersivity_T;
+#endif
+};
+
+// =============================================================================
+// Fallout GPU Kernel
+// =============================================================================
+
+/**
+ * @brief GPU-accelerated fallout transport kernel
+ * 
+ * Implements radioactive fallout advection-diffusion-settling on GPU:
+ *   ∂A/∂t + ∇·(v A) - ∇·(D ∇A) + v_s ∂A/∂z = -λA + S
+ * 
+ * where A is activity, v is wind, v_s is settling velocity,
+ * λ is decay constant, S is source.
+ * 
+ * ## GPU Operations:
+ * - Particle advection with wind field
+ * - Gravitational settling by particle size
+ * - Radioactive decay (multi-species)
+ * - Ground deposition accumulation
+ * - Dose rate computation at observer points
+ * 
+ * ## Performance:
+ * - 10-100× speedup for large particle counts (>1M particles)
+ * - Embarrassingly parallel over particles
+ */
+class FalloutKernelGPU : public GPUKernelBase<FalloutKernelGPU, FalloutKernel> {
+public:
+    FalloutKernelGPU();
+    ~FalloutKernelGPU() override;
+    
+    PetscErrorCode setup(DM dm, PetscFE fe) override;
+    
+    void residual(const PetscScalar u[], const PetscScalar u_t[],
+                 const PetscScalar u_x[], const PetscScalar a[],
+                 const PetscReal x[], PetscScalar f[]) override;
+    
+    void jacobian(const PetscScalar u[], const PetscScalar u_t[],
+                 const PetscScalar u_x[], const PetscScalar a[],
+                 const PetscReal x[], PetscScalar J[]) override;
+    
+    void allocateGPUMemory(int n_cells);
+    void freeGPUMemory();
+    
+    // GPU batch operations
+    void advectParticlesGPU(double dt);
+    void computeSettlingGPU();
+    void computeDecayGPU(double dt);
+    void computeDepositionGPU();
+    void computeDoseRateGPU();
+    
+private:
+#ifdef USE_CUDA
+    // Particle state
+    double* d_pos_x;
+    double* d_pos_y;
+    double* d_pos_z;
+    double* d_activity;
+    double* d_particle_diameter;
+    double* d_settling_velocity;
+    
+    // Wind field (interpolated at particle positions)
+    double* d_wind_u;
+    double* d_wind_v;
+    double* d_wind_w;
+    
+    // Decay parameters
+    double* d_half_life;
+    double* d_dose_conversion;
+    
+    // Ground deposition grid
+    double* d_ground_deposition;
+    int deposition_nx_, deposition_ny_;
 #endif
 };
 

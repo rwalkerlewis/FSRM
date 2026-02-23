@@ -382,6 +382,7 @@ double PromptRadiationModel::neutronDose(double r) const {
     // Neutron dose with RBE
     double fluence = neutronFluence(r);
     double mean_energy_MeV = 2.0;
+    (void)mean_energy_MeV;
     
     // Kerma factor for tissue (approximate)
     double kerma_factor = 3.0e-11;  // Gy·cm²/neutron at 2 MeV
@@ -525,6 +526,7 @@ double FissionProductInventory::wayWignerActivity(double t) const {
     if (t < 0.1) t = 0.1;  // Avoid singularity
     
     double total_fissions = fission_yield_kt_ * FISSIONS_PER_KT;
+    (void)total_fissions;
     
     // At 1 second: A ≈ 3.7 × 10²² × kt fissions
     double A_1s = 3.7e22 * fission_yield_kt_;
