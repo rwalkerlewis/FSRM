@@ -1542,12 +1542,15 @@ double rossbyRadius(double N, double H, double f) {
 }
 
 double thermalExpansion(double T, double S, double p) {
+    (void)S;
+    (void)p;
     // Approximate thermal expansion coefficient
     return 2.0e-4 * (1.0 + 0.01 * (T - 10.0));
 }
 
 double halineContraction(double T, double S, double p) {
     (void)T;
+    (void)S;
     (void)p;
     // Approximate haline contraction coefficient
     return 7.5e-4;

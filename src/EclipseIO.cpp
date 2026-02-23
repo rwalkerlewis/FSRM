@@ -507,6 +507,7 @@ bool EclipseIO::writeRestartFile(const std::string& filename, int step) {
 }
 
 bool EclipseIO::writeSummaryFile(const std::string& filename) {
+    (void)filename;
     // Write summary file
     return true;
 }

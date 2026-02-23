@@ -124,6 +124,8 @@ void WellModel::computePhaseRates(const std::vector<double>& res_pressures,
 
 void WellModel::contributeToResidual(Vec F, Vec U, DM dm) const {
     (void)F;
+    (void)U;
+    (void)dm;
     // Add well contributions to residual
     // This would involve getting local values from U at well locations
     // and adding source/sink terms to F

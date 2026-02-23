@@ -166,6 +166,7 @@ void FullBiotDynamics::calculateResidual(const std::array<double, 3>& u,
                                          const std::array<double, 3>& grad_p,
                                          std::array<double, 3>& R_u,
                                          double& R_p) const {
+    (void)p;
     (void)u;
     (void)u_dot;
     (void)grad_u;
@@ -281,6 +282,7 @@ bool THMCoupling::sequentialStep(double dt,
                                  std::vector<double>& T,
                                  std::vector<double>& P,
                                  std::vector<std::array<double, 3>>& U) {
+    (void)dt;
     (void)T;
     (void)P;
     (void)U;

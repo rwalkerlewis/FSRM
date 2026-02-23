@@ -3083,6 +3083,7 @@ void TephraDispersalModel::initialize(const TephraSourceParameters& src) {
     wind_field = [](double x, double y, double z, double& u, double& v, double& w) {
         (void)x;
         (void)y;
+        (void)z;
         u = 10.0;  // 10 m/s eastward
         v = 0.0;
         w = 0.0;

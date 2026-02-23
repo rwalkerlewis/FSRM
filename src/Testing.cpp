@@ -93,6 +93,7 @@ double MMSTest::computeL2Error(Vec numerical, Vec exact, DM dm) {
 double MMSTest::computeH1Error(Vec numerical, Vec exact, DM dm) {
     (void)numerical;
     (void)exact;
+    (void)dm;
     // Would need to compute gradient and norm
     return 0.0;
 }
@@ -140,7 +141,7 @@ void MMSTest::plotConvergence(const ConvergenceResult& result,
     script.close();
     
     // Execute gnuplot
-    { int _sys_ret = (void)system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
 }
 
 // ============================================================================
@@ -257,7 +258,7 @@ void AnalyticalTest::plotComparison(const ComparisonResult& result,
     script << "     '" << output_file << ".dat' using 1:3 with points title 'Numerical'\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
 }
 
 // ============================================================================
@@ -712,7 +713,7 @@ void BenchmarkTest::plotScalability(const std::vector<BenchmarkResult>& results,
     script << "     '" << output_file << ".dat' using 1:3 with lines dashtype 2 title 'Ideal'\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
 }
 
 double BenchmarkTest::getMemoryUsage() {
