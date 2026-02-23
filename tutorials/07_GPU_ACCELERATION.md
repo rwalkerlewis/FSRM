@@ -213,18 +213,40 @@ out_of_core_buffer_size = 4294967296  # 4 GB
 
 ## GPU-Accelerated Physics
 
-### Supported Physics on GPU
+### GPU Kernel Types
 
-| Physics | GPU Support | Notes |
-|---------|-------------|-------|
-| Single-phase flow | ✅ Full | Best speedup |
-| Black oil | ✅ Full | |
-| Compositional | ⚠️ Partial | Flash calc on CPU |
-| Linear elasticity | ✅ Full | |
-| Poroelasticity | ✅ Full | |
-| Elastodynamics | ✅ Full | Excellent for waves |
-| Plasticity | ⚠️ Partial | Return mapping on CPU |
-| Fractures | ⚠️ Partial | DFN on GPU, propagation CPU |
+The following GPU kernels are available:
+
+- **SinglePhaseFlowKernelGPU** — Single-phase flow
+- **BlackOilKernelGPU** — Black oil
+- **ElastodynamicsKernelGPU** — Wave equation (elastic waves)
+- **PoroelastodynamicsKernelGPU** — Coupled fluid-solid waves (Biot)
+- **GeomechanicsKernelGPU** — Geomechanics
+- **ThermalKernelGPU** — Thermal
+- **HydrodynamicKernelGPU** — Shock/Euler equations
+- **AtmosphericBlastKernelGPU** — Atmospheric blast
+- **InfrasoundKernelGPU** — Infrasound
+- **TsunamiKernelGPU** — Tsunami
+- **FalloutKernelGPU** — Fallout
+- **ParticleTransportKernelGPU** — Particle transport
+
+### Discontinuous Galerkin (DG) GPU Solver
+
+Wave propagation (elastodynamics, poroelastodynamics) can use the ADER-DG GPU solver.
+All element-level operations run in parallel on the GPU: volume integral, numerical flux,
+ADER predictor, PML, and source injection. See [Tutorial 09: Wave Propagation](09_WAVE_PROPAGATION.md#gpu-accelerated-wave-propagation) for configuration details.
+
+### Example: GPU-Accelerated Nuclear Test Seismograms
+
+Generate synthetic seismograms from the 2017 DPRK nuclear test using GPU:
+
+```bash
+# GPU-only execution
+fsrm -c config/dprk_2017_punggye_ri_far_field_seismograms_gpu.config --use-gpu
+
+# Validate config and check GPU requirements
+python scripts/run_fsrm_dprk_2017_gpu.py
+```
 
 ### Enabling GPU for Specific Physics
 
