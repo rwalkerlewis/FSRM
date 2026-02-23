@@ -500,6 +500,8 @@ bool EclipseIO::parseSection(const std::string& section_name) {
 
 // Output functions
 bool EclipseIO::writeRestartFile(const std::string& filename, int step) {
+    (void)filename;
+    (void)step;
     // Write binary restart file in Eclipse format
     return true;
 }
@@ -510,6 +512,7 @@ bool EclipseIO::writeSummaryFile(const std::string& filename) {
 }
 
 bool EclipseIO::writeInitFile(const std::string& filename) {
+    (void)filename;
     // Write INIT file
     return true;
 }

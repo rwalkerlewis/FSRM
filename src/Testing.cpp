@@ -24,12 +24,14 @@ void MMSTest::setManufacturedSolutionVector(VectorFunction u_exact) {
 }
 
 void MMSTest::computeSourceTerm(PhysicsKernel* kernel) {
+    (void)kernel;
     // Compute source term by substituting manufactured solution into PDE
     // This requires symbolic differentiation or finite differences
 }
 
 MMSTest::ConvergenceResult MMSTest::runConvergenceTest(
     Simulator& sim, const std::vector<int>& mesh_sizes) {
+    (void)sim;
     
     ConvergenceResult result;
     result.expected_rate = 2.0;  // Expected for linear elements
@@ -41,10 +43,14 @@ MMSTest::ConvergenceResult MMSTest::runConvergenceTest(
         // Run simulation with mesh size n
         // ... (would need to reconfigure simulator)
         
+        
         // Compute errors
         Vec numerical;  // Would get from simulator
+        (void)numerical;
         Vec exact;      // Would compute from manufactured solution
+        (void)exact;
         DM dm;          // Would get from simulator
+        (void)dm;
         
         // Placeholder values
         double l2_error = 1.0 / std::pow(n, 2.0);
@@ -72,6 +78,7 @@ MMSTest::ConvergenceResult MMSTest::runConvergenceTest(
 }
 
 double MMSTest::computeL2Error(Vec numerical, Vec exact, DM dm) {
+    (void)dm;
     Vec diff;
     VecDuplicate(numerical, &diff);
     VecWAXPY(diff, -1.0, exact, numerical);
@@ -84,11 +91,14 @@ double MMSTest::computeL2Error(Vec numerical, Vec exact, DM dm) {
 }
 
 double MMSTest::computeH1Error(Vec numerical, Vec exact, DM dm) {
+    (void)numerical;
+    (void)exact;
     // Would need to compute gradient and norm
     return 0.0;
 }
 
 double MMSTest::computeLinfError(Vec numerical, Vec exact, DM dm) {
+    (void)dm;
     Vec diff;
     VecDuplicate(numerical, &diff);
     VecWAXPY(diff, -1.0, exact, numerical);
@@ -130,7 +140,7 @@ void MMSTest::plotConvergence(const ConvergenceResult& result,
     script.close();
     
     // Execute gnuplot
-    system(("gnuplot " + output_file + ".gp").c_str());
+    { int _sys_ret = (void)system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
 }
 
 // ============================================================================
@@ -208,6 +218,9 @@ double AnalyticalTest::evaluateAnalytical(double x, double y, double z, double t
 }
 
 AnalyticalTest::ComparisonResult AnalyticalTest::compare(Vec numerical, DM dm, double time) {
+    (void)numerical;
+    (void)dm;
+    (void)time;
     ComparisonResult result;
     result.tolerance = 0.01;  // 1% error
     
@@ -244,7 +257,7 @@ void AnalyticalTest::plotComparison(const ComparisonResult& result,
     script << "     '" << output_file << ".dat' using 1:3 with points title 'Numerical'\n";
     script.close();
     
-    system(("gnuplot " + output_file + ".gp").c_str());
+    { int _sys_ret = (void)system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
 }
 
 // ============================================================================
@@ -699,7 +712,7 @@ void BenchmarkTest::plotScalability(const std::vector<BenchmarkResult>& results,
     script << "     '" << output_file << ".dat' using 1:3 with lines dashtype 2 title 'Ideal'\n";
     script.close();
     
-    system(("gnuplot " + output_file + ".gp").c_str());
+    { int _sys_ret = (void)system(("gnuplot " + output_file + ".gp").c_str()); (void)_sys_ret; }
 }
 
 double BenchmarkTest::getMemoryUsage() {
