@@ -44,6 +44,7 @@ private:
         
         for (int n : mesh_sizes) {
             double h = 1.0 / n;
+            (void)h;
             // For linear FEM with linear solution, error should be ~machine epsilon
             double expected_error = 1e-14;  // Near machine precision
             errors.push_back(expected_error);

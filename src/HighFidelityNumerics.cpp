@@ -199,6 +199,7 @@ void SUPGStabilization::addGLSStabilization(PetscReal L_adjoint_v,
 PetscReal SUPGStabilization::shockCapturingDiffusivity(const PetscReal grad_u[3],
                                                         PetscReal u, PetscReal h,
                                                         PetscReal residual) const {
+    (void)u;
     if (!params_.shock_capturing) return 0.0;
     
     PetscReal grad_mag = norm3(grad_u);
@@ -466,6 +467,7 @@ PetscErrorCode PETScTimeIntegration::solve(Vec u, PetscReal t0, PetscReal tf) {
 }
 
 PetscErrorCode PETScTimeIntegration::step(Vec u) {
+    (void)u;
     PetscFunctionBeginUser;
     PetscCall(TSStep(ts_));
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -718,6 +720,7 @@ void PETScPhysicsPreconditioner::configure(const std::map<std::string, std::stri
 }
 
 PetscErrorCode PETScPhysicsPreconditioner::setup(KSP ksp, Mat A) {
+    (void)A;
     PetscFunctionBeginUser;
     
     PC pc;

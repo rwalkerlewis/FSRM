@@ -1332,6 +1332,7 @@ void ROMSolver::tensorToVec(const Tensor& t, Vec v) const {
 void ROMSolver::build(const std::vector<Vec>& snapshots,
                       const std::vector<double>& times,
                       const std::vector<double>& parameters) {
+    (void)parameters;
     std::vector<Tensor> tensor_snapshots;
     for (const auto& v : snapshots) {
         tensor_snapshots.push_back(vecToTensor(v));

@@ -437,6 +437,7 @@ double VFPTableGenerator::calculateHydrostaticGradient(double density, double in
 
 double VFPTableGenerator::calculateTotalPressureDrop(double thp, double rate, double wct,
                                                       double gor, double alq) const {
+    (void)thp;
     // Simplified calculation - in practice would use correlations like Beggs & Brill
     
     // Calculate mixture properties

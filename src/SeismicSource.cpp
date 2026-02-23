@@ -118,8 +118,11 @@ void MomentTensor::decompose(double& M0_iso, double& M0_clvd, double& M0_dc,
     
     // Deviatoric part
     double dev_xx = Mxx - trace;
+    (void)dev_xx;
     double dev_yy = Myy - trace;
+    (void)dev_yy;
     double dev_zz = Mzz - trace;
+    (void)dev_zz;
     
     // Eigenvalue decomposition of deviatoric part
     // For simplicity, assume small CLVD (pure DC)
@@ -319,6 +322,7 @@ double SourceTimeFunctionEvaluator::smoothedRampRate(double t) const {
     
     double x = t / T;
     double f = x * x * (3.0 - 2.0 * x);  // Moment (integral)
+    (void)f;
     
     // Derivative: moment rate
     return (6.0 * x * (1.0 - x)) / T;

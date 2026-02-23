@@ -1931,6 +1931,7 @@ PetscErrorCode Simulator::writeOutput(int step) {
 }
 
 PetscErrorCode Simulator::writeCheckpoint(int step) {
+    (void)step;
     PetscFunctionBeginUser;
     // Implementation for checkpoint writing
     PetscFunctionReturn(0);
@@ -2053,6 +2054,8 @@ PetscErrorCode Simulator::updateFractureNetwork() {
 }
 
 PetscErrorCode Simulator::enableCoupling(PhysicsType type1, PhysicsType type2) {
+    (void)type1;
+    (void)type2;
     PetscFunctionBeginUser;
     // Enable coupling between physics
     PetscFunctionReturn(0);

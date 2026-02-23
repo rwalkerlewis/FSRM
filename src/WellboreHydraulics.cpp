@@ -328,8 +328,8 @@ double WellboreTemperature::rameyTimeFunction(double time, double radius) const 
 double WellboreTemperature::calculateHeatLoss(const WellboreSegment& segment,
                                               double fluid_temp,
                                               double flow_rate) const {
-    // Very simple UA model (W): UA ~ 2π k_eff L / ln(r_out/r_in)
     (void)flow_rate;
+    // Very simple UA model (W): UA ~ 2π k_eff L / ln(r_out/r_in)
     const double L = std::max(0.0, segment.end_md - segment.start_md);
     const double r_in = std::max(1e-6, segment.inner_diameter * 0.5);
     const double r_out = std::max(r_in * 1.1, segment.outer_diameter * 0.5);

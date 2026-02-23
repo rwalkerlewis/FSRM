@@ -220,7 +220,9 @@ WaveSpectrum2D WaveSpectrum2D::generatePM(double U10, double theta_mean,
                                           double spread_deg, int nf, int nd) {
     // Pierson-Moskowitz spectrum
     double alpha_pm = 0.0081;
+    (void)alpha_pm;
     double beta_pm = 0.74;
+    (void)beta_pm;
     double fp = 0.877 * G / (2.0 * M_PI * U10);
     double Hs = 0.22 * U10 * U10 / G;
     double Tp = 1.0 / fp;
@@ -462,6 +464,7 @@ void WaveModel::computeRefraction() {
 void WaveModel::computeWindInput(std::vector<double>& S_in) {
     // Janssen (1991) wind input source term
     const double kappa = 0.41;  // von Karman constant
+    (void)kappa;
     const double beta_max = 1.2;
     
     for (int j = 0; j < ny; ++j) {
@@ -571,6 +574,7 @@ void WaveModel::computeDepthBreaking(std::vector<double>& S_brk) {
             if (Hs > 0.5 * Hmax) {
                 // Solve Qb from: 1 - Qb = (Hs/Hmax)² ln(Qb)
                 double ratio = Hs / Hmax;
+                (void)ratio;
                 Qb = std::exp(-std::pow(Hmax / Hs, 2));
             }
             
@@ -746,7 +750,9 @@ void WaveModel::computeIntegratedParameters() {
                 double kh = k * h;
                 double n = 0.5 * (1.0 + 2.0 * kh / std::sinh(2.0 * kh));
                 double Cg = omega / k * n;
+                (void)Cg;
                 double c = omega / k;
+                (void)c;
                 
                 for (int d = 0; d < nd; ++d) {
                     double E = action[idx(i, j, f, d)] * omega;
@@ -914,6 +920,7 @@ void InternalWaveModel::setStratification(const std::vector<double>& temperature
     N2.resize(nz);
     double g = 9.81;
     double rho0 = 1025.0;
+    (void)rho0;
     double alpha = 2.0e-4;  // Thermal expansion
     double beta = 7.5e-4;   // Haline contraction
     
@@ -983,11 +990,17 @@ double InternalWaveModel::getModeSpeed(int mode) const {
 double InternalWaveModel::estimateTidalConversion(
     const std::vector<double>& bathymetry,
     double U_tide, double omega_tide) const {
+    (void)bathymetry;
+    (void)U_tide;
+    (void)omega_tide;
     // Simplified tidal conversion estimate
     // F ∝ ρ N U² |∇h|² / ω
     
+    
     double F_total = 0.0;
+    (void)F_total;
     double N_mean = std::sqrt(std::accumulate(N2.begin(), N2.end(), 0.0) / N2.size());
+    (void)N_mean;
     
     // Would need bathymetry gradient calculation...
     // Simplified return
@@ -1094,6 +1107,7 @@ void OceanAcousticsModel::computeRayTracing(int num_rays) {
         while (x < range_max && z > 0 && z < depth_max) {
             double c = getSoundSpeed(z);
             double c_grad = (getSoundSpeed(z + 1) - getSoundSpeed(z - 1)) / 2.0;
+            (void)c_grad;
             
             double cos_theta = c * xi;
             if (std::abs(cos_theta) > 1.0) break;  // Total reflection
@@ -1297,6 +1311,8 @@ void SedimentTransportModel::updateBed(double dt) {
 double SedimentTransportModel::computeLongshoreTransport(double Hs, double Tp,
                                                          double wave_angle,
                                                          double depth) const {
+    (void)Hs;
+    (void)Tp;
     // CERC formula
     double K = 0.39;  // Empirical coefficient
     double rho = RHO_WATER;
@@ -1325,6 +1341,7 @@ void AirSeaInteraction::computeWindStressCOARE(
     const std::vector<double>& humidity,
     std::vector<double>& tau_x,
     std::vector<double>& tau_y) {
+    (void)humidity;
     
     size_t n = u10.size();
     tau_x.resize(n);
@@ -1443,6 +1460,13 @@ void OceanMixingModel::computeKPP(const std::vector<double>& T,
                                   std::vector<double>& Kv,
                                   std::vector<double>& Kt,
                                   std::vector<double>& Ks) {
+    (void)S;
+    (void)f;
+    (void)u;
+    (void)v;
+    (void)tau_x;
+    (void)tau_y;
+    (void)Q_net;
     size_t n = T.size();
     Kv.resize(n);
     Kt.resize(n);
@@ -1466,17 +1490,22 @@ double OceanMixingModel::computeBoundaryLayerDepth(
     const std::vector<double>& T,
     const std::vector<double>& S,
     double u_star, double B_f, double f) const {
+    (void)T;
+    (void)S;
     
     // Simplified boundary layer depth estimation
     // Full KPP uses Ri_bulk criterion
     
+    
     double w_s = std::sqrt(u_star * u_star + 0.1 * B_f);
+    (void)w_s;
     double h_bl = 0.7 * u_star / std::abs(f);
     
     return std::max(10.0, h_bl);
 }
 
 double OceanMixingModel::langmuirEnhancement(double u_star, double La_t) const {
+    (void)u_star;
     // Enhancement factor for Langmuir turbulence
     // Based on McWilliams et al. (1997)
     
@@ -1518,11 +1547,14 @@ double thermalExpansion(double T, double S, double p) {
 }
 
 double halineContraction(double T, double S, double p) {
+    (void)T;
+    (void)p;
     // Approximate haline contraction coefficient
     return 7.5e-4;
 }
 
 double potentialTemperature(double T, double S, double p, double p_ref) {
+    (void)S;
     // Adiabatic lapse rate ≈ 0.15°C per 1000 dbar
     double gamma = 0.15e-3;
     return T - gamma * (p - p_ref);
@@ -1562,10 +1594,12 @@ double ursellNumber(double H, double L, double h) {
 }
 
 double waveSetup(double Hs, double T, double beach_slope) {
+    (void)beach_slope;
     // Simplified wave setup estimate
     // Full calculation requires radiation stress gradient
     double L = wavelength(T, 10.0);  // Assume 10m depth
     double k = 2.0 * M_PI / L;
+    (void)k;
     
     // Approximate setup at shoreline
     return 0.15 * Hs;

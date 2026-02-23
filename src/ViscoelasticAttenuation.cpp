@@ -554,6 +554,9 @@ ViscoelasticAttenuation::Parameters SpatialAttenuation::getParametersAt(
     double x, double y, double z,
     double vp, double vs,
     double damage) const {
+    (void)x;
+    (void)y;
+    (void)vp;
     
     ViscoelasticAttenuation::Parameters params = base_params;
     
@@ -774,6 +777,7 @@ namespace AttenuationUtils {
 
 bool checkCausality(const ViscoelasticAttenuation& model,
                    double f_min, double f_max, double tolerance) {
+    (void)tolerance;
     // Check Kramers-Kronig relations (simplified check)
     // A causal system should have velocity dispersion that matches attenuation
     
@@ -782,7 +786,9 @@ bool checkCausality(const ViscoelasticAttenuation& model,
     for (size_t i = 1; i < curve.size() - 1; ++i) {
         // Higher Q should correlate with less velocity dispersion
         double dv = curve[i+1].velocity_s - curve[i-1].velocity_s;
+        (void)dv;
         double df = curve[i+1].frequency - curve[i-1].frequency;
+        (void)df;
         
         // Rough check: dispersion should be monotonic for reasonable Q
         // This is a simplified causality check
@@ -792,6 +798,7 @@ bool checkCausality(const ViscoelasticAttenuation& model,
 }
 
 double phaseVelocity(double group_velocity, double Q, double frequency) {
+    (void)frequency;
     // Phase velocity from dispersion relation
     // c_phase ≈ c_group * (1 + 1/(π*Q) * ln(f/f0))
     // Simplified version
@@ -853,6 +860,7 @@ std::pair<double, double> estimateQFromSpectralRatio(
     
     double slope = (n * sum_f_lnA - sum_f * sum_lnA) / denom;
     double intercept = (sum_lnA - slope * sum_f) / n;
+    (void)intercept;
     
     // Assuming c ≈ 3000 m/s (rough estimate)
     double c = 3000.0;

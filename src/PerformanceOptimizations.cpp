@@ -189,6 +189,8 @@ void rusanov_flux_batch(
     double* flux,           // [n_face x n_var]
     int n_face, int n_var)
 {
+    (void)normals;
+    (void)vs;
     // Process 4 faces at a time
     for (int f = 0; f < n_face; f += 4) {
         int n_batch = std::min(4, n_face - f);

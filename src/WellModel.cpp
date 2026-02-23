@@ -59,6 +59,7 @@ double WellModel::computePeacemanRadius(double dx, double dy,
 double WellModel::computeWellIndex(int completion_idx, 
                                    double kx, double ky, double kz,
                                    double dx, double dy, double dz) const {
+    (void)kz;
     if (completion_idx >= (int)completions.size()) return 0.0;
     
     const auto& comp = completions[completion_idx];
@@ -109,6 +110,7 @@ void WellModel::computePhaseRates(const std::vector<double>& res_pressures,
                                    const std::vector<double>& saturations,
                                    double bhp,
                                    std::vector<double>& phase_rates) const {
+    (void)saturations;
     // Base implementation - override in derived classes
     phase_rates.resize(1);
     phase_rates[0] = 0.0;
@@ -121,12 +123,16 @@ void WellModel::computePhaseRates(const std::vector<double>& res_pressures,
 }
 
 void WellModel::contributeToResidual(Vec F, Vec U, DM dm) const {
+    (void)F;
     // Add well contributions to residual
     // This would involve getting local values from U at well locations
     // and adding source/sink terms to F
 }
 
 void WellModel::contributeToJacobian(Mat J, Vec U, DM dm) const {
+    (void)J;
+    (void)U;
+    (void)dm;
     // Add well Jacobian contributions
 }
 
@@ -381,6 +387,7 @@ void HorizontalWell::enableInflowControlDevices(bool enable) {
 double HorizontalWell::computeWellIndex(int completion_idx,
                                         double kx, double ky, double kz,
                                         double dx, double dy, double dz) const {
+    (void)dx;
     // Horizontal well model (Joshi, Babu-Odeh, etc.)
     
     if (completion_idx >= (int)completions.size()) return 0.0;

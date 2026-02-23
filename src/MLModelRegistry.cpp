@@ -369,6 +369,7 @@ void MLModelRegistry::setModelStatus(const std::string& name, ModelStatus status
 
 std::string MLModelRegistry::selectBestModel(ModelCategory category,
                                              const std::map<std::string, double>& criteria) {
+    (void)criteria;
     std::vector<std::string> candidates = getModelsByCategory(category);
     
     if (candidates.empty()) {
@@ -412,6 +413,7 @@ std::string MLModelRegistry::recommendModel(const std::string& problem_type) {
 
 std::string MLModelRegistry::benchmarkAndSelect(ModelCategory category,
                                                 const Tensor& sample_input) {
+    (void)sample_input;
     std::vector<std::string> candidates = getModelsByCategory(category);
     
     double best_time = std::numeric_limits<double>::max();
@@ -687,6 +689,7 @@ Tensor MLSolverWrapper::solve(const Tensor& input) {
 
 Tensor MLSolverWrapper::solveWithConfidence(const Tensor& input, double threshold,
                                             bool& used_ml) {
+    (void)threshold;
     // Would check uncertainty estimate against threshold
     used_ml = isMLActive();
     return solve(input);

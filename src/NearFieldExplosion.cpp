@@ -176,8 +176,10 @@ double NearFieldExplosionSolver::distanceToSource(const std::array<double, 3>& p
 
 void NearFieldExplosionSolver::updateMaterialPoint(NearFieldMaterialState& state,
                                                    double dt, double time) {
+    (void)time;
     // Get distance from source
     std::array<double, 3> point = {0, 0, 0};  // Would be passed in real implementation
+    (void)point;
     double r = std::sqrt(state.strain[0] * state.strain[0] +
                         state.strain[1] * state.strain[1] +
                         state.strain[2] * state.strain[2]);
@@ -185,6 +187,7 @@ void NearFieldExplosionSolver::updateMaterialPoint(NearFieldMaterialState& state
     
     // Update pressure from EOS
     double mu = state.density / eos.rho0 - 1.0;
+    (void)mu;
     state.pressure = eos.pressure(state.density, state.internal_energy);
     
     // Update peak pressure

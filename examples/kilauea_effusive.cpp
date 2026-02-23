@@ -149,9 +149,12 @@ ConduitGeometry setupRiftConduit() {
 double hawaiianTopography(double x, double y) {
     // Gentle shield volcano slope (~5 degrees)
     double r = std::sqrt(x*x + y*y);
+    (void)r;
     double summit_height = 1200.0;   // Summit elevation
     double base_radius = 50000.0;    // 50 km radius
+    (void)base_radius;
     double slope = 0.05;             // ~3 degrees
+    (void)slope;
     
     // Rift zone runs in x direction, slope in y direction
     double rift_y = 0.0;             // Rift zone location
@@ -181,6 +184,7 @@ double hawaiianTopography(double x, double y) {
 void printFlowProgress(const CoupledVolcanoSystem& volcano, 
                        const LavaFlowModel& lava,
                        double time, int rank) {
+    (void)volcano;
     if (rank != 0) return;
     
     static double last_print = -86400.0;

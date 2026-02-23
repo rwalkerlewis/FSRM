@@ -452,6 +452,7 @@ public:
         double mean_length, double mean_width,
         double stress_gradient,  // Pa/m
         double pore_pressure_gradient) {
+        (void)pore_pressure_gradient;
         
         std::vector<EGSOpt::Fault> faults;
         
@@ -591,6 +592,7 @@ public:
         // Compute effective reservoir properties
         double avg_perm = computeAveragePermeability(realization);
         double avg_porosity = computeAverageProperty(realization.porosity_field);
+        (void)avg_porosity;
         double avg_thermal_cond = computeAverageProperty(realization.thermal_conductivity);
         
         // Fracture-enhanced permeability

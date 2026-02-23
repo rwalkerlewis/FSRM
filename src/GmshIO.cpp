@@ -1655,9 +1655,13 @@ double GmshIO::computeElementQuality(int element_idx) const {
     }
     else if (elem.type == GmshElementType::TETRAHEDRON || elem.type == GmshElementType::TET10) {
         auto p0 = getNodeCoords(elem.node_tags[0]);
+        (void)p0;
         auto p1 = getNodeCoords(elem.node_tags[1]);
+        (void)p1;
         auto p2 = getNodeCoords(elem.node_tags[2]);
+        (void)p2;
         auto p3 = getNodeCoords(elem.node_tags[3]);
+        (void)p3;
         
         // Sum of squared edge lengths
         double sum_e2 = 0;
@@ -1681,6 +1685,7 @@ double GmshIO::computeElementQuality(int element_idx) const {
 }
 
 bool GmshIO::validateQuality(double min_quality, double max_aspect_ratio) const {
+    (void)max_aspect_ratio;
     if (!mesh_) return false;
     
     bool all_pass = true;

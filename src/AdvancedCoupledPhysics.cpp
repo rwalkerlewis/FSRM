@@ -168,7 +168,6 @@ void FullBiotDynamics::calculateResidual(const std::array<double, 3>& u,
                                          double& R_p) const {
     (void)u;
     (void)u_dot;
-    (void)p;
     (void)grad_u;
     (void)grad_p;
     
@@ -282,7 +281,6 @@ bool THMCoupling::sequentialStep(double dt,
                                  std::vector<double>& T,
                                  std::vector<double>& P,
                                  std::vector<std::array<double, 3>>& U) {
-    (void)dt;
     (void)T;
     (void)P;
     (void)U;
@@ -474,9 +472,9 @@ void THMCCoupling::reactiveTransportStep(double dt,
 
 void THMCCoupling::solveSpeciation(std::vector<double>& concentrations,
                                    double T, double ionic_strength) const {
-    (void)concentrations;
     (void)T;
     (void)ionic_strength;
+    (void)concentrations;
 }
 
 double THMCCoupling::equilibriumConstant(const ChemicalReaction& rxn, double T) const {
