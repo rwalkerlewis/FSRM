@@ -52,8 +52,8 @@ namespace GPU {
 
 #ifdef USE_CUDA
 
-// Block size constants
-constexpr int BLOCK_SIZE = 256;
+// Block size constants (consistent naming: BLOCK_SIZE_{1D,2D})
+constexpr int BLOCK_SIZE_1D = 256;
 constexpr int BLOCK_SIZE_2D = 16;
 
 // -----------------------------------------------------------------------------
@@ -163,7 +163,7 @@ __global__ void kernelSoftmax(const float* in, float* out, int batch, int dim) {
 // -----------------------------------------------------------------------------
 
 __global__ void kernelReduceSum(const float* data, float* result, size_t n) {
-    __shared__ float sdata[BLOCK_SIZE];
+    __shared__ float sdata[BLOCK_SIZE_1D];
     
     size_t tid = threadIdx.x;
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -185,7 +185,7 @@ __global__ void kernelReduceSum(const float* data, float* result, size_t n) {
 }
 
 __global__ void kernelReduceMax(const float* data, float* result, size_t n) {
-    __shared__ float sdata[BLOCK_SIZE];
+    __shared__ float sdata[BLOCK_SIZE_1D];
     
     size_t tid = threadIdx.x;
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -213,7 +213,7 @@ __global__ void kernelReduceMax(const float* data, float* result, size_t n) {
 }
 
 __global__ void kernelReduceMin(const float* data, float* result, size_t n) {
-    __shared__ float sdata[BLOCK_SIZE];
+    __shared__ float sdata[BLOCK_SIZE_1D];
     
     size_t tid = threadIdx.x;
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -752,8 +752,8 @@ void GPUTensor::ones() { fill(1.0f); }
 void GPUTensor::fill(float value) {
 #ifdef USE_CUDA
     if (on_gpu_) {
-        int blocks = (numel_ + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        kernelFill<<<blocks, BLOCK_SIZE>>>(d_data_, value, numel_);
+        int blocks = (numel_ + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+        kernelFill<<<blocks, BLOCK_SIZE_1D>>>(d_data_, value, numel_);
         CUDA_CHECK(cudaGetLastError());
     } else {
         std::fill(h_data_, h_data_ + numel_, value);
@@ -767,8 +767,8 @@ GPUTensor GPUTensor::operator+(const GPUTensor& other) const {
     GPUTensor result(shape_);
 #ifdef USE_CUDA
     if (on_gpu_) {
-        int blocks = (numel_ + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        kernelAdd<<<blocks, BLOCK_SIZE>>>(d_data_, other.d_data_, result.d_data_, numel_);
+        int blocks = (numel_ + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+        kernelAdd<<<blocks, BLOCK_SIZE_1D>>>(d_data_, other.d_data_, result.d_data_, numel_);
         CUDA_CHECK(cudaGetLastError());
     } else {
         for (size_t i = 0; i < numel_; i++) {
@@ -787,8 +787,8 @@ GPUTensor GPUTensor::operator*(float scalar) const {
     GPUTensor result(shape_);
 #ifdef USE_CUDA
     if (on_gpu_) {
-        int blocks = (numel_ + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        kernelScale<<<blocks, BLOCK_SIZE>>>(d_data_, scalar, result.d_data_, numel_);
+        int blocks = (numel_ + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+        kernelScale<<<blocks, BLOCK_SIZE_1D>>>(d_data_, scalar, result.d_data_, numel_);
         CUDA_CHECK(cudaGetLastError());
     } else {
         for (size_t i = 0; i < numel_; i++) {
@@ -807,8 +807,8 @@ GPUTensor GPUTensor::relu() const {
     GPUTensor result(shape_);
 #ifdef USE_CUDA
     if (on_gpu_) {
-        int blocks = (numel_ + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        kernelRelu<<<blocks, BLOCK_SIZE>>>(d_data_, result.d_data_, numel_);
+        int blocks = (numel_ + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+        kernelRelu<<<blocks, BLOCK_SIZE_1D>>>(d_data_, result.d_data_, numel_);
         CUDA_CHECK(cudaGetLastError());
     } else {
         for (size_t i = 0; i < numel_; i++) {
@@ -827,8 +827,8 @@ GPUTensor GPUTensor::gelu() const {
     GPUTensor result(shape_);
 #ifdef USE_CUDA
     if (on_gpu_) {
-        int blocks = (numel_ + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        kernelGelu<<<blocks, BLOCK_SIZE>>>(d_data_, result.d_data_, numel_);
+        int blocks = (numel_ + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+        kernelGelu<<<blocks, BLOCK_SIZE_1D>>>(d_data_, result.d_data_, numel_);
         CUDA_CHECK(cudaGetLastError());
     } else {
         for (size_t i = 0; i < numel_; i++) {
@@ -854,8 +854,8 @@ float GPUTensor::sum() const {
         CUDA_CHECK(cudaMalloc(&d_result, sizeof(float)));
         CUDA_CHECK(cudaMemset(d_result, 0, sizeof(float)));
         
-        int blocks = (numel_ + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        kernelReduceSum<<<blocks, BLOCK_SIZE>>>(d_data_, d_result, numel_);
+        int blocks = (numel_ + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+        kernelReduceSum<<<blocks, BLOCK_SIZE_1D>>>(d_data_, d_result, numel_);
         CUDA_CHECK(cudaGetLastError());
         
         float result;
@@ -924,12 +924,12 @@ void GPUAtmosphericKernels::computeAtmosphericState(
     float* temperature, float* pressure, float* density,
     int model_type) {
 #ifdef USE_CUDA
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
     
     switch (model_type) {
         case 0:  // US Standard 1976
         default:
-            kernelUSStandardAtmosphere<<<blocks, BLOCK_SIZE>>>(
+            kernelUSStandardAtmosphere<<<blocks, BLOCK_SIZE_1D>>>(
                 altitudes, n, temperature, pressure, density);
             break;
     }
@@ -941,8 +941,8 @@ void GPUAtmosphericKernels::computeSoundSpeed(
     const float* temperature, const float* gamma, int n,
     float* sound_speed) {
 #ifdef USE_CUDA
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelComputeSoundSpeed<<<blocks, BLOCK_SIZE>>>(temperature, gamma, n, sound_speed);
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelComputeSoundSpeed<<<blocks, BLOCK_SIZE_1D>>>(temperature, gamma, n, sound_speed);
     CUDA_CHECK(cudaGetLastError());
 #endif
 }
@@ -968,8 +968,8 @@ void GPURadiationKernels::computeDecay(
     const float* activity, const float* half_life,
     float dt, int n_species, float* new_activity) {
 #ifdef USE_CUDA
-    int blocks = (n_species + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelRadioactiveDecay<<<blocks, BLOCK_SIZE>>>(activity, half_life, dt, n_species, new_activity);
+    int blocks = (n_species + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelRadioactiveDecay<<<blocks, BLOCK_SIZE_1D>>>(activity, half_life, dt, n_species, new_activity);
     CUDA_CHECK(cudaGetLastError());
 #endif
 }
@@ -979,8 +979,8 @@ void GPURadiationKernels::computeDoseRate(
     const float* distances, int n_sources, int n_points,
     float* dose_rate) {
 #ifdef USE_CUDA
-    int blocks = (n_points + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelComputeDoseRate<<<blocks, BLOCK_SIZE>>>(
+    int blocks = (n_points + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelComputeDoseRate<<<blocks, BLOCK_SIZE_1D>>>(
         activity, dose_conversion, nullptr, distances, n_sources, n_points, dose_rate);
     CUDA_CHECK(cudaGetLastError());
 #endif
@@ -994,8 +994,8 @@ void GPUExplosionKernels::sedovTaylorBlast(
     float energy, float rho0, float gamma, float time,
     const float* radii, int n, float* pressure, float* density, float* velocity) {
 #ifdef USE_CUDA
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelSedovTaylor<<<blocks, BLOCK_SIZE>>>(energy, rho0, gamma, time,
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelSedovTaylor<<<blocks, BLOCK_SIZE_1D>>>(energy, rho0, gamma, time,
                                                radii, n, pressure, density, velocity);
     CUDA_CHECK(cudaGetLastError());
 #endif
@@ -1086,9 +1086,9 @@ void GPUComputeContext::generateUniform(float* data, size_t n, float low, float 
     
     // Scale to [low, high]
     float scale = high - low;
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelScale<<<blocks, BLOCK_SIZE>>>(data, scale, data, n);
-    kernelAddScalar<<<blocks, BLOCK_SIZE>>>(data, low, data, n);
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelScale<<<blocks, BLOCK_SIZE_1D>>>(data, scale, data, n);
+    kernelAddScalar<<<blocks, BLOCK_SIZE_1D>>>(data, low, data, n);
 #endif
 }
 
@@ -1125,22 +1125,22 @@ namespace GPUUtils {
 
 void add(const float* a, const float* b, float* c, size_t n) {
 #ifdef USE_CUDA
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelAdd<<<blocks, BLOCK_SIZE>>>(a, b, c, n);
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelAdd<<<blocks, BLOCK_SIZE_1D>>>(a, b, c, n);
 #endif
 }
 
 void relu(const float* in, float* out, size_t n) {
 #ifdef USE_CUDA
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelRelu<<<blocks, BLOCK_SIZE>>>(in, out, n);
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelRelu<<<blocks, BLOCK_SIZE_1D>>>(in, out, n);
 #endif
 }
 
 void gelu(const float* in, float* out, size_t n) {
 #ifdef USE_CUDA
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelGelu<<<blocks, BLOCK_SIZE>>>(in, out, n);
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelGelu<<<blocks, BLOCK_SIZE_1D>>>(in, out, n);
 #endif
 }
 
@@ -1156,8 +1156,8 @@ float sum(const float* data, size_t n) {
     cudaMalloc(&d_result, sizeof(float));
     cudaMemset(d_result, 0, sizeof(float));
     
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelReduceSum<<<blocks, BLOCK_SIZE>>>(data, d_result, n);
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelReduceSum<<<blocks, BLOCK_SIZE_1D>>>(data, d_result, n);
     
     float result;
     cudaMemcpy(&result, d_result, sizeof(float), cudaMemcpyDeviceToHost);
@@ -1170,8 +1170,8 @@ float sum(const float* data, size_t n) {
 
 void complexMul(const void* a, const void* b, void* c, size_t n) {
 #ifdef USE_CUDA
-    int blocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    kernelComplexMul<<<blocks, BLOCK_SIZE>>>(
+    int blocks = (n + BLOCK_SIZE_1D - 1) / BLOCK_SIZE_1D;
+    kernelComplexMul<<<blocks, BLOCK_SIZE_1D>>>(
         static_cast<const float2*>(a),
         static_cast<const float2*>(b),
         static_cast<float2*>(c), n);

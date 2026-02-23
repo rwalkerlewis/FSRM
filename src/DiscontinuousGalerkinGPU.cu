@@ -24,14 +24,16 @@ namespace DG {
 // Error Checking
 // ============================================================================
 
-#define DG_CUDA_CHECK(call) \
+#ifndef CUDA_CHECK
+#define CUDA_CHECK(call) \
     do { \
         cudaError_t err = call; \
         if (err != cudaSuccess) { \
-            fprintf(stderr, "CUDA error in DG kernel at %s:%d: %s\n", \
+            fprintf(stderr, "CUDA error at %s:%d: %s\n", \
                     __FILE__, __LINE__, cudaGetErrorString(err)); \
         } \
     } while(0)
+#endif
 
 // ============================================================================
 // Device Helper Functions
