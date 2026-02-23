@@ -235,6 +235,7 @@ PetscErrorCode Visualization::writeSolution(Vec solution, DM dm, double time, in
 }
 
 PetscErrorCode Visualization::writeVTK(Vec solution, DM dm, const std::string& filename) {
+    (void)dm;
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
@@ -367,7 +368,7 @@ void Visualization::plotPressureHistory(const std::vector<double>& times,
     script << "plot '" << full_path << ".dat' using 1:2 with lines lw 2 notitle\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotProductionHistory(const std::vector<double>& times,
@@ -409,7 +410,7 @@ void Visualization::plotProductionHistory(const std::vector<double>& times,
     script << "\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotConvergenceHistory(const std::vector<int>& iterations,
@@ -434,7 +435,7 @@ void Visualization::plotConvergenceHistory(const std::vector<int>& iterations,
     script << "plot '" << full_path << ".dat' using 1:2 with linespoints lw 2 notitle\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotContour2D(const std::vector<double>& x,
@@ -471,7 +472,7 @@ void Visualization::plotContour2D(const std::vector<double>& x,
     script << "splot '" << full_path << ".dat' using 1:2:3 with pm3d notitle\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plot3DField(Vec solution, DM dm, const std::string& field_name,
@@ -532,7 +533,7 @@ void Visualization::plotScalability(const std::vector<int>& num_procs,
     script << "unset multiplot\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::plotConvergenceRate(const std::vector<double>& mesh_sizes,
@@ -561,7 +562,7 @@ void Visualization::plotConvergenceRate(const std::vector<double>& mesh_sizes,
            << expected_rate << ")'\n";
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + full_path + ".gp 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 void Visualization::generateAnimation(const std::vector<std::string>& vtk_files,
@@ -594,7 +595,7 @@ void Visualization::generateGnuplotScript(const std::string& script_content,
     script << script_content;
     script.close();
     
-    { int _sys_ret = (void)system(("gnuplot " + full_path + " 2>/dev/null").c_str()); (void)_sys_ret; }
+    { int _sys_ret = system(("gnuplot " + full_path + " 2>/dev/null").c_str()); (void)_sys_ret; }
 }
 
 // ============================================================================
