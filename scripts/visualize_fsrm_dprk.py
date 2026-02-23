@@ -39,6 +39,8 @@ ZONE_DAMAGED = 2800
 def load_dat(name, skip_header=True):
     """Load a whitespace-delimited data file, skipping comment lines."""
     path = os.path.join(DATADIR, name)
+    if not os.path.isfile(path):
+        return np.empty((0, 0))
     rows = []
     with open(path) as f:
         for line in f:
