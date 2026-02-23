@@ -73,10 +73,26 @@ RUN apt-get clean && \
     gnuplot \
     python3 \
     python3-pip \
+    gmt \
+    gmt-dcw \
+    gmt-gshhg \
+    ghostscript \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages for visualization
-RUN pip3 install numpy matplotlib h5py
+# Create libgmt.so symlink for PyGMT (Ubuntu packages only ship versioned .so)
+RUN if [ -f /usr/lib/x86_64-linux-gnu/libgmt.so.6 ] && [ ! -f /usr/lib/x86_64-linux-gnu/libgmt.so ]; then \
+        ln -sf /usr/lib/x86_64-linux-gnu/libgmt.so.6 /usr/lib/x86_64-linux-gnu/libgmt.so && ldconfig; \
+    fi
+
+# Install Python packages for visualization and analysis
+RUN pip3 install --break-system-packages \
+    numpy \
+    matplotlib \
+    h5py \
+    scipy \
+    pandas \
+    obspy \
+    pygmt
 
 # Copy PETSc libraries
 COPY --from=builder /opt/petsc-3.20.0/arch-linux-c-opt/lib /usr/local/lib/petsc

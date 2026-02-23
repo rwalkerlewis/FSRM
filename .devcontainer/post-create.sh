@@ -69,6 +69,12 @@ else
     echo "  Warning: PETSC_DIR not set or directory doesn't exist"
 fi
 
+# Ensure libgmt.so symlink exists for PyGMT
+if [ -f /usr/lib/x86_64-linux-gnu/libgmt.so.6 ] && [ ! -f /usr/lib/x86_64-linux-gnu/libgmt.so ]; then
+    sudo ln -sf /usr/lib/x86_64-linux-gnu/libgmt.so.6 /usr/lib/x86_64-linux-gnu/libgmt.so
+    sudo ldconfig
+fi
+
 # Show available tools
 echo ""
 echo "Development tools available:"
@@ -77,6 +83,14 @@ echo "  - GCC $(gcc --version | head -1 | cut -d' ' -f4)"
 echo "  - GDB $(gdb --version | head -1 | cut -d' ' -f4)"
 echo "  - Valgrind $(valgrind --version)"
 echo "  - clang-format $(clang-format --version | cut -d' ' -f3)"
+echo "  - GMT $(gmt --version 2>/dev/null || echo 'not found')"
+echo ""
+echo "Python analysis packages:"
+python3 -c "import matplotlib; print(f'  - matplotlib {matplotlib.__version__}')" 2>/dev/null || echo "  - matplotlib: not installed"
+python3 -c "import scipy; print(f'  - scipy {scipy.__version__}')" 2>/dev/null || echo "  - scipy: not installed"
+python3 -c "import pygmt; print(f'  - pygmt {pygmt.__version__}')" 2>/dev/null || echo "  - pygmt: not installed"
+python3 -c "import obspy; print(f'  - obspy {obspy.__version__}')" 2>/dev/null || echo "  - obspy: not installed"
+python3 -c "import pandas; print(f'  - pandas {pandas.__version__}')" 2>/dev/null || echo "  - pandas: not installed"
 
 echo ""
 echo "=========================================="
