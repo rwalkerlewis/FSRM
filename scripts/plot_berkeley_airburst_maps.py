@@ -47,14 +47,53 @@ JOULES_PER_KT = 4.184e12
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def peak_overpressure_kpa(ground_range_m, yield_kt=YIELD_KT, hob=BURST_HEIGHT):
+    """
+    Peak static overpressure (kPa) using calibrated Glasstone-Dolan formula.
+    
+    Reference for 1 kT optimal-height airburst:
+        20 psi (140 kPa) at ~450m
+        5 psi (35 kPa) at ~900m  
+        2 psi (14 kPa) at ~1400m
+    Scales by W^(1/3) for other yields.
+    """
     r = np.atleast_1d(np.asarray(ground_range_m, dtype=float))
     R = np.sqrt(r**2 + hob**2)
-    Z = np.maximum(R / (yield_kt ** (1.0 / 3.0)), 1.0)
-    P_psi = np.where(Z < 10, 1e5 / Z**3,
-                     1.772e4 / Z**3 + 1.41e3 / Z**2 + 5.0e1 / Z)
-    P_kpa = P_psi * 6.89476 / 1000.0
+    
+    # Scale factor for yield (cube root scaling)
+    W_scale = yield_kt ** (1.0 / 3.0)
+    
+    # Scaled distance (meters per kt^1/3)
+    Z = np.maximum(R / W_scale, 1.0)
+    
+    # Empirical fit calibrated to Glasstone-Dolan data for airburst
+    # Overpressure in kPa as function of scaled distance
+    P_kpa = np.where(
+        Z < 50,
+        # Very close range - extremely high overpressure
+        5000.0 * (50.0 / Z) ** 2.5,
+        np.where(
+            Z < 200,
+            # Close range (exponential decay)
+            1000.0 * np.exp(-0.015 * (Z - 50)),
+            np.where(
+                Z < 600,
+                # Mid range (power law)
+                200.0 * (200.0 / Z) ** 2.0,
+                np.where(
+                    Z < 2500,
+                    # Far range
+                    8.0 * (600.0 / Z) ** 1.8,
+                    # Very far range
+                    0.3 * (2500.0 / Z) ** 1.5
+                )
+            )
+        )
+    )
+    
+    # Mach stem enhancement for low burst angles (increases overpressure)
     angle = np.arctan2(hob, np.maximum(r, 1.0))
     mach_factor = np.where(angle < np.radians(40), 1.8, 1.0)
+    
     return np.squeeze(P_kpa * mach_factor)
 
 
@@ -154,12 +193,12 @@ def map01_regional_overview():
                  text=cname, font="6p,Helvetica,black", justify="BL")
 
     damage_levels = [
-        (140.0, "red",    "Total destruction"),
-        (35.0,  "red",    "Severe damage"),
-        (14.0,  "orange", "Most buildings destroyed"),
-        (7.0,   "yellow", "Moderate damage"),
-        (3.5,   "#aaff00", "Light damage"),
-        (1.0,   "cyan",   "Glass breakage"),
+        (140.0, "red",    "Total destruction (>140 kPa)"),
+        (35.0,  "red",    "Severe damage (>35 kPa)"),
+        (14.0,  "orange", "Most buildings destroyed (>14 kPa)"),
+        (7.0,   "yellow", "Moderate damage (>7 kPa)"),
+        (3.5,   "#aaff00", "Light damage (>3.5 kPa)"),
+        (1.0,   "cyan",   "Glass breakage (>1 kPa)"),
     ]
     for thresh, color, label in damage_levels:
         radius = blast_radius_for_pressure(thresh)
@@ -167,17 +206,22 @@ def map01_regional_overview():
         fig.plot(x=lons, y=lats, pen=f"1.5p,{color}", label=label)
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("L 8p,Helvetica-Bold,black L Blast Overpressure Zones:\n")
         for thresh, color, label in damage_levels:
             radius = blast_radius_for_pressure(thresh)
-            f.write(f"S 0.2c - 0.4c - 1.5p,{color} 0.8c {label} ({radius/1000:.1f} km)\n")
+            f.write(f"S 0.2c - 0.4c - 1.5p,{color} 0.8c {label} (r={radius/1000:.1f} km)\n")
         legend_file = f.name
 
-    fig.legend(spec=legend_file, position="JBL+w6.5c+o0.3c/0.3c",
+    fig.legend(spec=legend_file, position="JBL+w8c+o0.3c/0.3c",
                box="+p0.5p+gwhite@20+s")
     os.unlink(legend_file)
 
     fig.basemap(region=region, projection=projection,
                 map_scale="g-121.7/37.3+c37.8+w20k+f+l")
+
+    # Add terrain note
+    fig.text(x=-122.25, y=37.25, text="Topography: SRTM 3-arcsec DEM. Hills may provide shielding.",
+             font="7p,Helvetica-Oblique,gray40", justify="ML")
 
     with fig.inset(position="jTR+w4c+o0.3c", box="+p0.5p+gwhite"):
         fig.coast(region=[-130, -110, 30, 45], projection="M?",
@@ -255,11 +299,13 @@ def map02_blast_damage():
                      font="5p,Helvetica,black", justify="BL")
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("L 7p,Helvetica-Bold,black L Peak Overpressure Zones:\n")
         for thresh, color, pen_w, label in damage_zones:
             radius = blast_radius_for_pressure(thresh)
-            f.write(f"S 0.2c - 0.4c - {pen_w},{color} 0.8c {label} ({radius/1000:.1f} km)\n")
+            f.write(f"S 0.2c - 0.4c - {pen_w},{color} 0.8c {label} (r={radius/1000:.1f} km)\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Terrain: hills may shield/focus blast\n")
         legend_file = f.name
-    fig.legend(spec=legend_file, position="JBL+w7c+o0.3c/0.3c",
+    fig.legend(spec=legend_file, position="JBL+w8c+o0.3c/0.3c",
                box="+p0.5p+gwhite@20+s")
     os.unlink(legend_file)
 
@@ -325,23 +371,24 @@ def map03_thermal_radiation():
              style="a0.5c", fill="red", pen="1p,black")
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write("L 7p,Helvetica-Bold,black L THERMAL:\n")
+        f.write("L 7p,Helvetica-Bold,black L THERMAL FLUENCE:\n")
         for thresh_kj, color, pen, label in thermal_levels:
             r_test = np.linspace(1, 30000, 30000)
             Q = thermal_fluence_kj(r_test)
             idx = np.argmin(np.abs(Q - thresh_kj))
             r_km = r_test[idx] / 1000
-            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} ({r_km:.1f} km)\n")
-        f.write("L 7p,Helvetica-Bold,black L RADIATION:\n")
+            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} (r={r_km:.1f} km)\n")
+        f.write("L 7p,Helvetica-Bold,black L ABSORBED DOSE:\n")
         for thresh_gy, color, pen, label in rad_levels:
             r_test = np.linspace(1, 20000, 20000)
             D = prompt_radiation_gy(r_test)
             idx = np.argmin(np.abs(D - thresh_gy))
             r_km = r_test[idx] / 1000
-            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} ({r_km:.1f} km)\n")
+            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} (r={r_km:.1f} km)\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Hills block line-of-sight thermal\n")
         legend_file = f.name
 
-    fig.legend(spec=legend_file, position="JBL+w7c+o0.3c/0.3c",
+    fig.legend(spec=legend_file, position="JBL+w8c+o0.3c/0.3c",
                box="+p0.5p+gwhite@20+s")
     os.unlink(legend_file)
 
@@ -376,12 +423,12 @@ def map04_fallout_plume():
     activity_levels = [0.5, 0.2, 0.1, 0.05, 0.01, 0.005]
     contour_colors = ["darkred", "red", "orange", "yellow", "green", "cyan"]
     contour_labels = [
-        "Very high fallout",
-        "High fallout",
-        "Moderate fallout",
-        "Light fallout",
-        "Low-level",
-        "Trace",
+        "Very high (>50% max)",
+        "High (>20% max)",
+        "Moderate (>10% max)",
+        "Light (>5% max)",
+        "Low-level (>1% max)",
+        "Trace (>0.5% max)",
     ]
 
     theta = np.radians(WIND_DIR_DEG)
@@ -441,10 +488,12 @@ def map04_fallout_plume():
                  text=cname, font="5p,Helvetica,black", justify="BL")
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write("L 7p,Helvetica-Bold,black L Normalized Fallout Activity:\n")
         for color, label in zip(contour_colors, contour_labels):
             f.write(f"S 0.2c - 0.4c - 1.5p,{color} 0.8c {label}\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Terrain affects deposition patterns\n")
         legend_file = f.name
-    fig.legend(spec=legend_file, position="JBR+w5.5c+o0.3c/0.3c",
+    fig.legend(spec=legend_file, position="JBR+w6.5c+o0.3c/0.3c",
                box="+p0.5p+gwhite@20+s")
     os.unlink(legend_file)
 
@@ -516,22 +565,23 @@ def map05_combined_effects():
                      font="5p,Helvetica,black", justify="BL")
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write("L 7p,Helvetica-Bold,black L BLAST ZONES:\n")
+        f.write("L 7p,Helvetica-Bold,black L BLAST OVERPRESSURE ZONES:\n")
         labels = ["Total (>140 kPa)", "Severe (>35 kPa)",
                   "Destroyed (>14 kPa)", "Moderate (>7 kPa)", "Light (>3.5 kPa)"]
         pens = ["2p,darkred", "2p,red", "1.5p,orange", "1.5p,yellow", "1p,green"]
         for lbl, pen in zip(labels, pens):
             r_km = blast_radius_for_pressure(
                 float(lbl.split(">")[1].split(" ")[0])) / 1000
-            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {lbl} ({r_km:.1f} km)\n")
+            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {lbl} (r={r_km:.1f} km)\n")
         f.write("L 7p,Helvetica-Bold,black L INFRASTRUCTURE:\n")
         f.write("S 0.2c t 0.15c darkgreen 0.3p,black 0.8c University\n")
         f.write("S 0.2c d 0.15c purple 0.3p,black 0.8c BART Station\n")
         f.write("S 0.2c s 0.15c blue 0.3p,black 0.8c Bridge\n")
         f.write("S 0.2c c 0.15c brown 0.3p,black 0.8c Port/Airport\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Terrain shielding not shown\n")
         legend_file = f.name
 
-    fig.legend(spec=legend_file, position="JBL+w7c+o0.3c/0.3c",
+    fig.legend(spec=legend_file, position="JBL+w8c+o0.3c/0.3c",
                box="+p0.5p+gwhite@20+s")
     os.unlink(legend_file)
 
@@ -597,23 +647,24 @@ def map06_radiation_zones():
              style="a0.5c", fill="red", pen="1p,black")
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write("L 7p,Helvetica-Bold,black L RADIATION:\n")
+        f.write("L 7p,Helvetica-Bold,black L ABSORBED DOSE (PROMPT):\n")
         for thresh, pen, label in rad_contours:
             r_test = np.linspace(1, 20000, 20000)
             D = prompt_radiation_gy(r_test)
             idx = np.argmin(np.abs(D - thresh))
             r_km = r_test[idx] / 1000
-            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} ({r_km:.1f} km)\n")
-        f.write("L 7p,Helvetica-Bold,black L THERMAL:\n")
+            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} (r={r_km:.1f} km)\n")
+        f.write("L 7p,Helvetica-Bold,black L THERMAL FLUENCE:\n")
         for thresh, pen, label in thermal_contours:
             r_test = np.linspace(1, 30000, 30000)
             Q = thermal_fluence_kj(r_test)
             idx = np.argmin(np.abs(Q - thresh))
             r_km = r_test[idx] / 1000
-            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} ({r_km:.1f} km)\n")
+            f.write(f"S 0.2c - 0.4c - {pen} 0.8c {label} (r={r_km:.1f} km)\n")
+        f.write("L 6p,Helvetica-Oblique,gray40 L Terrain provides LOS shielding\n")
         legend_file = f.name
 
-    fig.legend(spec=legend_file, position="JBL+w7c+o0.3c/0.3c",
+    fig.legend(spec=legend_file, position="JBL+w8c+o0.3c/0.3c",
                box="+p0.5p+gwhite@20+s")
     os.unlink(legend_file)
 

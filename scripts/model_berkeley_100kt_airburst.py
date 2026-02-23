@@ -450,7 +450,13 @@ def fig01_scenario_overview():
 
 
 def fig02_blast_damage_map():
-    """2D blast damage zone map centred on Berkeley."""
+    """2D blast damage zone map centred on Berkeley with geographic coordinates.
+    
+    Note on topography: Blast wave propagation is affected by terrain features.
+    Hills (e.g., Oakland Hills, Berkeley Hills) can provide partial shielding,
+    while valleys may channel and focus blast energy. This model assumes flat
+    terrain; actual damage patterns would be modified by the local topography.
+    """
     max_range = 25000
     X, Y, R = make_radial_grid(max_range, 800)
     P = peak_overpressure_kpa(R)
@@ -481,10 +487,21 @@ def fig02_blast_damage_map():
     ax.set_aspect("equal")
     ax.grid(True, alpha=0.15)
 
+    # Add secondary axes with geographic coordinates
+    ax_lon = ax.secondary_xaxis('top', functions=(
+        lambda x: EVENT_LON + meters_to_deg_lon(x * 1000),
+        lambda lon: (lon - EVENT_LON) / meters_to_deg_lon(1000)))
+    ax_lon.set_xlabel('Longitude (°W)')
+    ax_lat = ax.secondary_yaxis('right', functions=(
+        lambda y: EVENT_LAT + meters_to_deg_lat(y * 1000),
+        lambda lat: (lat - EVENT_LAT) / meters_to_deg_lat(1000)))
+    ax_lat.set_ylabel('Latitude (°N)')
+
     labels = ["No damage", ">1 kPa glass", ">3.5 kPa light",
               ">7 kPa moderate", ">14 kPa severe", ">35 kPa reinf. conc.",
               ">140 kPa total"]
-    cbar = plt.colorbar(im, ax=ax, ticks=[0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5])
+    cbar = plt.colorbar(im, ax=ax, ticks=[0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5],
+                        label="Damage Category (threshold overpressure)")
     cbar.set_ticklabels(labels)
 
     for label, thresh in DAMAGE_THRESHOLDS.items():
@@ -515,17 +532,33 @@ def fig02_blast_damage_map():
     ax.plot(0, 0, "w*", ms=18, mec="k", mew=2, zorder=10)
     ax.set_xlabel("Distance E-W (km)")
     ax.set_ylabel("Distance N-S (km)")
-    ax.set_title("(b) Peak Overpressure (kPa)", fontweight="bold")
+    ax.set_title("(b) Peak Overpressure", fontweight="bold")
     ax.set_aspect("equal")
-    plt.colorbar(im2, ax=ax, label="kPa")
+    plt.colorbar(im2, ax=ax, label="Overpressure (kPa)")
+
+    # Add secondary axes with geographic coordinates
+    ax_lon = ax.secondary_xaxis('top', functions=(
+        lambda x: EVENT_LON + meters_to_deg_lon(x * 1000),
+        lambda lon: (lon - EVENT_LON) / meters_to_deg_lon(1000)))
+    ax_lon.set_xlabel('Longitude (°W)')
+    ax_lat = ax.secondary_yaxis('right', functions=(
+        lambda y: EVENT_LAT + meters_to_deg_lat(y * 1000),
+        lambda lat: (lat - EVENT_LAT) / meters_to_deg_lat(1000)))
+    ax_lat.set_ylabel('Latitude (°N)')
 
     for label, thresh in DAMAGE_THRESHOLDS.items():
         ax.contour(X / 1000, Y / 1000, P, levels=[thresh],
                    colors="white", linewidths=0.8)
 
+    # Add topography note
+    fig.text(0.5, 0.02,
+             "Note: Flat terrain assumed. Actual damage modified by Berkeley/Oakland Hills topography (shielding) "
+             "and valleys (focusing). Center: {:.4f}°N, {:.4f}°W".format(EVENT_LAT, abs(EVENT_LON)),
+             ha='center', fontsize=9, style='italic', color='#444')
+
     fig.suptitle("Figure 2 — Blast Damage Map:  100 kT at Berkeley (50 m HOB)",
                  fontsize=14, fontweight="bold")
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout(rect=[0, 0.04, 1, 0.96])
     p = os.path.join(OUTDIR, "fig02_blast_damage_map.png")
     fig.savefig(p, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -533,7 +566,12 @@ def fig02_blast_damage_map():
 
 
 def fig03_thermal_and_radiation():
-    """Combined thermal fluence and prompt radiation maps."""
+    """Combined thermal fluence and prompt radiation maps.
+    
+    Note on topography: Thermal radiation travels in straight lines and can be
+    blocked by terrain. Berkeley Hills provide natural shielding for areas to
+    the east. Valleys and urban canyons may experience focusing effects.
+    """
     max_range = 25000
     X, Y, R = make_radial_grid(max_range, 600)
 
@@ -549,14 +587,19 @@ def fig03_thermal_and_radiation():
                        levels=np.logspace(0, 5, 25),
                        cmap="inferno", norm=mcolors.LogNorm())
     ax.plot(0, 0, "w*", ms=14, mec="k", mew=1.5)
-    ax.set_xlabel("km E-W")
-    ax.set_ylabel("km N-S")
-    ax.set_title("(a) Thermal Fluence (kJ/m²)", fontweight="bold")
+    ax.set_xlabel("Distance E-W (km)")
+    ax.set_ylabel("Distance N-S (km)")
+    ax.set_title("(a) Thermal Fluence", fontweight="bold")
     ax.set_aspect("equal")
-    plt.colorbar(im1, ax=ax, label="kJ/m²")
+    plt.colorbar(im1, ax=ax, label="Thermal Fluence (kJ/m²)")
     for _, thresh in THERMAL_THRESHOLDS.items():
         ax.contour(X / 1000, Y / 1000, Q, levels=[thresh],
                    colors="white", linewidths=0.8, linestyles="--")
+    # Geographic coordinate axes
+    ax_lon = ax.secondary_xaxis('top', functions=(
+        lambda x: EVENT_LON + meters_to_deg_lon(x * 1000),
+        lambda lon: (lon - EVENT_LON) / meters_to_deg_lon(1000)))
+    ax_lon.set_xlabel('Longitude (°W)')
 
     # (b) Prompt radiation
     ax = axes[1]
@@ -565,14 +608,19 @@ def fig03_thermal_and_radiation():
                        levels=np.logspace(-4, 4, 25),
                        cmap="YlOrRd", norm=mcolors.LogNorm())
     ax.plot(0, 0, "w*", ms=14, mec="k", mew=1.5)
-    ax.set_xlabel("km E-W")
-    ax.set_ylabel("km N-S")
-    ax.set_title("(b) Prompt Radiation Dose (Gy)", fontweight="bold")
+    ax.set_xlabel("Distance E-W (km)")
+    ax.set_ylabel("Distance N-S (km)")
+    ax.set_title("(b) Prompt Radiation Dose", fontweight="bold")
     ax.set_aspect("equal")
-    plt.colorbar(im2, ax=ax, label="Gy")
+    plt.colorbar(im2, ax=ax, label="Absorbed Dose (Gy)")
     for _, thresh in RADIATION_THRESHOLDS.items():
         ax.contour(X / 1000, Y / 1000, D, levels=[thresh],
                    colors="white", linewidths=0.8, linestyles="--")
+    # Geographic coordinate axes
+    ax_lon = ax.secondary_xaxis('top', functions=(
+        lambda x: EVENT_LON + meters_to_deg_lon(x * 1000),
+        lambda lon: (lon - EVENT_LON) / meters_to_deg_lon(1000)))
+    ax_lon.set_xlabel('Longitude (°W)')
 
     # (c) Thermal burn zones
     ax = axes[2]
@@ -591,16 +639,30 @@ def fig03_thermal_and_radiation():
                             -max_range/1000, max_range/1000],
                     origin="lower", cmap=cmap_burn, norm=norm_b)
     ax.plot(0, 0, "w*", ms=14, mec="k", mew=1.5)
-    ax.set_xlabel("km E-W")
-    ax.set_ylabel("km N-S")
+    ax.set_xlabel("Distance E-W (km)")
+    ax.set_ylabel("Distance N-S (km)")
     ax.set_title("(c) Thermal Burn Zones", fontweight="bold")
     ax.set_aspect("equal")
-    cb3 = plt.colorbar(im3, ax=ax, ticks=[0.5, 1.5, 2.5, 3.5, 4.5])
-    cb3.set_ticklabels(["No effect", "Pain", "1st°", "2nd°", "3rd°"])
+    cb3 = plt.colorbar(im3, ax=ax, ticks=[0.5, 1.5, 2.5, 3.5, 4.5],
+                       label="Burn Severity (thermal fluence threshold)")
+    cb3.set_ticklabels(["No effect", "Pain (>50 kJ/m²)", 
+                        "1st° (>125 kJ/m²)", "2nd° (>335 kJ/m²)", 
+                        "3rd° (>670 kJ/m²)"])
+    # Geographic coordinate axes
+    ax_lon = ax.secondary_xaxis('top', functions=(
+        lambda x: EVENT_LON + meters_to_deg_lon(x * 1000),
+        lambda lon: (lon - EVENT_LON) / meters_to_deg_lon(1000)))
+    ax_lon.set_xlabel('Longitude (°W)')
+
+    # Add topography note
+    fig.text(0.5, 0.01,
+             "Note: Flat terrain assumed. Hills provide line-of-sight shielding from thermal radiation. "
+             "Center: {:.4f}°N, {:.4f}°W (UC Berkeley)".format(EVENT_LAT, abs(EVENT_LON)),
+             ha='center', fontsize=9, style='italic', color='#444')
 
     fig.suptitle("Figure 3 — Thermal Radiation & Prompt Nuclear Radiation",
                  fontsize=14, fontweight="bold")
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout(rect=[0, 0.04, 1, 0.96])
     p = os.path.join(OUTDIR, "fig03_thermal_and_radiation.png")
     fig.savefig(p, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -1125,7 +1187,13 @@ def fig07_ground_coupling_seismic():
 
 
 def fig08_combined_hazard():
-    """Combined hazard index and casualty estimation."""
+    """Combined hazard index and casualty estimation.
+    
+    Note on topography: Actual casualties would be modified by terrain:
+    - Berkeley/Oakland Hills provide shielding for eastern areas
+    - Building density affects blast wave propagation
+    - Urban canyons may focus thermal radiation
+    """
     max_range = 25000
     X, Y, R = make_radial_grid(max_range, 600)
 
@@ -1146,11 +1214,20 @@ def fig08_combined_hazard():
     im1 = ax.contourf(X / 1000, Y / 1000, haz_combined,
                        levels=np.linspace(0, 1, 25), cmap="RdYlGn_r")
     ax.plot(0, 0, "k*", ms=14, zorder=10)
-    ax.set_xlabel("km E-W")
-    ax.set_ylabel("km N-S")
-    ax.set_title("(a) Combined Hazard (0=safe, 1=lethal)", fontweight="bold")
+    ax.set_xlabel("Distance E-W (km)")
+    ax.set_ylabel("Distance N-S (km)")
+    ax.set_title("(a) Combined Hazard Index", fontweight="bold")
     ax.set_aspect("equal")
-    plt.colorbar(im1, ax=ax, label="Hazard index")
+    plt.colorbar(im1, ax=ax, label="Hazard Index (0=safe, 1=lethal)")
+    # Geographic coordinate axes
+    ax_lon = ax.secondary_xaxis('top', functions=(
+        lambda x: EVENT_LON + meters_to_deg_lon(x * 1000),
+        lambda lon: (lon - EVENT_LON) / meters_to_deg_lon(1000)))
+    ax_lon.set_xlabel('Longitude (°W)')
+    ax_lat = ax.secondary_yaxis('right', functions=(
+        lambda y: EVENT_LAT + meters_to_deg_lat(y * 1000),
+        lambda lat: (lat - EVENT_LAT) / meters_to_deg_lat(1000)))
+    ax_lat.set_ylabel('Latitude (°N)')
 
     # (b) Dominant effect map
     ax = fig.add_subplot(gs[0, 1])
@@ -1167,12 +1244,17 @@ def fig08_combined_hazard():
                             -max_range/1000, max_range/1000],
                     origin="lower", cmap=cmap_dom, norm=norm_dom)
     ax.plot(0, 0, "k*", ms=14, zorder=10)
-    ax.set_xlabel("km E-W")
-    ax.set_ylabel("km N-S")
+    ax.set_xlabel("Distance E-W (km)")
+    ax.set_ylabel("Distance N-S (km)")
     ax.set_title("(b) Dominant Lethal Effect", fontweight="bold")
     ax.set_aspect("equal")
-    cb2 = plt.colorbar(im2, ax=ax, ticks=[0.25, 1, 2, 3])
-    cb2.set_ticklabels(["None", "Blast", "Thermal", "Radiation"])
+    cb2 = plt.colorbar(im2, ax=ax, ticks=[0.25, 1, 2, 3], label="Dominant Effect")
+    cb2.set_ticklabels(["None", "Blast (>35 kPa)", "Thermal (>670 kJ/m²)", "Radiation (>6 Gy)"])
+    # Geographic coordinate axes
+    ax_lon = ax.secondary_xaxis('top', functions=(
+        lambda x: EVENT_LON + meters_to_deg_lon(x * 1000),
+        lambda lon: (lon - EVENT_LON) / meters_to_deg_lon(1000)))
+    ax_lon.set_xlabel('Longitude (°W)')
 
     # (c) Radial profile of all effects
     ax = fig.add_subplot(gs[0, 2])
@@ -1182,8 +1264,8 @@ def fig08_combined_hazard():
     ax.semilogy(r_1d / 1000, prompt_radiation_dose_gy(r_1d), "g-", lw=2, label="Dose (Gy)")
     ax.semilogy(r_1d / 1000, dynamic_pressure_kpa(peak_overpressure_kpa(r_1d)),
                 "b--", lw=1.5, label="Dynamic P (kPa)")
-    ax.set_xlabel("Ground range (km)")
-    ax.set_ylabel("Magnitude")
+    ax.set_xlabel("Ground Range (km)")
+    ax.set_ylabel("Effect Magnitude (see legend for units)")
     ax.set_title("(c) All Effects vs Range", fontweight="bold")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.2, which="both")
@@ -1207,7 +1289,7 @@ def fig08_combined_hazard():
     ax.bar(ring_midpoints + 0.3, injuries / 1000, width=0.6,
            color="orange", alpha=0.8, label="Injuries")
     ax.set_xlabel("Distance from GZ (km)")
-    ax.set_ylabel("Thousands")
+    ax.set_ylabel("Casualties (thousands)")
     ax.set_title("(d) Estimated Casualties by Ring", fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.2)
@@ -1222,8 +1304,8 @@ def fig08_combined_hazard():
     ax.plot(ring_edges[1:], cumul_fat / 1000, "r-o", lw=2, ms=5, label="Fatalities")
     ax.plot(ring_edges[1:], cumul_inj / 1000, "orange", lw=2, ms=5,
             marker="s", label="Injuries")
-    ax.set_xlabel("Radius (km)")
-    ax.set_ylabel("Cumulative (thousands)")
+    ax.set_xlabel("Radius from GZ (km)")
+    ax.set_ylabel("Cumulative Casualties (thousands)")
     ax.set_title("(e) Cumulative Casualties", fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.2)
@@ -1264,9 +1346,15 @@ def fig08_combined_hazard():
             fontfamily="monospace", fontsize=8.5, va="top",
             bbox=dict(boxstyle="round,pad=0.4", fc="#fff0f0", ec="#cc4444"))
 
+    # Add topography/location note
+    fig.text(0.5, 0.01,
+             "Note: Flat terrain assumed. Topographic shielding from Berkeley/Oakland Hills not modeled. "
+             "Center: {:.4f}°N, {:.4f}°W".format(EVENT_LAT, abs(EVENT_LON)),
+             ha='center', fontsize=9, style='italic', color='#444')
+
     fig.suptitle("Figure 8 — Combined Hazard & Casualty Estimation",
                  fontsize=14, fontweight="bold")
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout(rect=[0, 0.04, 1, 0.96])
     p = os.path.join(OUTDIR, "fig08_combined_hazard.png")
     fig.savefig(p, dpi=180, bbox_inches="tight")
     plt.close(fig)
