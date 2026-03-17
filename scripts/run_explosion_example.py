@@ -23,25 +23,12 @@ import argparse
 import os
 import sys
 
-# Physical constants
-JOULES_PER_KT = 4.184e12
-
-def compute_cavity_radius(yield_kt, density=2650.0):
-    """
-    Compute cavity radius using NTS empirical scaling.
-    R_c = 55 * W^0.295 * (ρ/2.65)^(-1/3.4)
-    """
-    rho_ratio = density / 2650.0
-    return 55.0 * (yield_kt ** 0.295) * (rho_ratio ** (-1.0/3.4))
-
-def compute_zone_radii(cavity_radius):
-    """Compute damage zone radii from cavity radius."""
-    return {
-        'cavity': cavity_radius,
-        'crushed': 2.5 * cavity_radius,
-        'fractured': 5.0 * cavity_radius,
-        'damaged': 10.0 * cavity_radius
-    }
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fsrm.source_physics import (
+    JOULES_PER_KT, cavity_radius_empirical, zone_radii,
+    scalar_moment_coupled, Mw_from_M0, mb_from_yield,
+    corner_frequency_patton, mueller_murphy_time,
+)
 
 def shock_pressure(r, r0, P0, n_strong=3.0, n_weak=1.87, r_transition=None):
     """
@@ -81,44 +68,7 @@ def compute_damage_profile(r, zones):
     else:
         return 0.0
 
-def compute_seismic_moment(yield_kt, density=2650.0, vp=5500.0):
-    """
-    Compute scalar seismic moment using empirical relation.
-    log10(M0) ≈ 17.0 + log10(W_kt) for contained tests.
-    """
-    return 10.0 ** (17.0 + np.log10(yield_kt))
 
-def moment_magnitude(M0):
-    """Convert scalar moment to moment magnitude."""
-    return (np.log10(M0) - 9.1) / 1.5
-
-def body_wave_magnitude(yield_kt):
-    """Compute body wave magnitude mb from yield."""
-    return 4.0 + 0.75 * np.log10(yield_kt)
-
-def rdp_source_time_function(t, corner_freq, overshoot=1.2):
-    """
-    Compute RDP (Reduced Displacement Potential) source time function.
-    Brune omega-squared model.
-    """
-    tau = 1.0 / (2.0 * np.pi * corner_freq)
-    t_norm = t / tau
-    
-    if isinstance(t, np.ndarray):
-        psi = np.zeros_like(t)
-        mask = t > 0
-        psi[mask] = (1.0 - (1.0 + t_norm[mask]) * np.exp(-t_norm[mask])) * overshoot
-        
-        psi_dot = np.zeros_like(t)
-        psi_dot[mask] = t_norm[mask] * np.exp(-t_norm[mask]) * overshoot / tau
-        
-        return psi, psi_dot
-    else:
-        if t <= 0:
-            return 0.0, 0.0
-        psi = (1.0 - (1.0 + t_norm) * np.exp(-t_norm)) * overshoot
-        psi_dot = t_norm * np.exp(-t_norm) * overshoot / tau
-        return psi, psi_dot
 
 def create_damage_zone_plot(zones, depth, yield_kt, save_path=None):
     """Create a cross-section visualization of damage zones."""
@@ -285,14 +235,14 @@ def create_source_time_function_plot(yield_kt, save_path=None):
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
     # Corner frequency from yield
-    corner_freq = 2.5 * (yield_kt ** (-1.0/3.0))
+    corner_freq = corner_frequency_patton(yield_kt)
     
     # Time array
     duration = 10.0 / corner_freq
     t = np.linspace(-0.1 * duration, duration, 500)
     
     # Compute source time function
-    psi, psi_dot = rdp_source_time_function(t, corner_freq)
+    psi, psi_dot = mueller_murphy_time(t, yield_kt)
     
     # Normalize for plotting
     psi_norm = psi / np.max(psi) if np.max(psi) > 0 else psi
@@ -346,10 +296,10 @@ def create_summary_plot(yield_kt, depth, zones, save_path=None):
     fig = plt.figure(figsize=(16, 12))
     
     # Seismic parameters
-    M0 = compute_seismic_moment(yield_kt)
-    Mw = moment_magnitude(M0)
-    mb = body_wave_magnitude(yield_kt)
-    fc = 2.5 * (yield_kt ** (-1.0/3.0))
+    M0 = scalar_moment_coupled(yield_kt)
+    Mw = Mw_from_M0(M0)
+    mb = mb_from_yield(yield_kt)
+    fc = corner_frequency_patton(yield_kt)
     energy = yield_kt * JOULES_PER_KT
     
     # Create subplots
@@ -431,7 +381,7 @@ def create_summary_plot(yield_kt, depth, zones, save_path=None):
     
     duration = 10.0 / fc
     t = np.linspace(0, duration, 200)
-    psi, psi_dot = rdp_source_time_function(t, fc)
+    psi, psi_dot = mueller_murphy_time(t, yield_kt)
     psi_norm = psi / np.max(psi) if np.max(psi) > 0 else psi
     psi_dot_norm = psi_dot / np.max(np.abs(psi_dot)) if np.max(np.abs(psi_dot)) > 0 else psi_dot
     
@@ -533,8 +483,8 @@ def main():
     print()
     
     # Compute cavity and zones
-    cavity_radius = compute_cavity_radius(args.yield_kt)
-    zones = compute_zone_radii(cavity_radius)
+    cavity_radius = cavity_radius_empirical(args.yield_kt)
+    zones = zone_radii(cavity_radius)
     
     print("Computed Zone Radii (NTS empirical scaling):")
     print(f"  Cavity radius:     {zones['cavity']:.1f} m")
@@ -544,10 +494,10 @@ def main():
     print()
     
     # Seismic source
-    M0 = compute_seismic_moment(args.yield_kt)
-    Mw = moment_magnitude(M0)
-    mb = body_wave_magnitude(args.yield_kt)
-    fc = 2.5 * (args.yield_kt ** (-1.0/3.0))
+    M0 = scalar_moment_coupled(args.yield_kt)
+    Mw = Mw_from_M0(M0)
+    mb = mb_from_yield(args.yield_kt)
+    fc = corner_frequency_patton(args.yield_kt)
     
     print("Seismic Source Parameters:")
     print(f"  Scalar moment:     {M0:.2e} N·m")

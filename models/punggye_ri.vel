@@ -1,0 +1,9 @@
+# Korean Peninsula (Punggye-ri test site)
+# 1-D layered velocity model
+# Format: depth_top_km  Vp_km_s  Vs_km_s  rho_kg_m3  Qp  Qs
+  0.00   3.50   2.00   2100    80    40    # Weathered surface
+  0.10   5.60   3.25   2700   350   175    # Upper granite / syenite
+  5.00   6.10   3.55   2800   500   250    # Upper crust
+ 18.00   6.50   3.75   2900   600   300    # Middle crust
+ 28.00   7.00   4.05   3100   700   350    # Lower crust
+ 33.00   8.05   4.55   3350  1000   500    # Upper mantle (Moho at 33 km)

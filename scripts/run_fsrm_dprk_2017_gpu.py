@@ -32,6 +32,8 @@ from matplotlib.ticker import AutoMinorLocator
 
 warnings.filterwarnings("ignore")
 
+from fsrm.run_utils import read_config
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -132,22 +134,6 @@ def check_cuda():
 # ═══════════════════════════════════════════════════════════════════════════════
 # PART B — Config Validation
 # ═══════════════════════════════════════════════════════════════════════════════
-
-def read_config(path):
-    """Read a simple key=value config, return dict."""
-    cfg = {}
-    if not os.path.isfile(path):
-        return cfg
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#") or line.startswith("["):
-                continue
-            if "=" in line:
-                key, _, val = line.partition("=")
-                cfg[key.strip()] = val.split("#")[0].strip()
-    return cfg
-
 
 def validate_gpu_config():
     """Validate GPU config: CFL stability, GPU memory, resolution, wall-clock."""
