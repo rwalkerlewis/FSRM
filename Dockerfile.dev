@@ -59,6 +59,8 @@ RUN rm -rf /var/lib/apt/lists/* && \
     # PETSc (from Ubuntu repos for development)
     libpetsc-real-dev \
     petsc-dev \
+    # Testing framework
+    libgtest-dev \
     # Optional: PROJ for coordinate systems
     libproj-dev \
     proj-bin \
