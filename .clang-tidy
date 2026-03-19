@@ -1,0 +1,86 @@
+# =============================================================================
+# FSRM clang-tidy Configuration
+# =============================================================================
+# C++17 static analysis configuration for local developer use.
+#
+# This is NOT run in CI (clang-tidy requires a compile_commands.json which
+# depends on PETSc being available for CMake configuration). To use locally:
+#
+#   1. Build FSRM with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON (already default)
+#   2. Run: clang-tidy -p build/ src/SomeFile.cpp
+#   3. Or use your IDE's clang-tidy integration (VS Code, CLion, etc.)
+#
+# Suppressions are tuned for the PETSc/MPI codebase patterns used in FSRM.
+# =============================================================================
+
+---
+# Target C++17
+HeaderFilterRegex: 'include/.*\.hpp$'
+FormatStyle: file
+
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-macro-parentheses,
+  -bugprone-narrowing-conversions,
+  clang-analyzer-*,
+  -clang-analyzer-optin.performance.Padding,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-slicing,
+  misc-misplaced-const,
+  misc-redundant-expression,
+  misc-unused-using-decls,
+  modernize-avoid-bind,
+  modernize-deprecated-headers,
+  modernize-loop-convert,
+  modernize-make-shared,
+  modernize-make-unique,
+  modernize-redundant-void-arg,
+  modernize-replace-auto-ptr,
+  modernize-use-auto,
+  modernize-use-bool-literals,
+  modernize-use-default-member-init,
+  modernize-use-emplace,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  modernize-use-nodiscard,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-using,
+  performance-*,
+  -performance-no-int-to-ptr,
+  readability-braces-around-statements,
+  readability-const-return-type,
+  readability-container-size-empty,
+  readability-delete-null-pointer,
+  readability-else-after-return,
+  readability-implicit-bool-conversion,
+  readability-inconsistent-declaration-parameter-name,
+  readability-misleading-indentation,
+  readability-non-const-parameter,
+  readability-redundant-control-flow,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-cstr,
+  readability-simplify-boolean-expr,
+  readability-static-accessed-through-instance,
+  readability-string-compare,
+
+# Per-check options
+CheckOptions:
+  # Allow PETSc naming conventions (PascalCase functions like PetscCall)
+  - key: readability-identifier-naming.FunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstantCase
+    value: UPPER_CASE
+  # modernize-use-auto: only for iterators and casts, not everywhere
+  - key: modernize-use-auto.MinTypeNameLength
+    value: '8'
+
+# Do not treat warnings as errors
+WarningsAsErrors: ''
+...

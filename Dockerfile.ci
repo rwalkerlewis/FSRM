@@ -1,0 +1,96 @@
+# =============================================================================
+# FSRM CI Build Environment
+# =============================================================================
+# Single-stage Docker image providing all build dependencies for FSRM CI/CD.
+# This image is the single source of truth for the CI build environment.
+#
+# Built and pushed to ghcr.io by .github/workflows/docker-ci-image.yml
+# Used by .github/workflows/ci.yml as the container for all CI jobs.
+#
+# Key differences from the production Dockerfile:
+#   - Includes Google Test (compiled and installed)
+#   - Uses -march=x86-64-v2 instead of -march=native for runner portability
+#   - No runtime visualization packages (gnuplot, GMT, Python viz libs)
+#   - No multi-stage build (this IS the build environment)
+#   - Does not copy or build FSRM source (that happens in CI jobs)
+#   - Sets OMPI_ALLOW_RUN_AS_ROOT for container execution
+# =============================================================================
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ---------------------------------------------------------------------------
+# Install build dependencies
+# ---------------------------------------------------------------------------
+# Matches the existing Dockerfile builder stage, plus libgtest-dev for testing.
+# We use OpenMPI (not MPICH) to match the production Dockerfile.
+RUN apt-get clean && \
+    apt-get update --fix-missing && \
+    apt-get install -y --fix-missing \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    pkg-config \
+    libopenmpi-dev \
+    openmpi-bin \
+    libhdf5-openmpi-dev \
+    liblapack-dev \
+    libblas-dev \
+    python3 \
+    python3-pip \
+    gfortran \
+    libgtest-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Compile Google Test
+# ---------------------------------------------------------------------------
+# The libgtest-dev package only installs source files. We must compile them
+# and install the static libraries so CMake's find_package(GTest) works.
+RUN cd /usr/src/gtest && \
+    cmake CMakeLists.txt -DCMAKE_BUILD_TYPE=Release && \
+    make -j$(nproc) && \
+    (cp lib/*.a /usr/lib/ 2>/dev/null || cp *.a /usr/lib/ 2>/dev/null || true)
+
+# ---------------------------------------------------------------------------
+# Build PETSc 3.20.0 from source
+# ---------------------------------------------------------------------------
+# Same configuration as the production Dockerfile, except:
+#   - Uses -march=x86-64-v2 for portability across GitHub Actions runners
+#     (x86-64-v2 requires SSE4.2 and POPCNT, available on all GHA runners)
+#   - Optimized build (--with-debugging=0)
+#   - Downloads fblaslapack (no system BLAS/LAPACK dependency issues)
+WORKDIR /opt
+RUN wget https://ftp.mcs.anl.gov/pub/petsc/release-snapshots/petsc-3.20.0.tar.gz && \
+    tar -xzf petsc-3.20.0.tar.gz && \
+    rm petsc-3.20.0.tar.gz
+
+WORKDIR /opt/petsc-3.20.0
+RUN ./configure \
+    --with-cc=mpicc \
+    --with-cxx=mpicxx \
+    --with-fc=mpif90 \
+    --download-fblaslapack \
+    --with-debugging=0 \
+    COPTFLAGS='-O3 -march=x86-64-v2' \
+    CXXOPTFLAGS='-O3 -march=x86-64-v2' \
+    FOPTFLAGS='-O3 -march=x86-64-v2' && \
+    make PETSC_DIR=/opt/petsc-3.20.0 PETSC_ARCH=arch-linux-c-opt all
+
+# ---------------------------------------------------------------------------
+# Environment variables
+# ---------------------------------------------------------------------------
+# PETSc configuration — must match the build above
+ENV PETSC_DIR=/opt/petsc-3.20.0
+ENV PETSC_ARCH=arch-linux-c-opt
+ENV PKG_CONFIG_PATH=/opt/petsc-3.20.0/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
+
+# MPI root execution flags — GitHub Actions containers run as root,
+# and OpenMPI refuses to run as root without these flags.
+ENV OMPI_ALLOW_RUN_AS_ROOT=1
+ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+# Default working directory for CI jobs
+WORKDIR /workspace
