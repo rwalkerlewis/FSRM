@@ -1,9 +1,9 @@
-version: '3.8'
-
 # Docker Compose for FSRM Development Environment
 # Usage:
 #   docker compose -f docker-compose.dev.yml up -d
 #   docker compose -f docker-compose.dev.yml exec fsrm-dev bash
+#   docker compose -f docker-compose.dev.yml --profile cuda up -d fsrm-dev-cuda
+#   docker compose -f docker-compose.dev.yml exec fsrm-dev-cuda bash
 
 services:
   fsrm-dev:
@@ -56,6 +56,10 @@ services:
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
       - DISPLAY=${DISPLAY:-:0}
+      - PROJ_DATA=/usr/share/proj
+      - PROJ_LIB=/usr/share/proj
+      - CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
+      - CUDAToolkit_ROOT=/usr/local/cuda
     
     # Enable IPC for MPI and debugging
     ipc: host
@@ -79,6 +83,75 @@ services:
     # Default command
     command: /bin/bash
 
+  fsrm-dev-cuda:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        USERNAME: developer
+        USER_UID: 1000
+        USER_GID: 1000
+    image: fsrm-dev:latest
+    container_name: fsrm-dev-cuda
+    hostname: fsrm-dev-cuda
+
+    stdin_open: true
+    tty: true
+
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 8G
+
+    volumes:
+      - .:/workspace:cached
+      - fsrm-build:/workspace/build
+      - fsrm-bashhistory:/home/developer/.bash_history
+      - fsrm-vscode-extensions:/home/developer/.vscode-server/extensions
+      - ./data:/data
+      - ./output:/output
+
+    working_dir: /workspace
+
+    environment:
+      - PETSC_DIR=/usr/lib/petsc
+      - OMP_NUM_THREADS=1
+      - OMPI_ALLOW_RUN_AS_ROOT=1
+      - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+      - DISPLAY=${DISPLAY:-:0}
+      - PROJ_DATA=/usr/share/proj
+      - PROJ_LIB=/usr/share/proj
+      - CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
+      - CUDAToolkit_ROOT=/usr/local/cuda
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+    ipc: host
+
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+    gpus: all
+
+    ports:
+      - "8890:8888"
+      - "8081:8080"
+      - "5001:5000"
+
+    networks:
+      - fsrm-dev-network
+
+    command: /bin/bash
+
+    profiles:
+      - cuda
+
   # Optional: Jupyter Lab service
   jupyter:
     build:
@@ -100,6 +173,10 @@ services:
     environment:
       - PETSC_DIR=/usr/lib/petsc
       - JUPYTER_TOKEN=fsrm
+      - PROJ_DATA=/usr/share/proj
+      - PROJ_LIB=/usr/share/proj
+      - CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
+      - CUDAToolkit_ROOT=/usr/local/cuda
     
     ports:
       - "8889:8888"

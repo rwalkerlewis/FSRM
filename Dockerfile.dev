@@ -2,7 +2,8 @@
 # Provides a complete development environment with all dependencies pre-installed
 # Supports VS Code Dev Containers for seamless cross-platform development
 
-FROM ubuntu:24.04
+ARG BASE_IMAGE=nvidia/cuda:12.6.3-devel-ubuntu24.04
+FROM ${BASE_IMAGE}
 
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -26,6 +27,14 @@ RUN rm -rf /var/lib/apt/lists/* && \
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
+ENV PETSC_DIR=/usr/lib/petsc
+ENV PKG_CONFIG_PATH=/usr/lib/petsc/lib/pkgconfig
+ENV PROJ_DATA=/usr/share/proj
+ENV PROJ_LIB=/usr/share/proj
+ENV CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
+ENV CUDAToolkit_ROOT=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
 
 # Install development tools and dependencies
 RUN rm -rf /var/lib/apt/lists/* && \
@@ -63,6 +72,7 @@ RUN rm -rf /var/lib/apt/lists/* && \
     libgtest-dev \
     # Optional: PROJ for coordinate systems
     libproj-dev \
+    proj-data \
     proj-bin \
     # Mesh tools
     gmsh \
@@ -113,10 +123,6 @@ RUN pip3 install --break-system-packages \
     obspy \
     pygmt
 
-# Set up PETSc environment
-ENV PETSC_DIR=/usr/lib/petsc
-ENV PKG_CONFIG_PATH=/usr/lib/petsc/lib/pkgconfig
-
 # Create non-root development user
 ARG USERNAME=developer
 ARG USER_UID=1000
@@ -139,10 +145,16 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
 
 # Configure shell
 RUN echo 'export PETSC_DIR=/usr/lib/petsc' >> ~/.bashrc && \
+    echo 'export PROJ_DATA=/usr/share/proj' >> ~/.bashrc && \
+    echo 'export PROJ_LIB=/usr/share/proj' >> ~/.bashrc && \
+    echo 'export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda' >> ~/.bashrc && \
+    echo 'export CUDAToolkit_ROOT=/usr/local/cuda' >> ~/.bashrc && \
+    echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc && \
     echo 'export PATH=$PATH:/home/$USERNAME/.local/bin' >> ~/.bashrc && \
     echo 'alias ll="ls -la"' >> ~/.bashrc && \
     echo 'alias build="cd /workspaces/FSRM/build && cmake --build . -j\$(nproc)"' >> ~/.bashrc && \
-    echo 'alias configure="cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON"' >> ~/.bashrc && \
+    echo 'alias configure="cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON"' >> ~/.bashrc && \
+    echo 'alias configure-cuda="cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON -DENABLE_CUDA=ON -DCUDAToolkit_ROOT=/usr/local/cuda"' >> ~/.bashrc && \
     echo 'alias test="cd /workspaces/FSRM/build && ctest --output-on-failure"' >> ~/.bashrc
 
 # Create workspace directory (using sudo since we're now the developer user)

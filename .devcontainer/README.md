@@ -19,7 +19,8 @@ This directory contains configuration for VS Code Dev Containers, providing a co
 
 3. **Build and Test:**
    ```bash
-   cd /workspace/build
+   cd /workspaces/FSRM/build
+   cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON
    make -j$(nproc)
    ctest --output-on-failure
    ```
@@ -33,11 +34,18 @@ docker compose -f docker-compose.dev.yml up -d
 # Enter the container
 docker compose -f docker-compose.dev.yml exec fsrm-dev bash
 
+# Or start the CUDA-enabled profile when an NVIDIA GPU is available
+docker compose -f docker-compose.dev.yml --profile cuda up -d fsrm-dev-cuda
+docker compose -f docker-compose.dev.yml exec fsrm-dev-cuda bash
+
 # Build FSRM inside the container
 cd /workspace/build
-cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON
 make -j$(nproc)
-ctest
+ctest --output-on-failure
+
+# Enable CUDA explicitly when you want GPU builds
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON -DENABLE_CUDA=ON -DCUDAToolkit_ROOT=/usr/local/cuda
 ```
 
 ### Option 3: Manual Docker
@@ -49,6 +57,7 @@ docker build -f Dockerfile.dev -t fsrm-dev:latest .
 # Run the container
 docker run -it --rm \
   -v $(pwd):/workspace \
+   --gpus all \
   --cap-add=SYS_PTRACE \
   --security-opt seccomp=unconfined \
   --ipc=host \
@@ -56,7 +65,7 @@ docker run -it --rm \
 
 # Build inside container
 mkdir -p build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON
 make -j$(nproc)
 ```
 
@@ -73,6 +82,7 @@ make -j$(nproc)
 - **MPI:** OpenMPI for parallel computing
 - **HDF5:** Data I/O with MPI support
 - **PROJ:** Coordinate transformations
+- **CUDA Toolkit:** NVIDIA GPU builds and runtime libraries
 - **Gmsh:** Mesh generation
 
 ### Python Environment
@@ -99,9 +109,14 @@ build
 # Run tests
 test
 
-# Reconfigure CMake
+# Reconfigure CMake with PROJ enabled
 configure
+
+# Reconfigure CMake with PROJ and CUDA enabled
+configure-cuda
 ```
+
+CUDA runtime access requires the NVIDIA Container Toolkit on the host. Use the `fsrm-dev-cuda` profile or `docker run --gpus all` when you need to execute GPU code inside the container.
 
 ## Debugging
 

@@ -24,7 +24,8 @@
         "cmake.configureArgs": [
           "-DCMAKE_BUILD_TYPE=Debug",
           "-DENABLE_TESTING=ON",
-          "-DBUILD_EXAMPLES=ON"
+          "-DBUILD_EXAMPLES=ON",
+          "-DENABLE_PROJ=ON"
         ],
         "terminal.integrated.defaultProfile.linux": "bash",
         "files.associations": {
@@ -40,14 +41,23 @@
     "PETSC_DIR": "/usr/lib/petsc",
     "OMP_NUM_THREADS": "1",
     "OMPI_ALLOW_RUN_AS_ROOT": "1",
-    "OMPI_ALLOW_RUN_AS_ROOT_CONFIRM": "1"
+    "OMPI_ALLOW_RUN_AS_ROOT_CONFIRM": "1",
+    "PROJ_DATA": "/usr/share/proj",
+    "PROJ_LIB": "/usr/share/proj",
+    "CUDA_TOOLKIT_ROOT_DIR": "/usr/local/cuda",
+    "CUDAToolkit_ROOT": "/usr/local/cuda",
+    "NVIDIA_VISIBLE_DEVICES": "all",
+    "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
   },
 
   "runArgs": [
+    "--gpus",
+    "all",
+    "--ipc=host",
     "--cap-add=SYS_PTRACE",
     "--security-opt", "seccomp=unconfined"
   ],
 
-  "postCreateCommand": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON || true",
-  "postStartCommand": "echo 'FSRM ready. Run: cd build && make -j$(nproc)'"
+  "postCreateCommand": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON || true",
+  "postStartCommand": "echo 'FSRM ready. Run configure for PROJ builds or configure-cuda for CUDA-enabled builds.'"
 }
