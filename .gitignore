@@ -75,3 +75,7 @@ output/
 compile_commands.json
 _codeql_detected_source_root
 _codeql_build_dir/
+
+# Local data
+historic_nuclear/
+historic_nuclear/*
