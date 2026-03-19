@@ -9,10 +9,42 @@ build-*/
 *.so
 *.dylib
 *.dll
+*.lib
+*.exp
+
+# Precompiled headers
+*.gch
+*.pch
+
+# Dependency files
+*.d
+
+# Debug files
+*.dSYM/
+*.pdb
+*.ilk
+*.su
+
+# Coverage files
+*.gcno
+*.gcda
+*.gcov
+
+# Python compiled files
+*.pyc
+*.pyo
+__pycache__/
+
+# CUDA compiled files
+*.cubin
+*.fatbin
+*.ptx
 
 # Executables
 fsrm
 run_tests
+*.out
+*.exe
 
 # CMake files
 CMakeCache.txt
