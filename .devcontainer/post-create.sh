@@ -28,7 +28,7 @@ cat >> ~/.bashrc << 'EOF'
 
 # FSRM Development Aliases
 alias build='cmake --build /workspaces/FSRM/build -j$(nproc)'
-alias rebuild='rm -rf /workspaces/FSRM/build && mkdir /workspaces/FSRM/build && cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON && build'
+alias rebuild='rm -rf /workspaces/FSRM/build && mkdir /workspaces/FSRM/build && cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_CUDA=ON && build'
 alias test='ctest --test-dir /workspaces/FSRM/build --output-on-failure'
 alias testv='ctest --test-dir /workspaces/FSRM/build -V'
 alias sim='./build/examples/simulator -c config/default.config'
@@ -53,11 +53,23 @@ if [ ! -f "/workspaces/FSRM/build/CMakeCache.txt" ]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DENABLE_TESTING=ON \
         -DBUILD_EXAMPLES=ON \
+        -DENABLE_CUDA=ON \
         || echo "CMake configuration will be completed when you open the project."
 fi
 
 # Create output directory for simulation results
 mkdir -p /workspaces/FSRM/output
+
+# Verify CUDA installation
+echo ""
+echo "Verifying CUDA installation..."
+if command -v nvcc &> /dev/null; then
+    echo "  CUDA: $(nvcc --version | grep release | sed 's/.*release //' | sed 's/,.*//')"
+    echo "  nvcc: $(which nvcc)"
+else
+    echo "  Warning: nvcc not found — CUDA toolkit may not be installed"
+    echo "  GPU builds will be disabled"
+fi
 
 # Verify PETSc installation
 echo ""

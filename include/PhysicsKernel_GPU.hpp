@@ -4,7 +4,7 @@
 #include "PhysicsKernel.hpp"
 #include "GPUManager.hpp"
 
-#ifdef USE_CUDA
+#if defined(USE_CUDA) && defined(__CUDACC__)
 #include "GPUKernels.cuh"
 #endif
 

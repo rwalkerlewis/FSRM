@@ -2,10 +2,8 @@
   "name": "FSRM Development",
   "dockerFile": "../Dockerfile.dev",
   "context": "..",
-
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/FSRM,type=bind,consistency=cached",
   "workspaceFolder": "/workspaces/FSRM",
-
   "customizations": {
     "vscode": {
       "extensions": [
@@ -25,7 +23,8 @@
           "-DCMAKE_BUILD_TYPE=Debug",
           "-DENABLE_TESTING=ON",
           "-DBUILD_EXAMPLES=ON",
-          "-DENABLE_PROJ=ON"
+          "-DENABLE_PROJ=ON",
+          "-DENABLE_CUDA=ON"
         ],
         "terminal.integrated.defaultProfile.linux": "bash",
         "files.associations": {
@@ -36,7 +35,6 @@
       }
     }
   },
-
   "containerEnv": {
     "PETSC_DIR": "/usr/lib/petsc",
     "OMP_NUM_THREADS": "1",
@@ -49,15 +47,14 @@
     "NVIDIA_VISIBLE_DEVICES": "all",
     "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
   },
-
   "runArgs": [
     "--gpus",
     "all",
     "--ipc=host",
     "--cap-add=SYS_PTRACE",
-    "--security-opt", "seccomp=unconfined"
+    "--security-opt",
+    "seccomp=unconfined"
   ],
-
-  "postCreateCommand": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON || true",
+  "postCreateCommand": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON -DENABLE_CUDA=ON || true",
   "postStartCommand": "echo 'FSRM ready. Run configure for PROJ builds or configure-cuda for CUDA-enabled builds.'"
 }
