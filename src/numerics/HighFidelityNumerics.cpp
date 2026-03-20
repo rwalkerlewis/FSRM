@@ -774,8 +774,12 @@ PetscErrorCode PETScPhysicsPreconditioner::setPCType(PC pc) {
             PetscCall(PCSetType(pc, PCGAMG));
             break;
         case PreconditionerType::HYPRE_BOOMERAMG:
+#if defined(PETSC_HAVE_HYPRE)
             PetscCall(PCSetType(pc, PCHYPRE));
             PetscCall(PCHYPRESetType(pc, "boomeramg"));
+#else
+            PetscCall(PCSetType(pc, PCJACOBI));
+#endif
             break;
         case PreconditionerType::LU:
             PetscCall(PCSetType(pc, PCLU));

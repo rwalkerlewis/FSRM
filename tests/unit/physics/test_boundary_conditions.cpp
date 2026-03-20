@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include "numerics/BoundaryConditions.hpp"
+#include <petsc.h>
 #include <memory>
 #include <mpi.h>
 

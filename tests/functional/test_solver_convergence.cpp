@@ -37,12 +37,12 @@ protected:
     void TearDown() override {
         MPI_Barrier(PETSC_COMM_WORLD);
         if (rank == 0) {
-            std::remove(config_path_.c_str());
+            std::remove(config_path_);
         }
     }
 
     int rank = 0;
-    const char* config_path_ = "test_solver_conv_small.ini";
+    static constexpr const char* config_path_ = "test_solver_conv_small.ini";
 };
 
 TEST_F(SolverConvergenceTest, InitializeSmallSinglePhaseGrid) {
