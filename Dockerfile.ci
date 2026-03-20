@@ -49,7 +49,8 @@ RUN ./configure \
         --with-cxx=mpicxx \
         --with-fc=mpif90 \
         --download-fblaslapack \
-        --with-hdf5-dir=/usr \
+        --with-hdf5-include=/usr/include/hdf5/openmpi \
+        --with-hdf5-lib="-L/usr/lib/x86_64-linux-gnu/hdf5/openmpi -lhdf5" \
         --with-debugging=0 \
         COPTFLAGS='-O3' \
         CXXOPTFLAGS='-O3' \
