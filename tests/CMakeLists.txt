@@ -10,20 +10,32 @@ find_package(GTest)
 # Unit Tests - Test individual components in isolation
 # Note: Some tests temporarily disabled due to API updates
 set(UNIT_TEST_SOURCES
-    unit/test_config_reader.cpp
-    unit/test_physics_kernels.cpp
-    unit/test_well_model.cpp
+    unit/core/test_config_reader.cpp
+    unit/core/test_physics_module_registry.cpp
+    unit/core/test_simulation_config.cpp
+    unit/physics/test_physics_kernel_base.cpp
+    unit/physics/test_single_phase_flow.cpp
+    unit/physics/test_geomechanics.cpp
+    unit/physics/test_thermal.cpp
+    unit/physics/test_elastodynamics.cpp
+    unit/physics/test_poroelastodynamics.cpp
+    unit/physics/test_boundary_conditions.cpp
+    unit/domain/test_well_model.cpp
     unit/test_wellbore_hydraulics.cpp
-    unit/test_fracture_model.cpp
-    unit/test_eclipse_io.cpp
+    unit/domain/test_fracture_model.cpp
+    unit/io/test_eclipse_io.cpp
     unit/test_fluid_model.cpp
-    unit/test_material_model.cpp
+    unit/domain/test_material_model.cpp
     unit/test_near_field_explosion.cpp
     unit/test_atmospheric_explosion.cpp
     unit/test_radiation_physics.cpp
     # unit/test_discontinuous_galerkin.cpp  # Disabled: API mismatch
-    unit/test_seismic_source.cpp
+    unit/domain/test_seismic_source.cpp
+    unit/domain/test_explosion_source.cpp
     unit/test_boundary_conditions.cpp
+    unit/util/test_unit_system.cpp
+    unit/util/test_coordinate_system.cpp
+    unit/ml/test_ml_registry.cpp
     unit/test_pylith_fault.cpp
     # unit/test_plasticity_model.cpp  # Disabled: API mismatch
     # unit/test_viscoelastic_attenuation.cpp  # Disabled: API mismatch
@@ -238,6 +250,14 @@ if(GTest_FOUND)
         COMMAND run_unit_tests --gtest_filter=*FNO*.*:*Tensor*.*:*FFT*.*)
     add_test(NAME Unit.PyLithFault
         COMMAND run_unit_tests --gtest_filter=*PyLith*.*:*Cohesive*.*:*SlipTimeFn*.*)
+    add_test(NAME Unit.ExplosionSourceKernel
+        COMMAND run_unit_tests --gtest_filter=ExplosionSourceKernelTest.*)
+    add_test(NAME Unit.UnitSystem
+        COMMAND run_unit_tests --gtest_filter=UnitSystemTest.*)
+    add_test(NAME Unit.CoordinateSystem
+        COMMAND run_unit_tests --gtest_filter=CoordinateSystemTest.*)
+    add_test(NAME Unit.MLRegistry
+        COMMAND run_unit_tests --gtest_filter=MLModelRegistryTest.*)
     
     # Functional tests
     add_test(NAME Functional.SimulatorInit 
