@@ -77,7 +77,7 @@ YIELD_KT = 5.0
 FMIN, FMAX = 0.5, 4.0    # Analysis band for numerical (conservative)
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config",
-                           "lop_nor_1996_numerical_wave_propagation.config")
+                           "lop_nor_1996_numerical_cuda.config")
 SIM_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output",
                               "lop_nor_1996_numerical", "seismograms")
 OUTDIR = os.path.join(PROJECT_ROOT, "figures", "lop_nor_1996_numerical")
@@ -85,14 +85,14 @@ OUTDIR = os.path.join(PROJECT_ROOT, "figures", "lop_nor_1996_numerical")
 EVENT_LABEL = "Lop Nor 1996-07-29, ~5 kt coupled, Kuruktag granite"
 
 GRID = dict(
-    nx=800, ny=800, nz=120,
-    dx=500.0,
+    nx=200, ny=200, nz=60,
+    dx=1000.0,
     vp_max=7900.0,
-    domain_km=400.0,
+    domain_km=200.0,
     cfl_target=0.45,
-    dt_suggested=0.02,
-    nprocs_min=32, nprocs_max=64,
-    duration=90.0,
+    dt_suggested=0.04,
+    nprocs_min=1, nprocs_max=1,
+    duration=45.0,
 )
 
 PHASE_VELOCITIES = {

@@ -48,7 +48,10 @@ from fsrm.inversion import invert_epicenter
 from fsrm.plotting import (
     PHASE_COLORS, fig_velocity_model,
     fig_observed_record_section, fig_location_inversion,
+    fig_eq_source_model, fig_eq_synthetic_record_section, fig_eq_comparison,
+    fig_dual_source_comparison,
 )
+from fsrm.source_physics import M0_from_Mw, brune_corner_frequency
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Event Parameters
@@ -462,47 +465,85 @@ def main():
 
     print("=" * 72)
     print("  Ojai 2023 — M5.1 Earthquake Model & Analysis")
+    print("  (Brune ω² source + Mueller-Murphy comparison + observed data)")
     print("=" * 72)
     print()
 
     # Fig 1 — Source & propagation summary (earthquake-specific)
-    print("[1/6] Source & propagation summary ...")
+    print("[1/10] Source & propagation summary ...")
     fig01_source_summary()
 
-    # Fig 2 — Velocity model (shared plotting module)
-    print("[2/6] Velocity model ...")
-    fig_velocity_model(model, EVENT_INFO, STATION_INFO, STATIONS,
-                       os.path.join(OUTDIR, "fig02_velocity_model.png"))
+    # Fig 2 — Brune source model (shared earthquake plotting module)
+    print("[2/10] Brune earthquake source model ...")
+    fig_eq_source_model(
+        MW, EVENT_DEPTH, EVENT_INFO,
+        os.path.join(OUTDIR, "fig02_source_model.png"),
+        stress_drop_MPa=3.0, beta_km_s=model.avg_crustal_vs)
 
-    # Fig 3 — Observed data record section (shared plotting module)
-    print("[3/6] Fetching real data from IRIS ...")
+    # Fig 3 — Velocity model (shared plotting module)
+    print("[3/10] Velocity model ...")
+    fig_velocity_model(model, EVENT_INFO, STATION_INFO, STATIONS,
+                       os.path.join(OUTDIR, "fig03_velocity_model.png"))
+
+    # Fig 4 — Synthetic record section (shared earthquake plotting module)
+    print("[4/10] Synthetic seismograms (Brune source) ...")
+    fig_eq_synthetic_record_section(
+        STATION_INFO, MW, model,
+        os.path.join(OUTDIR, "fig04_synthetic_seismograms.png"),
+        fmin=FMIN, fmax=FMAX, depth_km=EVENT_DEPTH,
+        stress_drop_MPa=3.0, beta_km_s=model.avg_crustal_vs,
+        title_prefix="Figure 4 — Synthetic Seismograms")
+
+    # Fig 5 — Observed data record section (shared plotting module)
+    print("[5/10] Fetching real data from IRIS ...")
     real_data = fetch_waveforms(EVENT_TIME, EVENT_LAT, EVENT_LON, STATIONS,
                                 fmin=FMIN, fmax=FMAX, pre=120, post=300)
     print(f"       Retrieved {len(real_data)} station(s)")
     fig_observed_record_section(
         real_data, EVENT_TIME, model,
-        os.path.join(OUTDIR, "fig03_observed_waveforms.png"),
+        os.path.join(OUTDIR, "fig05_observed_waveforms.png"),
         fmin=FMIN, fmax=FMAX,
-        title="Figure 3 — Observed Waveforms: 2023 Ojai M5.1 Earthquake")
+        title="Figure 5 — Observed Waveforms: 2023 Ojai M5.1 Earthquake")
 
-    # Fig 4 — Spectral analysis (earthquake-specific)
-    print("[4/6] Spectral analysis ...")
+    # Fig 6 — Synthetic vs observed comparison (key figure)
+    print("[6/10] Synthetic vs observed comparison ...")
+    fig_eq_comparison(
+        real_data, EVENT_TIME, MW, model,
+        os.path.join(OUTDIR, "fig06_comparison.png"),
+        fmin=FMIN, fmax=FMAX, depth_km=EVENT_DEPTH,
+        stress_drop_MPa=3.0, beta_km_s=model.avg_crustal_vs,
+        key_stations=["SBC", "PASC", "PAS", "ISA", "GSC"],
+        title="Figure 6 — Brune Synthetic vs Observed Comparison")
+
+    # Fig 7 — Dual-source comparison: Brune vs Mueller-Murphy vs observed
+    print("[7/10] Dual-source comparison (Brune vs Mueller-Murphy) ...")
+    fig_dual_source_comparison(
+        real_data, EVENT_TIME, MW, model,
+        os.path.join(OUTDIR, "fig07_dual_source_comparison.png"),
+        fmin=FMIN, fmax=FMAX, depth_km=EVENT_DEPTH,
+        stress_drop_MPa=3.0, beta_km_s=model.avg_crustal_vs,
+        key_stations=["SBC", "PASC", "PAS", "ISA", "GSC"],
+        title="Figure 7 — Brune (Earthquake) vs Mueller-Murphy (Explosion) "
+              "vs Observed")
+
+    # Fig 8 — Spectral analysis (earthquake-specific)
+    print("[8/10] Spectral analysis ...")
     fig04_spectral_analysis(real_data)
 
-    # Fig 5 — Earthquake discrimination (earthquake-specific)
-    print("[5/6] Earthquake discrimination analysis ...")
+    # Fig 9 — Earthquake discrimination (earthquake-specific)
+    print("[9/10] Earthquake discrimination analysis ...")
     fig05_discrimination(real_data)
 
-    # Fig 6 — Location inversion (shared)
-    print("[6/6] Epicenter location inversion ...")
+    # Fig 10 — Location inversion (shared)
+    print("[10/10] Epicenter location inversion ...")
     print("  Running grid search...")
     best_lat, best_lon, misfit, lats, lons, picks = invert_epicenter(
         STATIONS, model, EVENT_LAT, EVENT_LON)
     err_km = fig_location_inversion(
         best_lat, best_lon, misfit, lats, lons, picks,
         EVENT_LAT, EVENT_LON, STATIONS,
-        os.path.join(OUTDIR, "fig06_location_inversion.png"),
-        title="Figure 6 — Epicenter Location Inversion "
+        os.path.join(OUTDIR, "fig10_location_inversion.png"),
+        title="Figure 10 — Epicenter Location Inversion "
               "(2023 Ojai M5.1 Earthquake)")
     print(f"       Inverted location: {best_lat:.3f}°N, {best_lon:.3f}°E "
           f"(error: {err_km:.1f} km)")
@@ -510,6 +551,17 @@ def main():
     print()
     print("=" * 72)
     print(f"  All figures saved to: {OUTDIR}")
+    print("  Structure now parallels DPRK 2017 example:")
+    print("    fig01 — Source summary (earthquake-specific)")
+    print("    fig02 — Brune source model (cf. DPRK fig01 Mueller-Murphy)")
+    print("    fig03 — Velocity model")
+    print("    fig04 — Synthetic seismograms (cf. DPRK fig03)")
+    print("    fig05 — Observed waveforms (cf. DPRK fig06)")
+    print("    fig06 — Brune synthetic vs observed comparison (cf. DPRK fig07)")
+    print("    fig07 — Dual-source: Brune vs Mueller-Murphy vs observed  ★ NEW")
+    print("    fig08 — Spectral analysis")
+    print("    fig09 — Discrimination analysis (cf. DPRK fig08)")
+    print("    fig10 — Location inversion (cf. DPRK fig09)")
     print("=" * 72)
 
 

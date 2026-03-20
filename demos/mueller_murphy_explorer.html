@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FSRM — Mueller-Murphy Nuclear Test Explorer</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ffffff;--bg2:#f5f4f0;--bg3:#eae9e4;
+  --tx:#1a1a18;--tx2:#5f5e5a;--tx3:#888780;
+  --bd:rgba(0,0,0,0.1);
+  --blue:#185FA5;--blue-light:rgba(133,183,235,0.25);
+  --red:#A32D2D;--red-fill:#E24B4A;--red-light:rgba(240,149,149,0.5);
+  --coral:#D85A30;--coral-light:rgba(216,90,48,0.7);
+  --green:#0F6E56;--green-light:rgba(93,202,165,0.3);
+  --amber:#854F0B;--amber-light:rgba(250,199,117,0.4);
+  --purple:#534AB7;--purple-light:rgba(175,169,236,0.3);
+  --zone-damaged:rgba(133,183,235,0.2);
+  --zone-fractured:rgba(151,196,89,0.3);
+  --zone-crushed:rgba(250,199,117,0.4);
+  --zone-cavity:rgba(240,149,149,0.5);
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#1a1a18;--bg2:#2c2c2a;--bg3:#3a3a37;
+    --tx:#e0dfd8;--tx2:#b4b2a9;--tx3:#888780;
+    --bd:rgba(255,255,255,0.1);
+    --blue:#85B7EB;--blue-light:rgba(133,183,235,0.15);
+    --red:#F09595;--red-fill:#F09595;--red-light:rgba(240,149,149,0.4);
+    --coral:#F0997B;--coral-light:rgba(240,153,123,0.7);
+    --green:#5DCAA5;--green-light:rgba(93,202,165,0.2);
+    --amber:#FAC775;--amber-light:rgba(250,199,117,0.25);
+    --purple:#AFA9EC;--purple-light:rgba(175,169,236,0.2);
+    --zone-damaged:rgba(133,183,235,0.15);
+    --zone-fractured:rgba(151,196,89,0.25);
+    --zone-crushed:rgba(250,199,117,0.3);
+    --zone-cavity:rgba(240,149,149,0.4);
+  }
+}
+html{font-size:15px}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding:1.5rem;max-width:1100px;margin:0 auto;line-height:1.5}
+h1{font-size:1.4rem;font-weight:500;margin-bottom:0.15rem}
+.subtitle{font-size:0.85rem;color:var(--tx2);margin-bottom:1.5rem}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;margin-bottom:1.25rem}
+.control label{font-size:0.78rem;color:var(--tx2);display:block;margin-bottom:3px}
+.control .row{display:flex;align-items:center;gap:8px}
+.control input[type=range]{flex:1;height:6px;-webkit-appearance:none;appearance:none;background:var(--bg3);border-radius:3px;outline:none}
+.control input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--tx);cursor:pointer}
+.control input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--tx);cursor:pointer;border:none}
+.control select{width:100%;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--tx);font-size:0.85rem}
+.readout{font-size:0.9rem;font-weight:500;min-width:65px;text-align:right;white-space:nowrap}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:1.5rem}
+.metric{background:var(--bg2);border-radius:8px;padding:10px 12px}
+.metric .label{font-size:0.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:0.03em}
+.metric .value{font-size:1.35rem;font-weight:500;margin-top:2px}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.chart-box{border:1px solid var(--bd);border-radius:8px;overflow:hidden;background:var(--bg)}
+.chart-box .chart-title{font-size:0.78rem;color:var(--tx2);padding:8px 10px 0}
+.chart-box canvas{display:block;width:100%}
+.wide{grid-column:1/-1}
+.tests-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:1rem}
+.test-btn{padding:4px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg2);color:var(--tx2);font-size:0.72rem;cursor:pointer;transition:all 0.15s}
+.test-btn:hover{background:var(--bg3);color:var(--tx)}
+.test-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.footer{margin-top:1.5rem;font-size:0.72rem;color:var(--tx3);text-align:center}
+.footer a{color:var(--tx2)}
+@media(max-width:700px){
+  .controls{grid-template-columns:1fr}
+  .metrics{grid-template-columns:repeat(3,1fr)}
+  .charts{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<h1>Mueller-Murphy nuclear test explorer</h1>
+<p class="subtitle">FSRM — interactive source physics for underground nuclear explosions</p>
+
+<div class="controls">
+  <div class="control">
+    <label>Yield</label>
+    <div class="row">
+      <input type="range" id="yield" min="-1" max="4.2" step="0.01" value="2.4">
+      <span class="readout" id="yield-out">250 kt</span>
+    </div>
+  </div>
+  <div class="control">
+    <label>Depth of burial</label>
+    <div class="row">
+      <input type="range" id="depth" min="30" max="2500" step="5" value="800">
+      <span class="readout" id="depth-out">800 m</span>
+    </div>
+  </div>
+  <div class="control">
+    <label>Host rock</label>
+    <select id="rock">
+      <option value="granite" selected>Granite (2650 kg/m3, Vp 5600 m/s)</option>
+      <option value="tuff">Tuff (2100 kg/m3, Vp 3200 m/s)</option>
+      <option value="salt">Salt (2200 kg/m3, Vp 4500 m/s)</option>
+      <option value="alluvium">Alluvium (1800 kg/m3, Vp 2500 m/s)</option>
+      <option value="sandstone">Sandstone (2300 kg/m3, Vp 3500 m/s)</option>
+      <option value="rhyolite">Rhyolite (2500 kg/m3, Vp 4800 m/s)</option>
+    </select>
+  </div>
+  <div class="control">
+    <label>Decoupling factor (1 = fully coupled, 70 = cavity decoupled)</label>
+    <div class="row">
+      <input type="range" id="decouple" min="1" max="70" step="1" value="1">
+      <span class="readout" id="decouple-out">1</span>
+    </div>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="metric"><div class="label">Cavity radius</div><div class="value" id="val-rc">89 m</div></div>
+  <div class="metric"><div class="label">Body-wave mb</div><div class="value" id="val-mb">5.80</div></div>
+  <div class="metric"><div class="label">Corner frequency</div><div class="value" id="val-fc">0.40 Hz</div></div>
+  <div class="metric"><div class="label">Scalar moment M0</div><div class="value" id="val-m0">2.3e17</div></div>
+  <div class="metric"><div class="label">IMS detectable</div><div class="value" id="val-ims">Yes</div></div>
+</div>
+
+<div class="charts">
+  <div class="chart-box">
+    <div class="chart-title">Damage zone cross-section</div>
+    <canvas id="zoneCanvas" width="500" height="440"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Mueller-Murphy source spectrum</div>
+    <canvas id="specCanvas" width="500" height="440"></canvas>
+  </div>
+  <div class="chart-box wide">
+    <div class="chart-title">Body-wave magnitude vs yield — model prediction and observed tests</div>
+    <canvas id="mbCanvas" width="1060" height="340"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Reduced displacement potential (RDP)</div>
+    <canvas id="rdpCanvas" width="500" height="340"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Far-field P-wave velocity at 1000 km</div>
+    <canvas id="pCanvas" width="500" height="340"></canvas>
+  </div>
+</div>
+
+<div style="font-size:0.78rem;color:var(--tx2);margin-top:4px;">Preset scenarios</div>
+<div class="tests-row" id="presets"></div>
+
+<div class="footer">
+  FSRM — Full Service Reservoir Model — <a href="https://github.com/rwalkerlewis/FSRM" target="_blank">github.com/rwalkerlewis/FSRM</a> — MIT License<br>
+  Mueller &amp; Murphy (1971), Patton (1988), Glasstone &amp; Dolan (1977)
+</div>
+
+<script>
+const rocks = {
+  granite:   { rho: 2650, vp: 5600 },
+  tuff:      { rho: 2100, vp: 3200 },
+  salt:      { rho: 2200, vp: 4500 },
+  alluvium:  { rho: 1800, vp: 2500 },
+  sandstone: { rho: 2300, vp: 3500 },
+  rhyolite:  { rho: 2500, vp: 4800 }
+};
+
+const presets = [
+  { name:'DPRK-1 (2006)', W:0.7, depth:200, rock:'granite', df:1, mb_obs:4.1 },
+  { name:'DPRK-2 (2009)', W:4, depth:380, rock:'granite', df:1, mb_obs:4.52 },
+  { name:'DPRK-3 (2013)', W:10, depth:450, rock:'granite', df:1, mb_obs:4.9 },
+  { name:'DPRK-6 (2017)', W:250, depth:800, rock:'granite', df:1, mb_obs:6.3 },
+  { name:'Cannikin (1971)', W:5000, depth:1860, rock:'granite', df:1, mb_obs:6.97 },
+  { name:'Sedan (1962)', W:104, depth:194, rock:'alluvium', df:1, mb_obs:4.75 },
+  { name:'Gnome (1961)', W:3.1, depth:361, rock:'salt', df:1, mb_obs:4.4 },
+  { name:'Pokhran-II (1998)', W:45, depth:200, rock:'sandstone', df:1, mb_obs:5.0 },
+  { name:'Gasbuggy (1967)', W:29, depth:1292, rock:'sandstone', df:1, mb_obs:5.1 },
+  { name:'Faultless (1968)', W:1000, depth:975, rock:'tuff', df:1, mb_obs:6.26 },
+  { name:'Joe-1 / RDS-1 (1949)', W:22, depth:0, rock:'alluvium', df:1, mb_obs:null },
+  { name:'Decoupled 10kt in salt', W:10, depth:600, rock:'salt', df:70, mb_obs:null },
+];
+
+const knownTests = [
+  { name:'DPRK-1', W:0.7, mb:4.1 },
+  { name:'DPRK-2', W:4, mb:4.52 },
+  { name:'DPRK-3', W:10, mb:4.9 },
+  { name:'DPRK-4', W:10, mb:5.1 },
+  { name:'DPRK-5', W:20, mb:5.3 },
+  { name:'DPRK-6', W:250, mb:6.3 },
+  { name:'Cannikin', W:5000, mb:6.97 },
+  { name:'Sedan', W:104, mb:4.75 },
+  { name:'Gnome', W:3.1, mb:4.4 },
+  { name:'Pokhran-II', W:45, mb:5.0 },
+  { name:'Gasbuggy', W:29, mb:5.1 },
+  { name:'Faultless', W:1000, mb:6.26 },
+  { name:'Chagai-I', W:12, mb:4.9 },
+];
+
+function cavityR(W, rho) { return 55.0 * Math.pow(W, 0.295) * Math.pow(rho / 2650, -1/3.4); }
+function cornerF(W) { return 2.5 * Math.pow(W, -1/3); }
+function mbCalc(W, df) { return 4.0 + 0.75 * Math.log10(W / df); }
+function m0Calc(W, rho, vp) { return 4 * Math.PI * rho * Math.pow(vp, 2) * Math.pow(cavityR(W, rho), 3); }
+function mmSpec(f, fc) { return 1.0 / (1.0 + Math.pow(f / fc, 2)); }
+
+function rdpTime(t, fc) {
+  const tau = 1.0 / (2 * Math.PI * fc);
+  if (t <= 0) return 0;
+  return 1.0 - (1.0 + t / tau) * Math.exp(-t / tau);
+}
+
+const style = getComputedStyle(document.documentElement);
+function cv(name) { return style.getPropertyValue(name).trim(); }
+const isDark = matchMedia('(prefers-color-scheme:dark)').matches;
+
+const presetsDiv = document.getElementById('presets');
+let activePreset = -1;
+presets.forEach((p, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'test-btn';
+  btn.textContent = p.name;
+  btn.onclick = () => {
+    document.getElementById('yield').value = Math.log10(Math.max(p.W, 0.1));
+    document.getElementById('depth').value = Math.max(p.depth, 30);
+    document.getElementById('decouple').value = p.df;
+    const opts = document.getElementById('rock').options;
+    for (let j = 0; j < opts.length; j++) { if (opts[j].value === p.rock) { opts[j].selected = true; break; } }
+    activePreset = i;
+    document.querySelectorAll('.test-btn').forEach((b, k) => b.classList.toggle('active', k === i));
+    update();
+  };
+  presetsDiv.appendChild(btn);
+});
+
+function fmtYield(W) {
+  if (W < 0.01) return (W * 1e6).toFixed(0) + ' g';
+  if (W < 1) return (W * 1000).toFixed(0) + ' t';
+  if (W < 1000) return W.toFixed(W < 10 ? 1 : 0) + ' kt';
+  return (W / 1000).toFixed(W < 5000 ? 2 : 1) + ' Mt';
+}
+
+function fmtSci(v) {
+  if (v === 0) return '0';
+  const e = Math.floor(Math.log10(Math.abs(v)));
+  const m = v / Math.pow(10, e);
+  return m.toFixed(1) + 'e' + e;
+}
+
+function update() {
+  const logW = parseFloat(document.getElementById('yield').value);
+  const W = Math.pow(10, logW);
+  const depth = parseInt(document.getElementById('depth').value);
+  const df = parseInt(document.getElementById('decouple').value);
+  const rk = rocks[document.getElementById('rock').value];
+
+  document.getElementById('yield-out').textContent = fmtYield(W);
+  document.getElementById('depth-out').textContent = depth + ' m';
+  document.getElementById('decouple-out').textContent = df;
+
+  const rc = cavityR(W, rk.rho);
+  const fc = cornerF(W);
+  const mb = mbCalc(W, df);
+  const m0 = m0Calc(W, rk.rho, rk.vp);
+  const detect = mb >= 3.5;
+
+  document.getElementById('val-rc').textContent = rc < 10 ? rc.toFixed(1) + ' m' : Math.round(rc) + ' m';
+  document.getElementById('val-mb').textContent = mb.toFixed(2);
+  document.getElementById('val-fc').textContent = fc.toFixed(2) + ' Hz';
+  document.getElementById('val-m0').textContent = fmtSci(m0);
+  const imsEl = document.getElementById('val-ims');
+  imsEl.textContent = detect ? 'Yes' : 'Below threshold';
+  imsEl.style.color = detect ? cv('--green') : cv('--red');
+
+  drawZones(rc);
+  drawSpectrum(fc);
+  drawMb(W, mb, df);
+  drawRDP(fc, W);
+  drawPwave(fc, W, rk);
+}
+
+function hi(c) { return c.width / (c.clientWidth || c.width); }
+
+function drawZones(rc) {
+  const c = document.getElementById('zoneCanvas');
+  const ctx = c.getContext('2d');
+  const r = hi(c);
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const maxR = rc * 12;
+  const s = Math.min(w, h) * 0.40 / maxR;
+  const cx = w / 2, cy = h / 2;
+
+  const zones = [
+    { f: 10, color: cv('--zone-damaged'), name: 'Damaged zone' },
+    { f: 5, color: cv('--zone-fractured'), name: 'Fractured zone' },
+    { f: 2.5, color: cv('--zone-crushed'), name: 'Crushed zone' },
+    { f: 1, color: cv('--zone-cavity'), name: 'Cavity' },
+  ];
+
+  ctx.strokeStyle = cv('--bd');
+  ctx.lineWidth = 0.5 * r;
+  ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+
+  zones.forEach(z => {
+    const pr = z.f * rc * s;
+    ctx.beginPath(); ctx.arc(cx, cy, pr, 0, Math.PI * 2);
+    ctx.fillStyle = z.color; ctx.fill();
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 1 * r; ctx.stroke();
+  });
+
+  ctx.fillStyle = cv('--tx');
+  ctx.font = (11 * r) + 'px system-ui';
+  ctx.textAlign = 'left';
+  zones.forEach(z => {
+    const pr = z.f * rc * s;
+    const rv = z.f * rc;
+    const label = rv < 10 ? rv.toFixed(1) : Math.round(rv);
+    ctx.fillText(z.name + ' (' + label + ' m)', cx + 5 * r, cy - pr + 14 * r);
+  });
+
+  const scaleLen = 120 * r;
+  const scaleM = scaleLen / s;
+  ctx.fillStyle = cv('--tx3');
+  ctx.fillRect(cx - scaleLen / 2, h - 25 * r, scaleLen, 2 * r);
+  ctx.font = (10 * r) + 'px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText((scaleM < 10 ? scaleM.toFixed(1) : Math.round(scaleM)) + ' m', cx, h - 10 * r);
+}
+
+function drawSpectrum(fc) {
+  const c = document.getElementById('specCanvas');
+  const ctx = c.getContext('2d');
+  const r = hi(c);
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const p = { l: 55*r, r: 20*r, t: 15*r, b: 40*r };
+  const pw = w - p.l - p.r, ph = h - p.t - p.b;
+  const fMin = -2, fMax = 1.5, aMin = -5, aMax = 0.5;
+
+  ctx.strokeStyle = cv('--bd'); ctx.lineWidth = 0.5 * r;
+  ctx.font = (10*r) + 'px system-ui';
+  ctx.fillStyle = cv('--tx3');
+  ctx.textAlign = 'center';
+  for (let lf = fMin; lf <= fMax; lf += 0.5) {
+    const x = p.l + (lf - fMin) / (fMax - fMin) * pw;
+    ctx.beginPath(); ctx.moveTo(x, p.t); ctx.lineTo(x, p.t + ph); ctx.stroke();
+    if (Math.abs(lf - Math.round(lf)) < 0.01) {
+      const v = Math.pow(10, lf);
+      ctx.fillText(v >= 1 ? v.toFixed(0) : v < 0.1 ? v.toFixed(2) : v.toFixed(1), x, h - p.b + 16*r);
+    }
+  }
+  ctx.textAlign = 'right';
+  for (let la = aMin; la <= aMax; la++) {
+    const y = p.t + (aMax - la) / (aMax - aMin) * ph;
+    ctx.beginPath(); ctx.moveTo(p.l, y); ctx.lineTo(p.l + pw, y); ctx.stroke();
+    ctx.fillText('1e' + la, p.l - 6*r, y + 4*r);
+  }
+
+  ctx.fillStyle = cv('--tx2'); ctx.font = (11*r) + 'px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Frequency (Hz)', p.l + pw/2, h - 4*r);
+  ctx.save(); ctx.translate(12*r, p.t + ph/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Normalized amplitude', 0, 0); ctx.restore();
+
+  const pts = [];
+  for (let i = 0; i <= 300; i++) {
+    const lf = fMin + (fMax - fMin) * i / 300;
+    const f = Math.pow(10, lf);
+    const a = mmSpec(f, fc);
+    const la = Math.log10(Math.max(a, 1e-7));
+    pts.push({ x: p.l + (lf - fMin) / (fMax - fMin) * pw, y: p.t + (aMax - la) / (aMax - aMin) * ph });
+  }
+  ctx.beginPath(); pts.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+  ctx.strokeStyle = cv('--blue'); ctx.lineWidth = 2.5*r; ctx.stroke();
+
+  const fcx = p.l + (Math.log10(fc) - fMin) / (fMax - fMin) * pw;
+  ctx.strokeStyle = cv('--red'); ctx.lineWidth = 1*r; ctx.setLineDash([4*r, 3*r]);
+  ctx.beginPath(); ctx.moveTo(fcx, p.t); ctx.lineTo(fcx, p.t + ph); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = cv('--red'); ctx.font = (11*r) + 'px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText('fc = ' + fc.toFixed(2) + ' Hz', fcx + 5*r, p.t + 16*r);
+
+  ctx.fillStyle = cv('--tx3'); ctx.font = (10*r) + 'px system-ui'; ctx.textAlign = 'right';
+  ctx.fillText('omega-squared falloff', p.l + pw - 4*r, p.t + ph - 8*r);
+}
+
+function drawMb(Wcur, mbCur, df) {
+  const c = document.getElementById('mbCanvas');
+  const ctx = c.getContext('2d');
+  const r = hi(c);
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const p = { l: 50*r, r: 30*r, t: 15*r, b: 40*r };
+  const pw = w - p.l - p.r, ph = h - p.t - p.b;
+  const wMin = -1, wMax = 4.2, mMin = 2, mMax = 8;
+
+  ctx.strokeStyle = cv('--bd'); ctx.lineWidth = 0.5*r;
+  ctx.font = (10*r) + 'px system-ui'; ctx.fillStyle = cv('--tx3');
+  ctx.textAlign = 'center';
+  for (let lw = wMin; lw <= wMax; lw++) {
+    const x = p.l + (lw - wMin) / (wMax - wMin) * pw;
+    ctx.beginPath(); ctx.moveTo(x, p.t); ctx.lineTo(x, p.t + ph); ctx.stroke();
+    const v = Math.pow(10, lw);
+    ctx.fillText(v >= 1000 ? (v/1000) + ' Mt' : v >= 1 ? v + ' kt' : (v*1000) + ' t', x, h - p.b + 16*r);
+  }
+  ctx.textAlign = 'right';
+  for (let m = mMin; m <= mMax; m++) {
+    const y = p.t + (mMax - m) / (mMax - mMin) * ph;
+    ctx.beginPath(); ctx.moveTo(p.l, y); ctx.lineTo(p.l + pw, y); ctx.stroke();
+    ctx.fillText('mb ' + m, p.l - 6*r, y + 4*r);
+  }
+
+  const imsY = p.t + (mMax - 3.5) / (mMax - mMin) * ph;
+  ctx.strokeStyle = cv('--red-light'); ctx.lineWidth = 1*r; ctx.setLineDash([6*r, 4*r]);
+  ctx.beginPath(); ctx.moveTo(p.l, imsY); ctx.lineTo(p.l + pw, imsY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = cv('--red'); ctx.font = (10*r) + 'px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText('IMS detection threshold (mb ~3.5)', p.l + 4*r, imsY - 5*r);
+
+  ctx.beginPath();
+  for (let i = 0; i <= 300; i++) {
+    const lw = wMin + (wMax - wMin) * i / 300;
+    const mbt = 4.0 + 0.75 * lw;
+    const x = p.l + (lw - wMin) / (wMax - wMin) * pw;
+    const y = p.t + (mMax - mbt) / (mMax - mMin) * ph;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = cv('--blue'); ctx.lineWidth = 2*r; ctx.stroke();
+
+  ctx.fillStyle = cv('--tx3'); ctx.font = (10*r) + 'px system-ui'; ctx.textAlign = 'right';
+  ctx.fillText('mb = 4.0 + 0.75 log10(W)', p.l + pw - 4*r, p.t + 14*r);
+
+  knownTests.forEach(t => {
+    const lw = Math.log10(t.W);
+    const x = p.l + (lw - wMin) / (wMax - wMin) * pw;
+    const y = p.t + (mMax - t.mb) / (mMax - mMin) * ph;
+    ctx.beginPath(); ctx.arc(x, y, 4*r, 0, Math.PI * 2);
+    ctx.fillStyle = cv('--coral-light'); ctx.fill();
+    ctx.fillStyle = cv('--tx3'); ctx.font = (8.5*r) + 'px system-ui'; ctx.textAlign = 'left';
+    ctx.fillText(t.name, x + 6*r, y + 3*r);
+  });
+
+  const lwCur = Math.log10(Math.max(Wcur, 0.01));
+  const xCur = p.l + (lwCur - wMin) / (wMax - wMin) * pw;
+  const yCur = p.t + (mMax - mbCur) / (mMax - mMin) * ph;
+  ctx.beginPath(); ctx.arc(xCur, yCur, 7*r, 0, Math.PI * 2);
+  ctx.fillStyle = cv('--red-fill'); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2*r; ctx.stroke();
+
+  if (df > 1) {
+    const mbC = 4.0 + 0.75 * lwCur;
+    const yC = p.t + (mMax - mbC) / (mMax - mMin) * ph;
+    ctx.setLineDash([3*r, 3*r]);
+    ctx.strokeStyle = cv('--red-light'); ctx.lineWidth = 1.5*r;
+    ctx.beginPath(); ctx.moveTo(xCur, yC); ctx.lineTo(xCur, yCur); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(xCur, yC, 4*r, 0, Math.PI * 2);
+    ctx.fillStyle = cv('--blue'); ctx.globalAlpha = 0.4; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = cv('--red'); ctx.font = (10*r) + 'px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('DF=' + df, xCur + 20*r, (yC + yCur) / 2 + 4*r);
+  }
+}
+
+function drawRDP(fc, W) {
+  const c = document.getElementById('rdpCanvas');
+  const ctx = c.getContext('2d');
+  const r = hi(c);
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const p = { l: 50*r, r: 20*r, t: 15*r, b: 40*r };
+  const pw = w - p.l - p.r, ph = h - p.t - p.b;
+  const tMax = Math.max(10 / fc, 5);
+
+  ctx.strokeStyle = cv('--bd'); ctx.lineWidth = 0.5*r;
+  ctx.font = (10*r) + 'px system-ui'; ctx.fillStyle = cv('--tx3');
+  ctx.textAlign = 'center';
+  const nTicks = 5;
+  for (let i = 0; i <= nTicks; i++) {
+    const t = tMax * i / nTicks;
+    const x = p.l + i / nTicks * pw;
+    ctx.beginPath(); ctx.moveTo(x, p.t); ctx.lineTo(x, p.t + ph); ctx.stroke();
+    ctx.fillText(t.toFixed(1) + ' s', x, h - p.b + 16*r);
+  }
+  ctx.textAlign = 'right';
+  for (let v = 0; v <= 1; v += 0.25) {
+    const y = p.t + (1 - v) * ph;
+    ctx.beginPath(); ctx.moveTo(p.l, y); ctx.lineTo(p.l + pw, y); ctx.stroke();
+    ctx.fillText(v.toFixed(2), p.l - 6*r, y + 4*r);
+  }
+  ctx.fillStyle = cv('--tx2'); ctx.font = (11*r) + 'px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Time (s)', p.l + pw/2, h - 4*r);
+  ctx.save(); ctx.translate(12*r, p.t + ph/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Normalized RDP', 0, 0); ctx.restore();
+
+  ctx.beginPath();
+  for (let i = 0; i <= 400; i++) {
+    const t = tMax * i / 400;
+    const v = rdpTime(t, fc);
+    const x = p.l + (t / tMax) * pw;
+    const y = p.t + (1 - v) * ph;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = cv('--blue'); ctx.lineWidth = 2.5*r; ctx.stroke();
+
+  const tau = 1 / (2 * Math.PI * fc);
+  const tauX = p.l + (tau / tMax) * pw;
+  ctx.strokeStyle = cv('--tx3'); ctx.lineWidth = 0.5*r; ctx.setLineDash([3*r, 3*r]);
+  ctx.beginPath(); ctx.moveTo(tauX, p.t); ctx.lineTo(tauX, p.t + ph); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = cv('--tx3'); ctx.font = (10*r) + 'px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText('tau = ' + tau.toFixed(2) + ' s', tauX + 4*r, p.t + ph - 8*r);
+}
+
+function drawPwave(fc, W, rk) {
+  const c = document.getElementById('pCanvas');
+  const ctx = c.getContext('2d');
+  const r = hi(c);
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const p = { l: 55*r, r: 20*r, t: 15*r, b: 40*r };
+  const pw = w - p.l - p.r, ph = h - p.t - p.b;
+
+  const rc = cavityR(W, rk.rho);
+  const m0 = 4 * Math.PI * rk.rho * rk.vp * rk.vp * rc * rc * rc;
+  const dist = 1e6;
+  const geoSpread = 1.0 / (4 * Math.PI * rk.rho * rk.vp * rk.vp * rk.vp * dist);
+  const tMax = Math.max(15 / fc, 8);
+
+  const vel = [];
+  let maxV = 0;
+  for (let i = 0; i <= 500; i++) {
+    const t = tMax * i / 500;
+    const tau = 1 / (2 * Math.PI * fc);
+    const v = t <= 0 ? 0 : m0 * geoSpread * (1 / (tau * tau)) * (1 - t / tau) * Math.exp(-t / tau);
+    vel.push(v);
+    maxV = Math.max(maxV, Math.abs(v));
+  }
+  if (maxV === 0) maxV = 1;
+
+  ctx.strokeStyle = cv('--bd'); ctx.lineWidth = 0.5*r;
+  ctx.font = (10*r) + 'px system-ui'; ctx.fillStyle = cv('--tx3');
+  ctx.textAlign = 'center';
+  const nT = 5;
+  for (let i = 0; i <= nT; i++) {
+    const t = tMax * i / nT;
+    const x = p.l + i / nT * pw;
+    ctx.beginPath(); ctx.moveTo(x, p.t); ctx.lineTo(x, p.t + ph); ctx.stroke();
+    ctx.fillText(t.toFixed(1) + ' s', x, h - p.b + 16*r);
+  }
+
+  const zeroY = p.t + ph * 0.35;
+  ctx.strokeStyle = cv('--bd'); ctx.lineWidth = 0.5*r;
+  ctx.beginPath(); ctx.moveTo(p.l, zeroY); ctx.lineTo(p.l + pw, zeroY); ctx.stroke();
+
+  ctx.textAlign = 'right';
+  const vScale = maxV * 1.3;
+  [-1, -0.5, 0, 0.5, 1].forEach(f => {
+    const y = zeroY - (f * ph * 0.45 / 1.3);
+    const vv = f * vScale;
+    let label;
+    const av = Math.abs(vv);
+    if (av >= 1e6) label = (vv / 1e6).toFixed(1) + 'e6';
+    else if (av >= 1e3) label = (vv / 1e3).toFixed(1) + 'e3';
+    else label = vv.toFixed(1);
+    ctx.fillText(label, p.l - 4*r, y + 4*r);
+  });
+
+  ctx.fillStyle = cv('--tx2'); ctx.font = (11*r) + 'px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Time (s)', p.l + pw/2, h - 4*r);
+  ctx.save(); ctx.translate(12*r, p.t + ph/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Velocity (nm/s)', 0, 0); ctx.restore();
+
+  ctx.beginPath();
+  vel.forEach((v, i) => {
+    const t = tMax * i / 500;
+    const x = p.l + (t / tMax) * pw;
+    const y = zeroY - (v / vScale) * ph * 0.45;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = cv('--blue'); ctx.lineWidth = 2*r; ctx.stroke();
+
+  const area = [];
+  vel.forEach((v, i) => {
+    const t = tMax * i / 500;
+    const x = p.l + (t / tMax) * pw;
+    const y = zeroY - (v / vScale) * ph * 0.45;
+    area.push({ x, y });
+  });
+  ctx.beginPath();
+  ctx.moveTo(area[0].x, zeroY);
+  area.forEach(pt => ctx.lineTo(pt.x, pt.y));
+  ctx.lineTo(area[area.length-1].x, zeroY);
+  ctx.closePath();
+  ctx.fillStyle = isDark ? 'rgba(133,183,235,0.08)' : 'rgba(24,95,165,0.06)';
+  ctx.fill();
+}
+
+['yield', 'depth', 'rock', 'decouple'].forEach(id =>
+  document.getElementById(id).addEventListener('input', () => {
+    activePreset = -1;
+    document.querySelectorAll('.test-btn').forEach(b => b.classList.remove('active'));
+    update();
+  })
+);
+
+update();
+</script>
+</body>
+</html>
