@@ -472,14 +472,33 @@ def fig01_station_map(outdir):
         ax.plot(gc_lons, gc_lats, "-", color="#bbb", lw=0.6, alpha=0.7, zorder=2)
 
     # Plot stations as triangles, color-coded by distance
+    # Manual label offsets to avoid overlapping text
+    label_offsets = {
+        "IC.WMQ":  (0.5, 0.6),
+        "IU.MAKZ": (-6.0, 1.0),
+        "KZ.MKAR": (0.5, 0.6),
+        "G.WUS":   (-7.0, -1.5),
+        "KZ.PDGK": (-7.0, 0.5),
+        "KR.PRZ":  (0.5, -1.5),
+        "KZ.KNDC": (0.5, -1.5),
+        "II.AAK":  (-6.0, -1.5),
+        "II.KURK": (0.5, 0.6),
+        "IC.LSA":  (0.5, 0.6),
+        "II.NIL":  (-6.0, 0.5),
+        "IC.XAN":  (0.5, 0.6),
+    }
     for net_sta, name, slat, slon, dist, az in STATIONS:
         col = station_color(dist)
         ax.plot(slon, slat, "^", color=col, ms=10, markeredgecolor="k",
                 markeredgewidth=0.8, zorder=5)
         # Label with net.sta and distance
-        ax.text(slon + 0.5, slat + 0.4, f"{net_sta}\n({dist} km)",
-                fontsize=6.5, color="#333", fontweight="bold",
-                ha="left", va="bottom", zorder=6)
+        dx, dy = label_offsets.get(net_sta, (0.5, 0.5))
+        ax.annotate(f"{net_sta}\n({dist} km)",
+                    xy=(slon, slat), xytext=(slon + dx, slat + dy),
+                    fontsize=6.5, color="#333", fontweight="bold",
+                    ha="left" if dx > 0 else "right", va="bottom",
+                    arrowprops=dict(arrowstyle="-", color="#999", lw=0.5),
+                    zorder=6)
 
     # Plot event as red star
     ax.plot(EVENT_LON, EVENT_LAT, "*", color="red", ms=22,
@@ -576,8 +595,8 @@ def fig02_hypothesis_space(outdir):
                 ms=14, markeredgecolor="k", markeredgewidth=1.5, zorder=10)
         mb_pred = MuellerMurphySource.mb_from_yield(sc["yield_kt"], sc["df"])
         label_text = f'{key}: {sc["label"]}\nmb = {mb_pred:.2f}'
-        # Offset labels to avoid overlap
-        offsets = {"A": (2.0, -0.3), "B": (1.5, 0.3), "C": (1.5, -0.3)}
+        # Position labels so they stay inside the plot area
+        offsets = {"A": (0.3, -0.6), "B": (-1.5, 0.5), "C": (-1.5, -0.5)}
         ox, oy = offsets[key]
         ax.annotate(label_text,
                     xy=(sc["yield_kt"], sc["df"]),
@@ -686,7 +705,8 @@ def fig03_source_comparison(outdir):
         bar_colors.append(sc["color"])
         bar_labels.append(f'{key}: {sc["label"]}')
 
-    bars = ax.bar(bar_labels, mb_values, color=bar_colors, alpha=0.8,
+    short_labels = ["A: 21t coupled", "B: 1kt dec.", "C: 2kt dec."]
+    bars = ax.bar(short_labels, mb_values, color=bar_colors, alpha=0.8,
                   edgecolor="k", linewidth=0.8)
     ax.axhline(3.5, color="gray", ls="--", lw=2, label="IMS threshold (mb=3.5)")
     ax.axhline(MB_OBSERVED, color="red", ls=":", lw=2,
@@ -702,7 +722,7 @@ def fig03_source_comparison(outdir):
                  fontweight="bold")
     ax.legend(fontsize=9)
     ax.set_ylim(0, 5)
-    ax.tick_params(axis="x", labelsize=7, rotation=15)
+    ax.tick_params(axis="x", labelsize=9)
     ax.grid(True, alpha=0.2, axis="y")
 
     # ---- Panel (d): Far-field P-wave velocity at 780 km (MAKZ) ----
@@ -713,12 +733,17 @@ def fig03_source_comparison(outdir):
     for key in scenario_keys:
         src, sc = sources[key]
         v_ff = src.far_field_velocity(t, dist_m, df=sc["df"])
-        # Convert to nm/s for display
-        ax.plot(t, v_ff * 1e9, "-", color=sc["color"], lw=1.5,
-                label=f'{key}: {sc["label"]}')
+        # Normalise to peak of largest scenario for comparison
+        peak = np.max(np.abs(v_ff))
+        if peak > 0:
+            ax.plot(t, v_ff / peak, "-", color=sc["color"], lw=1.5,
+                    label=f'{key} (peak: {peak:.2e} m/s)')
+        else:
+            ax.plot(t, v_ff, "-", color=sc["color"], lw=1.5,
+                    label=f'{key}')
 
     ax.set_xlabel("Time (s)", fontsize=11, fontweight="bold")
-    ax.set_ylabel("Velocity (nm/s)", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Normalised velocity", fontsize=11, fontweight="bold")
     ax.set_title("(d) Far-field P Velocity at 780 km (MAKZ)",
                  fontsize=12, fontweight="bold")
     ax.legend(fontsize=8)
@@ -786,8 +811,14 @@ def fig04_synthetic_record_section(outdir):
         ax.fill_between(t_full, dist, dist + trace,
                         where=(trace < 0), color="blue", alpha=0.2, zorder=2)
 
-        # Station label
-        ax.text(2, dist, f" {net_sta} ({phase}, {tt_s:.1f} s)",
+        # Station label -- offset vertically if stations are close together
+        label_y = dist
+        # Nudge labels that would overlap at similar distances
+        if i > 0:
+            prev_dist = sorted_stations[i - 1][4]
+            if abs(dist - prev_dist) < 30:
+                label_y = dist + 15  # offset slightly upward
+        ax.text(2, label_y, f" {net_sta} ({phase}, {tt_s:.1f} s)",
                 fontsize=7, va="center", ha="left", color="#333", zorder=6)
 
     # P travel time moveout line
@@ -937,10 +968,10 @@ def fig06_two_pulse_analysis(outdir):
     else:
         scale = 1.0
 
-    ax.plot(t, v1 * scale, "b-", lw=0.8, alpha=0.5, label="Explosion (t=0)")
-    ax.plot(t, v2 * scale, "r-", lw=0.8, alpha=0.5,
+    ax.plot(t, v1 * scale, "b-", lw=1.5, alpha=0.7, label="Explosion (t=0)")
+    ax.plot(t, v2 * scale, "r-", lw=1.5, alpha=0.7,
             label="Cavity collapse (t=12 s)")
-    ax.plot(t, composite * scale, "k-", lw=1.2, label="Composite")
+    ax.plot(t, composite * scale, "k-", lw=2.0, label="Composite")
     ax.axvline(12.0, color="gray", ls=":", lw=1, alpha=0.5)
     ax.set_ylabel("Normalised velocity", fontsize=11, fontweight="bold")
     ax.set_title("(a) Explosion + cavity roof collapse (implosive, negative first motion)",
@@ -972,11 +1003,11 @@ def fig06_two_pulse_analysis(outdir):
     else:
         scale_b = 1.0
 
-    ax.plot(t, v1 * scale_b, "b-", lw=0.8, alpha=0.5,
+    ax.plot(t, v1 * scale_b, "b-", lw=1.5, alpha=0.7,
             label="Primary explosion (t=0)")
-    ax.plot(t, v2_shot * scale_b, "orange", lw=0.8, alpha=0.5,
+    ax.plot(t, v2_shot * scale_b, "-", color="darkorange", lw=1.5, alpha=0.7,
             label="Containment shot (t=12 s, 10%)")
-    ax.plot(t, composite_b * scale_b, "k-", lw=1.2, label="Composite")
+    ax.plot(t, composite_b * scale_b, "k-", lw=2.0, label="Composite")
     ax.axvline(12.0, color="gray", ls=":", lw=1, alpha=0.5)
     ax.set_ylabel("Normalised velocity", fontsize=11, fontweight="bold")
     ax.set_title("(b) Explosion + tunnel containment shot (10% amplitude, t=12 s)",
@@ -1090,7 +1121,12 @@ def fig07_discrimination(outdir):
     ax.text(3.5, 5.0, "EARTHQUAKE", fontsize=13, color="blue", alpha=0.4,
             fontweight="bold", fontstyle="italic")
 
-    # Plot the three Lop Nor 2020 hypotheses
+    # Plot the three Lop Nor 2020 hypotheses -- stagger annotations to avoid overlap
+    annot_offsets = {
+        "A": (1.5, 2.5),
+        "B": (2.5, 1.2),
+        "C": (1.0, 3.8),
+    }
     for key in ["A", "B", "C"]:
         sc = SCENARIOS[key]
         mb_val = MuellerMurphySource.mb_from_yield(sc["yield_kt"], sc["df"])
@@ -1098,11 +1134,12 @@ def fig07_discrimination(outdir):
         ms_val = mb_val - 1.2
         ax.plot(mb_val, ms_val, "*", color=sc["color"], ms=20,
                 markeredgecolor="k", markeredgewidth=1.0, zorder=10)
+        tx, ty = annot_offsets[key]
         ax.annotate(f'{key}: {sc["label"]}\nmb={mb_val:.2f}, Ms={ms_val:.2f}',
                     xy=(mb_val, ms_val),
-                    xytext=(mb_val + 0.5, ms_val + 0.8),
+                    xytext=(tx, ty),
                     fontsize=8, fontweight="bold", color=sc["color"],
-                    arrowprops=dict(arrowstyle="->", color=sc["color"]),
+                    arrowprops=dict(arrowstyle="->", color=sc["color"], lw=1.5),
                     bbox=dict(boxstyle="round,pad=0.2", fc="white",
                               ec=sc["color"], alpha=0.9),
                     zorder=11)
