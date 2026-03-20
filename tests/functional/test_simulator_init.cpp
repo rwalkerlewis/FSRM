@@ -40,3 +40,9 @@ TEST_F(SimulatorInitTest, SetupDMWithDefaultGridConfig) {
     ierr = sim.setupDM();
     EXPECT_EQ(ierr, 0);
 }
+
+TEST_F(SimulatorInitTest, ConfigReaderUsableWithSimulationDefaults) {
+    ConfigReader reader;
+    SimulationConfig parsed{};
+    EXPECT_FALSE(reader.parseSimulationConfig(parsed));
+}
