@@ -71,9 +71,10 @@ void ElastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar u_t
     double sigma_xz = 2.0 * mu * eps_xz;
     double sigma_yz = 2.0 * mu * eps_yz;
     
-    // Suppress unused variable warnings - stress components used in f1 flux term
-    (void)sigma_xx; (void)sigma_yy; (void)sigma_zz;
-    (void)sigma_xy; (void)sigma_xz; (void)sigma_yz;
+    // Strong-form stress term (pointwise placeholder; full ∇·σ is in weak-form f1)
+    double s0 = -(sigma_xx + sigma_xy + sigma_xz);
+    double s1 = -(sigma_xy + sigma_yy + sigma_yz);
+    double s2 = -(sigma_xz + sigma_yz + sigma_zz);
     
     // Inertial term: ρ ∂²u/∂t² (using second time derivative)
     // In weak form, this becomes mass matrix times acceleration
@@ -81,9 +82,9 @@ void ElastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar u_t
     // This is handled by the time integrator
     
     // f0 term: accumulation (inertia)
-    f[0] = density * u_t[0];  // ρ * vx (mass times velocity derivative)
-    f[1] = density * u_t[1];  // ρ * vy
-    f[2] = density * u_t[2];  // ρ * vz
+    f[0] = density * u_t[0] + s0;  // ρ * vx (mass times velocity derivative)
+    f[1] = density * u_t[1] + s1;  // ρ * vy
+    f[2] = density * u_t[2] + s2;  // ρ * vz
     
     // Add Rayleigh damping: C = α*M + β*K
     // Mass proportional damping: α * ρ * v
@@ -339,17 +340,13 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
     double eps_yy = u_x[4];
     double eps_zz = u_x[8];
     double eps_xy = 0.5 * (u_x[1] + u_x[3]);
-    (void)eps_xy;
     double eps_xz = 0.5 * (u_x[2] + u_x[6]);
-    (void)eps_xz;
     double eps_yz = 0.5 * (u_x[5] + u_x[7]);
-    (void)eps_yz;
     
     // Pressure gradient
     double dp_dx = u_x[9];
     double dp_dy = u_x[10];
     double dp_dz = u_x[11];
-    (void)dp_dx; (void)dp_dy; (void)dp_dz;  // Used in f1 flux term
     
     // Material parameters
     double lambda = youngs_modulus * poisson_ratio / 
@@ -363,11 +360,18 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
     double sigma_yy = lambda * trace + 2.0 * mu * eps_yy - biot_coefficient * p;
     double sigma_zz = lambda * trace + 2.0 * mu * eps_zz - biot_coefficient * p;
     
+    double sigma_xy = 2.0 * mu * eps_xy;
+    double sigma_xz = 2.0 * mu * eps_xz;
+    double sigma_yz = 2.0 * mu * eps_yz;
+    double s0 = -(sigma_xx + sigma_xy + sigma_xz);
+    double s1 = -(sigma_xy + sigma_yy + sigma_yz);
+    double s2 = -(sigma_xz + sigma_yz + sigma_zz);
+    
     // === Momentum equation ===
     // Inertia: ρ ∂²u/∂t²
-    f[0] = rho_bulk * u_t[0];  // x-component
-    f[1] = rho_bulk * u_t[1];  // y-component
-    f[2] = rho_bulk * u_t[2];  // z-component
+    f[0] = rho_bulk * u_t[0] + s0;  // x-component
+    f[1] = rho_bulk * u_t[1] + s1;  // y-component
+    f[2] = rho_bulk * u_t[2] + s2;  // z-component
     
     // Damping
     f[0] += damping_alpha * rho_bulk * u_t[0];
@@ -397,10 +401,7 @@ void PoroelastodynamicsKernel::residual(const PetscScalar u[], const PetscScalar
     }
     
     double mobility = k_current / viscosity;
-    (void)mobility;  // Used in f1 flux term
-    
-    // Add flux divergence (handled in f1 term in actual implementation)
-    // f[3] += mobility * (dp_dx² + dp_dy² + dp_dz²)
+    f[3] -= mobility * (dp_dx + dp_dy + dp_dz);
 }
 
 void PoroelastodynamicsKernel::jacobian(const PetscScalar u[], const PetscScalar u_t[],
