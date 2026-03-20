@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/scecpedia/LOH.4
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC LOH.4: Multiple Layers\n";

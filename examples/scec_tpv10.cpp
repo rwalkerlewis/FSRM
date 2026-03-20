@@ -15,7 +15,7 @@
  *   mpirun -np 16 ./scec_tpv10 -c config/scec_tpv10.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV10: Dynamic Rupture with Branching Fault\n"

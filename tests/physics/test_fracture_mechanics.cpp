@@ -12,9 +12,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "FractureModel.hpp"
-#include "FractureNetwork.hpp"
+#include "core/Testing.hpp"
+#include "domain/geomechanics/FractureModel.hpp"
+#include "domain/geomechanics/FractureNetwork.hpp"
 #include <cmath>
 #include <vector>
 

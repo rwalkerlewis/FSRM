@@ -4,8 +4,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "Simulator.hpp"
-#include "FSRM.hpp"
+#include "core/Simulator.hpp"
+#include "core/FSRM.hpp"
 #include <fstream>
 #include <cstdio>
 

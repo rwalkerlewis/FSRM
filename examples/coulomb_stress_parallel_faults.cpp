@@ -31,8 +31,8 @@
  *   - Okada (1992), BSSA: Internal deformation due to shear and tensile faults
  */
 
-#include "FaultModel.hpp"
-#include "Visualization.hpp"
+#include "domain/geomechanics/FaultModel.hpp"
+#include "io/Visualization.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>

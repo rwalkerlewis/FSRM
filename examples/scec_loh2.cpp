@@ -20,7 +20,7 @@
  *   mpirun -np 8 ./scec_loh2 -c config/scec_loh2.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC LOH.2: Layer Over Halfspace - Heterogeneous\n"

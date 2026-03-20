@@ -4,7 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include "FluidModel.hpp"
+#include "domain/reservoir/FluidModel.hpp"
 #include <cmath>
 
 using namespace FSRM;

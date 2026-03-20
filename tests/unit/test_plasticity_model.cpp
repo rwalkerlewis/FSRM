@@ -11,8 +11,8 @@
  * - Consistent tangent modulus
  */
 
-#include "PlasticityModel.hpp"
-#include "Testing.hpp"
+#include "domain/geomechanics/PlasticityModel.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

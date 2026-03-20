@@ -13,7 +13,7 @@
  *   mpirun -np 4 ./spe2 -c config/spe2_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE2: Three-Phase Coning Benchmark\n"

@@ -11,10 +11,10 @@
  */
 
 #include <gtest/gtest.h>
-#include "PhysicsKernel.hpp"
-#include "PoroelasticSolver.hpp"
-#include "FractureModel.hpp"
-#include "TwoPhaseFlow.hpp"
+#include "physics/PhysicsKernel.hpp"
+#include "numerics/PoroelasticSolver.hpp"
+#include "domain/geomechanics/FractureModel.hpp"
+#include "domain/reservoir/TwoPhaseFlow.hpp"
 #include <chrono>
 #include <vector>
 #include <cmath>

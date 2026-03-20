@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv26_27docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV26: Thermal Pressurization\n";

@@ -12,8 +12,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "TsunamiModel.hpp"
+#include "core/Testing.hpp"
+#include "domain/ocean/TsunamiModel.hpp"
 #include <cmath>
 #include <vector>
 #include <complex>

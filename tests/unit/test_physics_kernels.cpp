@@ -4,8 +4,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "PhysicsKernel.hpp"
-#include "FSRM.hpp"
+#include "physics/PhysicsKernel.hpp"
+#include "core/FSRM.hpp"
 #include <cmath>
 
 using namespace FSRM;

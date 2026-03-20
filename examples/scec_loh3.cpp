@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/scecpedia/LOH.3
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC LOH.3: Layer Over Halfspace - Attenuation\n";

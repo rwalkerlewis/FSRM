@@ -11,8 +11,8 @@
  * - Configuration and factory functions
  */
 
-#include "PyLithFault.hpp"
-#include "Testing.hpp"
+#include "domain/geomechanics/PyLithFault.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

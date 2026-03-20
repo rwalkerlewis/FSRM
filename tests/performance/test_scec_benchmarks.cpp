@@ -10,9 +10,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "Simulator.hpp"
-#include "FaultModel.hpp"
-#include "PhysicsKernel.hpp"
+#include "core/Simulator.hpp"
+#include "domain/geomechanics/FaultModel.hpp"
+#include "physics/PhysicsKernel.hpp"
 #include <chrono>
 #include <cmath>
 

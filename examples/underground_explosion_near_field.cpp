@@ -33,7 +33,7 @@
  *   ./underground_explosion_near_field "" 150                 # 150 kt yield
  */
 
-#include "NearFieldExplosion.hpp"
+#include "domain/explosion/NearFieldExplosion.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>

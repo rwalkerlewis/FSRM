@@ -4,9 +4,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "Simulator.hpp"
-#include "PhysicsKernel.hpp"
-#include "FSRM.hpp"
+#include "core/Simulator.hpp"
+#include "physics/PhysicsKernel.hpp"
+#include "core/FSRM.hpp"
 #include <chrono>
 #include <vector>
 #include <cmath>

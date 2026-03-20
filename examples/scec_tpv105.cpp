@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv105docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV105: Damage Mechanics\n";

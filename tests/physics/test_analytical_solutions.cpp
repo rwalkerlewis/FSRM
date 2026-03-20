@@ -4,7 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 
 using namespace FSRM;

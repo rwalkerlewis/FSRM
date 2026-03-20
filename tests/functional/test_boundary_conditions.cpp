@@ -4,7 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include "FSRM.hpp"
+#include "core/FSRM.hpp"
 #include <cmath>
 
 using namespace FSRM;

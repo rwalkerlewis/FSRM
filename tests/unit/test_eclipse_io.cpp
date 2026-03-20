@@ -4,8 +4,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "EclipseIO.hpp"
-#include "FSRM.hpp"
+#include "io/EclipseIO.hpp"
+#include "core/FSRM.hpp"
 #include <fstream>
 #include <cstdio>
 

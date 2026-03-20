@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv28docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV28: T-Junction Fault\n";

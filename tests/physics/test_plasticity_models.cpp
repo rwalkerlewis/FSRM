@@ -12,9 +12,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "PlasticityModel.hpp"
-#include "MaterialModel.hpp"
+#include "core/Testing.hpp"
+#include "domain/geomechanics/PlasticityModel.hpp"
+#include "domain/geomechanics/MaterialModel.hpp"
 #include <cmath>
 #include <array>
 

@@ -11,8 +11,8 @@
  * - Hybrid solver modes
  */
 
-#include "FourierNeuralOperator.hpp"
-#include "Testing.hpp"
+#include "ml/FourierNeuralOperator.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

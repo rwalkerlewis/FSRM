@@ -1,5 +1,5 @@
-#include "Testing.hpp"
-#include "FractureModel.hpp"
+#include "core/Testing.hpp"
+#include "domain/geomechanics/FractureModel.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 

@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv7docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV7: Strike-Slip with VS Barrier\n";

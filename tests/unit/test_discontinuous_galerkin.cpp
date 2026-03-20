@@ -11,8 +11,8 @@
  * - Local time stepping
  */
 
-#include "DiscontinuousGalerkin.hpp"
-#include "Testing.hpp"
+#include "numerics/DiscontinuousGalerkin.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

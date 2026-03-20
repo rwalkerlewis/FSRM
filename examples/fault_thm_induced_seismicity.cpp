@@ -22,7 +22,7 @@
  *   ./fault_thm_induced_seismicity [config_file]
  */
 
-#include "PyLithFault.hpp"
+#include "domain/geomechanics/PyLithFault.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>

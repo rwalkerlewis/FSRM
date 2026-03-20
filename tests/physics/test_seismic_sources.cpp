@@ -12,9 +12,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "SeismicSource.hpp"
-#include "PhysicsKernel.hpp"
+#include "core/Testing.hpp"
+#include "domain/seismic/SeismicSource.hpp"
+#include "physics/PhysicsKernel.hpp"
 #include <cmath>
 #include <vector>
 #include <array>

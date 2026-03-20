@@ -9,12 +9,12 @@
  * - LOH1: Layer over halfspace
  */
 
-#include "Simulator.hpp"
-#include "DiscontinuousGalerkin.hpp"
-#include "FaultModel.hpp"
-#include "BoundaryConditions.hpp"
-#include "SeismicSource.hpp"
-#include "Testing.hpp"
+#include "core/Simulator.hpp"
+#include "numerics/DiscontinuousGalerkin.hpp"
+#include "domain/geomechanics/FaultModel.hpp"
+#include "numerics/BoundaryConditions.hpp"
+#include "domain/seismic/SeismicSource.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <fstream>

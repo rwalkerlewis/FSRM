@@ -18,7 +18,7 @@
  *   mpirun -np 4 ./spe3 -c config/spe3_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE3: Gas Cycling Benchmark\n"

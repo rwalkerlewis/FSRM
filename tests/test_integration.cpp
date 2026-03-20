@@ -1,6 +1,6 @@
-#include "Testing.hpp"
-#include "Simulator.hpp"
-#include "ConfigReader.hpp"
+#include "core/Testing.hpp"
+#include "core/Simulator.hpp"
+#include "core/ConfigReader.hpp"
 #include <gtest/gtest.h>
 #include <fstream>
 

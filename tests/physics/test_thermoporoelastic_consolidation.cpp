@@ -17,9 +17,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "MaterialModel.hpp"
-#include "PhysicsKernel.hpp"
+#include "core/Testing.hpp"
+#include "domain/geomechanics/MaterialModel.hpp"
+#include "physics/PhysicsKernel.hpp"
 #include <cmath>
 #include <vector>
 #include <numeric>

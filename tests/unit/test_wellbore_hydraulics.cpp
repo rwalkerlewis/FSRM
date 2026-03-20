@@ -4,8 +4,8 @@
  */
  
 #include <gtest/gtest.h>
-#include "WellboreHydraulics.hpp"
-#include "WellModel.hpp"
+#include "domain/reservoir/WellboreHydraulics.hpp"
+#include "domain/reservoir/WellModel.hpp"
 #include <cmath>
  
 using namespace FSRM;

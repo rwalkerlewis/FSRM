@@ -9,8 +9,8 @@
  * - Periodic and symmetry conditions
  */
 
-#include "BoundaryConditions.hpp"
-#include "Testing.hpp"
+#include "numerics/BoundaryConditions.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

@@ -17,9 +17,9 @@
 #include <petsc.h>
 
 #ifdef ENABLE_CUDA
-#include "GPUManager.hpp"
-#include "GPUKernels.cuh"
-#include "PhysicsKernel_GPU.hpp"
+#include "gpu/GPUManager.hpp"
+#include "gpu/GPUKernels.cuh"
+#include "physics/PhysicsKernel_GPU.hpp"
 using namespace FSRM;
 #endif
 

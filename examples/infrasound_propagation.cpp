@@ -26,9 +26,9 @@
 #include <memory>
 #include <cmath>
 
-#include "AtmosphericInfrasound.hpp"
-#include "UnitSystem.hpp"
-#include "ConfigReader.hpp"
+#include "domain/atmospheric/AtmosphericInfrasound.hpp"
+#include "util/UnitSystem.hpp"
+#include "core/ConfigReader.hpp"
 
 using namespace FSRM;
 

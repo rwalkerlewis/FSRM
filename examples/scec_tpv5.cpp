@@ -22,7 +22,7 @@
  *   mpirun -np 8 ./scec_tpv5 -c config/scec_tpv5.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV5: Strike-Slip Dynamic Rupture Benchmark\n"

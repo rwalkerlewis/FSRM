@@ -10,8 +10,8 @@
  * - Dispersion relations
  */
 
-#include "ViscoelasticAttenuation.hpp"
-#include "Testing.hpp"
+#include "domain/geomechanics/ViscoelasticAttenuation.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

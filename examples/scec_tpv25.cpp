@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv24_25docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV25: Japan Benchmark - Heterogeneous Stress\n";

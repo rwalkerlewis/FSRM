@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv34_35docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV35: Off-Fault Plasticity Heterogeneous\n";

@@ -12,8 +12,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "VolcanoModel.hpp"
+#include "core/Testing.hpp"
+#include "domain/volcano/VolcanoModel.hpp"
 #include <cmath>
 #include <vector>
 

@@ -4,7 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include "MaterialModel.hpp"
+#include "domain/geomechanics/MaterialModel.hpp"
 #include <cmath>
 
 using namespace FSRM;

@@ -16,7 +16,7 @@
  *   mpirun -np 4 ./spe1 -c config/spe1_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE1: First SPE Comparative Solution Project\n"

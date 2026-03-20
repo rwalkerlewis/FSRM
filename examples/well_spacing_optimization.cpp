@@ -44,13 +44,13 @@
  *       -well_spacing 250.0 -stage_spacing 50.0 -eval_only
  */
 
-#include "Simulator.hpp"
-#include "WellModel.hpp"
-#include "FractureModel.hpp"
-#include "StressShadowing.hpp"
+#include "core/Simulator.hpp"
+#include "domain/reservoir/WellModel.hpp"
+#include "domain/geomechanics/FractureModel.hpp"
+#include "domain/reservoir/StressShadowing.hpp"
 // Note: We define our own ProductionForecast locally to avoid linker issues
 // with unimplemented library constructors
-#include "ConfigReader.hpp"
+#include "core/ConfigReader.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>

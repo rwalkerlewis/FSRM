@@ -16,12 +16,12 @@
 #include <memory>
 
 // Include ECLIPSE feature headers
-#include "AquiferModel.hpp"
-#include "TracerModel.hpp"
-#include "VFPTables.hpp"
-#include "GroupControl.hpp"
-#include "RelativePermeability.hpp"
-#include "SummaryOutput.hpp"
+#include "domain/reservoir/AquiferModel.hpp"
+#include "domain/reservoir/TracerModel.hpp"
+#include "io/VFPTables.hpp"
+#include "domain/reservoir/GroupControl.hpp"
+#include "domain/reservoir/RelativePermeability.hpp"
+#include "io/SummaryOutput.hpp"
 
 using namespace FSRM;
 

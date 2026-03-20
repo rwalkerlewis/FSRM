@@ -1,5 +1,5 @@
-#include "Testing.hpp"
-#include "PhysicsKernel.hpp"
+#include "core/Testing.hpp"
+#include "physics/PhysicsKernel.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 

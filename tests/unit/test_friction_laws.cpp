@@ -10,8 +10,8 @@
  * - Strong velocity weakening
  */
 
-#include "FaultModel.hpp"
-#include "Testing.hpp"
+#include "domain/geomechanics/FaultModel.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

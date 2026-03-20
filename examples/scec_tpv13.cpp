@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv12_13docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV13: Dipping Fault with Rate-State Friction\n";

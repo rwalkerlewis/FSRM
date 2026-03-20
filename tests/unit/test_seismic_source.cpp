@@ -10,8 +10,8 @@
  * - Receivers
  */
 
-#include "SeismicSource.hpp"
-#include "Testing.hpp"
+#include "domain/seismic/SeismicSource.hpp"
+#include "core/Testing.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>

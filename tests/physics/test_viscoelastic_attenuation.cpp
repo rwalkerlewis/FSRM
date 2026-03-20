@@ -12,8 +12,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "ViscoelasticAttenuation.hpp"
+#include "core/Testing.hpp"
+#include "domain/geomechanics/ViscoelasticAttenuation.hpp"
 #include <cmath>
 #include <complex>
 #include <vector>

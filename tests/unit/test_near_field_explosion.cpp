@@ -5,7 +5,7 @@
  
 #include <gtest/gtest.h>
  
-#include "NearFieldExplosion.hpp"
+#include "domain/explosion/NearFieldExplosion.hpp"
  
 #include <cmath>
 #include <map>

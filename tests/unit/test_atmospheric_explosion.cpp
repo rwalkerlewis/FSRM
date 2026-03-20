@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "AtmosphericExplosion.hpp"
+#include "domain/explosion/AtmosphericExplosion.hpp"
 
 #include <cmath>
 #include <map>

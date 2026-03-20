@@ -11,9 +11,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "PoroelasticSolver.hpp"
-#include "PhysicsKernel.hpp"
+#include "core/Testing.hpp"
+#include "numerics/PoroelasticSolver.hpp"
+#include "physics/PhysicsKernel.hpp"
 #include <cmath>
 #include <vector>
 

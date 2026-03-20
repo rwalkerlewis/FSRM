@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include "FSRM.hpp"
-#include "Simulator.hpp"
-#include "Testing.hpp"
+#include "core/FSRM.hpp"
+#include "core/Simulator.hpp"
+#include "core/Testing.hpp"
 #include <mpi.h>
 #include <fstream>
 #include <chrono>

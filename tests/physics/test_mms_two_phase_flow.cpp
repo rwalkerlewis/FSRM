@@ -10,8 +10,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "Testing.hpp"
-#include "TwoPhaseFlow.hpp"
+#include "core/Testing.hpp"
+#include "domain/reservoir/TwoPhaseFlow.hpp"
 #include <cmath>
 #include <vector>
 #include <numeric>

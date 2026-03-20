@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 #include <petsc.h>
-#include "AdaptiveMeshRefinement.hpp"
+#include "numerics/AdaptiveMeshRefinement.hpp"
 
 using namespace FSRM;
 

@@ -12,7 +12,7 @@
  * @author FSRM Development Team
  */
 
-#include "NuclearAirburstEffects.hpp"
+#include "domain/explosion/NuclearAirburstEffects.hpp"
 
 #include <cstring>
 #include <fstream>

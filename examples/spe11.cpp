@@ -30,7 +30,7 @@
  *   mpirun -np 32 ./spe11 -c config/spe11c_benchmark.config # Case C
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE11: CO2 Storage Benchmark\n"

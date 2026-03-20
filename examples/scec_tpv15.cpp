@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv14_15docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV15: Branching Fault - Branch Dominant\n";

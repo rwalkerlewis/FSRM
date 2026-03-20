@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "RadiationPhysics.hpp"
+#include "domain/explosion/RadiationPhysics.hpp"
 
 #include <cmath>
 #include <map>

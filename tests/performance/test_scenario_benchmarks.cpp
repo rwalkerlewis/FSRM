@@ -11,8 +11,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "Simulator.hpp"
-#include "ConfigReader.hpp"
+#include "core/Simulator.hpp"
+#include "core/ConfigReader.hpp"
 #include <chrono>
 #include <fstream>
 
