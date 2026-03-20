@@ -150,5 +150,68 @@ double SphericalCavitySource::equivalentMoment() const {
     return (4.0 / 3.0) * M_PI * std::pow(cavity_radius, 3) * initial_pressure;
 }
 
+// =============================================================================
+// MuellerMurphySource (reduced displacement potential proxy)
+// =============================================================================
+
+MuellerMurphySource::MuellerMurphySource()
+    : density(2700.0),
+      p_velocity(5000.0),
+      s_velocity(3000.0),
+      corner_frequency(1.0),
+      scalar_moment(0.0),
+      overshoot(1.0),
+      rise_time(0.05) {}
+
+void MuellerMurphySource::setParameters(const NuclearSourceParameters& params) {
+    source_params = params;
+    computeDerivedQuantities();
+}
+
+void MuellerMurphySource::setMediumProperties(double rho, double vp, double vs) {
+    density = std::max(1.0, rho);
+    p_velocity = std::max(1.0, vp);
+    s_velocity = std::max(1.0, vs);
+    computeDerivedQuantities();
+}
+
+void MuellerMurphySource::computeDerivedQuantities() {
+    scalar_moment = source_params.scalar_moment();
+    const double depth = std::max(1.0, std::abs(source_params.depth_of_burial));
+    corner_frequency = std::max(0.1, s_velocity / (3.0 * depth));
+    rise_time = 0.55 / corner_frequency;
+    overshoot = 1.0;
+}
+
+double MuellerMurphySource::momentRate(double t) const {
+    if (t < 0.0 || scalar_moment <= 0.0) {
+        return 0.0;
+    }
+    const double tau = std::max(1e-12, rise_time);
+    return (scalar_moment / tau) * std::exp(-t / tau);
+}
+
+std::complex<double> MuellerMurphySource::rdp(double omega) const {
+    const double w = std::max(1e-12, std::abs(omega));
+    const double den = 1.0 + (w / std::max(1e-12, corner_frequency)) *
+                                  (w / std::max(1e-12, corner_frequency));
+    return std::complex<double>(scalar_moment / den, 0.0);
+}
+
+double MuellerMurphySource::getCornerFrequency() const {
+    return corner_frequency;
+}
+
+double MuellerMurphySource::getOvershoot() const {
+    return overshoot;
+}
+
+void MuellerMurphySource::getMomentTensor(double t, double* M) const {
+    const double mr = momentRate(t);
+    const double scale = mr / std::max(1e-30, scalar_moment) * (scalar_moment / 3.0);
+    M[0] = M[1] = M[2] = scale;
+    M[3] = M[4] = M[5] = 0.0;
+}
+
 }  // namespace FSRM
 
