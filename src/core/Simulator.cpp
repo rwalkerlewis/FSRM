@@ -1,4 +1,5 @@
 #include "core/Simulator.hpp"
+#include "core/PhysicsModuleRegistry.hpp"
 #include "numerics/PetscFEFluidFlow.hpp"
 #include "io/Visualization.hpp"
 #include "core/ConfigReader.hpp"
