@@ -46,18 +46,19 @@ set(UNIT_TEST_SOURCES
 # Functional Tests - Test features working correctly
 set(FUNCTIONAL_TEST_SOURCES
     functional/test_simulator_init.cpp
+    functional/test_module_lifecycle.cpp
     functional/test_solver_convergence.cpp
     functional/test_boundary_conditions.cpp
     functional/test_well_operations.cpp
 )
 
-# Physics Tests (MMS) - Method of Manufactured Solutions tests
+# Physics validation (MMS / analytical)
 set(PHYSICS_TEST_SOURCES
-    physics/test_mms_diffusion.cpp
-    physics/test_mms_elasticity.cpp
-    physics/test_mms_wave_propagation.cpp
-    physics/test_analytical_solutions.cpp
-    physics/test_thermoporoelastic_consolidation.cpp
+    physics_validation/test_mms_diffusion.cpp
+    physics_validation/test_mms_elasticity.cpp
+    physics_validation/test_mms_wave_propagation.cpp
+    physics_validation/test_analytical_solutions.cpp
+    physics_validation/test_thermoporoelastic.cpp
 )
 
 # Integration Tests - Full-scale end-to-end tests
@@ -65,6 +66,7 @@ set(PHYSICS_TEST_SOURCES
 set(INTEGRATION_TEST_SOURCES
     integration/test_full_simulation.cpp
     integration/test_restart.cpp
+    integration/test_coupled_physics.cpp
     # integration/test_scec_tpv_benchmarks.cpp  # Disabled: API mismatch
 )
 
@@ -73,6 +75,7 @@ set(INTEGRATION_TEST_SOURCES
 set(PERFORMANCE_TEST_SOURCES
     performance/test_benchmarks.cpp
     performance/test_scaling.cpp
+    performance/test_memory.cpp
     # performance/test_physics_benchmarks.cpp  # Disabled: MPI callback issues
     performance/test_gpu_benchmarks.cpp
     performance/test_memory_io_benchmarks.cpp
@@ -86,6 +89,10 @@ set(PERFORMANCE_TEST_SOURCES
     # performance/test_explosion_source_benchmarks.cpp  # Disabled: Missing MPI includes
     # performance/test_uncertainty_quantification_benchmarks.cpp  # Disabled: Missing MPI includes
     # performance/test_machine_learning_benchmarks.cpp  # Disabled: Missing MPI includes
+)
+
+set(EXPERIMENTAL_TEST_SOURCES
+    experimental/test_neural_stubs.cpp
 )
 
 # Legacy Tests (kept for backward compatibility)
@@ -107,6 +114,7 @@ if(GTest_FOUND)
         ${PHYSICS_TEST_SOURCES}
         ${INTEGRATION_TEST_SOURCES}
         ${PERFORMANCE_TEST_SOURCES}
+        ${EXPERIMENTAL_TEST_SOURCES}
     )
     
     target_link_libraries(run_all_tests
@@ -208,6 +216,22 @@ if(GTest_FOUND)
         ${CMAKE_SOURCE_DIR}/tests
     )
     target_compile_definitions(run_performance_tests PRIVATE FSRM_TEST_NO_MAIN)
+
+    add_executable(run_experimental_tests
+        test_main_gtest.cpp
+        ${EXPERIMENTAL_TEST_SOURCES}
+    )
+    target_link_libraries(run_experimental_tests
+        fsrmlib
+        ${PETSC_LIBRARIES}
+        ${MPI_CXX_LIBRARIES}
+        GTest::GTest
+    )
+    target_include_directories(run_experimental_tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/tests
+    )
+    target_compile_definitions(run_experimental_tests PRIVATE FSRM_TEST_NO_MAIN)
     
     # ============================================================================
     # Register Tests with CTest
@@ -268,6 +292,8 @@ if(GTest_FOUND)
         COMMAND run_functional_tests --gtest_filter=BoundaryConditionTest.*)
     add_test(NAME Functional.WellOperations 
         COMMAND run_functional_tests --gtest_filter=WellOperationsTest.*)
+    add_test(NAME Functional.ModuleLifecycle
+        COMMAND run_functional_tests --gtest_filter=ModuleLifecycleTest.*)
     
     # Physics/MMS tests
     add_test(NAME Physics.MMS.Diffusion 
@@ -286,6 +312,8 @@ if(GTest_FOUND)
         COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
     add_test(NAME Integration.Restart 
         COMMAND run_integration_tests --gtest_filter=RestartTest.*)
+    add_test(NAME Integration.CoupledPhysics
+        COMMAND run_integration_tests --gtest_filter=CoupledPhysicsTest.*)
     add_test(NAME Integration.SCEC_TPV
         COMMAND run_integration_tests --gtest_filter=*TPV*.*:*LOH*.*)
     
@@ -294,6 +322,8 @@ if(GTest_FOUND)
         COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
     add_test(NAME Performance.Scaling 
         COMMAND run_performance_tests --gtest_filter=ScalingTest.*)
+    add_test(NAME Performance.MemoryStability
+        COMMAND run_performance_tests --gtest_filter=MemoryStabilityTest.*)
     add_test(NAME Performance.PhysicsBenchmarks
         COMMAND run_performance_tests --gtest_filter=PhysicsBenchmark.*)
     add_test(NAME Performance.GPUBenchmarks
@@ -320,6 +350,9 @@ if(GTest_FOUND)
         COMMAND run_performance_tests --gtest_filter=UncertaintyQuantificationBenchmark.*)
     add_test(NAME Performance.MachineLearning
         COMMAND run_performance_tests --gtest_filter=MachineLearningBenchmark.*)
+
+    add_test(NAME Experimental.NeuralStubs
+        COMMAND run_experimental_tests --gtest_filter=ExperimentalNeuralTest.*)
     
     # ============================================================================
     # Set Test Properties (Timeouts, Labels)
@@ -345,6 +378,10 @@ if(GTest_FOUND)
         Unit.FrictionLaws
         Unit.FourierNeuralOperator
         Unit.PyLithFault
+        Unit.ExplosionSourceKernel
+        Unit.UnitSystem
+        Unit.CoordinateSystem
+        Unit.MLRegistry
         PROPERTIES 
             TIMEOUT 60
             LABELS "unit;quick"
@@ -356,6 +393,7 @@ if(GTest_FOUND)
         Functional.SolverConvergence
         Functional.BoundaryConditions
         Functional.WellOperations
+        Functional.ModuleLifecycle
         PROPERTIES 
             TIMEOUT 120
             LABELS "functional"
@@ -377,6 +415,7 @@ if(GTest_FOUND)
     set_tests_properties(
         Integration.FullSimulation
         Integration.Restart
+        Integration.CoupledPhysics
         Integration.SCEC_TPV
         PROPERTIES 
             TIMEOUT 600
@@ -387,11 +426,19 @@ if(GTest_FOUND)
     set_tests_properties(
         Performance.Benchmarks
         Performance.Scaling
+        Performance.MemoryStability
         Performance.PhysicsBenchmarks
         Performance.MemoryIO
         PROPERTIES 
             TIMEOUT 900
             LABELS "performance;slow"
+    )
+
+    set_tests_properties(
+        Experimental.NeuralStubs
+        PROPERTIES
+            TIMEOUT 120
+            LABELS "experimental"
     )
     
     # GPU benchmarks - require GPU

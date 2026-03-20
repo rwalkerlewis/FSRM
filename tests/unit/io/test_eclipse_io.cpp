@@ -3,11 +3,11 @@
  * @brief Unit tests for EclipseIO class
  */
 
-#include <gtest/gtest.h>
 #include "io/EclipseIO.hpp"
 #include "core/FSRM.hpp"
-#include <fstream>
 #include <cstdio>
+#include <fstream>
+#include <gtest/gtest.h>
 
 using namespace FSRM;
 

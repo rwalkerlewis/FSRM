@@ -3,20 +3,20 @@
  * @brief Unit tests for FractureModel classes
  */
 
-#include <gtest/gtest.h>
 #include "domain/geomechanics/FractureModel.hpp"
 #include "core/FSRM.hpp"
 #include <cmath>
+#include <gtest/gtest.h>
 
 using namespace FSRM;
 
 class FractureModelTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+        int rk = 0;
+        MPI_Comm_rank(PETSC_COMM_WORLD, &rk);
+        EXPECT_GE(rk, 0);
     }
-    
-    int rank;
 };
 
 // ============================================================================
