@@ -26,7 +26,7 @@ RUN apt-get clean && \
 
 # Install PETSc
 WORKDIR /opt
-RUN wget https://ftp.mcs.anl.gov/pub/petsc/release-snapshots/petsc-3.20.0.tar.gz && \
+RUN wget https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-3.20.0.tar.gz && \
     tar -xzf petsc-3.20.0.tar.gz && \
     rm petsc-3.20.0.tar.gz
 
