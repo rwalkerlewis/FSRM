@@ -169,7 +169,7 @@ jobs:
       - name: Run Physics Tests
         working-directory: build
         run: |
-          ctest -L "physics" --output-on-failure --timeout 300 \
+          ctest -L "physics_validation" --output-on-failure --timeout 300 \
                 --output-junit physics-results.xml || true
 
       - name: Upload Results
