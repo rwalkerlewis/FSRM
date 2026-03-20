@@ -3,8 +3,9 @@
  * @brief Parallel scaling tests
  */
 
-#include <gtest/gtest.h>
 #include "core/FSRM.hpp"
+#include "physics/PhysicsKernel.hpp"
+#include <gtest/gtest.h>
 #include <chrono>
 #include <vector>
 #include <cmath>
@@ -200,4 +201,28 @@ TEST_F(ScalingTest, GlobalReductionPerformance) {
     }
     
     EXPECT_GT(global_sum, 0.0);
+}
+
+TEST_F(ScalingTest, KernelResidualEvaluationTiming) {
+    SinglePhaseFlowKernel kernel;
+    kernel.setProperties(0.2, 100e-15, 1e-9, 1e-3, 1000.0);
+
+    PetscScalar u[1] = {0.0};
+    PetscScalar u_t[1] = {0.0};
+    PetscScalar u_x[3] = {0.0};
+    PetscScalar a[1] = {0.0};
+    PetscReal x[3] = {0.0, 0.0, 0.0};
+    PetscScalar f[1] = {0.0};
+
+    const int n = 5000;
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < n; ++i) {
+        u[0] = PetscScalar(1.0e5 + static_cast<double>(i));
+        kernel.residual(u, u_t, u_x, a, x, f);
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    const double us = std::chrono::duration<double, std::micro>(t1 - t0).count();
+    RecordProperty("kernel_residual_total_us", us);
+    RecordProperty("kernel_residual_per_call_us", us / static_cast<double>(n));
+    EXPECT_GT(f[0], PetscScalar(-1.0e200));
 }
