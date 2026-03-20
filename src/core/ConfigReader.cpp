@@ -342,6 +342,55 @@ bool ConfigReader::parseSimulationConfig(SimulationConfig& config) {
     // Output format
     config.output_format = getString("SIMULATION", "output_format", "HDF5");
     
+    // =========================================================================
+    // Module-based configuration (new style)
+    // =========================================================================
+    // Parse [MODULES] section if present. Module names override enable_* flags.
+    if (hasSection("MODULES")) {
+        std::string enabled_str = getString("MODULES", "enabled", "");
+        if (!enabled_str.empty()) {
+            auto modules = split(enabled_str, ',');
+            for (auto& mod : modules) {
+                std::string trimmed = trim(mod);
+                if (!trimmed.empty()) {
+                    config.enabled_modules.push_back(trimmed);
+                }
+            }
+        }
+    }
+    
+    // Backward compatibility: if no [MODULES] section, translate enable_* flags
+    // to module names so the registry can use them.
+    if (config.enabled_modules.empty()) {
+        if (config.fluid_model != FluidModelType::NONE)
+            config.enabled_modules.push_back("fluid_flow");
+        if (config.enable_geomechanics)
+            config.enabled_modules.push_back("geomechanics");
+        if (config.enable_thermal)
+            config.enabled_modules.push_back("thermal");
+        if (config.enable_elastodynamics)
+            config.enabled_modules.push_back("elastodynamics");
+        if (config.enable_poroelastodynamics)
+            config.enabled_modules.push_back("poroelastodynamics");
+        if (config.enable_particle_transport)
+            config.enabled_modules.push_back("particle_transport");
+        if (config.enable_fractures)
+            config.enabled_modules.push_back("fracture_propagation");
+        if (config.enable_explosion_source)
+            config.enabled_modules.push_back("explosion_source");
+        if (config.enable_faults)
+            config.enabled_modules.push_back("fault_mechanics");
+        if (config.enable_tsunami)
+            config.enabled_modules.push_back("tsunami");
+        if (config.enable_ocean_circulation || config.enable_coastal_hydrodynamics || config.enable_storm_surge)
+            config.enabled_modules.push_back("ocean_physics");
+        if (config.enable_atmospheric_blast || config.enable_atmospheric_acoustic || config.enable_infrasound)
+            config.enabled_modules.push_back("atmospheric");
+        if (config.enable_magma_chamber || config.enable_conduit_flow ||
+            config.enable_eruption_column || config.enable_pyroclastic_flow || config.enable_lava_flow)
+            config.enabled_modules.push_back("volcano");
+    }
+    
     return true;
 }
 

@@ -134,6 +134,16 @@ struct SimulationConfig {
     std::string output_file;
     std::string output_format = "ECLIPSE"; // ECLIPSE, VTK, HDF5
     
+    // =========================================================================
+    // Module-based physics configuration (preferred over individual enable_* flags)
+    // =========================================================================
+    // If non-empty, only these modules are enabled (overrides enable_* flags).
+    // Module names: "fluid_flow", "geomechanics", "thermal", "elastodynamics",
+    //   "poroelastodynamics", "particle_transport", "fracture_propagation",
+    //   "explosion_source", "tsunami", "ocean_physics", "atmospheric",
+    //   "volcano", "fault_mechanics"
+    std::vector<std::string> enabled_modules;
+    
     double start_time = 0.0;
     double end_time = 1.0;
     double dt_initial = 0.01;
