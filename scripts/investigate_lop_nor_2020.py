@@ -1645,12 +1645,22 @@ def fig09_array_geometry_and_waveforms(outdir, stream_all, inventory):
 
     # ---- (a) Array layout map ----
     ax = fig.add_subplot(gs[0, 0])
+    # Manual label offsets for crowded elements
+    label_nudge = {
+        "MK05": (0.2, 0.25),
+        "MKAR": (-0.3, 0.25),
+        "MK01": (0.2, -0.25),
+        "MK02": (0.2, 0.2),
+        "MK03": (0.2, -0.25),
+        "MK04": (-0.4, 0.15),
+    }
     for code, (dx, dy) in positions.items():
         color = "#d62728" if code == PS23_REF else "#1f77b4"
         marker = "s" if code == PS23_REF else "^"
         ax.plot(dx, dy, marker, color=color, ms=12, markeredgecolor="k",
                 markeredgewidth=0.8, zorder=5)
-        ax.text(dx + 0.15, dy + 0.15, code, fontsize=8, fontweight="bold",
+        ndx, ndy = label_nudge.get(code, (0.15, 0.15))
+        ax.text(dx + ndx, dy + ndy, code, fontsize=7, fontweight="bold",
                 color="#333", zorder=6)
 
     # Backazimuth arrow toward event
@@ -1969,7 +1979,7 @@ def fig11_vespagram(outdir, stream_shz, coords, ref_lat, ref_lon,
 
     times, slownesses, power = compute_vespagram(
         st_v, coords, ref_lat, ref_lon, baz_expected,
-        slow_min=0.05, slow_max=0.20, slow_step=0.002,
+        slow_min=0.05, slow_max=0.25, slow_step=0.002,
         t_start_rel=t_start_rel, t_end_rel=t_end_rel,
     )
 
