@@ -49,6 +49,7 @@ RUN ./configure \
         --with-cxx=mpicxx \
         --with-fc=mpif90 \
         --download-fblaslapack \
+        --with-hdf5-dir=/usr \
         --with-debugging=0 \
         COPTFLAGS='-O3' \
         CXXOPTFLAGS='-O3' \

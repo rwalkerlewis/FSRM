@@ -40,6 +40,7 @@ jobs:
             -w /workspace \
             fsrm-ci:local \
             bash -c '
+              set -eo pipefail &&
               mkdir -p build && cd build &&
               cmake .. \
                 -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
@@ -47,7 +48,8 @@ jobs:
                 -DENABLE_CUDA=OFF \
                 -DBUILD_EXAMPLES=ON \
                 -DCMAKE_VERBOSE_MAKEFILE=ON &&
-              make -j"$(nproc)" 2>&1 | tee build.log
+              make -j"$(nproc)" 2>&1 | tee build.log ;
+              test ${PIPESTATUS[0]} -eq 0
             '
 
       - name: Count Warnings
@@ -56,8 +58,8 @@ jobs:
 
       - name: Verify Artifacts
         run: |
-          ls -lh build/fsrm
-          ls -lh build/libfsrmlib.so
+          test -f build/fsrm && test -f build/libfsrmlib.so
+          ls -lh build/fsrm build/libfsrmlib.so
           echo "Build artifacts present."
 
       - name: Upload Build
