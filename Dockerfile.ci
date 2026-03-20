@@ -28,11 +28,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Build Google Test ────────────────────────────────────────────────────────
-RUN cd /usr/src/gtest \
-    && cmake CMakeLists.txt -DCMAKE_INSTALL_PREFIX=/usr \
+RUN mkdir -p /tmp/gtest-build \
+    && cd /tmp/gtest-build \
+    && cmake /usr/src/googletest -DCMAKE_INSTALL_PREFIX=/usr \
     && make -j"$(nproc)" \
     && make install \
-    && ldconfig
+    && ldconfig \
+    && rm -rf /tmp/gtest-build
 
 # ── Build PETSc 3.20.0 from source (optimized, no debugging) ────────────────
 WORKDIR /opt

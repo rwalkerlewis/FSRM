@@ -30,9 +30,7 @@ jobs:
           file: Dockerfile.ci
           load: true
           tags: fsrm-ci:local
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
+          cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Configure & Build
@@ -93,9 +91,7 @@ jobs:
           file: Dockerfile.ci
           load: true
           tags: fsrm-ci:local
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
+          cache-from: type=gha
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -142,9 +138,7 @@ jobs:
           file: Dockerfile.ci
           load: true
           tags: fsrm-ci:local
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
+          cache-from: type=gha
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -191,9 +185,7 @@ jobs:
           file: Dockerfile.ci
           load: true
           tags: fsrm-ci:local
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
+          cache-from: type=gha
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -240,9 +232,7 @@ jobs:
           file: Dockerfile.ci
           load: true
           tags: fsrm-ci:local
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
+          cache-from: type=gha
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -290,9 +280,7 @@ jobs:
           file: Dockerfile.ci
           load: true
           tags: fsrm-ci:local
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
+          cache-from: type=gha
 
       - name: Download Build
         uses: actions/download-artifact@v4
