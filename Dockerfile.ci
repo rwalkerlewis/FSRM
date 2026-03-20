@@ -1,0 +1,64 @@
+# FSRM CI Docker Image
+# Optimized for CI: builds PETSc 3.20 from source, includes Google Test,
+# and all build tools. No visualization packages.
+#
+# Build:  docker build -f Dockerfile.ci -t ghcr.io/rwalkerlewis/fsrm-ci:latest .
+# Usage:  docker run --rm -v $(pwd):/src -w /src ghcr.io/rwalkerlewis/fsrm-ci:latest bash
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── Install build dependencies ───────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        gfortran \
+        git \
+        pkg-config \
+        wget \
+        ca-certificates \
+        libopenmpi-dev \
+        openmpi-bin \
+        libhdf5-openmpi-dev \
+        liblapack-dev \
+        libblas-dev \
+        libgtest-dev \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Build Google Test ────────────────────────────────────────────────────────
+RUN cd /usr/src/gtest \
+    && cmake CMakeLists.txt -DCMAKE_INSTALL_PREFIX=/usr \
+    && make -j"$(nproc)" \
+    && make install \
+    && ldconfig
+
+# ── Build PETSc 3.20.0 from source (optimized, no debugging) ────────────────
+WORKDIR /opt
+RUN wget -q https://ftp.mcs.anl.gov/pub/petsc/release-snapshots/petsc-3.20.0.tar.gz \
+    && tar -xzf petsc-3.20.0.tar.gz \
+    && rm petsc-3.20.0.tar.gz
+
+WORKDIR /opt/petsc-3.20.0
+RUN ./configure \
+        --with-cc=mpicc \
+        --with-cxx=mpicxx \
+        --with-fc=mpif90 \
+        --download-fblaslapack \
+        --with-debugging=0 \
+        COPTFLAGS='-O3' \
+        CXXOPTFLAGS='-O3' \
+        FOPTFLAGS='-O3' \
+    && make PETSC_DIR=/opt/petsc-3.20.0 PETSC_ARCH=arch-linux-c-opt all
+
+# ── Environment variables (baked into image) ─────────────────────────────────
+ENV PETSC_DIR=/opt/petsc-3.20.0
+ENV PETSC_ARCH=arch-linux-c-opt
+ENV PKG_CONFIG_PATH=/opt/petsc-3.20.0/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
+
+# Allow MPI to run as root inside CI containers
+ENV OMPI_ALLOW_RUN_AS_ROOT=1
+ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+WORKDIR /workspace
