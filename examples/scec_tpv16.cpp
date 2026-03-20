@@ -15,7 +15,7 @@
  *   mpirun -np 16 ./scec_tpv16 -c config/scec_tpv16.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV16: Dynamic Rupture on Rough Fault\n"

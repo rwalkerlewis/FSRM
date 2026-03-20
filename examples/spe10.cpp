@@ -18,7 +18,7 @@
  *   mpirun -np 32 ./spe10 -c config/spe10_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE10: Large-Scale Heterogeneous Benchmark\n"

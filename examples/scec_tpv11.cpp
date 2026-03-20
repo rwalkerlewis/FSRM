@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv11docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV11: Normal Faulting\n";

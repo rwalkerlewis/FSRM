@@ -18,7 +18,7 @@
  *   mpirun -np 4 ./spe4 -c config/spe4_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE4: Equation of State Testing Benchmark\n"

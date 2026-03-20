@@ -29,7 +29,7 @@
  *   -time <seconds>            Simulation end time (default: 10.0)
  */
 
-#include "PyLithFault.hpp"
+#include "domain/geomechanics/PyLithFault.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>

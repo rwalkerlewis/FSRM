@@ -18,7 +18,7 @@
  *   mpirun -np 8 ./spe9 -c config/spe9_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE9: North Sea Reservoir Benchmark\n"

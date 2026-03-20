@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv22_23docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV23: Bilateral Strike-Slip Rate-State\n";

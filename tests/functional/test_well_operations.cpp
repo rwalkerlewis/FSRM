@@ -3,9 +3,10 @@
  * @brief Functional tests for well operations and calculations
  */
 
+#include "core/Simulator.hpp"
+#include "core/FSRM.hpp"
+#include "domain/reservoir/WellModel.hpp"
 #include <gtest/gtest.h>
-#include "WellModel.hpp"
-#include "FSRM.hpp"
 #include <cmath>
 
 using namespace FSRM;
@@ -256,6 +257,29 @@ TEST_F(WellOperationsTest, DeviatedWellPI) {
     double PI_approx = k_h * L / std::log(2.0 * a / L);
     
     EXPECT_GT(PI_approx, 0.0);
+}
+
+TEST_F(WellOperationsTest, SimulatorAddWellDoesNotCrash) {
+    Simulator sim(PETSC_COMM_WORLD);
+    PetscErrorCode ierr = sim.addWell("P1", WellType::PRODUCER);
+    EXPECT_EQ(ierr, 0);
+}
+
+TEST_F(WellOperationsTest, WellModelValidParameters) {
+    ProductionWell w("W1");
+    WellCompletion comp{};
+    comp.i = 1;
+    comp.j = 1;
+    comp.k = 0;
+    comp.diameter = 0.2;
+    comp.skin_factor = 0.0;
+    comp.is_open = true;
+    comp.well_index = 1e-12;
+    w.addCompletion(comp);
+    w.setControl(WellControlMode::RATE_CONTROL, 10.0);
+    EXPECT_EQ(w.getName(), "W1");
+    EXPECT_EQ(w.getCompletions().size(), 1u);
+    EXPECT_DOUBLE_EQ(w.getTargetValue(), 10.0);
 }
 
 TEST_F(WellOperationsTest, DoglegSeverity) {

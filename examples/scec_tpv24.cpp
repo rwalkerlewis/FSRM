@@ -24,7 +24,7 @@
  *   mpirun -np 16 ./scec_tpv24 -c config/scec_tpv25.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV24/25: Japan Benchmark with Rate-State\n"

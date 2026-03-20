@@ -20,7 +20,7 @@
  *   mpirun -np 8 ./spe7 -c config/spe7_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE7: Horizontal Well Benchmark\n"

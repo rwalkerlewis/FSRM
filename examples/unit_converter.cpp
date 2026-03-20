@@ -17,7 +17,7 @@
  *   ./unit_converter --list pressure
  */
 
-#include "UnitSystem.hpp"
+#include "util/UnitSystem.hpp"
 #include <iostream>
 #include <iomanip>
 #include <string>

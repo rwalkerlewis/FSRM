@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv36_37docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV37: Bimaterial Rate-State\n";

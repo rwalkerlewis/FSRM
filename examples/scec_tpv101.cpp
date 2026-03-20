@@ -21,7 +21,7 @@
  *   mpirun -np 16 ./scec_tpv101 -c config/scec_tpv101.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV101: Viscoelastic Off-Fault Plasticity Benchmark\n"

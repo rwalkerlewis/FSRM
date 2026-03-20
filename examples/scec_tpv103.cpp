@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv103docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV103: Rate-State with Plasticity\n";

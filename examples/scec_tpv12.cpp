@@ -25,7 +25,7 @@
  *   mpirun -np 8 ./scec_tpv12 -c config/scec_tpv13.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV12/13: Dipping Normal Fault Benchmark\n"

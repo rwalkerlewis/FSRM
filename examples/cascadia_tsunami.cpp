@@ -39,8 +39,8 @@
  * @author FSRM Development Team
  */
 
-#include "TsunamiModel.hpp"
-#include "ConfigReader.hpp"
+#include "domain/ocean/TsunamiModel.hpp"
+#include "core/ConfigReader.hpp"
 #include <iostream>
 #include <iomanip>
 #include <cstring>

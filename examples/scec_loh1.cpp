@@ -15,7 +15,7 @@
  *   mpirun -np 8 ./scec_loh1 -c config/scec_loh1.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC LOH.1: Layer Over Halfspace Wave Propagation\n"

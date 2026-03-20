@@ -23,8 +23,8 @@
  *   mpirun -np 4 ./gmsh_mesh_domains meshes/my_mesh.msh
  */
 
-#include "GmshIO.hpp"
-#include "ConfigReader.hpp"
+#include "io/GmshIO.hpp"
+#include "core/ConfigReader.hpp"
 #include <iostream>
 #include <iomanip>
 #include <cmath>

@@ -33,8 +33,8 @@
  * @author FSRM Development Team
  */
 
-#include "VolcanoModel.hpp"
-#include "ConfigReader.hpp"
+#include "domain/volcano/VolcanoModel.hpp"
+#include "core/ConfigReader.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>

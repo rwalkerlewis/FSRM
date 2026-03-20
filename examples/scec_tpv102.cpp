@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv102docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV102: Inelastic Enhanced Plasticity\n";

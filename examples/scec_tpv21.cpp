@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv20_21docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV21: Shallow Dip-Slip Rate-State\n";

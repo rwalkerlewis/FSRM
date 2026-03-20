@@ -5,7 +5,7 @@
  * without any hard-coded parameters in the source code.
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "Example: Configuration file driven simulation\n\n";

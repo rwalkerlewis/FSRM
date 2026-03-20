@@ -4,10 +4,11 @@
  */
 
 #include <gtest/gtest.h>
-#include "Simulator.hpp"
-#include "PhysicsKernel.hpp"
-#include "FSRM.hpp"
+#include "core/Simulator.hpp"
+#include "physics/PhysicsKernel.hpp"
+#include "core/FSRM.hpp"
 #include <chrono>
+#include <memory>
 #include <vector>
 #include <cmath>
 
@@ -52,8 +53,9 @@ TEST_F(BenchmarkTest, SinglePhaseKernelPerformance) {
     
     if (rank == 0) {
         std::cout << "\nSingle phase kernel: " << time_per_eval << " μs/eval\n";
+        RecordProperty("single_phase_residual_us_per_eval", time_per_eval);
     }
-    
+
     EXPECT_LT(time_per_eval, 100.0) << "Kernel should be fast";
 }
 
@@ -243,4 +245,21 @@ TEST_F(BenchmarkTest, DOFCalculation) {
         std::cout << "  Poroelasticity: " << dofs_poroelasticity << "\n";
         std::cout << "  Black oil: " << dofs_black_oil << "\n";
     }
+}
+
+TEST_F(BenchmarkTest, KernelSharedPtrConstructionThroughput) {
+    const int n = 2000;
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < n; ++i) {
+        auto k = std::make_shared<SinglePhaseFlowKernel>();
+        k->setProperties(0.2, 100e-15, 1e-9, 1e-3, 1000.0 + static_cast<double>(i));
+        (void)k;
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    if (rank == 0) {
+        RecordProperty("kernel_construction_total_ms", ms);
+        RecordProperty("kernel_construction_ms_each", ms / static_cast<double>(n));
+    }
+    EXPECT_LT(ms, 5000.0);
 }

@@ -12,7 +12,7 @@
  *   mpirun -np 4 ./induced_seismicity_imex -c config/induced_seismicity_imex.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "Induced Seismicity with IMEX Time Integration\n"

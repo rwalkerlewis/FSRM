@@ -1,0 +1,69 @@
+# FSRM CI Docker Image
+# Optimized for CI: builds PETSc 3.20 from source, includes Google Test,
+# and all build tools. No visualization packages.
+#
+# Build:  docker build -f Dockerfile.ci -t ghcr.io/rwalkerlewis/fsrm-ci:latest .
+# Usage:  docker run --rm -v $(pwd):/src -w /src ghcr.io/rwalkerlewis/fsrm-ci:latest bash
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── Install build dependencies ───────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        gfortran \
+        git \
+        pkg-config \
+        wget \
+        ca-certificates \
+        libopenmpi-dev \
+        openmpi-bin \
+        libhdf5-openmpi-dev \
+        liblapack-dev \
+        libblas-dev \
+        libgtest-dev \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Build Google Test ────────────────────────────────────────────────────────
+RUN mkdir -p /tmp/gtest-build \
+    && cd /tmp/gtest-build \
+    && cmake /usr/src/googletest -DCMAKE_INSTALL_PREFIX=/usr \
+    && make -j"$(nproc)" \
+    && make install \
+    && ldconfig \
+    && rm -rf /tmp/gtest-build
+
+# ── Build PETSc 3.20.0 from source (optimized, no debugging) ────────────────
+WORKDIR /opt
+RUN wget -q https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-3.20.0.tar.gz \
+    && tar -xzf petsc-3.20.0.tar.gz \
+    && rm petsc-3.20.0.tar.gz \
+    && ls -d petsc-3.20* | head -1 | xargs -I{} mv {} petsc-3.20.0 || true
+
+WORKDIR /opt/petsc-3.20.0
+RUN ./configure \
+        --with-cc=mpicc \
+        --with-cxx=mpicxx \
+        --with-fc=mpif90 \
+        --download-fblaslapack \
+        --with-hdf5-include=/usr/include/hdf5/openmpi \
+        --with-hdf5-lib="-L/usr/lib/x86_64-linux-gnu/hdf5/openmpi -lhdf5" \
+        --with-debugging=0 \
+        COPTFLAGS='-O3' \
+        CXXOPTFLAGS='-O3' \
+        FOPTFLAGS='-O3' \
+    && make PETSC_DIR=/opt/petsc-3.20.0 PETSC_ARCH=arch-linux-c-opt all
+
+# ── Environment variables (baked into image) ─────────────────────────────────
+ENV PETSC_DIR=/opt/petsc-3.20.0
+ENV PETSC_ARCH=arch-linux-c-opt
+ENV PKG_CONFIG_PATH=/opt/petsc-3.20.0/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
+
+# Allow MPI to run as root inside CI containers
+ENV OMPI_ALLOW_RUN_AS_ROOT=1
+ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+WORKDIR /workspace

@@ -54,10 +54,10 @@
  *   ./egs_optimization -c config/egs_optimization.config -mc 50
  */
 
-#include "Simulator.hpp"
-#include "WellModel.hpp"
-#include "FractureModel.hpp"
-#include "ConfigReader.hpp"
+#include "core/Simulator.hpp"
+#include "domain/reservoir/WellModel.hpp"
+#include "domain/geomechanics/FractureModel.hpp"
+#include "core/ConfigReader.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>

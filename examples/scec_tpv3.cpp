@@ -21,7 +21,7 @@
  *   mpirun -np 4 ./scec_tpv3 -c config/scec_tpv3.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV3: 2D Strike-Slip Dynamic Rupture Benchmark\n"

@@ -20,7 +20,7 @@
  *   mpirun -np 4 ./spe8 -c config/spe8_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE8: Gridding and Upscaling Benchmark\n"

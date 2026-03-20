@@ -20,7 +20,7 @@
  *   mpirun -np 8 ./spe5 -c config/spe5_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE5: Miscible CO2 Flooding Benchmark\n"

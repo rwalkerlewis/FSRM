@@ -256,7 +256,7 @@ if(ENABLE_HIP AND hip_FOUND)
 endif()
 
 # Main executable
-add_executable(fsrm src/main.cpp)
+add_executable(fsrm src/core/main.cpp)
 target_link_libraries(fsrm fsrmlib)
 
 # Testing

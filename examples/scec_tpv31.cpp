@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv31docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV31: Friction Heterogeneity\n";

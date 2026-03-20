@@ -34,11 +34,11 @@
 #include <vector>
 #include <memory>
 
-#include "FSRM.hpp"
-#include "HydrodynamicModel.hpp"
-#include "OceanPhysics.hpp"
-#include "TsunamiModel.hpp"
-#include "ConfigReader.hpp"
+#include "core/FSRM.hpp"
+#include "domain/ocean/HydrodynamicModel.hpp"
+#include "domain/ocean/OceanPhysics.hpp"
+#include "domain/ocean/TsunamiModel.hpp"
+#include "core/ConfigReader.hpp"
 
 using namespace FSRM;
 

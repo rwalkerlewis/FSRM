@@ -19,7 +19,7 @@
  *   mpirun -np 4 ./spe6 -c config/spe6_benchmark.config
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SPE6: Dual-Porosity Benchmark\n"

@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv18docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV18: Layered Medium\n";

@@ -1,0 +1,54 @@
+name: Static Analysis
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  cppcheck:
+    name: cppcheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cppcheck \
+            --enable=warning,style,performance \
+            --suppress=missingInclude \
+            --suppress=unusedFunction \
+            --suppress=unmatchedSuppression \
+            --inline-suppr \
+            --std=c++17 \
+            --language=c++ \
+            --quiet \
+            --template='{file}:{line}: {severity}: {message} [{id}]' \
+            src/ include/ \
+            2>&1 | tee cppcheck-report.txt
+
+      - name: Report Summary
+        if: always()
+        run: |
+          echo "=== cppcheck Summary ==="
+          ERRORS=$(grep -c ': error: ' cppcheck-report.txt || true)
+          WARNINGS=$(grep -c ': warning: ' cppcheck-report.txt || true)
+          STYLE=$(grep -c ': style: ' cppcheck-report.txt || true)
+          PERF=$(grep -c ': performance: ' cppcheck-report.txt || true)
+          echo "  Errors:      $ERRORS"
+          echo "  Warnings:    $WARNINGS"
+          echo "  Style:       $STYLE"
+          echo "  Performance: $PERF"
+
+      - name: Upload Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cppcheck-report
+          path: cppcheck-report.txt
+          retention-days: 14

@@ -7,7 +7,7 @@
  * Reference: https://strike.scec.org/cvws/tpv6docs.html
  */
 
-#include "Simulator.hpp"
+#include "core/Simulator.hpp"
 #include <iostream>
 
 static char help[] = "SCEC TPV6: 3D Bilateral Strike-Slip Rupture\n";

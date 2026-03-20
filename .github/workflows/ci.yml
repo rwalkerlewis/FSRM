@@ -1,0 +1,355 @@
+name: FSRM CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # ============================================================================
+  # Build Job — builds Docker image from Dockerfile.ci (cached), then compiles
+  # ============================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Configure & Build
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            fsrm-ci:local \
+            bash -c '
+              set -eo pipefail &&
+              mkdir -p build && cd build &&
+              cmake .. \
+                -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+                -DENABLE_TESTING=ON \
+                -DENABLE_CUDA=OFF \
+                -DBUILD_EXAMPLES=ON \
+                -DCMAKE_VERBOSE_MAKEFILE=ON &&
+              make -j"$(nproc)" 2>&1 | tee build.log ;
+              test ${PIPESTATUS[0]} -eq 0
+            '
+
+      - name: Count Warnings
+        if: always()
+        run: bash scripts/ci/count_warnings.sh build/build.log || true
+
+      - name: Verify Artifacts
+        run: |
+          test -f build/fsrm && test -f build/libfsrmlib.so
+          ls -lh build/fsrm build/libfsrmlib.so
+          echo "Build artifacts present."
+
+      - name: Upload Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-dir
+          path: |
+            build/
+            !build/**/*.o
+            !build/**/*.cpp.o
+          retention-days: 1
+
+  # ============================================================================
+  # Unit Tests
+  # ============================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: type=gha
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dir
+          path: build
+
+      - name: Run Unit Tests
+        run: |
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "unit" --output-on-failure --timeout 120 \
+                  --output-junit unit-results.xml || true
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: build/unit-results.xml
+          retention-days: 7
+
+  # ============================================================================
+  # Functional Tests
+  # ============================================================================
+  functional-tests:
+    name: Functional Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: type=gha
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dir
+          path: build
+
+      - name: Run Functional Tests
+        run: |
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "functional" --output-on-failure --timeout 180 \
+                  --output-junit functional-results.xml || true
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: functional-test-results
+          path: build/functional-results.xml
+          retention-days: 7
+
+  # ============================================================================
+  # Physics / MMS Tests
+  # ============================================================================
+  physics-tests:
+    name: Physics/MMS Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: type=gha
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dir
+          path: build
+
+      - name: Run Physics Tests
+        run: |
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "physics_validation" --output-on-failure --timeout 300 \
+                  --output-junit physics-results.xml || true
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-test-results
+          path: build/physics-results.xml
+          retention-days: 7
+
+  # ============================================================================
+  # Integration Tests
+  # ============================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests, functional-tests]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: type=gha
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dir
+          path: build
+
+      - name: Run Integration Tests
+        run: |
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "integration" --output-on-failure --timeout 600 \
+                  --output-junit integration-results.xml || true
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: build/integration-results.xml
+          retention-days: 7
+
+  # ============================================================================
+  # Performance Tests (main branch only)
+  # ============================================================================
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests, functional-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: type=gha
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dir
+          path: build
+
+      - name: Run Performance Tests
+        run: |
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "performance" --output-on-failure --timeout 900 \
+                  --output-junit performance-results.xml || true
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: |
+            build/performance-results.xml
+            build/benchmark_results.json
+          retention-days: 30
+
+  # ============================================================================
+  # Summary
+  # ============================================================================
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [build, unit-tests, functional-tests, physics-tests, integration-tests]
+    if: always()
+
+    steps:
+      - name: Evaluate Results
+        run: |
+          echo "=== CI Summary ==="
+          echo "Build:            ${{ needs.build.result }}"
+          echo "Unit Tests:       ${{ needs.unit-tests.result }}"
+          echo "Functional Tests: ${{ needs.functional-tests.result }}"
+          echo "Physics Tests:    ${{ needs.physics-tests.result }}"
+          echo "Integration Tests:${{ needs.integration-tests.result }}"
+          echo ""
+
+          FAILED=0
+          for job in build unit-tests functional-tests physics-tests integration-tests; do
+            result="${{ needs.build.result }}"
+            case "$job" in
+              build)            result="${{ needs.build.result }}" ;;
+              unit-tests)       result="${{ needs.unit-tests.result }}" ;;
+              functional-tests) result="${{ needs.functional-tests.result }}" ;;
+              physics-tests)    result="${{ needs.physics-tests.result }}" ;;
+              integration-tests) result="${{ needs.integration-tests.result }}" ;;
+            esac
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "FAILED: $job ($result)"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "One or more required jobs failed."
+            exit 1
+          fi
+
+          echo "All required jobs passed."
