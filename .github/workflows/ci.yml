@@ -7,40 +7,50 @@ on:
     branches: [main]
 
 env:
-  CI_IMAGE: ghcr.io/rwalkerlewis/fsrm-ci:latest
   BUILD_TYPE: Release
 
 jobs:
   # ============================================================================
-  # Build Job
+  # Build Job — builds Docker image from Dockerfile.ci (cached), then compiles
   # ============================================================================
   build:
     name: Build
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/rwalkerlewis/fsrm-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure CMake
-        run: |
-          mkdir -p build && cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-            -DENABLE_TESTING=ON \
-            -DENABLE_CUDA=OFF \
-            -DBUILD_EXAMPLES=ON \
-            -DCMAKE_VERBOSE_MAKEFILE=ON
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build
+      - name: Build CI Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
+          cache-to: type=gha,mode=max
+
+      - name: Configure & Build
         run: |
-          cd build
-          make -j"$(nproc)" 2>&1 | tee build.log
-          echo "BUILD_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            fsrm-ci:local \
+            bash -c '
+              mkdir -p build && cd build &&
+              cmake .. \
+                -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+                -DENABLE_TESTING=ON \
+                -DENABLE_CUDA=OFF \
+                -DBUILD_EXAMPLES=ON \
+                -DCMAKE_VERBOSE_MAKEFILE=ON &&
+              make -j"$(nproc)" 2>&1 | tee build.log
+            '
 
       - name: Count Warnings
         if: always()
@@ -48,7 +58,6 @@ jobs:
 
       - name: Verify Artifacts
         run: |
-          echo "=== Checking build artifacts ==="
           ls -lh build/fsrm
           ls -lh build/libfsrmlib.so
           echo "Build artifacts present."
@@ -70,14 +79,23 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: build
-    container:
-      image: ghcr.io/rwalkerlewis/fsrm-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -85,14 +103,15 @@ jobs:
           name: build-dir
           path: build
 
-      - name: Fix Permissions
-        run: chmod -R +x build/tests/ build/fsrm build/examples/ 2>/dev/null || true
-
       - name: Run Unit Tests
-        working-directory: build
         run: |
-          ctest -L "unit" --output-on-failure --timeout 120 \
-                --output-junit unit-results.xml || true
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "unit" --output-on-failure --timeout 120 \
+                  --output-junit unit-results.xml || true
 
       - name: Upload Results
         if: always()
@@ -109,14 +128,23 @@ jobs:
     name: Functional Tests
     runs-on: ubuntu-latest
     needs: build
-    container:
-      image: ghcr.io/rwalkerlewis/fsrm-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -124,14 +152,15 @@ jobs:
           name: build-dir
           path: build
 
-      - name: Fix Permissions
-        run: chmod -R +x build/tests/ build/fsrm build/examples/ 2>/dev/null || true
-
       - name: Run Functional Tests
-        working-directory: build
         run: |
-          ctest -L "functional" --output-on-failure --timeout 180 \
-                --output-junit functional-results.xml || true
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "functional" --output-on-failure --timeout 180 \
+                  --output-junit functional-results.xml || true
 
       - name: Upload Results
         if: always()
@@ -148,14 +177,23 @@ jobs:
     name: Physics/MMS Tests
     runs-on: ubuntu-latest
     needs: build
-    container:
-      image: ghcr.io/rwalkerlewis/fsrm-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -163,14 +201,15 @@ jobs:
           name: build-dir
           path: build
 
-      - name: Fix Permissions
-        run: chmod -R +x build/tests/ build/fsrm build/examples/ 2>/dev/null || true
-
       - name: Run Physics Tests
-        working-directory: build
         run: |
-          ctest -L "physics_validation" --output-on-failure --timeout 300 \
-                --output-junit physics-results.xml || true
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "physics_validation" --output-on-failure --timeout 300 \
+                  --output-junit physics-results.xml || true
 
       - name: Upload Results
         if: always()
@@ -187,14 +226,23 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: [unit-tests, functional-tests]
-    container:
-      image: ghcr.io/rwalkerlewis/fsrm-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -202,14 +250,15 @@ jobs:
           name: build-dir
           path: build
 
-      - name: Fix Permissions
-        run: chmod -R +x build/tests/ build/fsrm build/examples/ 2>/dev/null || true
-
       - name: Run Integration Tests
-        working-directory: build
         run: |
-          ctest -L "integration" --output-on-failure --timeout 600 \
-                --output-junit integration-results.xml || true
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "integration" --output-on-failure --timeout 600 \
+                  --output-junit integration-results.xml || true
 
       - name: Upload Results
         if: always()
@@ -227,14 +276,23 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit-tests, functional-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    container:
-      image: ghcr.io/rwalkerlewis/fsrm-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI Image (cached)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.ci
+          load: true
+          tags: fsrm-ci:local
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -242,14 +300,15 @@ jobs:
           name: build-dir
           path: build
 
-      - name: Fix Permissions
-        run: chmod -R +x build/tests/ build/fsrm build/examples/ 2>/dev/null || true
-
       - name: Run Performance Tests
-        working-directory: build
         run: |
-          ctest -L "performance" --output-on-failure --timeout 900 \
-                --output-junit performance-results.xml || true
+          chmod -R +x build/tests/ build/fsrm 2>/dev/null || true
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/build \
+            fsrm-ci:local \
+            ctest -L "performance" --output-on-failure --timeout 900 \
+                  --output-junit performance-results.xml || true
 
       - name: Upload Results
         if: always()
