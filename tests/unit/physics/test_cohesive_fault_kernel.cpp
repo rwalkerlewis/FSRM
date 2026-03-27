@@ -4,9 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include <array>
 #include <cmath>
-#include <cstring>
 #include <petscsys.h>
 
 #include "physics/CohesiveFaultKernel.hpp"
