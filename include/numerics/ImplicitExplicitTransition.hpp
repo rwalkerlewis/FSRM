@@ -210,6 +210,27 @@ public:
     void setFaultNetwork(FaultNetwork* network);
     
     /**
+     * @brief Set CoulombStressTransfer for real FEM→fault stress sampling
+     * Replaces the placeholder computeCoulombFailure/computeVonMisesStress
+     */
+    void setCoulombStressTransfer(class CoulombStressTransfer* cfs);
+    
+    /**
+     * @brief Set CohesiveFaultKernel for constraint mode switching during transitions
+     */
+    void setCohesiveFaultKernel(class CohesiveFaultKernel* kernel);
+    
+    /**
+     * @brief Set FaultCohesiveDyn for dynamic rupture during explicit phase
+     */
+    void setCohesiveFault(class FaultCohesiveDyn* fault);
+    
+    /**
+     * @brief Set PetscDS and field indices for constraint switching
+     */
+    void setDSInfo(PetscDS prob, int displacement_field, int lagrange_field);
+    
+    /**
      * @brief Set custom trigger function
      * 
      * @param func Function returning true when transition should occur
@@ -336,6 +357,14 @@ private:
     // Fault models (for slip rate monitoring)
     SeismicFaultModel* fault_model;
     FaultNetwork* fault_network;
+    
+    // Cohesive fault integration (Branch 3)
+    class CoulombStressTransfer* cfs_transfer_ = nullptr;
+    class CohesiveFaultKernel* cohesive_kernel_ = nullptr;
+    class FaultCohesiveDyn* cohesive_fault_ = nullptr;
+    PetscDS prob_ = nullptr;
+    int displacement_field_idx_ = 2;
+    int lagrange_field_idx_ = -1;
     
     // Custom functions
     std::function<bool(Vec, double)> custom_trigger;

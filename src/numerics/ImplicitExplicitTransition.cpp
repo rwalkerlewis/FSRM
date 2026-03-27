@@ -11,6 +11,9 @@
  */
 
 #include "numerics/ImplicitExplicitTransition.hpp"
+#include "domain/geomechanics/CoulombStressTransfer.hpp"
+#include "physics/CohesiveFaultKernel.hpp"
+#include "domain/geomechanics/PyLithFault.hpp"
 #include <cmath>
 #include <algorithm>
 #include <fstream>
@@ -125,6 +128,25 @@ void ImplicitExplicitTransitionManager::setFaultModel(SeismicFaultModel* fault) 
 
 void ImplicitExplicitTransitionManager::setFaultNetwork(FaultNetwork* network) {
     fault_network = network;
+}
+
+void ImplicitExplicitTransitionManager::setCoulombStressTransfer(CoulombStressTransfer* cfs) {
+    cfs_transfer_ = cfs;
+}
+
+void ImplicitExplicitTransitionManager::setCohesiveFaultKernel(CohesiveFaultKernel* kernel) {
+    cohesive_kernel_ = kernel;
+}
+
+void ImplicitExplicitTransitionManager::setCohesiveFault(FaultCohesiveDyn* fault) {
+    cohesive_fault_ = fault;
+}
+
+void ImplicitExplicitTransitionManager::setDSInfo(PetscDS prob, int displacement_field,
+                                                    int lagrange_field) {
+    prob_ = prob;
+    displacement_field_idx_ = displacement_field;
+    lagrange_field_idx_ = lagrange_field;
 }
 
 void ImplicitExplicitTransitionManager::setCustomTrigger(std::function<bool(Vec, double)> func) {
@@ -569,21 +591,26 @@ double ImplicitExplicitTransitionManager::computeMaxSlipRate() {
 }
 
 double ImplicitExplicitTransitionManager::computeCoulombFailure(Vec solution) {
-    (void)solution;  // Stress state accessed via fault model
-    // Compute Coulomb Failure Function from stress state
-    // CFF = τ - μ(σ_n - p) - c
+    // Use CoulombStressTransfer if available (real FEM stress sampling)
+    if (cfs_transfer_) {
+        PetscErrorCode ierr;
+        ierr = cfs_transfer_->sampleStressAtFaults(solution); CHKERRABORT(comm, ierr);
+        ierr = cfs_transfer_->resolveStressOnFault(); CHKERRABORT(comm, ierr);
+        ierr = cfs_transfer_->computeDeltaCFS(config.stress_threshold > 0 ?
+                                               0.6 : 0.6); CHKERRABORT(comm, ierr);
+        return cfs_transfer_->getMaxDeltaCFS();
+    }
     
-    double max_cff = -1e10;  // Return large negative value (stable) if no faults
+    // Fallback: use fault model / fault network stored stress state
+    (void)solution;
+    double max_cff = -1e10;
     
     if (fault_model) {
-        // Get CFF directly from fault model if available
-        // Use current stress state stored in fault model
         FaultStressState state = fault_model->getCurrentStressState();
         max_cff = std::max(max_cff, state.CFF);
     }
     
     if (fault_network) {
-        // Get maximum CFF across all faults
         for (size_t i = 0; i < fault_network->numFaults(); ++i) {
             auto* fault = fault_network->getFault(i);
             if (fault) {
@@ -602,17 +629,32 @@ double ImplicitExplicitTransitionManager::computeVonMisesStress(Vec solution) {
     
     if (!solution) return 0.0;
     
-    PetscErrorCode ierr;
-    PetscInt n;
-    ierr = VecGetLocalSize(solution, &n); CHKERRABORT(comm, ierr);
+    // If CoulombStressTransfer is available, use actual stress tensor
+    if (cfs_transfer_) {
+        PetscErrorCode ierr;
+        ierr = cfs_transfer_->sampleStressAtFaults(solution); CHKERRABORT(comm, ierr);
+        ierr = cfs_transfer_->resolveStressOnFault(); CHKERRABORT(comm, ierr);
+        
+        // Find maximum von Mises from sampled stress tensors
+        double max_vm = 0.0;
+        for (const auto& vs : cfs_transfer_->getCurrentStress()) {
+            // Von Mises from stress tensor in Voigt: [xx, yy, zz, xy, xz, yz]
+            double sxx = vs.sigma[0], syy = vs.sigma[1], szz = vs.sigma[2];
+            double sxy = vs.sigma[3], sxz = vs.sigma[4], syz = vs.sigma[5];
+            double vm_sq = 0.5 * ((sxx - syy) * (sxx - syy) +
+                                   (syy - szz) * (syy - szz) +
+                                   (szz - sxx) * (szz - sxx)) +
+                           3.0 * (sxy * sxy + sxz * sxz + syz * syz);
+            double vm = (vm_sq > 0.0) ? std::sqrt(vm_sq) : 0.0;
+            max_vm = std::max(max_vm, vm);
+        }
+        return max_vm;
+    }
     
-    // For geomechanics solutions containing stress components,
-    // compute von Mises stress. This is a simplified implementation
-    // that returns the solution norm scaled as a proxy for stress level.
-    // Full implementation would extract stress tensor from each element.
+    // Fallback: solution norm as proxy
+    PetscErrorCode ierr;
     PetscReal norm;
     ierr = VecNorm(solution, NORM_INFINITY, &norm); CHKERRABORT(comm, ierr);
-    
     return norm;
 }
 
