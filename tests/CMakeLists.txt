@@ -33,6 +33,9 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_co2_properties.cpp
     unit/domain/test_flash_calculation.cpp
     unit/domain/test_residual_trapping.cpp
+    unit/domain/test_caprock_integrity.cpp
+    # Physics kernels (CCS)
+    unit/physics/test_multiphase_flow.cpp
     # I/O
     unit/io/test_eclipse_io.cpp
     # ML
@@ -140,6 +143,8 @@ if(GTest_FOUND)
     add_test(NAME Unit.CO2Properties          COMMAND run_unit_tests --gtest_filter=CO2PropertiesTest.*)
     add_test(NAME Unit.FlashCalculation       COMMAND run_unit_tests --gtest_filter=FlashCalculationTest.*)
     add_test(NAME Unit.ResidualTrapping       COMMAND run_unit_tests --gtest_filter=ResidualTrappingTest.*)
+    add_test(NAME Unit.CaprockIntegrity       COMMAND run_unit_tests --gtest_filter=CaprockIntegrityTest.*)
+    add_test(NAME Unit.MultiphaseFlow         COMMAND run_unit_tests --gtest_filter=MultiphaseFlowKernelTest.*)
 
     # --- Functional tests ---
     add_test(NAME Functional.SimulatorInit    COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)
@@ -180,6 +185,7 @@ if(GTest_FOUND)
         Unit.MaterialModel Unit.SeismicSource Unit.ExplosionSource
         Unit.EclipseIO Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
         Unit.CO2Properties Unit.FlashCalculation Unit.ResidualTrapping
+        Unit.CaprockIntegrity Unit.MultiphaseFlow
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
