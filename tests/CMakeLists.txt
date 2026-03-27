@@ -24,6 +24,7 @@ set(UNIT_TEST_SOURCES
     unit/physics/test_elastodynamics.cpp
     unit/physics/test_poroelastodynamics.cpp
     unit/physics/test_boundary_conditions.cpp
+    unit/physics/test_cohesive_fault_kernel.cpp
     # Domain
     unit/domain/test_well_model.cpp
     unit/domain/test_fracture_model.cpp
@@ -34,6 +35,10 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_flash_calculation.cpp
     unit/domain/test_residual_trapping.cpp
     unit/domain/test_caprock_integrity.cpp
+    unit/domain/test_fault_mechanics.cpp
+    unit/domain/test_fault_cohesive_dyn.cpp
+    unit/domain/test_coulomb_stress_transfer.cpp
+    unit/numerics/test_fault_mesh_manager.cpp
     # Physics kernels (CCS)
     unit/physics/test_multiphase_flow.cpp
     # I/O
@@ -58,12 +63,14 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_mms_wave_propagation.cpp
     physics_validation/test_analytical_solutions.cpp
     physics_validation/test_thermoporoelastic.cpp
+    physics_validation/test_scec_tpv5.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
     integration/test_full_simulation.cpp
     integration/test_restart.cpp
     integration/test_coupled_physics.cpp
+    integration/test_injection_rupture_chain.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
