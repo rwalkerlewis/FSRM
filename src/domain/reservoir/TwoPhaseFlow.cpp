@@ -180,26 +180,18 @@ void TwoPhaseFlowSolver::solvePressure() {
     // Simple Jacobi solve for pressure: P_new = (rhs + off_diag * P_old) / diag
     // This is adequate for the IMPES scheme where pressure changes are small per step
     std::vector<double> P_new(ncells_, 0.0);
-    for (int iter = 0; iter < 100; ++iter) {
-        double max_change = 0.0;
-        for (int c = 0; c < ncells_; ++c) {
-            if (diag[c] > 1e-30) {
-                // Reconstruct off-diagonal contributions
-                P_new[c] = rhs[c] / diag[c];
-            } else {
-                P_new[c] = pressure_[c];  // Keep existing if no connections
-            }
-            max_change = std::max(max_change, std::abs(P_new[c] - pressure_[c]));
+    for (int c = 0; c < ncells_; ++c) {
+        if (diag[c] > 1e-30) {
+            // Reconstruct off-diagonal contributions
+            P_new[c] = rhs[c] / diag[c];
+        } else {
+            P_new[c] = pressure_[c];  // Keep existing if no connections
         }
-        
-        // Check convergence
-        if (max_change < 1.0) break;  // 1 Pa tolerance
-        
-        // Note: this is a simplified solver. A production implementation would
-        // build a proper PETSc Mat and use KSP for the sparse linear solve.
-        // For now, use direct update (one-step since the system is well-posed
-        // with the diagonal dominance from well terms).
     }
+    // Note: this is a simplified solver. A production implementation would
+    // build a proper PETSc Mat and use KSP for the sparse linear solve.
+    // For now, use a single direct update since the system is well-posed
+    // with the diagonal dominance from well terms.
     
     // Only update if the solve produced reasonable values
     bool valid = true;
