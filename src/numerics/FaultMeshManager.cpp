@@ -177,6 +177,17 @@ PetscErrorCode FaultMeshManager::extractCohesiveTopology(DM dm, FaultCohesiveDyn
     std::vector<FaultVertex> vertices;
     std::vector<CohesiveCell> cells;
 
+    // Acquire coordinate section and pointer once for the entire topology extraction.
+    // Calling DMGetCoordinateSection / DMGetCoordinatesLocal / VecGetArrayRead inside
+    // the vertex-pair loop would incur repeated PETSc calls per vertex, which becomes
+    // a significant bottleneck on large meshes.
+    PetscSection coord_sec;
+    Vec coord_vec;
+    ierr = DMGetCoordinateSection(dm, &coord_sec); CHKERRQ(ierr);
+    ierr = DMGetCoordinatesLocal(dm, &coord_vec); CHKERRQ(ierr);
+    const PetscScalar* coords = nullptr;
+    ierr = VecGetArrayRead(coord_vec, &coords); CHKERRQ(ierr);
+
     PetscInt cohesive_count = 0;
     for (PetscInt c = cStart; c < cEnd; ++c) {
         DMPolytopeType ct;
@@ -241,23 +252,15 @@ PetscErrorCode FaultMeshManager::extractCohesiveTopology(DM dm, FaultCohesiveDyn
             // Any Lagrange multiplier field must assign vertex_lagrange during field/constraint setup.
             fv.vertex_lagrange = -1;
 
-            // Get coordinates of the negative vertex
-            PetscSection coord_sec;
-            Vec coord_vec;
-            ierr = DMGetCoordinateSection(dm, &coord_sec); CHKERRQ(ierr);
-            ierr = DMGetCoordinatesLocal(dm, &coord_vec); CHKERRQ(ierr);
-
-            const PetscScalar* coords;
+            // Look up coordinates of the negative vertex using the pre-acquired
+            // section and array pointer (hoisted outside both loops for efficiency).
             PetscInt cdof, coff;
-            ierr = VecGetArrayRead(coord_vec, &coords); CHKERRQ(ierr);
             ierr = PetscSectionGetDof(coord_sec, neg_verts[i], &cdof); CHKERRQ(ierr);
             ierr = PetscSectionGetOffset(coord_sec, neg_verts[i], &coff); CHKERRQ(ierr);
 
             fv.coords[0] = (cdof > 0) ? PetscRealPart(coords[coff + 0]) : 0.0;
             fv.coords[1] = (cdof > 1) ? PetscRealPart(coords[coff + 1]) : 0.0;
             fv.coords[2] = (cdof > 2) ? PetscRealPart(coords[coff + 2]) : 0.0;
-
-            ierr = VecRestoreArrayRead(coord_vec, &coords); CHKERRQ(ierr);
 
             // Default orientation (will be computed in computeFaultGeometry)
             fv.normal = {0.0, 0.0, 1.0};
@@ -268,6 +271,9 @@ PetscErrorCode FaultMeshManager::extractCohesiveTopology(DM dm, FaultCohesiveDyn
             vertices.push_back(fv);
         }
     }
+
+    // Release coordinate array acquired before the loops
+    ierr = VecRestoreArrayRead(coord_vec, &coords); CHKERRQ(ierr);
 
     // Set the topology on the fault object
     fault->setFaultVertices(vertices);

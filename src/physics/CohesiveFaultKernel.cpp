@@ -339,7 +339,8 @@ void CohesiveFaultKernel::g0_lagrange_lagrange(
     (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
     (void)t; (void)u_tShift; (void)x; (void)n;
 
-    PetscScalar mode = (numConstants > 0) ? constants[0] : 0.0;
+    PetscScalar mode = (numConstants > COHESIVE_CONST_MODE)
+                       ? constants[COHESIVE_CONST_MODE] : 0.0;
 
     // For LOCKED: d(f_lambda)/d(lambda) = 0 (constraint doesn't depend on lambda)
     // For SLIPPING: d(f_lambda)/d(lambda) = d(tau)/d(lambda) (traction direction)
