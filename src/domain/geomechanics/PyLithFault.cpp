@@ -953,16 +953,16 @@ void FaultCohesiveDyn::computeJacobian(const double* solution, double* jacobian)
             // Locked constraint Jacobian
             for (int d = 0; d < 3; ++d) {
                 // d(f_lambda_d)/d(u+_d) = +1
-                jacobian[(3 * lag + d) * 3 + (3 * pos + d)] += 1.0 * v.area;
+                jacobian[(3 * lag + d) * total_dofs + (3 * pos + d)] += 1.0 * v.area;
 
                 // d(f_lambda_d)/d(u-_d) = -1
-                jacobian[(3 * lag + d) * 3 + (3 * neg + d)] += -1.0 * v.area;
+                jacobian[(3 * lag + d) * total_dofs + (3 * neg + d)] += -1.0 * v.area;
 
                 // d(f_u+_d)/d(lambda_d) = +1
-                jacobian[(3 * pos + d) * 3 + (3 * lag + d)] += 1.0 * v.area;
+                jacobian[(3 * pos + d) * total_dofs + (3 * lag + d)] += 1.0 * v.area;
 
                 // d(f_u-_d)/d(lambda_d) = -1
-                jacobian[(3 * neg + d) * 3 + (3 * lag + d)] += -1.0 * v.area;
+                jacobian[(3 * neg + d) * total_dofs + (3 * lag + d)] += -1.0 * v.area;
             }
         } else {
             // Slipping constraint Jacobian
