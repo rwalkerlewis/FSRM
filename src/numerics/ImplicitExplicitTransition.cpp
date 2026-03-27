@@ -621,8 +621,7 @@ double ImplicitExplicitTransitionManager::computeCoulombFailure(Vec solution) {
         PetscErrorCode ierr;
         ierr = cfs_transfer_->sampleStressAtFaults(solution); CHKERRABORT(comm, ierr);
         ierr = cfs_transfer_->resolveStressOnFault(); CHKERRABORT(comm, ierr);
-        ierr = cfs_transfer_->computeDeltaCFS(config.stress_threshold > 0 ?
-                                               0.6 : 0.6); CHKERRABORT(comm, ierr);
+        ierr = cfs_transfer_->computeDeltaCFS(config.coulomb_threshold); CHKERRABORT(comm, ierr);
         return cfs_transfer_->getMaxDeltaCFS();
     }
     
