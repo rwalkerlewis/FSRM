@@ -18,16 +18,18 @@ struct Vec3i { int x, y, z; };
  * @brief Poroelastic solver using PETSc TS with analytical Jacobians
  * 
  * Solves coupled fluid flow and geomechanics using:
- * - DMPlex for unstructured grid support
+ * - DMPlex for unstructured grid support (3D)
  * - PETSc Time Stepper (TS) for implicit time integration
  * - Hand-coded analytical Jacobian (no automatic differentiation)
+ * - Fully implicit multiphase (water + CO2) pressure-saturation coupling
  * 
- * Fields (5 DOF per cell):
+ * Fields (6 DOF per cell):
  *   0: Pressure (P)
  *   1: Water saturation (Sw)
  *   2: X-displacement (ux)
- *   3: Z-displacement (uz)
- *   4: Porosity (phi)
+ *   3: Y-displacement (uy)
+ *   4: Z-displacement (uz)
+ *   5: Porosity (phi)
  */
 class PoroelasticSolver {
 public:
@@ -105,6 +107,9 @@ public:
     void getSaturation(std::vector<std::vector<double>>& Sw) const;
     void getDisplacement(std::vector<std::vector<double>>& ux,
                         std::vector<std::vector<double>>& uz) const;
+    void getDisplacement3D(std::vector<std::vector<double>>& ux,
+                           std::vector<std::vector<double>>& uy,
+                           std::vector<std::vector<double>>& uz) const;
     void getPorosity(std::vector<std::vector<double>>& phi) const;
     
 private:
@@ -156,6 +161,48 @@ private:
                      PetscInt numConstants, const PetscScalar constants[], PetscScalar g0[]);
     
     static void g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                     const PetscInt uOff[], const PetscInt uOff_x[],
+                     const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                     const PetscInt aOff[], const PetscInt aOff_x[],
+                     const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                     PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                     PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    // Saturation equation residual (field 1)
+    static void f0_saturation(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                             const PetscInt uOff[], const PetscInt uOff_x[],
+                             const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                             const PetscInt aOff[], const PetscInt aOff_x[],
+                             const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                             PetscReal t, const PetscReal x[], PetscInt numConstants,
+                             const PetscScalar constants[], PetscScalar f0[]);
+    
+    static void f1_saturation(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                             const PetscInt uOff[], const PetscInt uOff_x[],
+                             const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                             const PetscInt aOff[], const PetscInt aOff_x[],
+                             const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                             PetscReal t, const PetscReal x[], PetscInt numConstants,
+                             const PetscScalar constants[], PetscScalar f1[]);
+    
+    // Cross-coupling Jacobians for pressure-saturation system
+    static void g0_ps(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                     const PetscInt uOff[], const PetscInt uOff_x[],
+                     const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                     const PetscInt aOff[], const PetscInt aOff_x[],
+                     const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                     PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                     PetscInt numConstants, const PetscScalar constants[], PetscScalar g0[]);
+    
+    static void g0_ss(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                     const PetscInt uOff[], const PetscInt uOff_x[],
+                     const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                     const PetscInt aOff[], const PetscInt aOff_x[],
+                     const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                     PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                     PetscInt numConstants, const PetscScalar constants[], PetscScalar g0[]);
+    
+    static void g3_sp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                      const PetscInt uOff[], const PetscInt uOff_x[],
                      const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
                      const PetscInt aOff[], const PetscInt aOff_x[],
