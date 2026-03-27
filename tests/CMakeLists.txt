@@ -152,6 +152,11 @@ if(GTest_FOUND)
     add_test(NAME Unit.ResidualTrapping       COMMAND run_unit_tests --gtest_filter=ResidualTrappingTest.*)
     add_test(NAME Unit.CaprockIntegrity       COMMAND run_unit_tests --gtest_filter=CaprockIntegrityTest.*)
     add_test(NAME Unit.MultiphaseFlow         COMMAND run_unit_tests --gtest_filter=MultiphaseFlowKernelTest.*)
+    add_test(NAME Unit.FaultMechanics         COMMAND run_unit_tests --gtest_filter=FaultMechanicsTest.*)
+    add_test(NAME Unit.FaultCohesiveDyn       COMMAND run_unit_tests --gtest_filter=FaultCohesiveDynTest.*)
+    add_test(NAME Unit.CoulombStressTransfer  COMMAND run_unit_tests --gtest_filter=CoulombStressTransferTest.*)
+    add_test(NAME Unit.FaultMeshManager       COMMAND run_unit_tests --gtest_filter=FaultMeshManagerTest.*)
+    add_test(NAME Unit.CohesiveFaultKernel    COMMAND run_unit_tests --gtest_filter=CohesiveFaultKernelTest.*)
 
     # --- Functional tests ---
     add_test(NAME Functional.SimulatorInit    COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)
@@ -165,11 +170,13 @@ if(GTest_FOUND)
     add_test(NAME Physics.MMS.WavePropagation COMMAND run_physics_tests --gtest_filter=MMSWavePropagationTest.*)
     add_test(NAME Physics.AnalyticalSolutions COMMAND run_physics_tests --gtest_filter=AnalyticalSolutionsTest.*)
     add_test(NAME Physics.Thermoporoelastic   COMMAND run_physics_tests --gtest_filter=ThermoporoelasticConsolidationTest.*)
+    add_test(NAME Physics.SCEC.TPV5          COMMAND run_physics_tests --gtest_filter=SCECTPV5Test.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
     add_test(NAME Integration.Restart         COMMAND run_integration_tests --gtest_filter=RestartTest.*)
     add_test(NAME Integration.CoupledPhysics  COMMAND run_integration_tests --gtest_filter=CoupledPhysicsTest.*)
+    add_test(NAME Integration.InjectionRuptureChain COMMAND run_integration_tests --gtest_filter=InjectionRuptureChainTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -193,6 +200,8 @@ if(GTest_FOUND)
         Unit.EclipseIO Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
         Unit.CO2Properties Unit.FlashCalculation Unit.ResidualTrapping
         Unit.CaprockIntegrity Unit.MultiphaseFlow
+        Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
+        Unit.FaultMeshManager Unit.CohesiveFaultKernel
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
@@ -207,14 +216,14 @@ if(GTest_FOUND)
     set_tests_properties(
         Physics.MMS.Diffusion Physics.MMS.Elasticity
         Physics.MMS.WavePropagation Physics.AnalyticalSolutions
-        Physics.Thermoporoelastic
+        Physics.Thermoporoelastic Physics.SCEC.TPV5
         PROPERTIES TIMEOUT 300 LABELS "physics_validation"
     )
 
     # Integration tests
     set_tests_properties(
         Integration.FullSimulation Integration.Restart
-        Integration.CoupledPhysics
+        Integration.CoupledPhysics Integration.InjectionRuptureChain
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 
