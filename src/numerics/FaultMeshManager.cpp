@@ -237,7 +237,9 @@ PetscErrorCode FaultMeshManager::extractCohesiveTopology(DM dm, FaultCohesiveDyn
             fv.vertex_id = static_cast<int>(vertices.size());
             fv.vertex_negative = static_cast<int>(neg_verts[i]);
             fv.vertex_positive = static_cast<int>(pos_verts[i]);
-            fv.vertex_lagrange = -1;  // Will be set if Lagrange multiplier field exists
+            // Leave Lagrange multiplier DOF unset here; -1 indicates "no DOF assigned".
+            // Any Lagrange multiplier field must assign vertex_lagrange during field/constraint setup.
+            fv.vertex_lagrange = -1;
 
             // Get coordinates of the negative vertex
             PetscSection coord_sec;
