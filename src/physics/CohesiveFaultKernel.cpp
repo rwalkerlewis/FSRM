@@ -128,12 +128,18 @@ void CohesiveFaultKernel::f0_lagrange_constraint(
     const PetscScalar constants[],
     PetscScalar f[]) {
 
-    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
-    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)Nf; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff_x; (void)a_t; (void)a_x;
     (void)t; (void)x;
+    (void)numConstants; (void)constants;
 
-    // Determine mode from constants[0]: 0 = locked, 1 = slipping
-    PetscScalar mode = (numConstants > 0) ? constants[0] : 0.0;
+    // Determine mode from auxiliary field: 0 = locked, 1 = slipping
+    // We assume the first auxiliary field component at this point encodes the mode.
+    PetscScalar mode = 0.0;
+    if (NfAux > 0 && aOff) {
+        const PetscInt offset = aOff[0];
+        mode = a[offset];
+    }
 
     if (PetscRealPart(mode) < 0.5) {
         // LOCKED: constraint = displacement jump = u+ - u- = 0
