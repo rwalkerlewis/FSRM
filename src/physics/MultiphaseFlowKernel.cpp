@@ -54,10 +54,8 @@ void MultiphaseFlowKernel::residual(const PetscScalar u[], const PetscScalar u_t
     // Saturation residual: accumulation
     f[1] = porosity_ * u_t[1];
 
-    // Add flux contribution (simplified for pointwise test)
-    double mob_w = perm_x_ * computeKrw(u[1], nullptr) / water_viscosity_;
-    double mob_g = perm_x_ * computeKrg(u[1], nullptr) / co2_viscosity_;
-    (void)mob_w; (void)mob_g;
+    // Pointwise test path: flux uses PetscDS callbacks with a full constants[]
+    // array; avoid computeKrw/Sw with nullptr here.
     (void)u_x;
 }
 

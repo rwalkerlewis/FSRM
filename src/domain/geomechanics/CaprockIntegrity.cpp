@@ -163,7 +163,9 @@ void normalShearFromPrincipal(const std::array<double, 3>& principal,
 double CaprockIntegrity::mohrCoulombFOS(double sigma_n, double tau, double cohesion,
                                         double friction_angle) {
     if (tau <= 1.0e-300) {
-        return std::numeric_limits<double>::infinity();
+        // No resolved shear: unlimited FOS; use a large finite value so callers/tests
+        // using std::isfinite remain well-defined.
+        return 1.0e200;
     }
     const double phi = degreesToRadians(friction_angle);
     const double strength = cohesion + sigma_n * std::tan(phi);
