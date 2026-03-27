@@ -31,11 +31,16 @@ TEST_F(CohesiveFaultKernelTest, LockedLagrangeConstraintReturnsDisplacementJump)
 
     PetscScalar f[3] = {};
     PetscReal n[] = {0.0, 0.0, 1.0};
-    PetscScalar constants[] = {0.0};  // locked
+    // Provide constants up to COHESIVE_CONST_COUNT; slot 24 = 0.0 (locked)
+    PetscScalar constants[CohesiveFaultKernel::COHESIVE_CONST_COUNT] = {};
+    constants[CohesiveFaultKernel::COHESIVE_CONST_MODE] = 0.0;  // locked
+    constants[CohesiveFaultKernel::COHESIVE_CONST_MU_F] = 0.6;
 
     CohesiveFaultKernel::f0_lagrange_constraint(dim, 0, 0, uOff, nullptr, u, nullptr,
                                                  nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                 nullptr, 0.0, nullptr, n, 1, constants, f);
+                                                 nullptr, 0.0, nullptr, n,
+                                                 CohesiveFaultKernel::COHESIVE_CONST_COUNT,
+                                                 constants, f);
 
     EXPECT_NEAR(PetscRealPart(f[0]), PetscRealPart(u[3] - u[0]), 1e-15);
     EXPECT_NEAR(PetscRealPart(f[1]), PetscRealPart(u[4] - u[1]), 1e-15);
@@ -63,11 +68,16 @@ TEST_F(CohesiveFaultKernelTest, SlippingModeUsesFrictionStrengthInConstraint) {
 
     PetscScalar f[3] = {};
     PetscReal n[] = {0.0, 0.0, 1.0};
-    PetscScalar constants[] = {1.0, 0.6};  // slipping, mu = 0.6
+    // Provide constants up to COHESIVE_CONST_COUNT; slot 24 = 1.0 (slipping), slot 25 = mu_f
+    PetscScalar constants[CohesiveFaultKernel::COHESIVE_CONST_COUNT] = {};
+    constants[CohesiveFaultKernel::COHESIVE_CONST_MODE] = 1.0;  // slipping
+    constants[CohesiveFaultKernel::COHESIVE_CONST_MU_F] = 0.6;
 
     CohesiveFaultKernel::f0_lagrange_constraint(dim, 0, 0, uOff, nullptr, u, nullptr,
                                                  nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                 nullptr, 0.0, nullptr, n, 2, constants, f);
+                                                 nullptr, 0.0, nullptr, n,
+                                                 CohesiveFaultKernel::COHESIVE_CONST_COUNT,
+                                                 constants, f);
 
     // With only x-displacement jump, tangential slip is along x; lambda_t ≈ (lambda_x, lambda_y, 0)
     // Implementation uses lambda for shear balance — residual should be finite and not match locked jump

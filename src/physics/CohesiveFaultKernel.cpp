@@ -14,14 +14,19 @@
 #include "physics/CohesiveFaultKernel.hpp"
 #include "domain/geomechanics/PyLithFault.hpp"
 #include <cmath>
+#include <vector>
 
 namespace FSRM {
 
 CohesiveFaultKernel::CohesiveFaultKernel()
-    : locked_(true), friction_model_(nullptr) {}
+    : locked_(true), mu_friction_(0.6), friction_model_(nullptr) {}
 
 void CohesiveFaultKernel::setMode(bool is_locked) {
     locked_ = is_locked;
+}
+
+void CohesiveFaultKernel::setFrictionCoefficient(double mu_f) {
+    mu_friction_ = mu_f;
 }
 
 void CohesiveFaultKernel::setFrictionModel(FaultFrictionModel* model) {
@@ -33,6 +38,25 @@ PetscErrorCode CohesiveFaultKernel::registerWithDS(PetscDS prob,
                                                      int lagrange_field) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
+
+    // -------------------------------------------------------------------------
+    // Propagate current mode and friction coefficient into the PetscDS constant
+    // array.  We read whatever constants are already there, expand to at least
+    // COHESIVE_CONST_COUNT slots, patch the two dedicated cohesive slots, and
+    // write back.  This avoids overwriting PoroelasticSolver constants (0-23)
+    // while ensuring the static callbacks always see the correct mode.
+    // -------------------------------------------------------------------------
+    PetscInt        nconst_old = 0;
+    const PetscScalar *old_c   = nullptr;
+    ierr = PetscDSGetConstants(prob, &nconst_old, &old_c); CHKERRQ(ierr);
+
+    PetscInt nconst_new = (nconst_old >= COHESIVE_CONST_COUNT)
+                          ? nconst_old : COHESIVE_CONST_COUNT;
+    std::vector<PetscScalar> new_c(static_cast<std::size_t>(nconst_new), 0.0);
+    for (PetscInt i = 0; i < nconst_old; ++i) new_c[i] = old_c[i];
+    new_c[COHESIVE_CONST_MODE] = locked_ ? 0.0 : 1.0;
+    new_c[COHESIVE_CONST_MU_F] = static_cast<PetscScalar>(mu_friction_);
+    ierr = PetscDSSetConstants(prob, nconst_new, new_c.data()); CHKERRQ(ierr);
 
     // Register residual callbacks for cohesive cells
     // These will be called by PETSc's hybrid cell integration
@@ -128,18 +152,14 @@ void CohesiveFaultKernel::f0_lagrange_constraint(
     const PetscScalar constants[],
     PetscScalar f[]) {
 
-    (void)Nf; (void)uOff_x; (void)u_t; (void)u_x;
-    (void)aOff_x; (void)a_t; (void)a_x;
+    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
     (void)t; (void)x;
-    (void)numConstants; (void)constants;
 
-    // Determine mode from auxiliary field: 0 = locked, 1 = slipping
-    // We assume the first auxiliary field component at this point encodes the mode.
-    PetscScalar mode = 0.0;
-    if (NfAux > 0 && aOff) {
-        const PetscInt offset = aOff[0];
-        mode = a[offset];
-    }
+    // Determine mode from dedicated constant slot (0 = locked, 1 = slipping).
+    // COHESIVE_CONST_MODE = 24 to avoid aliasing PoroelasticSolver constants.
+    PetscScalar mode = (numConstants > COHESIVE_CONST_MODE)
+                       ? constants[COHESIVE_CONST_MODE] : 0.0;
 
     if (PetscRealPart(mode) < 0.5) {
         // LOCKED: constraint = displacement jump = u+ - u- = 0
@@ -198,8 +218,9 @@ void CohesiveFaultKernel::f0_lagrange_constraint(
             lambda_n += u[uOff[1] + d] * n[d];
         }
 
-        // Friction coefficient from constants
-        PetscScalar mu_f = (numConstants > 1) ? constants[1] : 0.6;
+        // Friction coefficient from dedicated constant slot (COHESIVE_CONST_MU_F = 25)
+        PetscScalar mu_f = (numConstants > COHESIVE_CONST_MU_F)
+                           ? constants[COHESIVE_CONST_MU_F] : 0.6;
 
         // Friction strength: tau_f = mu_f * |sigma_n_eff|
         // sigma_n_eff is the normal traction (compressive positive)
