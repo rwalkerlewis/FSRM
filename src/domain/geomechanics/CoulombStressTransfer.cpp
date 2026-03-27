@@ -145,16 +145,31 @@ PetscErrorCode CoulombStressTransfer::sampleStressAtFaults(Vec solution) {
         VertexStress& vs = current_[vi];
         vs.pressure = P;
 
-        // Estimate strain from average displacement gradient
-        // Using a simple approximation based on displacement magnitude
-        // and a reference cell size. This captures the first-order effect.
-        double eps[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        // Estimate strain from average displacement gradient using the
+        // displacement jump across the fault as a proxy. This is a simple
+        // first-order approximation that avoids full FEM reconstruction
+        // but still captures the effect of deformation on stress.
+        //
+        // Δu = u_pos - u  (displacement jump across the fault)
+        // eps_xx ≈ Δux / L_ref, etc., with a local reference length scale.
+        const double ref_len = 1.0;  // [m] reference length; tune if mesh scale is known
+
+        const double dux = ux_pos - ux;
+        const double duy = uy_pos - uy;
+        const double duz = uz_pos - uz;
+
+        double eps[6];
+        // Normal strains
+        eps[0] = dux / ref_len;  // eps_xx
+        eps[1] = duy / ref_len;  // eps_yy
+        eps[2] = duz / ref_len;  // eps_zz
+        // Shear strains (symmetric combinations; small-strain assumption)
+        eps[3] = 0.5 * (dux + duy) / ref_len;  // eps_xy
+        eps[4] = 0.5 * (dux + duz) / ref_len;  // eps_xz
+        eps[5] = 0.5 * (duy + duz) / ref_len;  // eps_yz
 
         // Compute stress from strain (including Biot pressure coupling)
         computeStressFromStrain(eps, P, vs.sigma.data());
-
-        (void)ux; (void)uy; (void)uz;
-        (void)ux_pos; (void)uy_pos; (void)uz_pos;
     }
 
     ierr = VecRestoreArrayRead(local, &sol_array); CHKERRQ(ierr);
