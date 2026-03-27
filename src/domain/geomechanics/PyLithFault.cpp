@@ -776,6 +776,13 @@ void FaultCohesiveDyn::initialize() {
         dynamic_states[i].has_ruptured = false;
         dynamic_states[i].rupture_time = -1.0;
     }
+
+    // Copy initial tractions so computeResidual uses consistent shear/normal loads
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        traction_field.traction_shear_ll[i] = initial_traction.traction_shear_ll[i];
+        traction_field.traction_shear_ud[i] = initial_traction.traction_shear_ud[i];
+        traction_field.traction_normal[i] = initial_traction.traction_normal[i];
+    }
     
     cumulative_frictional_work = 0.0;
 }
@@ -900,9 +907,131 @@ void FaultCohesiveDyn::computeResidual(const double* solution, double* /*residua
 }
 
 void FaultCohesiveDyn::computeJacobian(const double* solution, double* jacobian) {
-    (void)solution;
-    (void)jacobian;
-    // Jacobian for friction equations - linearization of f(V, θ)
+    // Jacobian for friction equations — linearization of the constraint
+    //
+    // For each fault vertex i with vertex_negative, vertex_positive, vertex_lagrange:
+    //
+    // LOCKED constraint: f_lambda = u+ - u-
+    //   d(f_lambda)/d(u+) = +I (3x3 identity)
+    //   d(f_lambda)/d(u-) = -I
+    //   d(f_lambda)/d(lambda) = 0
+    //
+    // Momentum equation: f_u(+) += +lambda, f_u(-) += -lambda
+    //   d(f_u(+))/d(lambda) = +I
+    //   d(f_u(-))/d(lambda) = -I
+    //
+    // SLIPPING constraint (slip-weakening):
+    //   f_lambda = |tau| - mu(slip) * sigma_n_eff
+    //   d(f_lambda)/d(lambda) = tau_hat (unit direction of tangential traction)
+    //   d(f_lambda)/d(u) = -d(mu)/d(slip) * sigma_n_eff * d(slip)/d(u)
+    //
+    // SLIPPING constraint (rate-state):
+    //   mu = f0 + a*ln(V/V0) + b*ln(theta*V0/Dc)
+    //   d(mu)/d(V) = a/V
+    //   d(mu)/d(theta) = b/theta
+    //
+    // The jacobian array is a flat buffer where entries are written as:
+    //   jacobian[row * total_dofs + col] += value
+    // We write sparse entries for each vertex's DOF pairs.
+
+    if (!solution || !jacobian) return;
+
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        const auto& v = vertices[i];
+        if (v.vertex_negative < 0 || v.vertex_positive < 0) continue;
+        if (v.vertex_lagrange < 0) continue;
+
+        const auto& state = dynamic_states[i];
+        int neg = v.vertex_negative;
+        int pos = v.vertex_positive;
+        int lag = v.vertex_lagrange;
+
+        // Get displacement DOF indices
+        // Convention: 3 DOFs per vertex (ux, uy, uz)
+
+        if (state.is_locked) {
+            // Locked constraint Jacobian
+            for (int d = 0; d < 3; ++d) {
+                // d(f_lambda_d)/d(u+_d) = +1
+                jacobian[(3 * lag + d) * total_dofs + (3 * pos + d)] += 1.0 * v.area;
+
+                // d(f_lambda_d)/d(u-_d) = -1
+                jacobian[(3 * lag + d) * total_dofs + (3 * neg + d)] += -1.0 * v.area;
+
+                // d(f_u+_d)/d(lambda_d) = +1
+                jacobian[(3 * pos + d) * total_dofs + (3 * lag + d)] += 1.0 * v.area;
+
+                // d(f_u-_d)/d(lambda_d) = -1
+                jacobian[(3 * neg + d) * total_dofs + (3 * lag + d)] += -1.0 * v.area;
+            }
+        } else {
+            // Slipping constraint Jacobian
+            double tau_ll = traction_field.traction_shear_ll[i];
+            double tau_ud = traction_field.traction_shear_ud[i];
+            double tau_mag = std::sqrt(tau_ll * tau_ll + tau_ud * tau_ud);
+
+            // Direction of tangential traction
+            double tau_hat_ll = (tau_mag > 1e-15) ? tau_ll / tau_mag : 0.0;
+            double tau_hat_ud = (tau_mag > 1e-15) ? tau_ud / tau_mag : 0.0;
+            (void)tau_hat_ll;
+            (void)tau_hat_ud;
+
+            // For slip-weakening: d(mu)/d(slip) = -(mu_s - mu_d)/Dc for slip < Dc
+            double dmu_dslip = 0.0;
+            if (auto* sw = dynamic_cast<SlipWeakeningFriction*>(friction_model.get())) {
+                double slip = state.state_variable;
+                double Dc = sw->getCriticalSlipDistance();
+                if (slip < Dc) {
+                    dmu_dslip = -(sw->getStaticCoefficient() - sw->getDynamicCoefficient()) / Dc;
+                }
+            }
+
+            // For rate-state: d(mu)/d(V) = a/V
+            double dmu_dV = 0.0;
+            if (auto* rs = dynamic_cast<RateStateFrictionAging*>(friction_model.get())) {
+                (void)rs;
+                double V = std::max(state.slip_rate, 1e-12);
+                // a parameter is private, use friction coefficient derivative
+                // mu = f0 + a*ln(V/V0) + b*ln(theta*V0/Dc)
+                // d(mu)/d(V) = a / V
+                // We use the state to estimate: near the current V,
+                // the derivative is approximately (mu(V+dV) - mu(V-dV))/(2*dV)
+                DynamicFaultState state_plus = state;
+                state_plus.slip_rate = V * 1.001;
+                DynamicFaultState state_minus = state;
+                state_minus.slip_rate = V * 0.999;
+                double mu_plus = friction_model->computeFriction(state_plus);
+                double mu_minus = friction_model->computeFriction(state_minus);
+                dmu_dV = (mu_plus - mu_minus) / (0.002 * V);
+            }
+
+            // sigma_n_eff (effective normal stress, compression positive)
+            double sigma_n_eff = state.effective_normal;
+
+            // Write Jacobian entries for the slipping case
+            for (int d = 0; d < 3; ++d) {
+                // d(f_u)/d(lambda) = ±I (same as locked)
+                jacobian[(3 * pos + d) * 3 + (3 * lag + d)] += 1.0 * v.area;
+                jacobian[(3 * neg + d) * 3 + (3 * lag + d)] += -1.0 * v.area;
+
+                // d(f_lambda)/d(lambda) = I (traction enters linearly)
+                jacobian[(3 * lag + d) * 3 + (3 * lag + d)] += 1.0 * v.area;
+
+                // d(f_lambda)/d(u) from friction dependence on slip
+                // Friction: tau_f = mu(slip) * sigma_n
+                // d(tau_f)/d(u) = dmu/dslip * sigma_n * d(slip)/d(u)
+                // d(slip)/d(u+) = +1/area, d(slip)/d(u-) = -1/area
+                double df_du = -dmu_dslip * sigma_n_eff;
+                jacobian[(3 * lag + d) * 3 + (3 * pos + d)] += df_du * v.area;
+                jacobian[(3 * lag + d) * 3 + (3 * neg + d)] += -df_du * v.area;
+
+                // Rate-state term: d(tau_f)/d(V) * d(V)/d(u_dot)
+                // This involves the time integrator shift: d(u_dot)/d(u) = shift
+                // For explicit schemes, this is handled differently
+                (void)dmu_dV;
+            }
+        }
+    }
 }
 
 void FaultCohesiveDyn::poststep(double /*t*/, double dt) {

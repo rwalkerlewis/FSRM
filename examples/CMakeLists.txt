@@ -81,6 +81,9 @@ add_reservoir_example(scec_loh4 scec_loh4.cpp)
 # Induced seismicity with IMEX transition
 add_reservoir_example(induced_seismicity_imex induced_seismicity_imex.cpp)
 
+# Injection-to-seismogram dynamic rupture chain (Branch 3)
+add_reservoir_example(injection_dynamic_rupture injection_dynamic_rupture.cpp)
+
 # Coulomb stress distribution from parallel faults
 add_reservoir_example(coulomb_stress_parallel_faults coulomb_stress_parallel_faults.cpp)
 

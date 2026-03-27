@@ -12,6 +12,10 @@
 #include "numerics/ImplicitExplicitTransition.hpp"
 #include "core/ConfigReader.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
+#include "domain/geomechanics/PyLithFault.hpp"
+#include "numerics/FaultMeshManager.hpp"
+#include "physics/CohesiveFaultKernel.hpp"
+#include "domain/geomechanics/CoulombStressTransfer.hpp"
 #include <memory>
 #include <vector>
 
@@ -145,6 +149,12 @@ private:
     
     // Fault models for induced seismicity
     std::unique_ptr<FaultNetwork> fault_network;
+    
+    // Cohesive fault for dynamic rupture (Branch 3)
+    std::unique_ptr<FaultCohesiveDyn> cohesive_fault_;
+    std::unique_ptr<FaultMeshManager> fault_mesh_manager_;
+    std::unique_ptr<CohesiveFaultKernel> cohesive_kernel_;
+    std::unique_ptr<CoulombStressTransfer> cfs_transfer_;
     
     // Material properties (per cell or per region)
     std::vector<MaterialProperties> material_props;

@@ -185,6 +185,189 @@ private:
                              PetscReal t, const PetscReal x[], PetscInt numConstants,
                              const PetscScalar constants[], PetscScalar f1[]);
     
+    // =========================================================================
+    // Displacement equation residual and Jacobian (fields 2, 3, 4: ux, uy, uz)
+    // Momentum equation: div(sigma) + alpha*grad(P) = 0  (quasi-static)
+    // sigma_ij = lambda*eps_kk*delta_ij + 2*mu*eps_ij  (Hooke's law)
+    // =========================================================================
+    
+    // f0 for displacement: body force + Biot coupling = 0  (no body force)
+    // For quasi-static: f0_u = 0 (inertia term only if poroelastodynamics)
+    static void f0_displacement(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                               const PetscInt uOff[], const PetscInt uOff_x[],
+                               const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                               const PetscInt aOff[], const PetscInt aOff_x[],
+                               const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                               PetscReal t, const PetscReal x[], PetscInt numConstants,
+                               const PetscScalar constants[], PetscScalar f0[]);
+    
+    // f1 for displacement: stress tensor + Biot pressure coupling
+    // f1[i*dim+j] = sigma_ij + alpha*P*delta_ij
+    // where sigma_ij = lambda*eps_kk*delta_ij + 2*mu*eps_ij
+    // eps_ij = 0.5*(du_i/dx_j + du_j/dx_i)
+    // Note: For separate scalar fields (ux=field2, uy=field3, uz=field4),
+    // the strain must be assembled from gradients of multiple fields.
+    // PETSc calls f1 for each field separately, so field 2 (ux) gets
+    // f1[j] = sigma_{0j} + alpha*P*delta_{0j}
+    static void f1_displacement_x(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                  const PetscInt uOff[], const PetscInt uOff_x[],
+                                  const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                                  const PetscInt aOff[], const PetscInt aOff_x[],
+                                  const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                                  PetscReal t, const PetscReal x[], PetscInt numConstants,
+                                  const PetscScalar constants[], PetscScalar f1[]);
+    
+    static void f1_displacement_y(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                  const PetscInt uOff[], const PetscInt uOff_x[],
+                                  const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                                  const PetscInt aOff[], const PetscInt aOff_x[],
+                                  const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                                  PetscReal t, const PetscReal x[], PetscInt numConstants,
+                                  const PetscScalar constants[], PetscScalar f1[]);
+    
+    static void f1_displacement_z(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                  const PetscInt uOff[], const PetscInt uOff_x[],
+                                  const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                                  const PetscInt aOff[], const PetscInt aOff_x[],
+                                  const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                                  PetscReal t, const PetscReal x[], PetscInt numConstants,
+                                  const PetscScalar constants[], PetscScalar f1[]);
+    
+    // Jacobian: g3 for (displacement_i, displacement_j) = elasticity stiffness
+    // d(sigma_{ij})/d(du_k/dx_l) = C_{ijkl} = lambda*delta_{ij}*delta_{kl} + mu*(delta_{ik}*delta_{jl}+delta_{il}*delta_{jk})
+    // Since fields are separate scalars, we need g3 for each (field_i, field_j) pair.
+    // g3_uxux: d(f1_ux)/d(grad_ux) — row 0, col 0 of elasticity
+    static void g3_uxux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    // Generic elasticity Jacobian for any (displacement_i, displacement_j) pair
+    // The actual i,j are encoded via constants or the callback registration
+    static void g3_uxuy(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g3_uxuz(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g3_uyux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g3_uyuy(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g3_uyuz(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g3_uzux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g3_uzuy(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g3_uzuz(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    // Biot coupling Jacobians
+    // g1_ux_p: d(f1_ux)/d(P) = alpha * delta_{0j} (Biot coupling in momentum)
+    // Actually, Biot coupling P→u goes via the stress: sigma' = sigma + alpha*P*I
+    // So d(f1_ui)/d(P) = alpha * delta_{ij} — this is a g2 term (d(f1)/d(u))
+    // but since P is field 0, we use g2 for (field_ui, field_P)
+    static void g2_ux_p(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g2[]);
+    
+    static void g2_uy_p(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    static void g2_uz_p(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[]);
+    
+    // Biot coupling from displacement to pressure equation
+    // d(f0_p)/d(u_dot) contributes alpha * shift through displacement divergence
+    // This is already partially in g0_pp[2] and g0_pp[3] but needs proper g1 terms
+    // g1_p_ux: d(f0_p)/d(grad_ux) = alpha * shift (x-component of div(u_dot))
+    static void g1_p_ux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g1[]);
+    
+    static void g1_p_uy(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g1[]);
+    
+    static void g1_p_uz(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                       const PetscInt uOff[], const PetscInt uOff_x[],
+                       const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                       const PetscInt aOff[], const PetscInt aOff_x[],
+                       const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                       PetscReal t, PetscReal u_tShift, const PetscReal x[],
+                       PetscInt numConstants, const PetscScalar constants[], PetscScalar g1[]);
+    
     // Cross-coupling Jacobians for pressure-saturation system
     static void g0_ps(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                      const PetscInt uOff[], const PetscInt uOff_x[],
