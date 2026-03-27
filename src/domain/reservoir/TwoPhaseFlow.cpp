@@ -82,19 +82,19 @@ void TwoPhaseFlowSolver::solvePressure() {
     std::vector<double> lambda_t(ncells_, 0.0);
     for (int c = 0; c < ncells_; ++c) {
         double Sw = saturation_[c];
-        double krw = frac_flow_.fw(Sw);   // Use fractional flow as proxy for mobility ratio
-        double kro = 1.0 - krw;           // Simplified
-        
-        // Recompute proper mobilities
-        RelPermModel rpm;
-        rpm.Swc = 0.2; rpm.Sor = 0.2;
-        rpm.nw = 2.0;  rpm.no = 2.0;
-        rpm.krw_max = 1.0; rpm.kro_max = 1.0;
-        
-        double Sw_norm = std::max(0.0, std::min(1.0, (Sw - rpm.Swc) / (1.0 - rpm.Swc - rpm.Sor)));
-        krw = rpm.krw_max * std::pow(Sw_norm, rpm.nw);
-        kro = rpm.kro_max * std::pow(1.0 - Sw_norm, rpm.no);
-        
+
+        // Use configured relative permeability model to compute phase mobilities
+        const RelPermModel& rpm = relperm_model_;
+
+        double denom = 1.0 - rpm.Swc - rpm.Sor;
+        double Sw_norm = 0.0;
+        if (denom > 0.0) {
+          Sw_norm = (Sw - rpm.Swc) / denom;
+        }
+        Sw_norm = std::max(0.0, std::min(1.0, Sw_norm));
+
+        double krw = rpm.krw_max * std::pow(Sw_norm, rpm.nw);
+        double kro = rpm.kro_max * std::pow(1.0 - Sw_norm, rpm.no);
         lambda_t[c] = k_ * (krw / mu_w_ + kro / mu_o_);
     }
     
