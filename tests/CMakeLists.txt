@@ -30,6 +30,9 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_material_model.cpp
     unit/domain/test_seismic_source.cpp
     unit/domain/test_explosion_source.cpp
+    unit/domain/test_co2_properties.cpp
+    unit/domain/test_flash_calculation.cpp
+    unit/domain/test_residual_trapping.cpp
     # I/O
     unit/io/test_eclipse_io.cpp
     # ML
@@ -134,6 +137,9 @@ if(GTest_FOUND)
     add_test(NAME Unit.MLRegistry             COMMAND run_unit_tests --gtest_filter=MLModelRegistryTest.*)
     add_test(NAME Unit.UnitSystem             COMMAND run_unit_tests --gtest_filter=UnitSystemTest.*)
     add_test(NAME Unit.CoordinateSystem       COMMAND run_unit_tests --gtest_filter=CoordinateSystemTest.*)
+    add_test(NAME Unit.CO2Properties          COMMAND run_unit_tests --gtest_filter=CO2PropertiesTest.*)
+    add_test(NAME Unit.FlashCalculation       COMMAND run_unit_tests --gtest_filter=FlashCalculationTest.*)
+    add_test(NAME Unit.ResidualTrapping       COMMAND run_unit_tests --gtest_filter=ResidualTrappingTest.*)
 
     # --- Functional tests ---
     add_test(NAME Functional.SimulatorInit    COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)
@@ -173,6 +179,7 @@ if(GTest_FOUND)
         Unit.BoundaryConditions Unit.WellModel Unit.FractureModel
         Unit.MaterialModel Unit.SeismicSource Unit.ExplosionSource
         Unit.EclipseIO Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
+        Unit.CO2Properties Unit.FlashCalculation Unit.ResidualTrapping
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
