@@ -183,6 +183,18 @@ PetscErrorCode ImplicitExplicitTransitionManager::configureImplicitMode() {
                             PETSC_DEFAULT, config.implicit_max_iterations,
                             PETSC_DEFAULT); CHKERRQ(ierr);
     
+    // Switch fault constraint from friction-governed back to locked
+    if (cohesive_kernel_ && prob_ && lagrange_field_idx_ >= 0) {
+        cohesive_kernel_->setMode(/* is_locked = */ true);
+        ierr = cohesive_kernel_->registerWithDS(prob_, displacement_field_idx_,
+                                                 lagrange_field_idx_); CHKERRQ(ierr);
+    }
+    
+    // Store the post-rupture stress state as new initial for CFS monitoring
+    if (cfs_transfer_) {
+        ierr = cfs_transfer_->storeInitialStress(); CHKERRQ(ierr);
+    }
+    
     current_dt = config.implicit_dt_initial;
     
     if (rank == 0) {
@@ -222,6 +234,19 @@ PetscErrorCode ImplicitExplicitTransitionManager::configureExplicitMode() {
     ierr = SNESSetTolerances(snes, config.explicit_atol, config.explicit_rtol,
                             PETSC_DEFAULT, config.explicit_max_iterations,
                             PETSC_DEFAULT); CHKERRQ(ierr);
+    
+    // Switch fault constraint from locked to friction-governed
+    if (cohesive_kernel_ && prob_ && lagrange_field_idx_ >= 0) {
+        cohesive_kernel_->setMode(/* is_locked = */ false);
+        ierr = cohesive_kernel_->registerWithDS(prob_, displacement_field_idx_,
+                                                 lagrange_field_idx_); CHKERRQ(ierr);
+    }
+    
+    // Transfer current stress state to FaultCohesiveDyn initial traction
+    if (cfs_transfer_ && cohesive_fault_) {
+        ierr = cfs_transfer_->updateFaultState(cohesive_fault_); CHKERRQ(ierr);
+        cohesive_fault_->initialize();  // Set initial theta, slip_rate from current state
+    }
     
     current_dt = config.explicit_dt_initial;
     
