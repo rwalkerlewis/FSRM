@@ -339,15 +339,16 @@ void PoroelasticSolver::f0_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     // Biot coupling: alpha * div(u_dot)
     // u_t[uOff[2]] = dux/dt, etc. The gradient of u_t is in u_x via the time derivative
     // Actually, for the Biot coupling we need alpha * d(div(u))/dt = alpha * div(u_dot)
-    // In PETSc's pointwise framework, u_x[uOff_x[field] + d] gives the spatial gradient.
-    // For the time derivative of divergence, we need the spatial gradient of u_t.
-    // PETSc does NOT provide the gradient of u_t directly in the standard pointwise interface.
-    // Instead, we include this term through the Jacobian:
-    //   d(f0_p)/d(u_dot_i) = alpha (integrated via the shift parameter in g1)
-    // The term alpha*div(u_dot) is handled implicitly through the Jacobian g1_p_ux/uy/uz.
-    // For the residual, we approximate: alpha * (dux/dx_dot + duy/dy_dot + duz/dz_dot)
-    // which for the implicit time integrator is handled through the test function.
-    
+    // NOTE:
+    //   The Biot storage term alpha * div(u_dot) is NOT included in this residual.
+    //   PETSc's standard pointwise interface for f0 does not provide grad(u_t), so a
+    //   consistent implementation of d/dt[alpha * div(u)] is currently omitted here.
+    //   As implemented, the pressure accumulation only accounts for fluid compressibility
+    //   and the existing density-coupling term. The pressure equation is therefore
+    //   uncoupled from volumetric strain rate in this residual.
+    //   If volumetric strain coupling is required, a consistent discretization of
+    //   alpha * div(u_dot) must be added both to f0_pressure() and the corresponding
+    //   Jacobian callbacks.
     // Accumulation: phi*ct*dP/dt + density-coupling
     f0[0] = phi_eff * ct_eff * P_t + phi_eff * (rho_w - rho_g) * S_t * 1e-9;
 }
