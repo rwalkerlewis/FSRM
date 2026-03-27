@@ -32,6 +32,9 @@ class FaultCohesiveDyn;
  * @brief Samples stress from FEM solution and computes CFS at fault vertices
  */
 class CoulombStressTransfer {
+    friend class ::CoulombStressTransferTest;
+    friend class ::InjectionRuptureChainTest;
+
 public:
     CoulombStressTransfer(MPI_Comm comm);
     ~CoulombStressTransfer() = default;

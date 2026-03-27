@@ -776,6 +776,13 @@ void FaultCohesiveDyn::initialize() {
         dynamic_states[i].has_ruptured = false;
         dynamic_states[i].rupture_time = -1.0;
     }
+
+    // Copy initial tractions so computeResidual uses consistent shear/normal loads
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        traction_field.traction_shear_ll[i] = initial_traction.traction_shear_ll[i];
+        traction_field.traction_shear_ud[i] = initial_traction.traction_shear_ud[i];
+        traction_field.traction_normal[i] = initial_traction.traction_normal[i];
+    }
     
     cumulative_frictional_work = 0.0;
 }

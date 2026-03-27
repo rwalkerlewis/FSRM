@@ -35,6 +35,8 @@ class FaultCohesiveDyn;
  * @brief Manages mesh splitting for cohesive fault insertion
  */
 class FaultMeshManager {
+    friend class ::FaultMeshManagerTest;
+
 public:
     FaultMeshManager(MPI_Comm comm);
 
