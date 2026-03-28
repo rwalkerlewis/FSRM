@@ -23,7 +23,7 @@ protected:
     // Wrappers for private members (friend access doesn't extend to TEST_F derived classes)
     static void callComputeStressFromStrain(const CoulombStressTransfer& cst,
                                              const double eps[6], double P, double sigma[6]) {
-        callComputeStressFromStrain(cst, eps, P, sigma);
+        cst.computeStressFromStrain(eps, P, sigma);
     }
 
     static std::vector<CoulombStressTransfer::VertexStress>& getCurrent(CoulombStressTransfer& cst) {
