@@ -761,6 +761,12 @@ void SeismicFaultModel::setGeometry(double x, double y, double z,
 }
 
 void SeismicFaultModel::setFrictionModel(std::unique_ptr<FrictionModelBase> model) {
+    // CoulombFriction uses state_var as cumulative slip (starts at 0),
+    // while rate-state models use it as theta (starts large).
+    // Reset current_state_var based on the friction law type.
+    if (model && model->getLaw() == FrictionLaw::COULOMB) {
+        current_state_var = 0.0;
+    }
     friction = std::move(model);
 }
 

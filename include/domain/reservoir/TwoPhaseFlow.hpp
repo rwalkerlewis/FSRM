@@ -137,6 +137,7 @@ private:
     
     // Relative permeability
     FractionalFlow frac_flow_;
+    RelPermModel relperm_model_;
     
     // State
     std::vector<double> pressure_;

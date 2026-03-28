@@ -936,6 +936,8 @@ void FaultCohesiveDyn::computeJacobian(const double* solution, double* jacobian)
 
     if (!solution || !jacobian) return;
 
+    const int total_dofs = 3 * static_cast<int>(vertices.size());
+
     for (size_t i = 0; i < vertices.size(); ++i) {
         const auto& v = vertices[i];
         if (v.vertex_negative < 0 || v.vertex_positive < 0) continue;

@@ -20,6 +20,20 @@ protected:
         MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
     }
 
+    // Wrappers for private methods (friend access doesn't extend to TEST_F derived classes)
+    static bool callIsPointOnFaultPlane(const FaultMeshManager& mgr,
+                                        const double point[3], const double normal[3],
+                                        const double center[3], double tolerance) {
+        return mgr.isPointOnFaultPlane(point, normal, center, tolerance);
+    }
+
+    static bool callIsPointWithinFaultExtent(const FaultMeshManager& mgr,
+                                              const double point[3], const double center[3],
+                                              const double strike_dir[3], const double dip_dir[3],
+                                              double length, double width) {
+        return mgr.isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width);
+    }
+
     int rank = 0;
 };
 
@@ -29,11 +43,11 @@ TEST_F(FaultMeshManagerTest, IsPointOnFaultPlaneDistanceTolerance) {
     const double normal[3] = {0.0, 0.0, 1.0};
 
     const double on_plane[3] = {2.0, -1.0, 0.01};
-    EXPECT_TRUE(mgr.isPointOnFaultPlane(on_plane, normal, center, 0.02));
-    EXPECT_FALSE(mgr.isPointOnFaultPlane(on_plane, normal, center, 0.001));
+    EXPECT_TRUE(callIsPointOnFaultPlane(mgr, on_plane, normal, center, 0.02));
+    EXPECT_FALSE(callIsPointOnFaultPlane(mgr, on_plane, normal, center, 0.001));
 
     const double off_plane[3] = {0.0, 0.0, 0.5};
-    EXPECT_FALSE(mgr.isPointOnFaultPlane(off_plane, normal, center, 0.1));
+    EXPECT_FALSE(callIsPointOnFaultPlane(mgr, off_plane, normal, center, 0.1));
 }
 
 TEST_F(FaultMeshManagerTest, IsPointWithinFaultRectangularExtent) {
@@ -46,15 +60,15 @@ TEST_F(FaultMeshManagerTest, IsPointWithinFaultRectangularExtent) {
 
     const double inside[3] = {150.0, 200.0, -520.0};
     EXPECT_TRUE(
-        mgr.isPointWithinFaultExtent(inside, center, strike_dir, dip_dir, L, W));
+        callIsPointWithinFaultExtent(mgr, inside, center, strike_dir, dip_dir, L, W));
 
     const double outside_strike[3] = {250.0, 200.0, -500.0};
     EXPECT_FALSE(
-        mgr.isPointWithinFaultExtent(outside_strike, center, strike_dir, dip_dir, L, W));
+        callIsPointWithinFaultExtent(mgr, outside_strike, center, strike_dir, dip_dir, L, W));
 
     const double outside_dip[3] = {100.0, 200.0, -560.0};
     EXPECT_FALSE(
-        mgr.isPointWithinFaultExtent(outside_dip, center, strike_dir, dip_dir, L, W));
+        callIsPointWithinFaultExtent(mgr, outside_dip, center, strike_dir, dip_dir, L, W));
 }
 
 TEST_F(FaultMeshManagerTest, SplitMeshAlongFaultRequiresDMPlex) {
