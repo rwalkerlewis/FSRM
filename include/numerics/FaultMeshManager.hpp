@@ -26,6 +26,9 @@
 #include <string>
 #include <vector>
 
+// Forward declaration for friend test class
+class FaultMeshManagerTest;
+
 namespace FSRM {
 
 // Forward declaration

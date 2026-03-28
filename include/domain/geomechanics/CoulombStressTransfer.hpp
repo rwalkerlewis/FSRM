@@ -24,6 +24,10 @@
 #include <array>
 #include <vector>
 
+// Forward declarations for friend test classes
+class CoulombStressTransferTest;
+class InjectionRuptureChainTest;
+
 namespace FSRM {
 
 class FaultCohesiveDyn;

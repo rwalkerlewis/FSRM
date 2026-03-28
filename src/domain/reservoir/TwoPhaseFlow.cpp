@@ -37,6 +37,7 @@ void TwoPhaseFlowSolver::setFluidProperties(double mu_w, double mu_o, double rho
 }
 
 void TwoPhaseFlowSolver::setRelPermModel(const RelPermModel& model) {
+    relperm_model_ = model;
     frac_flow_.setRelPermModel(model);
 }
 
