@@ -20,6 +20,16 @@ protected:
         MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
     }
 
+    // Wrappers for private members (friend access doesn't extend to TEST_F derived classes)
+    static void callComputeStressFromStrain(const CoulombStressTransfer& cst,
+                                             const double eps[6], double P, double sigma[6]) {
+        callComputeStressFromStrain(cst, eps, P, sigma);
+    }
+
+    static std::vector<CoulombStressTransfer::VertexStress>& getCurrent(CoulombStressTransfer& cst) {
+        return cst.current_;
+    }
+
     int rank = 0;
 };
 
@@ -44,7 +54,7 @@ TEST_F(CoulombStressTransferTest, ComputeStressFromStrainHookeLaw) {
     const double P = 10e6;
 
     double sigma[6];
-    cst.computeStressFromStrain(eps, P, sigma);
+    callComputeStressFromStrain(cst, eps, P, sigma);
 
     const double eps_kk = exx + eyy + ezz;
     EXPECT_NEAR(sigma[0], lambda * eps_kk + 2.0 * mu * exx - biot * P, 1.0);
@@ -66,7 +76,7 @@ TEST_F(CoulombStressTransferTest, ResolveStressOnFaultNormalAndShear) {
     CoulombStressTransfer cst(PETSC_COMM_WORLD);
     ASSERT_EQ(cst.initialize(nullptr, &fault, 40e9, 30e9, 1.0), 0);
 
-    auto& vs = cst.current_[0];
+    auto& vs = getCurrent(cst)[0];
     // Pure shear sigma_xz = sigma_zx = 30 MPa gives traction on z-normal: t = (30e6,0,0)
     vs.sigma = {0.0, 0.0, 0.0, 0.0, 30e6, 0.0};
     vs.pressure = 0.0;
@@ -94,20 +104,20 @@ TEST_F(CoulombStressTransferTest, DeltaCFSMatchesTauAndEffectiveNormalChange) {
     CoulombStressTransfer cst(PETSC_COMM_WORLD);
     ASSERT_EQ(cst.initialize(nullptr, &fault, 40e9, 30e9, 1.0), 0);
 
-    cst.current_[0].tau = 10e6;
-    cst.current_[0].sigma_n_eff = 50e6;
+    getCurrent(cst)[0].tau = 10e6;
+    getCurrent(cst)[0].sigma_n_eff = 50e6;
     cst.storeInitialStress();
 
-    cst.current_[0].tau = 15e6;
-    cst.current_[0].sigma_n_eff = 40e6;
+    getCurrent(cst)[0].tau = 15e6;
+    getCurrent(cst)[0].sigma_n_eff = 40e6;
 
     const double mu_s = 0.6;
     ASSERT_EQ(cst.computeDeltaCFS(mu_s), 0);
     const double delta_tau = 5e6;
     const double delta_sig_eff = -10e6;
     const double expected = delta_tau - mu_s * delta_sig_eff;
-    EXPECT_NEAR(cst.current_[0].delta_cfs, expected, 1.0);
-    EXPECT_GT(cst.current_[0].delta_cfs, 0.0)
+    EXPECT_NEAR(getCurrent(cst)[0].delta_cfs, expected, 1.0);
+    EXPECT_GT(getCurrent(cst)[0].delta_cfs, 0.0)
         << "Lower effective normal (injection-style) should raise delta_CFS when shear increases";
 }
 
@@ -123,7 +133,7 @@ TEST_F(CoulombStressTransferTest, HydrostaticTotalStressZeroShearOnPlane) {
     ASSERT_EQ(cst.initialize(nullptr, &fault, 40e9, 30e9, 1.0), 0);
 
     const double p = -60e6;
-    auto& vs = cst.current_[0];
+    auto& vs = getCurrent(cst)[0];
     vs.sigma = {p, p, p, 0.0, 0.0, 0.0};
     vs.pressure = 0.0;
 

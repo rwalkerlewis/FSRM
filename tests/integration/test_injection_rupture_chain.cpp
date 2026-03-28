@@ -22,6 +22,16 @@ protected:
         MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
     }
 
+    // Wrappers for private members (friend access doesn't extend to TEST_F derived classes)
+    static void callComputeStressFromStrain(const CoulombStressTransfer& cst,
+                                             const double eps[6], double P, double sigma[6]) {
+        cst.computeStressFromStrain(eps, P, sigma);
+    }
+
+    static std::vector<CoulombStressTransfer::VertexStress>& getCurrent(CoulombStressTransfer& cst) {
+        return cst.current_;
+    }
+
     int rank = 0;
 };
 
@@ -96,9 +106,9 @@ TEST_F(InjectionRuptureChainTest, CoulombStressTransferBasicComputation) {
 
     double eps[6] = {1e-5, 1e-5, 1e-5, 0.0, 0.0, 0.0};
     double sig[6];
-    cst.computeStressFromStrain(eps, 5e6, sig);
-    cst.current_[0].sigma = {sig[0], sig[1], sig[2], sig[3], sig[4], sig[5]};
-    cst.current_[0].pressure = 5e6;
+    callComputeStressFromStrain(cst, eps, 5e6, sig);
+    getCurrent(cst)[0].sigma = {sig[0], sig[1], sig[2], sig[3], sig[4], sig[5]};
+    getCurrent(cst)[0].pressure = 5e6;
 
     ASSERT_EQ(cst.resolveStressOnFault(), 0);
     EXPECT_TRUE(std::isfinite(cst.getCurrentStress()[0].tau));
