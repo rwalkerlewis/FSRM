@@ -1,6 +1,9 @@
 # FSRM - Full Service Reservoir Model
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![FSRM CI](https://github.com/rwalkerlewis/FSRM/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rwalkerlewis/FSRM/actions/workflows/ci.yml)
+[![Static Analysis](https://github.com/rwalkerlewis/FSRM/actions/workflows/static-analysis.yml/badge.svg)](https://github.com/rwalkerlewis/FSRM/actions/workflows/static-analysis.yml)
+
 
 A fully coupled, physics-based simulator for petroleum reservoirs and earth systems, built on PETSc for scalable parallel computing.
 
@@ -765,6 +768,25 @@ Automatically generated plots:
 - Convergence behavior
 - Scalability studies
 - Error analysis
+
+### Generating Figures
+
+Figures are not stored in the repository to reduce repository size. To generate figures from historical test cases and simulations, run the plotting scripts:
+
+```bash
+# Fetch waveform data for specific events
+python scripts/fetch_lop_nor_1996_waveforms.py
+python scripts/fetch_lop_nor_2020_waveforms.py
+python scripts/fetch_dprk_2017_waveforms.py
+
+# Generate figures
+python scripts/plot_lop_nor_1996_comparison.py
+python scripts/plot_lop_nor_2020_all_data.py
+python scripts/plot_dprk_2017_comparison.py
+python scripts/plot_berkeley_airburst_maps.py
+
+# Figures will be created in the figures/ directory
+```
 
 ## Material Properties Database
 
