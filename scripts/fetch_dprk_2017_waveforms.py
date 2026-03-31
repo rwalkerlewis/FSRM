@@ -117,7 +117,7 @@ def main():
 
     # Common kwargs
     kw = dict(event_info=EVENT_INFO, phase_velocities=PHASE_VELOCITIES,
-              freqmin=FREQMIN, fmax=FREQMAX)
+              freqmin=FREQMIN, fmax=FREQMAX, event_depth_km=EVENT_DEPTH_KM)
 
     # 3. Record section — full window
     print("Generating waveform gather (record section – full window) ...")
@@ -144,6 +144,7 @@ def main():
     fetch_plot_long_period(
         raw_results, EVENT_TIME, OUTDIR,
         event_info=EVENT_INFO, phase_velocities=PHASE_VELOCITIES,
+        event_depth_km=EVENT_DEPTH_KM,
         fname="observed_waveform_gather_long_period")
 
     # 7. Spectrograms
@@ -160,6 +161,7 @@ def main():
         event_info=EVENT_INFO, key_stations=KEY_STATIONS,
         phase_velocities=PHASE_VELOCITIES,
         freqmin=FREQMIN, fmax=FREQMAX, post_origin=POST_ORIGIN,
+        event_depth_km=EVENT_DEPTH_KM,
         fname="observed_closeup_key_stations")
 
     print()
