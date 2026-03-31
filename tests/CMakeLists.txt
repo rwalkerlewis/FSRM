@@ -64,6 +64,8 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_analytical_solutions.cpp
     physics_validation/test_thermoporoelastic.cpp
     physics_validation/test_scec_tpv5.cpp
+    physics_validation/test_elastostatics_patch.cpp
+    physics_validation/test_terzaghi.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -171,6 +173,8 @@ if(GTest_FOUND)
     add_test(NAME Physics.AnalyticalSolutions COMMAND run_physics_tests --gtest_filter=AnalyticalSolutionsTest.*)
     add_test(NAME Physics.Thermoporoelastic   COMMAND run_physics_tests --gtest_filter=ThermoporoelasticConsolidationTest.*)
     add_test(NAME Physics.SCEC.TPV5          COMMAND run_physics_tests --gtest_filter=SCECTPV5Test.*)
+    add_test(NAME Physics.ElastostaticsPatch  COMMAND run_physics_tests --gtest_filter=ElastostaticsPatchTest.*)
+    add_test(NAME Physics.TerzaghiConsolidation COMMAND run_physics_tests --gtest_filter=TerzaghiConsolidationTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -217,6 +221,7 @@ if(GTest_FOUND)
         Physics.MMS.Diffusion Physics.MMS.Elasticity
         Physics.MMS.WavePropagation Physics.AnalyticalSolutions
         Physics.Thermoporoelastic Physics.SCEC.TPV5
+        Physics.ElastostaticsPatch Physics.TerzaghiConsolidation
         PROPERTIES TIMEOUT 300 LABELS "physics_validation"
     )
 

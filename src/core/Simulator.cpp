@@ -2,6 +2,7 @@
 #include "core/PhysicsModuleRegistry.hpp"
 #include "numerics/PetscFEFluidFlow.hpp"
 #include "numerics/PetscFEElasticity.hpp"
+#include "numerics/PetscFEPoroelasticity.hpp"
 #include "io/Visualization.hpp"
 #include "core/ConfigReader.hpp"
 #include "numerics/ImplicitExplicitTransition.hpp"
@@ -1337,7 +1338,130 @@ PetscErrorCode Simulator::setupPhysics() {
     // DMPlexTSComputeIFunctionFEM yet, so we must not enable the FEM path or
     // PETSc will crash during assembly.
     use_fem_time_residual_ = false;
-    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+
+    // Unified PetscDS constants array (shared by all physics callbacks)
+    // Layout:
+    //   [0]  = lambda (first Lame parameter)
+    //   [1]  = mu (shear modulus)
+    //   [2]  = rho_solid
+    //   [3]  = porosity
+    //   [4]  = kx (permeability x, m^2)
+    //   [5]  = ky (permeability y, m^2)
+    //   [6]  = kz (permeability z, m^2)
+    //   [7]  = cw (water compressibility, 1/Pa)
+    //   [8]  = co (oil compressibility, 1/Pa)
+    //   [9]  = cg (gas compressibility, 1/Pa)
+    //   [10] = mu_w (water viscosity, Pa*s)
+    //   [11] = mu_o (oil viscosity, Pa*s)
+    //   [12] = mu_g (gas viscosity, Pa*s)
+    //   [13] = Swr (water residual saturation)
+    //   [14] = Sor (oil residual saturation)
+    //   [15] = Sgr (gas residual saturation)
+    //   [16] = nw (Corey exponent water)
+    //   [17] = no (Corey exponent oil)
+    //   [18] = ng (Corey exponent gas)
+    //   [19] = krw0 (max relative perm water)
+    //   [20] = kro0 (max relative perm oil)
+    //   [21] = krg0 (max relative perm gas)
+    //   [22] = biot_coefficient (alpha)
+    //   [23] = biot_modulus_inv (1/M)
+    //   [24] = rho_fluid
+    PetscScalar unified_constants[25] = {0};
+
+    // Always set material properties if geomechanics is enabled
+    if (config.enable_geomechanics || config.enable_elastodynamics) {
+        const MaterialProperties& mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        double E = mat.youngs_modulus;
+        double nu = mat.poisson_ratio;
+        double rho = mat.density;
+
+        // Convert Young's modulus and Poisson's ratio to Lame parameters
+        double lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        double mu = E / (2.0 * (1.0 + nu));
+
+        unified_constants[0] = lambda;
+        unified_constants[1] = mu;
+        unified_constants[2] = rho;
+        unified_constants[22] = mat.biot_coefficient;
+    }
+
+    // Set fluid properties if fluid flow is enabled
+    if (config.fluid_model != FluidModelType::NONE) {
+        const MaterialProperties mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        const FluidProperties flu = fluid_props.empty() ? FluidProperties() : fluid_props[0];
+
+        // Convert permeability from mD -> m^2
+        constexpr double mD_to_m2 = 9.869233e-16;
+
+        unified_constants[3]  = mat.porosity;
+        unified_constants[4]  = mat.permeability_x * mD_to_m2;
+        unified_constants[5]  = mat.permeability_y * mD_to_m2;
+        unified_constants[6]  = mat.permeability_z * mD_to_m2;
+        unified_constants[7]  = flu.water_compressibility;
+        unified_constants[8]  = flu.oil_compressibility;
+        unified_constants[9]  = flu.gas_compressibility;
+        unified_constants[10] = flu.water_viscosity;
+        unified_constants[11] = flu.oil_viscosity;
+        unified_constants[12] = flu.gas_viscosity;
+        unified_constants[13] = flu.water_residual_saturation;
+        unified_constants[14] = flu.residual_saturation;       // Sor
+        unified_constants[15] = flu.gas_residual_saturation;
+        unified_constants[16] = flu.corey_exponent_water;
+        unified_constants[17] = flu.corey_exponent_oil;
+        unified_constants[18] = flu.corey_exponent_gas;
+        unified_constants[19] = flu.kr_max_water;
+        unified_constants[20] = flu.kr_max_oil;
+        unified_constants[21] = flu.kr_max_gas;
+        unified_constants[24] = flu.density;
+
+        // Biot modulus: 1/M = phi * cf (simplified, assumes incompressible grains)
+        if (config.enable_geomechanics) {
+            unified_constants[23] = mat.porosity * flu.water_compressibility;
+        }
+    }
+
+    // Set constants ONCE for all physics (eliminates collision bug)
+    ierr = PetscDSSetConstants(prob, 25, unified_constants); CHKERRQ(ierr);
+
+    // Register PetscFEPoroelasticity callbacks for fully coupled Biot poroelasticity
+    if (config.solid_model == SolidModelType::POROELASTIC &&
+        config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        // Two-field system: field 0 = pressure (1 component), field 1 = displacement (3 components)
+
+        // Pressure equation: (1/M)*dp/dt + alpha*div(du/dt) + div((k/mu)*grad(p)) = 0
+        ierr = PetscDSSetResidual(prob, 0,
+                                  PetscFEPoroelasticity::f0_pressure,
+                                  PetscFEPoroelasticity::f1_pressure); CHKERRQ(ierr);
+
+        // Displacement equation: -div(sigma - alpha*p*I) = 0
+        ierr = PetscDSSetResidual(prob, 1,
+                                  PetscFEPoroelasticity::f0_displacement,
+                                  PetscFEPoroelasticity::f1_displacement); CHKERRQ(ierr);
+
+        // Jacobian block: pressure-pressure (diagonal)
+        ierr = PetscDSSetJacobian(prob, 0, 0,
+                                  PetscFEPoroelasticity::g0_pp, nullptr, nullptr,
+                                  PetscFEPoroelasticity::g3_pp); CHKERRQ(ierr);
+
+        // Jacobian block: pressure-displacement (off-diagonal coupling)
+        ierr = PetscDSSetJacobian(prob, 0, 1,
+                                  nullptr, PetscFEPoroelasticity::g1_pu,
+                                  nullptr, nullptr); CHKERRQ(ierr);
+
+        // Jacobian block: displacement-pressure (off-diagonal coupling)
+        ierr = PetscDSSetJacobian(prob, 1, 0,
+                                  nullptr, nullptr,
+                                  PetscFEPoroelasticity::g2_up, nullptr); CHKERRQ(ierr);
+
+        // Jacobian block: displacement-displacement (diagonal)
+        ierr = PetscDSSetJacobian(prob, 1, 1,
+                                  nullptr, nullptr, nullptr,
+                                  PetscFEPoroelasticity::g3_uu); CHKERRQ(ierr);
+
+        use_fem_time_residual_ = true;
+    }
+    // Register fluid flow residuals and jacobians (uncoupled or non-poroelastic)
+    else if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
         ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_SinglePhase, PetscFEFluidFlow::f1_SinglePhase); CHKERRQ(ierr);
         // Provide a basic Jacobian for pressure diffusion
         // g0 = phi*ct*shift, g3 = (k/mu)*I
@@ -1345,37 +1469,6 @@ PetscErrorCode Simulator::setupPhysics() {
         ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
         use_fem_time_residual_ = true;
     } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
-        // Set constants used by the black-oil PETScFE callbacks (see comment in f0/f1).
-        // Use the first material/fluid property set as a uniform medium default.
-        const MaterialProperties mat = material_props.empty() ? MaterialProperties() : material_props[0];
-        const FluidProperties flu = fluid_props.empty() ? FluidProperties() : fluid_props[0];
-
-        // Convert permeability from mD -> m^2
-        constexpr double mD_to_m2 = 9.869233e-16;
-
-        PetscScalar constants[19];
-        constants[0]  = mat.porosity;
-        constants[1]  = mat.permeability_x * mD_to_m2;
-        constants[2]  = mat.permeability_y * mD_to_m2;
-        constants[3]  = mat.permeability_z * mD_to_m2;
-        constants[4]  = flu.water_compressibility;
-        constants[5]  = flu.oil_compressibility;
-        constants[6]  = flu.gas_compressibility;
-        constants[7]  = flu.water_viscosity;
-        constants[8]  = flu.oil_viscosity;
-        constants[9]  = flu.gas_viscosity;
-        constants[10] = flu.water_residual_saturation;
-        constants[11] = flu.residual_saturation;       // Sor
-        constants[12] = flu.gas_residual_saturation;
-        constants[13] = flu.corey_exponent_water;
-        constants[14] = flu.corey_exponent_oil;
-        constants[15] = flu.corey_exponent_gas;
-        constants[16] = flu.kr_max_water;
-        constants[17] = flu.kr_max_oil;
-        constants[18] = flu.kr_max_gas;
-
-        ierr = PetscDSSetConstants(prob, 19, constants); CHKERRQ(ierr);
-
         // Pressure equation
         ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_BlackOilPressure, PetscFEFluidFlow::f1_BlackOilPressure); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
@@ -1390,8 +1483,10 @@ PetscErrorCode Simulator::setupPhysics() {
         use_fem_time_residual_ = true;
     }
 
-    // Register PETSc FEM callbacks for elastodynamics if enabled
-    if (config.enable_geomechanics || config.enable_elastodynamics) {
+    // Register PETSc FEM callbacks for elasticity if enabled (skip if poroelastic, already handled above)
+    if ((config.enable_geomechanics || config.enable_elastodynamics) &&
+        !(config.solid_model == SolidModelType::POROELASTIC &&
+          config.fluid_model == FluidModelType::SINGLE_COMPONENT)) {
         // Determine field index for displacement
         // Field ordering: [fluid fields...] [displacement] [thermal] [...]
         PetscInt displacement_field_idx = 0;
@@ -1403,22 +1498,6 @@ PetscErrorCode Simulator::setupPhysics() {
             displacement_field_idx = 4;  // P + 3 compositions
         }
         // else NONE: displacement_field_idx = 0
-
-        const MaterialProperties& mat = material_props.empty() ? MaterialProperties() : material_props[0];
-        double E = mat.youngs_modulus;
-        double nu = mat.poisson_ratio;
-        double rho = mat.density;
-
-        // Convert Young's modulus and Poisson's ratio to Lame parameters
-        double lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
-        double mu = E / (2.0 * (1.0 + nu));
-
-        // Setup constants: [0]=lambda, [1]=mu, [2]=rho
-        PetscScalar elast_constants[3];
-        elast_constants[0] = lambda;
-        elast_constants[1] = mu;
-        elast_constants[2] = rho;
-        ierr = PetscDSSetConstants(prob, 3, elast_constants); CHKERRQ(ierr);
 
         // Register callbacks
         if (config.enable_elastodynamics) {
@@ -1477,13 +1556,16 @@ PetscErrorCode Simulator::setupTimeStepper() {
     }
     
     // Set time stepping method
-    // For now, use TSBEULER for all cases
-    // TODO: TSALPHA2 requires special setup for second-order systems that isn't
-    // compatible with the current DMPlex FEM formulation. Consider using
-    // explicit schemes (TSRK, TSSSP) for wave propagation in future work.
-    ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
-    if (config.enable_elastodynamics && rank == 0) {
-        PetscPrintf(comm, "Using TSBEULER for elastodynamics (implicit, first-order)\n");
+    // Use TSCN (Crank-Nicolson) for elastodynamics: second-order accurate, implicit
+    // Use TSBEULER for other cases (single-phase flow, poroelasticity): first-order, more stable
+    // Note: TSALPHA2 with I2Function/I2Jacobian is not available in PETSc 3.20 DMPlex FEM
+    if (config.enable_elastodynamics) {
+        ierr = TSSetType(ts, TSCN); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm, "Using TSCN for elastodynamics (implicit, second-order)\n");
+        }
+    } else {
+        ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
     }
 
     // Set time parameters

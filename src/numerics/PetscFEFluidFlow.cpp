@@ -11,26 +11,35 @@ namespace PetscFEFluidFlow {
 // -----------------------------------------------------------------------------
 
 namespace {
-// Constants layout used by black-oil PETScFE callbacks:
-//   [0]  phi        (porosity)
-//   [1]  kx         (m^2)
-//   [2]  ky         (m^2)
-//   [3]  kz         (m^2)
-//   [4]  cw         (1/Pa)
-//   [5]  co         (1/Pa)
-//   [6]  cg         (1/Pa)
-//   [7]  mu_w       (Pa*s)
-//   [8]  mu_o       (Pa*s)
-//   [9]  mu_g       (Pa*s)
-//   [10] Swr        (-)
-//   [11] Sor        (-)
-//   [12] Sgr        (-)
-//   [13] nw         (-)
-//   [14] no         (-)
-//   [15] ng         (-)
-//   [16] krw0       (-)
-//   [17] kro0       (-)
-//   [18] krg0       (-)
+// Unified constants layout (shared by all PetscDS callbacks):
+// NOTE: This layout is now set in Simulator::setupPhysics() and shared across
+// all physics (elasticity, fluid flow, poroelasticity). The indices below are
+// for when fluid callbacks are updated to use constants instead of hardcoded values.
+//   [0]  = lambda (first Lame parameter)
+//   [1]  = mu (shear modulus)
+//   [2]  = rho_solid
+//   [3]  = porosity
+//   [4]  = kx (permeability x, m^2)
+//   [5]  = ky (permeability y, m^2)
+//   [6]  = kz (permeability z, m^2)
+//   [7]  = cw (water compressibility, 1/Pa)
+//   [8]  = co (oil compressibility, 1/Pa)
+//   [9]  = cg (gas compressibility, 1/Pa)
+//   [10] = mu_w (water viscosity, Pa*s)
+//   [11] = mu_o (oil viscosity, Pa*s)
+//   [12] = mu_g (gas viscosity, Pa*s)
+//   [13] = Swr (water residual saturation)
+//   [14] = Sor (oil residual saturation)
+//   [15] = Sgr (gas residual saturation)
+//   [16] = nw (Corey exponent water)
+//   [17] = no (Corey exponent oil)
+//   [18] = ng (Corey exponent gas)
+//   [19] = krw0 (max relative perm water)
+//   [20] = kro0 (max relative perm oil)
+//   [21] = krg0 (max relative perm gas)
+//   [22] = biot_coefficient (alpha)
+//   [23] = biot_modulus_inv (1/M)
+//   [24] = rho_fluid
 
 static inline PetscScalar clamp01(PetscScalar v) {
     return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);

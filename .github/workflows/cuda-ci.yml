@@ -1,0 +1,101 @@
+name: CUDA Build CI
+
+on:
+  push:
+    branches: [main]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # ============================================================================
+  # CUDA Build Job — verifies CUDA compilation works (no GPU runtime testing)
+  # ============================================================================
+  cuda-build:
+    name: CUDA Build Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CUDA CI Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.cuda
+          load: true
+          tags: fsrm-cuda:local
+          cache-from: type=gha,scope=cuda
+          cache-to: type=gha,mode=max,scope=cuda
+
+      - name: Configure & Build with CUDA
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            fsrm-cuda:local \
+            bash -c '
+              set -eo pipefail &&
+              mkdir -p build && cd build &&
+              cmake .. \
+                -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+                -DENABLE_TESTING=ON \
+                -DENABLE_CUDA=ON \
+                -DBUILD_EXAMPLES=ON \
+                -DCMAKE_VERBOSE_MAKEFILE=ON &&
+              make -j"$(nproc)" 2>&1 | tee build.log ;
+              test ${PIPESTATUS[0]} -eq 0
+            '
+
+      - name: Count Warnings
+        if: always()
+        run: bash scripts/ci/count_warnings.sh build/build.log || true
+
+      - name: Verify Artifacts
+        run: |
+          test -f build/fsrm && test -f build/libfsrmlib.so
+          ls -lh build/fsrm build/libfsrmlib.so
+          echo "CUDA build artifacts present."
+          echo ""
+          echo "Note: GPU runtime tests are not run in CI (no GPU hardware available)."
+          echo "To test with GPU: docker run --gpus all -v \$(pwd):/workspace -w /workspace/build fsrm-cuda:local ctest --output-on-failure"
+
+      - name: Upload CUDA Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuda-build-dir
+          path: |
+            build/
+            !build/**/*.o
+            !build/**/*.cpp.o
+            !build/**/*.cu.o
+          retention-days: 1
+
+  # ============================================================================
+  # Summary
+  # ============================================================================
+  summary:
+    name: CUDA Build Summary
+    runs-on: ubuntu-latest
+    needs: [cuda-build]
+    if: always()
+
+    steps:
+      - name: Evaluate Results
+        run: |
+          echo "=== CUDA Build CI Summary ==="
+          echo "CUDA Build: ${{ needs.cuda-build.result }}"
+          echo ""
+
+          if [ "${{ needs.cuda-build.result }}" != "success" ]; then
+            echo "CUDA build verification failed."
+            exit 1
+          fi
+
+          echo "CUDA build verification passed."
+          echo ""
+          echo "Note: This CI only verifies compilation. GPU runtime testing"
+          echo "requires GPU hardware and should be done separately."

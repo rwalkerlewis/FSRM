@@ -141,10 +141,15 @@ if(ENABLE_CUDA)
         set(CMAKE_CUDA_STANDARD 14)
         set(CMAKE_CUDA_STANDARD_REQUIRED ON)
         add_definitions(-DUSE_CUDA)
-        
+
         if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
             set(CMAKE_CUDA_ARCHITECTURES 60 70 75 80 86)
         endif()
+
+        # Note: PetscDS pointwise callbacks run on GPU automatically when:
+        #   1. PETSc is built with --with-cuda
+        #   2. Runtime options include: -vec_type cuda -mat_type aijcusparse
+        # No custom CUDA kernels needed for FEM assembly.
     else()
         message(WARNING "CUDA requested but not found. Building CPU-only version.")
         set(ENABLE_CUDA OFF)
