@@ -1,256 +1,384 @@
-# FSRM: Fix Constants Layout, Real Validation, End-to-End Solve
+# FSRM: Integrate Faults into Simulator Pipeline
 
 Read CLAUDE.md first. Build and test everything in Docker.
 
-## Bug 1 (CRITICAL): Constants Layout Mismatch
+## Goal
 
-Three callback files read from the PetscDS constants array at different indices for the same physical quantity. The Simulator fills one layout, PetscFEPoroelasticity expects another.
+Wire the existing fault components (FaultMeshManager, CohesiveFaultKernel, FaultCohesiveDyn)
+into the Simulator so that `./fsrm -c config/test_locked_fault.config` runs an elastostatic
+solve with a locked cohesive fault embedded in the mesh.
 
-### What Simulator fills (25 elements):
-```
-[0]  = lambda           [1]  = mu              [2]  = rho_solid
-[3]  = porosity         [4]  = perm_x (m^2)    [5]  = perm_y (m^2)
-[6]  = perm_z (m^2)     [7]  = cw              [8]  = co
-[9]  = cg               [10] = mu_w            [11] = mu_o
-[12] = mu_g             [13] = Swr             [14] = Sor
-[15] = Sgr              [16] = nw              [17] = no
-[18] = ng               [19] = krw0            [20] = kro0
-[21] = krg0             [22] = biot_alpha      [23] = 1/M
-[24] = rho_fluid
-```
+## Bug Fix First: Constants Slot Collision
 
-### What PetscFEPoroelasticity EXPECTS to read:
-```
-[0] = lambda  [1] = mu  [4] = permeability  [5] = fluid_viscosity
-[7] = biot_coefficient  [8] = biot_modulus_inv
-```
+CohesiveFaultKernel::COHESIVE_CONST_MODE is currently 24, which collides with
+rho_fluid at unified_constants[24] in Simulator::setupPhysics().
 
-### The mismatch:
-- Poroelasticity reads constants[5] as fluid_viscosity -> gets permeability_y
-- Poroelasticity reads constants[7] as biot_alpha -> gets water_compressibility
-- Poroelasticity reads constants[8] as 1/M -> gets oil_compressibility
-- biot_alpha is actually at [22], 1/M at [23], fluid_viscosity at [10]
-
-### What PetscFEFluidFlow BlackOil EXPECTS to read (OLD layout, never updated):
-```
-[0] = porosity  [1] = kx  [2] = ky  [3] = kz  [4] = cw  [5] = co ...
-```
-- FluidFlow reads constants[0] as porosity -> gets lambda (Lame parameter!)
-- FluidFlow reads constants[1] as kx -> gets mu (shear modulus!)
-
-### Fix: Pick ONE layout. Update ALL callback files to match.
-
-The Simulator layout is the most complete. Keep it. Update the callback files:
-
-**PetscFEPoroelasticity.cpp** -- change these reads:
+In `include/physics/CohesiveFaultKernel.hpp`, change:
 ```cpp
-// OLD (wrong):
-constants[4]  // permeability -> actually perm_x, OK for isotropic
-constants[5]  // fluid_viscosity -> actually perm_y, WRONG
-constants[7]  // biot_alpha -> actually cw, WRONG
-constants[8]  // biot_modulus_inv -> actually co, WRONG
-
-// NEW (correct per Simulator layout):
-constants[4]  // perm_x (isotropic permeability, use this)
-constants[10] // mu_w (water viscosity = fluid viscosity for single-phase)
-constants[22] // biot_alpha
-constants[23] // 1/M (biot modulus inverse)
+static constexpr PetscInt COHESIVE_CONST_MODE  = 25;  // was 24
+static constexpr PetscInt COHESIVE_CONST_MU_F  = 26;  // was 25
+static constexpr PetscInt COHESIVE_CONST_COUNT = 27;  // was 26
 ```
 
-Update EVERY function in PetscFEPoroelasticity.cpp. There are 9 functions that read from constants. Check each one.
-
-Also update the header comments in PetscFEPoroelasticity.hpp to match the actual Simulator layout.
-
-**PetscFEFluidFlow.cpp** -- change the BlackOil callback reads:
+In `src/core/Simulator.cpp`, expand the unified constants array:
 ```cpp
-// OLD (wrong indices):
-getConst(numConstants, constants, 0, 0.2);   // phi -> actually lambda
-getConst(numConstants, constants, 1, 100e-15); // kx -> actually mu
-getConst(numConstants, constants, 2, 100e-15); // ky -> actually rho_solid
-// ... etc
-
-// NEW (correct per Simulator layout):
-getConst(numConstants, constants, 3, 0.2);     // phi = porosity
-getConst(numConstants, constants, 4, 100e-15); // kx = permeability_x
-getConst(numConstants, constants, 5, 100e-15); // ky = permeability_y
-getConst(numConstants, constants, 6, 10e-15);  // kz = permeability_z
-getConst(numConstants, constants, 7, 4.5e-10); // cw = water_compressibility
-getConst(numConstants, constants, 8, 1.5e-9);  // co = oil_compressibility
-getConst(numConstants, constants, 9, 1e-8);    // cg = gas_compressibility
-getConst(numConstants, constants, 10, 1e-3);   // mu_w = water_viscosity
-getConst(numConstants, constants, 11, 5e-3);   // mu_o = oil_viscosity
-getConst(numConstants, constants, 12, 1e-5);   // mu_g = gas_viscosity
-getConst(numConstants, constants, 13, 0.2);    // Swr
-getConst(numConstants, constants, 14, 0.2);    // Sor
-getConst(numConstants, constants, 15, 0.05);   // Sgr
-getConst(numConstants, constants, 16, 2.0);    // nw
-getConst(numConstants, constants, 17, 2.0);    // no
-getConst(numConstants, constants, 18, 2.0);    // ng
-getConst(numConstants, constants, 19, 0.5);    // krw0
-getConst(numConstants, constants, 20, 1.0);    // kro0
-getConst(numConstants, constants, 21, 0.8);    // krg0
+PetscScalar unified_constants[27] = {0};  // was 25
 ```
+Change the PetscDSSetConstants call to pass 27 instead of 25.
+rho_fluid stays at [24]. Nothing else moves.
 
-Update ALL BlackOil callbacks: f0_BlackOilPressure, f1_BlackOilPressure, g0_BlackOilPressurePressure, g3_BlackOilPressurePressure, f0_BlackOilSw, f0_BlackOilSg.
-
-**PetscFEFluidFlow.cpp** -- fix f0_SinglePhase to read from constants instead of hardcoding:
-```cpp
-// OLD (hardcoded):
-const PetscReal phi = 0.2;
-const PetscReal ct  = 1e-9;
-
-// NEW:
-const PetscReal phi = (numConstants > 3) ? PetscRealPart(constants[3]) : 0.2;
-const PetscReal ct  = (numConstants > 7) ? PetscRealPart(constants[7]) : 1e-9;
-```
-
-**PetscFEElasticity.cpp** -- already reads [0]=lambda, [1]=mu, [2]=rho. No changes needed.
-
-### Verify after fixing:
-All three callback files must agree on the layout documented in Simulator::setupPhysics().
-Create a static_assert or compile-time constant header if you want, but at minimum add this
-comment block to the top of EACH callback .cpp file:
-```cpp
-// UNIFIED PetscDS CONSTANTS LAYOUT (set once in Simulator::setupPhysics):
-// [0]=lambda [1]=mu [2]=rho_s [3]=phi [4]=kx [5]=ky [6]=kz
-// [7]=cw [8]=co [9]=cg [10]=mu_w [11]=mu_o [12]=mu_g
-// [13]=Swr [14]=Sor [15]=Sgr [16]=nw [17]=no [18]=ng
-// [19]=krw0 [20]=kro0 [21]=krg0 [22]=biot_alpha [23]=1/M [24]=rho_f
-```
+Do this FIRST before any other changes. Build and verify existing tests still pass.
 
 
-## Bug 2: Validation Tests Don't Test Anything
+## Subagent A: Wire FaultMeshManager into Simulator::setupFaultNetwork()
 
-### test_elastostatics_patch.cpp
-This test computes analytical Hooke's law, calls the OLD GeomechanicsKernel::residual()
-(strong-form placeholder), then GTEST_SKIPs. It never calls PetscFEElasticity functions.
+File: `src/core/Simulator.cpp`
 
-Rewrite to directly call PetscFEElasticity::f1_elastostatics with known inputs and verify
-the output stress matches Hooke's law:
+The current setupFaultNetwork() creates an empty FaultNetwork and returns.
+Replace it with real fault setup. The call order matters:
 
 ```cpp
-TEST_F(ElastostaticsPatchTest, F1ProducesCorrectStress) {
-    const double E = 10e9, nu = 0.25;
-    const double lambda = E*nu/((1+nu)*(1-2*nu));
-    const double mu = E/(2*(1+nu));
-    const double eps_0 = 0.001;
+PetscErrorCode Simulator::setupFaultNetwork() {
+    PetscFunctionBeginUser;
+    if (!config.enable_faults) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
 
-    PetscScalar constants[25] = {0};
-    constants[0] = lambda; constants[1] = mu; constants[2] = 2700;
+    if (rank == 0) PetscPrintf(comm, "Setting up fault network...\n");
 
-    // Displacement gradient: uniform uniaxial strain eps_xx = eps_0
-    PetscScalar u_x[9] = {0};
-    u_x[0] = eps_0;  // du_x/dx
+    // 1. Create fault mesh manager
+    fault_mesh_manager_ = std::make_unique<FaultMeshManager>(comm);
 
-    PetscInt uOff[1] = {0}, uOff_x[1] = {0};
-    PetscScalar f1[9] = {0};
-    PetscReal x[3] = {0.5, 0.5, 0.5};
+    // 2. Read fault geometry from config
+    //    ConfigReader should have parsed [FAULT] section with:
+    //    strike, dip, center_x/y/z, length, width, tolerance
+    //    For now, use defaults if not in config
+    double strike = 0.0;        // radians
+    double dip = M_PI / 2.0;    // vertical fault
+    double center[3] = {0.0, 0.0, 0.0};
+    double length = 1e10;       // large enough to cut the whole mesh
+    double width = 1e10;
+    double tol = 0.15;
 
-    PetscFEElasticity::f1_elastostatics(
-        3, 1, 0, uOff, uOff_x, nullptr, nullptr, u_x,
-        nullptr, nullptr, nullptr, nullptr, nullptr,
-        0.0, x, 25, constants, f1);
+    // TODO: Read from config once FaultConfig parsing is implemented
+    // For now, hardcode a vertical fault at x=Lx/2
+    center[0] = grid_config.Lx / 2.0;
+    center[1] = grid_config.Ly / 2.0;
+    center[2] = grid_config.Lz / 2.0;
+    length = 2.0 * std::max({grid_config.Lx, grid_config.Ly, grid_config.Lz});
+    width = length;
 
-    // f1[c*dim+d] = sigma_{cd}
-    EXPECT_NEAR(PetscRealPart(f1[0]), (lambda+2*mu)*eps_0, 1e-6); // sigma_xx
-    EXPECT_NEAR(PetscRealPart(f1[4]), lambda*eps_0, 1e-6);         // sigma_yy
-    EXPECT_NEAR(PetscRealPart(f1[8]), lambda*eps_0, 1e-6);         // sigma_zz
-    EXPECT_NEAR(PetscRealPart(f1[1]), 0.0, 1e-12);                 // sigma_xy
+    // 3. Label fault faces on the DM
+    DMLabel fault_label = nullptr;
+    ierr = fault_mesh_manager_->createPlanarFaultLabel(
+        dm, &fault_label, strike, dip, center, length, width, tol);
+    if (ierr != 0) {
+        if (rank == 0) PetscPrintf(comm, "Warning: fault labeling failed, skipping fault setup\n");
+        fault_mesh_manager_.reset();
+        PetscFunctionReturn(0);
+    }
+
+    // 4. Split mesh along fault (inserts cohesive cells)
+    //    THIS CHANGES THE DM TOPOLOGY
+    ierr = fault_mesh_manager_->splitMeshAlongFault(&dm, "fault");
+    if (ierr != 0) {
+        if (rank == 0) PetscPrintf(comm, "Warning: mesh splitting failed, skipping fault setup\n");
+        fault_mesh_manager_.reset();
+        PetscFunctionReturn(0);
+    }
+
+    // 5. Create FaultCohesiveDyn and extract topology from cohesive cells
+    cohesive_fault_ = std::make_unique<FaultCohesiveDyn>();
+    ierr = fault_mesh_manager_->extractCohesiveTopology(dm, cohesive_fault_.get());
+    CHKERRQ(ierr);
+
+    // 6. Set friction model
+    //    TODO: Read from config. Default: slip-weakening
+    auto friction = std::make_unique<SlipWeakeningFriction>();
+    friction->setStaticCoefficient(0.6);
+    friction->setDynamicCoefficient(0.4);
+    friction->setCriticalSlipDistance(0.4);
+    cohesive_fault_->setFrictionModel(std::move(friction));
+
+    // 7. Set initial traction (pre-stress on fault)
+    //    For locked fault test: doesn't matter, but set something physical
+    cohesive_fault_->setUniformInitialTraction(25e6, 0.0, -50e6);
+
+    // 8. Initialize fault state
+    cohesive_fault_->initialize();
+
+    // 9. Create cohesive kernel
+    cohesive_kernel_ = std::make_unique<CohesiveFaultKernel>();
+    cohesive_kernel_->setMode(true);  // locked
+    cohesive_kernel_->setFrictionCoefficient(0.6);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Fault network setup complete: %zu fault vertices\n",
+                    cohesive_fault_->numVertices());
+    }
+
+    PetscFunctionReturn(0);
 }
 ```
 
-Also test g3_elastostatics to verify the stiffness tensor entries.
+CRITICAL: This must be called AFTER setupDM() but BEFORE setupFields(), because
+splitMeshAlongFault changes the DM topology. Check the call order in
+Simulator::initializeFromConfigFile() or Simulator::run() and adjust if needed.
 
-### test_terzaghi.cpp
-Currently GTEST_SKIPs saying PetscFEPoroelasticity doesn't exist. It does now.
+Also add the necessary includes at the top of Simulator.cpp if not already present:
+```cpp
+#include "domain/geomechanics/PyLithFault.hpp"  // FaultCohesiveDyn, SlipWeakeningFriction
+#include "numerics/FaultMeshManager.hpp"
+#include "physics/CohesiveFaultKernel.hpp"
+```
 
-Add a test that calls PetscFEPoroelasticity callbacks directly with known inputs:
+These may already be included via Simulator.hpp -- check before adding.
+
+
+## Subagent B: Add Lagrange Multiplier Field and Register Cohesive Callbacks
+
+### In Simulator::setupFields():
+
+When faults are enabled and cohesive_kernel_ exists, add a Lagrange multiplier field
+for the traction on cohesive cells:
 
 ```cpp
-TEST_F(TerzaghiConsolidationTest, F1DisplacementBiotCoupling) {
-    // Verify that f1_displacement includes -alpha*p*delta_{cd} term
-    PetscScalar constants[25] = {0};
-    constants[0] = 4e9;   // lambda
-    constants[1] = 4e9;   // mu
-    constants[22] = 0.8;  // biot alpha
-
-    PetscScalar u[4] = {0};  // [pressure, ux, uy, uz]
-    u[0] = 1e6;  // 1 MPa pore pressure
-
-    PetscInt uOff[2] = {0, 1};
-    PetscInt uOff_x[2] = {0, 3};
-    PetscScalar u_x[12] = {0};  // 3 for pressure grad + 9 for displacement grad
-    PetscScalar f1[9] = {0};
-    PetscReal x[3] = {0.5, 0.5, 0.5};
-
-    PetscFEPoroelasticity::f1_displacement(
-        3, 2, 0, uOff, uOff_x, u, nullptr, u_x,
-        nullptr, nullptr, nullptr, nullptr, nullptr,
-        0.0, x, 25, constants, f1);
-
-    // With zero strain, f1 should be just -alpha*p*delta
-    double alpha = 0.8, p = 1e6;
-    EXPECT_NEAR(PetscRealPart(f1[0]), -alpha*p, 1e-3);  // sigma_xx - alpha*p
-    EXPECT_NEAR(PetscRealPart(f1[4]), -alpha*p, 1e-3);  // sigma_yy - alpha*p
-    EXPECT_NEAR(PetscRealPart(f1[8]), -alpha*p, 1e-3);  // sigma_zz - alpha*p
+// After adding the displacement field...
+if (config.enable_faults && cohesive_kernel_) {
+    PetscFE fe_lagrange;
+    // Lagrange multiplier: 3-component vector (traction) on cohesive cells
+    ierr = PetscFECreateDefault(comm, 3, 3, PETSC_FALSE, "lagrange_", -1, &fe_lagrange);
+    CHKERRQ(ierr);
+    ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
+    fe_fields.push_back(fe_lagrange);
+    if (rank == 0) PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
 }
 ```
 
-Keep the existing analytical Terzaghi series tests -- they're fine as reference value checks. Just remove the GTEST_SKIP that claims poroelasticity doesn't exist, and add callback-level tests alongside.
+NOTE: PETSc's DMPlex cohesive cell handling may require the Lagrange multiplier to be
+set up differently -- it might need DMSetRegionDS or a separate DS for the cohesive
+cells. Check PETSc examples that use DMPlexConstructCohesiveCells + PetscFE.
+If the standard DMAddField approach doesn't work (PETSc errors about hybrid cells),
+try using DMPlexGetHybridBounds or DMGetLabel("fault") to restrict the field.
 
-### Also update test_mms_elasticity.cpp and test_mms_wave_propagation.cpp:
-If these still GTEST_SKIP because they test GeomechanicsKernel::residual() (the old strong-form), consider adding parallel tests that exercise PetscFEElasticity callbacks directly, like the patch test above.
+### In Simulator::setupPhysics():
+
+After registering elasticity callbacks, if faults are enabled:
+
+```cpp
+if (config.enable_faults && cohesive_kernel_) {
+    // Determine field indices
+    PetscInt disp_field = displacement_field_idx;  // computed earlier
+    PetscInt lagrange_field = disp_field + 1;      // Lagrange multiplier is next field
+
+    // Register cohesive callbacks via CohesiveFaultKernel::registerWithDS
+    // This expands the constants array and registers PetscDSSetBdResidual/BdJacobian
+    ierr = cohesive_kernel_->registerWithDS(prob, disp_field, lagrange_field);
+    CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Registered cohesive fault callbacks on fields %d (disp), %d (lagrange)\n",
+                    disp_field, lagrange_field);
+    }
+}
+```
 
 
-## Bug 3: End-to-End Verification
+## Subagent C: Locked Fault Integration Test
 
-After fixing constants, run the Simulator and verify it produces nonzero output:
+Create `tests/integration/test_locked_fault.cpp`:
+
+```cpp
+/**
+ * @file test_locked_fault.cpp
+ * @brief Integration test: elastostatic solve with locked cohesive fault
+ *
+ * Verifies that inserting a locked fault (u+ = u-) into the mesh does not
+ * change the elastostatic solution compared to a no-fault baseline.
+ */
+
+#include <gtest/gtest.h>
+#include <cmath>
+#include <petscsys.h>
+#include <petscdmplex.h>
+
+#include "numerics/FaultMeshManager.hpp"
+#include "numerics/PetscFEElasticity.hpp"
+#include "physics/CohesiveFaultKernel.hpp"
+#include "domain/geomechanics/PyLithFault.hpp"
+
+using namespace FSRM;
+
+class LockedFaultTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+    }
+    int rank = 0;
+};
+
+TEST_F(LockedFaultTest, LockedFaultPreservesElastostatics) {
+    // Create a 3D box mesh
+    DM dm = nullptr;
+    PetscInt faces[3] = {4, 4, 4};
+    PetscReal lower[3] = {0.0, 0.0, 0.0};
+    PetscReal upper[3] = {1.0, 1.0, 1.0};
+    PetscErrorCode ierr = DMPlexCreateBoxMesh(
+        PETSC_COMM_WORLD, 3, PETSC_FALSE, faces, lower, upper,
+        nullptr, PETSC_TRUE, &dm);
+    if (ierr != 0 || !dm) {
+        GTEST_SKIP() << "DMPlexCreateBoxMesh failed";
+    }
+
+    // Insert a horizontal fault at z=0.5
+    FaultMeshManager mgr(PETSC_COMM_WORLD);
+    DMLabel fault_label = nullptr;
+    const double center[3] = {0.5, 0.5, 0.5};
+    ierr = mgr.createPlanarFaultLabel(dm, &fault_label, 0.0, 0.5*M_PI,
+                                       center, 2.0, 2.0, 0.15);
+    if (ierr != 0) {
+        DMDestroy(&dm);
+        GTEST_SKIP() << "createPlanarFaultLabel failed";
+    }
+
+    ierr = mgr.splitMeshAlongFault(&dm, "fault");
+    if (ierr != 0) {
+        DMDestroy(&dm);
+        GTEST_SKIP() << "splitMeshAlongFault failed";
+    }
+
+    // Extract cohesive topology
+    FaultCohesiveDyn fault;
+    ierr = mgr.extractCohesiveTopology(dm, &fault);
+    if (ierr != 0) {
+        DMDestroy(&dm);
+        GTEST_SKIP() << "extractCohesiveTopology failed";
+    }
+
+    fault.setFrictionModel(std::make_unique<SlipWeakeningFriction>());
+    fault.initialize();
+
+    // Create cohesive kernel in locked mode
+    CohesiveFaultKernel kernel;
+    kernel.setMode(true);  // locked: u+ - u- = 0
+    kernel.setFrictionCoefficient(0.6);
+
+    // Verify mesh was modified
+    PetscInt num_cells;
+    ierr = DMPlexGetHeightStratum(dm, 0, nullptr, &num_cells); CHKERRQ(ierr);
+    EXPECT_GT(num_cells, 64) << "Mesh should have more cells after cohesive insertion";
+
+    // If we got here, the mesh splitting and cohesive topology extraction worked
+    // Full solve test would require setting up PetscFE + PetscDS + SNES,
+    // which is complex. For now, verify the components wire together.
+    EXPECT_GE(fault.numVertices(), 0u);
+
+    DMDestroy(&dm);
+}
+```
+
+Register this test in `tests/CMakeLists.txt`:
+- Add `integration/test_locked_fault.cpp` to INTEGRATION_TEST_SOURCES
+- Add CTest registration: `add_test(NAME Integration.LockedFault COMMAND run_integration_tests --gtest_filter=LockedFaultTest.*)`
+- Add to set_tests_properties for integration label and timeout
+
+Also create `config/test_locked_fault.config`:
+```ini
+[SIMULATION]
+name = locked_fault_test
+start_time = 0.0
+end_time = 1.0
+dt_initial = 1.0
+fluid_model = NONE
+solid_model = ELASTIC
+enable_geomechanics = true
+enable_faults = true
+rtol = 1.0e-8
+atol = 1.0e-10
+max_nonlinear_iterations = 20
+
+[GRID]
+nx = 4
+ny = 4
+nz = 4
+Lx = 1.0
+Ly = 1.0
+Lz = 1.0
+
+[ROCK]
+density = 2700.0
+youngs_modulus = 50.0e9
+poissons_ratio = 0.25
+
+[FAULT]
+enabled = true
+strike = 0.0
+dip = 90.0
+center_x = 0.5
+center_y = 0.5
+center_z = 0.5
+length = 2.0
+width = 2.0
+friction_static = 0.6
+friction_dynamic = 0.4
+critical_slip_distance = 0.4
+```
+
+
+## Main Agent: After Subagents Complete
+
+### 1. Fix call order in Simulator
+
+Check `Simulator::initializeFromConfigFile()` or wherever the setup methods are called.
+The order MUST be:
+```
+initializeFromConfigFile()
+  -> parse config
+  -> setupDM()              // create base mesh
+  -> setupFaultNetwork()    // split mesh (changes DM)
+  -> setupFields()          // create PetscFE on final mesh
+  -> setupPhysics()         // register PetscDS callbacks
+  -> setupTimeStepper()     // create TS
+  -> setupSolvers()         // configure SNES/KSP
+```
+
+If setupFaultNetwork() is currently called after setupFields(), move it before.
+
+### 2. Build and test
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c '
-  cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON &&
+  mkdir -p build && cd build &&
+  cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON &&
   make -j$(nproc) &&
-  echo "=== ELASTOSTATICS ===" &&
-  ./fsrm -c ../config/test_elastostatics.config 2>&1 | tail -20 &&
-  echo "=== ELASTODYNAMICS ===" &&
-  ./fsrm -c ../config/test_elastodynamics.config 2>&1 | tail -20 &&
-  echo "=== TESTS ===" &&
-  ctest --output-on-failure 2>&1 | tail -30
+  echo "=== ALL TESTS ===" &&
+  ctest --output-on-failure 2>&1 | tail -40 &&
+  echo "=== LOCKED FAULT CONFIG ===" &&
+  ./fsrm -c ../config/test_locked_fault.config 2>&1 | tail -30
 '
 ```
 
-If the Simulator segfaults or produces NaN, debug by checking:
-1. Is `prob` (PetscDS) actually created before PetscDSSetResidual? Check `DMGetDS(dm, &prob)`.
-2. Is the displacement field actually added to DM? Check setupFields() for the POROELASTIC / ELASTIC cases.
-3. Are boundary conditions set? Without Dirichlet BCs, the elastostatic system is singular.
-4. Is the solution vector created? Check `DMCreateGlobalVector(dm, &solution)`.
+### 3. Debug common PETSc cohesive cell issues
 
-## Parallel Subagent Tasks
+If PETSc errors on DMAddField for the Lagrange multiplier on a hybrid mesh:
+- Try DMPlexGetHybridBounds to check if PETSc recognizes the cohesive cells
+- May need DMSetRegionDS to set a separate DS for cohesive vs bulk cells
+- Check PETSc fault examples (ex52, ex62) for the correct DMPlex + cohesive setup
 
-### Subagent A: Fix PetscFEPoroelasticity.cpp constants indices
-Update all 9 functions to read from the Simulator's actual layout:
-- constants[10] for fluid_viscosity (was [5])
-- constants[22] for biot_alpha (was [7])
-- constants[23] for 1/M (was [8])
+If registerWithDS fails because PetscDSSetBdResidual doesn't work with the field layout:
+- Verify the Lagrange multiplier field index is correct
+- Check that PetscDS has the right number of fields after DMAddField
 
-Also update the header doc comments in PetscFEPoroelasticity.hpp.
+### 4. If full solve works, verify locked fault is transparent
 
-### Subagent B: Fix PetscFEFluidFlow.cpp constants indices
-Update all BlackOil callbacks to use unified layout indices [3]-[21].
-Fix f0_SinglePhase to read phi and ct from constants instead of hardcoding.
+Run the same elastostatic problem with and without enable_faults:
+- With enable_faults=false: baseline displacement
+- With enable_faults=true, locked mode: should produce identical displacement
+- If they differ, the cohesive constraint (u+ - u- = 0) isn't being applied correctly
 
-### Subagent C: Rewrite validation tests
-Rewrite test_elastostatics_patch.cpp to call PetscFEElasticity callbacks directly.
-Rewrite test_terzaghi.cpp to call PetscFEPoroelasticity callbacks directly.
-Remove stale GTEST_SKIPs.
-
-### Main agent after subagents:
-1. Build and run all tests
-2. Run `./fsrm -c config/test_elastostatics.config` and verify nonzero output
-3. Fix any runtime issues (segfaults, NaN, singular systems)
 
 ## Do NOT
-- Modify PetscFEElasticity.hpp/.cpp (indices are already correct)
-- Modify PoroelasticSolver (standalone, not affected)
-- Change the Simulator constants array itself (the layout is fine, callbacks need to match it)
-- Delete or gut any tests
+- Modify PetscFEElasticity, PetscFEPoroelasticity, or PetscFEFluidFlow
+- Modify friction law implementations
+- Modify CohesiveFaultKernel::registerWithDS internals
+- Change IMEX transition logic
+- Delete or gut existing tests

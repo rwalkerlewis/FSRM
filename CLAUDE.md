@@ -10,47 +10,57 @@
 - PDE assembly uses PETSc DMPlex FEM (PetscDS pointwise callbacks)
 - Simulator::FormFunction delegates to DMPlexTSComputeIFunctionFEM when use_fem_time_residual_ = true
 - Callbacks registered via PetscDSSetResidual / PetscDSSetJacobian in Simulator::setupPhysics()
-- If use_fem_time_residual_ is false, solver does nothing (F = U_t placeholder)
-- Working callback files: PetscFEFluidFlow (fluid), PetscFEElasticity (elastostatics/dynamics), PoroelasticSolver (standalone Biot)
+- Working callback files: PetscFEElasticity, PetscFEPoroelasticity, PetscFEFluidFlow
+- Unified PetscDS constants layout (25 elements, set once in setupPhysics):
+  [0]=lambda [1]=mu [2]=rho_s [3]=phi [4]=kx [5]=ky [6]=kz
+  [7]=cw [8]=co [9]=cg [10]=mu_w [11]=mu_o [12]=mu_g
+  [13]=Swr [14]=Sor [15]=Sgr [16]=nw [17]=no [18]=ng
+  [19]=krw0 [20]=kro0 [21]=krg0 [22]=biot_alpha [23]=1/M [24]=rho_f
+- CohesiveFaultKernel uses PetscDSSetBdResidual for cohesive cell callbacks
+- CohesiveFaultKernel reads mode from constants[COHESIVE_CONST_MODE] and friction from constants[COHESIVE_CONST_MU_F]
 - PETSc vector field gradient layout: u_x[uOff_x[f] + c*dim + d] = d(u_c)/dx_d
-- PetscDS constants are GLOBAL per DS. A single constants[] array is shared by ALL callbacks on the same DS. Never call PetscDSSetConstants twice with different sizes.
 
 ## What works now
-- PetscFEElasticity: f0/f1/g3 for elastostatics and elastodynamics (first-order form). I2-form callbacks exist but are not wired.
-- Simulator registers elasticity callbacks and sets use_fem_time_residual_ = true
-- Fluid flow PetscDS callbacks (PetscFEFluidFlow) are registered and work
-- PoroelasticSolver: standalone solver with correct Biot callbacks (not routed through Simulator)
-- CI workflow has || true removed from ctest steps
-- Figures directory removed from git
+- PetscFEElasticity: f0/f1/g3 for elastostatics and elastodynamics. Constants layout correct.
+- PetscFEPoroelasticity: f0/f1 for pressure and displacement, all 4 Jacobian blocks. Constants layout correct.
+- PetscFEFluidFlow: single-phase and black-oil callbacks. Constants layout correct.
+- CohesiveFaultKernel: registerWithDS() reads existing constants, expands array, patches cohesive slots, registers Bd callbacks.
+- FaultMeshManager: createPlanarFaultLabel, splitMeshAlongFault (DMPlexConstructCohesiveCells), extractCohesiveTopology.
+- FaultCohesiveDyn: friction models (SlipWeakeningFriction, RateStateFrictionAging) tested and correct.
+- CoulombStressTransfer: Hooke stress from strain, fault projection, delta_CFS. Tested.
+- Validation tests call PetscFE callbacks directly with known inputs.
 
-## Known bugs in current code
-- PetscDS constants collision: fluid sets 19, elasticity overwrites with 3. Coupled runs will crash.
-- Dynamics uses TSBEULER (first-order, massively dissipative). I2 callbacks and TSALPHA2 are not wired.
-- No FormFunction2 / FormJacobian2 for second-order TS
-- No validation test proves the elasticity solve produces correct nonzero displacement
-- No PetscFEPoroelasticity -- Biot coupling through Simulator doesn't exist
+## Known bugs
+- COHESIVE_CONST_MODE (24) collides with rho_fluid at unified_constants[24]. Must bump cohesive slots to [25]/[26] and expand array to 27.
+- Simulator::setupFaultNetwork() creates empty FaultNetwork and returns. Not wired to FaultMeshManager or CohesiveFaultKernel.
+- No Lagrange multiplier field created in setupFields() for fault problems.
+- IMEX transition exists but is not connected to the new PetscDS callback path.
+
+## Fault component dependency chain
+1. setupDM() -- create base mesh
+2. setupFaultNetwork() -- split mesh, insert cohesive cells (CHANGES DM TOPOLOGY)
+3. setupFields() -- create PetscFE for displacement + Lagrange multiplier
+4. setupPhysics() -- register elasticity + cohesive callbacks on PetscDS
+5. setupTimeStepper() -- TS with IFunction
+6. solve()
 
 ## Subagent strategy
-Use subagents for independent file creation. Parallelizable:
-- PetscFEPoroelasticity.hpp/.cpp (new, no dependencies on other new files)
-- Dockerfile.cuda (new, independent)
-- New test files in tests/physics_validation/
-- Config files in config/
+Parallelizable:
+- FaultMeshManager wiring in setupFaultNetwork() (Simulator.cpp)
+- Locked fault integration test (new test file)
+- Config file for fault test
 
-Sequential (main agent only):
-- Simulator.cpp wiring (depends on callback files)
-- Constants array unification (touches fluid + elasticity + poroelasticity code paths)
-- Integration testing
+Sequential (main agent):
+- Constants collision fix (header + Simulator)
+- Lagrange multiplier field in setupFields()
+- registerWithDS call in setupPhysics()
+- Build and integration testing
 
 ## Rules
 - Do not delete or gut tests. Fix code or GTEST_SKIP.
 - Do not refactor, rename classes, or reorganize files.
-- Do not modify CMakeLists.txt structure.
-- Do not change the CI job structure.
-- Physics test values are constraints. Fix implementations, not expected values.
-- PETSc patterns: PetscErrorCode returns, PetscFunctionBeginUser/PetscFunctionReturn(0).
-- Everything is in namespace FSRM. Test fixtures are global (friend class ::TestName syntax).
-- Always build and test in Docker (Dockerfile.ci) to match CI environment.
-- PoroelasticSolver works. Do not refactor it.
-- Do not modify PetscFEFluidFlow (working reference).
+- Do not modify PetscFEElasticity, PetscFEPoroelasticity, or PetscFEFluidFlow.
 - Do not modify friction law implementations (tested and correct).
+- Do not modify CohesiveFaultKernel::registerWithDS internals (it works).
+- Do not change the IMEX transition logic (future session).
+- Always build and test in Docker (Dockerfile.ci) to match CI environment.

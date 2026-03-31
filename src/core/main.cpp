@@ -130,6 +130,7 @@ int main(int argc, char** argv) {
             
             // Setup
             ierr = sim.setupDM(); CHKERRQ(ierr);
+            ierr = sim.setupFaultNetwork(); CHKERRQ(ierr);  // Must be after setupDM, before setupFields
             ierr = sim.setupFields(); CHKERRQ(ierr);
             ierr = sim.setupPhysics(); CHKERRQ(ierr);
             ierr = sim.setupTimeStepper(); CHKERRQ(ierr);

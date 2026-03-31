@@ -31,9 +31,9 @@ class FaultCohesiveDyn;
  * @brief Manages PetscDS callback registration for cohesive fault cells
  *
  * Constants layout (shared PetscDS constant array):
- *   Slots 0-23 are reserved for PoroelasticSolver (porosity, permeability, …).
- *   Slot COHESIVE_CONST_MODE (24): 0.0 = locked, 1.0 = slipping.
- *   Slot COHESIVE_CONST_MU_F  (25): Coulomb friction coefficient μ_f.
+ *   Slots 0-24 are reserved for fluid/elasticity/poroelasticity (unified layout).
+ *   Slot COHESIVE_CONST_MODE (25): 0.0 = locked, 1.0 = slipping.
+ *   Slot COHESIVE_CONST_MU_F  (26): Coulomb friction coefficient μ_f.
  *
  * registerWithDS() reads the existing constants array, patches these two
  * dedicated slots, and writes the updated array back with PetscDSSetConstants.
@@ -43,10 +43,10 @@ class FaultCohesiveDyn;
 class CohesiveFaultKernel {
 public:
     // Dedicated constant indices for the cohesive kernel.
-    // These must not overlap with PoroelasticSolver constants (0-23).
-    static constexpr PetscInt COHESIVE_CONST_MODE  = 24;  // 0=locked, 1=slipping
-    static constexpr PetscInt COHESIVE_CONST_MU_F  = 25;  // friction coefficient
-    static constexpr PetscInt COHESIVE_CONST_COUNT = 26;  // total constant slots needed
+    // Unified constants: [0-24] = fluid/elasticity/poroelasticity, [25-26] = cohesive fault
+    static constexpr PetscInt COHESIVE_CONST_MODE  = 25;  // 0=locked, 1=slipping (was 24)
+    static constexpr PetscInt COHESIVE_CONST_MU_F  = 26;  // friction coefficient (was 25)
+    static constexpr PetscInt COHESIVE_CONST_COUNT = 27;  // total constant slots needed (was 26)
 
     CohesiveFaultKernel();
 

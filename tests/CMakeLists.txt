@@ -73,6 +73,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_restart.cpp
     integration/test_coupled_physics.cpp
     integration/test_injection_rupture_chain.cpp
+    integration/test_locked_fault.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -181,6 +182,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.Restart         COMMAND run_integration_tests --gtest_filter=RestartTest.*)
     add_test(NAME Integration.CoupledPhysics  COMMAND run_integration_tests --gtest_filter=CoupledPhysicsTest.*)
     add_test(NAME Integration.InjectionRuptureChain COMMAND run_integration_tests --gtest_filter=InjectionRuptureChainTest.*)
+    add_test(NAME Integration.LockedFault     COMMAND run_integration_tests --gtest_filter=LockedFaultTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -229,6 +231,7 @@ if(GTest_FOUND)
     set_tests_properties(
         Integration.FullSimulation Integration.Restart
         Integration.CoupledPhysics Integration.InjectionRuptureChain
+        Integration.LockedFault
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

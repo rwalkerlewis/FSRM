@@ -1134,7 +1134,20 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
-    
+
+    // Add Lagrange multiplier field for cohesive faults if enabled
+    if (config.enable_faults && cohesive_kernel_) {
+        PetscFE fe_lagrange;
+        // Lagrange multiplier: 3-component vector (traction) on cohesive cells
+        ierr = PetscFECreateDefault(comm, 3, 3, PETSC_FALSE, "lagrange_", -1, &fe_lagrange); CHKERRQ(ierr);
+        ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
+        ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
+        fe_fields.push_back(fe_lagrange);
+        if (rank == 0) {
+            PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
+        }
+    }
+
     // Add thermal field if enabled
     if (config.enable_thermal) {
         ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "temperature_", -1, &fe); CHKERRQ(ierr);
@@ -1366,7 +1379,7 @@ PetscErrorCode Simulator::setupPhysics() {
     //   [22] = biot_coefficient (alpha)
     //   [23] = biot_modulus_inv (1/M)
     //   [24] = rho_fluid
-    PetscScalar unified_constants[25] = {0};
+    PetscScalar unified_constants[27] = {0};  // [0-24]=fluid/elasticity/poroelasticity, [25-26]=cohesive fault
 
     // Always set material properties if geomechanics is enabled
     if (config.enable_geomechanics || config.enable_elastodynamics) {
@@ -1421,7 +1434,8 @@ PetscErrorCode Simulator::setupPhysics() {
     }
 
     // Set constants ONCE for all physics (eliminates collision bug)
-    ierr = PetscDSSetConstants(prob, 25, unified_constants); CHKERRQ(ierr);
+    // [0-24]=fluid/elasticity/poroelasticity, [25-26]=cohesive fault (if enabled)
+    ierr = PetscDSSetConstants(prob, 27, unified_constants); CHKERRQ(ierr);
 
     // Register PetscFEPoroelasticity callbacks for fully coupled Biot poroelasticity
     if (config.solid_model == SolidModelType::POROELASTIC &&
@@ -1521,6 +1535,34 @@ PetscErrorCode Simulator::setupPhysics() {
         }
 
         use_fem_time_residual_ = true;
+    }
+
+    // Register cohesive fault callbacks if enabled
+    if (config.enable_faults && cohesive_kernel_) {
+        // Determine field indices
+        // Field ordering: [fluid fields...] [displacement] [lagrange] [thermal] [...]
+        PetscInt disp_field = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            disp_field = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            disp_field = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            disp_field = 4;  // P + 3 compositions
+        }
+        // else NONE: disp_field = 0
+
+        // Lagrange multiplier field is next after displacement
+        PetscInt lagrange_field = disp_field + 1;
+
+        // Register cohesive callbacks via CohesiveFaultKernel::registerWithDS
+        // This expands the constants array and registers PetscDSSetBdResidual/BdJacobian
+        ierr = cohesive_kernel_->registerWithDS(prob, disp_field, lagrange_field);
+        CHKERRQ(ierr);
+
+        if (rank == 0) {
+            PetscPrintf(comm, "Registered cohesive fault callbacks on fields %d (disp), %d (lagrange)\n",
+                        disp_field, lagrange_field);
+        }
     }
 
     PetscFunctionReturn(0);
@@ -1757,20 +1799,82 @@ PetscErrorCode Simulator::setupIMEXTransition(const ConfigReader::IMEXConfig& im
 
 PetscErrorCode Simulator::setupFaultNetwork() {
     PetscFunctionBeginUser;
-    
-    if (!config.enable_faults) {
+    if (!config.enable_faults) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
+
+    if (rank == 0) PetscPrintf(comm, "Setting up fault network...\n");
+
+    // 1. Create fault mesh manager
+    fault_mesh_manager_ = std::make_unique<FaultMeshManager>(comm);
+
+    // 2. Read fault geometry from config
+    //    ConfigReader should have parsed [FAULT] section with:
+    //    strike, dip, center_x/y/z, length, width, tolerance
+    //    For now, use defaults if not in config
+    double strike = 0.0;        // radians
+    double dip = M_PI / 2.0;    // vertical fault
+    double center[3] = {0.0, 0.0, 0.0};
+    double length = 1e10;       // large enough to cut the whole mesh
+    double width = 1e10;
+    double tol = 0.15;
+
+    // TODO: Read from config once FaultConfig parsing is implemented
+    // For now, hardcode a vertical fault at x=Lx/2
+    center[0] = grid_config.Lx / 2.0;
+    center[1] = grid_config.Ly / 2.0;
+    center[2] = grid_config.Lz / 2.0;
+    length = 2.0 * std::max({grid_config.Lx, grid_config.Ly, grid_config.Lz});
+    width = length;
+
+    // 3. Label fault faces on the DM
+    DMLabel fault_label = nullptr;
+    ierr = fault_mesh_manager_->createPlanarFaultLabel(
+        dm, &fault_label, strike, dip, center, length, width, tol);
+    if (ierr != 0) {
+        if (rank == 0) PetscPrintf(comm, "Warning: fault labeling failed, skipping fault setup\n");
+        fault_mesh_manager_.reset();
         PetscFunctionReturn(0);
     }
-    
-    if (rank == 0) {
-        PetscPrintf(comm, "Setting up fault network for induced seismicity...\n");
+
+    // 4. Split mesh along fault (inserts cohesive cells)
+    //    THIS CHANGES THE DM TOPOLOGY
+    ierr = fault_mesh_manager_->splitMeshAlongFault(&dm, "fault");
+    if (ierr != 0) {
+        if (rank == 0) PetscPrintf(comm, "Warning: mesh splitting failed, skipping fault setup\n");
+        fault_mesh_manager_.reset();
+        PetscFunctionReturn(0);
     }
-    
-    fault_network = std::make_unique<FaultNetwork>();
-    
-    // Fault network will be populated from config file parsing
-    // This is called after config parsing to finalize setup
-    
+
+    // 5. Create FaultCohesiveDyn and extract topology from cohesive cells
+    cohesive_fault_ = std::make_unique<FaultCohesiveDyn>();
+    ierr = fault_mesh_manager_->extractCohesiveTopology(dm, cohesive_fault_.get());
+    CHKERRQ(ierr);
+
+    // 6. Set friction model
+    //    TODO: Read from config. Default: slip-weakening
+    auto friction = std::make_unique<SlipWeakeningFriction>();
+    friction->setStaticCoefficient(0.6);
+    friction->setDynamicCoefficient(0.4);
+    friction->setCriticalSlipDistance(0.4);
+    cohesive_fault_->setFrictionModel(std::move(friction));
+
+    // 7. Set initial traction (pre-stress on fault)
+    //    For locked fault test: doesn't matter, but set something physical
+    cohesive_fault_->setUniformInitialTraction(25e6, 0.0, -50e6);
+
+    // 8. Initialize fault state
+    cohesive_fault_->initialize();
+
+    // 9. Create cohesive kernel
+    cohesive_kernel_ = std::make_unique<CohesiveFaultKernel>();
+    cohesive_kernel_->setMode(true);  // locked
+    cohesive_kernel_->setFrictionCoefficient(0.6);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Fault network setup complete: %zu fault vertices\n",
+                    cohesive_fault_->numVertices());
+    }
+
     PetscFunctionReturn(0);
 }
 
