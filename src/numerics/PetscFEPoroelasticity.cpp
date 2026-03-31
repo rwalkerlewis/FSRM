@@ -27,9 +27,9 @@ void f0_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)x;
 
-    // Constants: [7]=biot_coefficient, [8]=1/M (inverse Biot modulus)
-    const PetscScalar alpha = (numConstants > 7) ? constants[7] : 1.0;
-    const PetscScalar M_inv = (numConstants > 8) ? constants[8] : 1e-10;
+    // Constants: [22]=biot_coefficient, [23]=1/M (inverse Biot modulus)
+    const PetscScalar alpha = (numConstants > 22) ? constants[22] : 1.0;
+    const PetscScalar M_inv = (numConstants > 23) ? constants[23] : 1e-10;
 
     // Field 0: pressure (scalar)
     const PetscScalar p_t = u_t[uOff[0]];
@@ -73,9 +73,9 @@ void f1_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)x;
 
-    // Constants: [4]=permeability, [5]=fluid_viscosity
+    // Constants: [4]=permeability, [10]=fluid_viscosity (mu_w)
     const PetscScalar k     = (numConstants > 4) ? constants[4] : 1e-13;  // m^2
-    const PetscScalar mu_f  = (numConstants > 5) ? constants[5] : 1e-3;   // Pa*s
+    const PetscScalar mu_f  = (numConstants > 10) ? constants[10] : 1e-3;   // Pa*s
 
     // Mobility: k/mu
     const PetscScalar mobility = k / mu_f;
@@ -142,10 +142,10 @@ void f1_displacement(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)x;
 
-    // Constants: [0]=lambda, [1]=mu, [7]=biot_coefficient
+    // Constants: [0]=lambda, [1]=mu, [22]=biot_coefficient
     const PetscScalar lambda = (numConstants > 0) ? constants[0] : 1e10;
     const PetscScalar mu     = (numConstants > 1) ? constants[1] : 1e10;
-    const PetscScalar alpha  = (numConstants > 7) ? constants[7] : 1.0;
+    const PetscScalar alpha  = (numConstants > 22) ? constants[22] : 1.0;
 
     // Field 0: pressure (scalar)
     const PetscScalar p = u[uOff[0]];
@@ -213,8 +213,8 @@ void g0_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)x;
 
-    // Constants: [8]=1/M (inverse Biot modulus)
-    const PetscScalar M_inv = (numConstants > 8) ? constants[8] : 1e-10;
+    // Constants: [23]=1/M (inverse Biot modulus)
+    const PetscScalar M_inv = (numConstants > 23) ? constants[23] : 1e-10;
 
     // g0 = d(f0)/d(u) * shift
     // Since f0 = (1/M)*p_t, we have d(f0)/d(p) = (1/M)*d(p_t)/d(p) = (1/M)*shift
@@ -243,9 +243,9 @@ void g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)u_tShift; (void)x;
 
-    // Constants: [4]=permeability, [5]=fluid_viscosity
+    // Constants: [4]=permeability, [10]=fluid_viscosity (mu_w)
     const PetscScalar k    = (numConstants > 4) ? constants[4] : 1e-13;
-    const PetscScalar mu_f = (numConstants > 5) ? constants[5] : 1e-3;
+    const PetscScalar mu_f = (numConstants > 10) ? constants[10] : 1e-3;
 
     const PetscScalar mobility = k / mu_f;
 
@@ -284,8 +284,8 @@ void g1_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)x;
 
-    // Constants: [7]=biot_coefficient
-    const PetscScalar alpha = (numConstants > 7) ? constants[7] : 1.0;
+    // Constants: [22]=biot_coefficient
+    const PetscScalar alpha = (numConstants > 22) ? constants[22] : 1.0;
 
     // g1[c*dim + d] = d(f0_pressure)/d(du_c/dx_d)
     // The term alpha*div(du/dt) contributes to f0 after integration by parts
@@ -323,8 +323,8 @@ void g2_up(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)u_tShift; (void)x;
 
-    // Constants: [7]=biot_coefficient
-    const PetscScalar alpha = (numConstants > 7) ? constants[7] : 1.0;
+    // Constants: [22]=biot_coefficient
+    const PetscScalar alpha = (numConstants > 22) ? constants[22] : 1.0;
 
     // g2[c*dim + d] = d(f1_displacement[c*dim + d])/d(p)
     // Since f1[c*dim + d] includes -alpha*p*delta_{c,d}, we have:

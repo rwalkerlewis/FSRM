@@ -1,325 +1,256 @@
-# FSRM: Solver Pipeline Completion
+# FSRM: Fix Constants Layout, Real Validation, End-to-End Solve
 
 Read CLAUDE.md first. Build and test everything in Docker.
 
-## Current State
+## Bug 1 (CRITICAL): Constants Layout Mismatch
 
-PetscFEElasticity.hpp/.cpp exists with correct Hooke's law callbacks (f0, f1, g3) for
-elastostatics and elastodynamics, plus I2-form callbacks for second-order dynamics.
-Simulator::setupPhysics() registers these and sets use_fem_time_residual_ = true.
-Config files test_elastostatics.config and test_elastodynamics.config exist.
+Three callback files read from the PetscDS constants array at different indices for the same physical quantity. The Simulator fills one layout, PetscFEPoroelasticity expects another.
 
-## What's Broken
-
-### Bug 1: PetscDS constants collision
-In Simulator::setupPhysics(), fluid flow calls PetscDSSetConstants(prob, 19, constants)
-at line ~1377, then elasticity calls PetscDSSetConstants(prob, 3, elast_constants) at
-line ~1421. The second call OVERWRITES the first. PetscDS has ONE constants array.
-
-Fix: create a unified constants layout. Define it in a header so all callback files agree:
-
+### What Simulator fills (25 elements):
 ```
-// Constants layout (shared across all PetscDS callbacks):
-// [0]  = lambda (first Lame parameter)
-// [1]  = mu (shear modulus)
-// [2]  = rho_solid
-// [3]  = porosity
-// [4]  = permeability (isotropic, m^2)
-// [5]  = fluid_viscosity
-// [6]  = fluid_compressibility
-// [7]  = biot_coefficient
-// [8]  = biot_modulus (1/M)
-// [9]  = rho_fluid
-// [10-18] = reserved for black oil / compositional (same layout as current PetscFEFluidFlow)
-// Total: 19 constants (or more if needed)
+[0]  = lambda           [1]  = mu              [2]  = rho_solid
+[3]  = porosity         [4]  = perm_x (m^2)    [5]  = perm_y (m^2)
+[6]  = perm_z (m^2)     [7]  = cw              [8]  = co
+[9]  = cg               [10] = mu_w            [11] = mu_o
+[12] = mu_g             [13] = Swr             [14] = Sor
+[15] = Sgr              [16] = nw              [17] = no
+[18] = ng               [19] = krw0            [20] = kro0
+[21] = krg0             [22] = biot_alpha      [23] = 1/M
+[24] = rho_fluid
 ```
 
-Update PetscFEElasticity callbacks to read lambda from constants[0], mu from constants[1],
-rho from constants[2]. They already do this. Then update PetscFEFluidFlow callbacks to read
-from the same array (fluid properties start at index 3+). Call PetscDSSetConstants ONCE
-with the full array.
+### What PetscFEPoroelasticity EXPECTS to read:
+```
+[0] = lambda  [1] = mu  [4] = permeability  [5] = fluid_viscosity
+[7] = biot_coefficient  [8] = biot_modulus_inv
+```
 
-### Bug 2: Dynamics stuck on TSBEULER
-I2-form callbacks (f0_elastodynamics_I2, etc.) exist in PetscFEElasticity.cpp but are
-dead code. Simulator uses TSBEULER with first-order TSSetIFunction for everything.
+### The mismatch:
+- Poroelasticity reads constants[5] as fluid_viscosity -> gets permeability_y
+- Poroelasticity reads constants[7] as biot_alpha -> gets water_compressibility
+- Poroelasticity reads constants[8] as 1/M -> gets oil_compressibility
+- biot_alpha is actually at [22], 1/M at [23], fluid_viscosity at [10]
 
-For wave propagation, TSBEULER is first-order accurate and massively dissipative.
-It will smear out any wave within a few timesteps. Need TSALPHA2 or at minimum TSCN
-(Crank-Nicolson, second-order).
+### What PetscFEFluidFlow BlackOil EXPECTS to read (OLD layout, never updated):
+```
+[0] = porosity  [1] = kx  [2] = ky  [3] = kz  [4] = cw  [5] = co ...
+```
+- FluidFlow reads constants[0] as porosity -> gets lambda (Lame parameter!)
+- FluidFlow reads constants[1] as kx -> gets mu (shear modulus!)
 
-Fix: Add FormFunction2 and FormJacobian2 to Simulator for the I2 interface:
+### Fix: Pick ONE layout. Update ALL callback files to match.
+
+The Simulator layout is the most complete. Keep it. Update the callback files:
+
+**PetscFEPoroelasticity.cpp** -- change these reads:
+```cpp
+// OLD (wrong):
+constants[4]  // permeability -> actually perm_x, OK for isotropic
+constants[5]  // fluid_viscosity -> actually perm_y, WRONG
+constants[7]  // biot_alpha -> actually cw, WRONG
+constants[8]  // biot_modulus_inv -> actually co, WRONG
+
+// NEW (correct per Simulator layout):
+constants[4]  // perm_x (isotropic permeability, use this)
+constants[10] // mu_w (water viscosity = fluid viscosity for single-phase)
+constants[22] // biot_alpha
+constants[23] // 1/M (biot modulus inverse)
+```
+
+Update EVERY function in PetscFEPoroelasticity.cpp. There are 9 functions that read from constants. Check each one.
+
+Also update the header comments in PetscFEPoroelasticity.hpp to match the actual Simulator layout.
+
+**PetscFEFluidFlow.cpp** -- change the BlackOil callback reads:
+```cpp
+// OLD (wrong indices):
+getConst(numConstants, constants, 0, 0.2);   // phi -> actually lambda
+getConst(numConstants, constants, 1, 100e-15); // kx -> actually mu
+getConst(numConstants, constants, 2, 100e-15); // ky -> actually rho_solid
+// ... etc
+
+// NEW (correct per Simulator layout):
+getConst(numConstants, constants, 3, 0.2);     // phi = porosity
+getConst(numConstants, constants, 4, 100e-15); // kx = permeability_x
+getConst(numConstants, constants, 5, 100e-15); // ky = permeability_y
+getConst(numConstants, constants, 6, 10e-15);  // kz = permeability_z
+getConst(numConstants, constants, 7, 4.5e-10); // cw = water_compressibility
+getConst(numConstants, constants, 8, 1.5e-9);  // co = oil_compressibility
+getConst(numConstants, constants, 9, 1e-8);    // cg = gas_compressibility
+getConst(numConstants, constants, 10, 1e-3);   // mu_w = water_viscosity
+getConst(numConstants, constants, 11, 5e-3);   // mu_o = oil_viscosity
+getConst(numConstants, constants, 12, 1e-5);   // mu_g = gas_viscosity
+getConst(numConstants, constants, 13, 0.2);    // Swr
+getConst(numConstants, constants, 14, 0.2);    // Sor
+getConst(numConstants, constants, 15, 0.05);   // Sgr
+getConst(numConstants, constants, 16, 2.0);    // nw
+getConst(numConstants, constants, 17, 2.0);    // no
+getConst(numConstants, constants, 18, 2.0);    // ng
+getConst(numConstants, constants, 19, 0.5);    // krw0
+getConst(numConstants, constants, 20, 1.0);    // kro0
+getConst(numConstants, constants, 21, 0.8);    // krg0
+```
+
+Update ALL BlackOil callbacks: f0_BlackOilPressure, f1_BlackOilPressure, g0_BlackOilPressurePressure, g3_BlackOilPressurePressure, f0_BlackOilSw, f0_BlackOilSg.
+
+**PetscFEFluidFlow.cpp** -- fix f0_SinglePhase to read from constants instead of hardcoding:
+```cpp
+// OLD (hardcoded):
+const PetscReal phi = 0.2;
+const PetscReal ct  = 1e-9;
+
+// NEW:
+const PetscReal phi = (numConstants > 3) ? PetscRealPart(constants[3]) : 0.2;
+const PetscReal ct  = (numConstants > 7) ? PetscRealPart(constants[7]) : 1e-9;
+```
+
+**PetscFEElasticity.cpp** -- already reads [0]=lambda, [1]=mu, [2]=rho. No changes needed.
+
+### Verify after fixing:
+All three callback files must agree on the layout documented in Simulator::setupPhysics().
+Create a static_assert or compile-time constant header if you want, but at minimum add this
+comment block to the top of EACH callback .cpp file:
+```cpp
+// UNIFIED PetscDS CONSTANTS LAYOUT (set once in Simulator::setupPhysics):
+// [0]=lambda [1]=mu [2]=rho_s [3]=phi [4]=kx [5]=ky [6]=kz
+// [7]=cw [8]=co [9]=cg [10]=mu_w [11]=mu_o [12]=mu_g
+// [13]=Swr [14]=Sor [15]=Sgr [16]=nw [17]=no [18]=ng
+// [19]=krw0 [20]=kro0 [21]=krg0 [22]=biot_alpha [23]=1/M [24]=rho_f
+```
+
+
+## Bug 2: Validation Tests Don't Test Anything
+
+### test_elastostatics_patch.cpp
+This test computes analytical Hooke's law, calls the OLD GeomechanicsKernel::residual()
+(strong-form placeholder), then GTEST_SKIPs. It never calls PetscFEElasticity functions.
+
+Rewrite to directly call PetscFEElasticity::f1_elastostatics with known inputs and verify
+the output stress matches Hooke's law:
 
 ```cpp
-// In Simulator.hpp, add to private:
-static PetscErrorCode FormFunction2(TS ts, PetscReal t, Vec U, Vec U_t,
-                                     Vec U_tt, Vec F, void *ctx);
-static PetscErrorCode FormJacobian2(TS ts, PetscReal t, Vec U, Vec U_t,
-                                     Vec U_tt, PetscReal v, PetscReal a,
-                                     Mat J, Mat P, void *ctx);
-```
+TEST_F(ElastostaticsPatchTest, F1ProducesCorrectStress) {
+    const double E = 10e9, nu = 0.25;
+    const double lambda = E*nu/((1+nu)*(1-2*nu));
+    const double mu = E/(2*(1+nu));
+    const double eps_0 = 0.001;
 
-Implement them delegating to DMPlexTSComputeI2FunctionFEM / DMPlexTSComputeI2JacobianFEM.
-IMPORTANT: Check PETSc 3.20 headers for exact signatures. They may differ from 3.21+.
+    PetscScalar constants[25] = {0};
+    constants[0] = lambda; constants[1] = mu; constants[2] = 2700;
 
-In setupTimeStepper(), when elastodynamics is enabled:
-```cpp
-ierr = TSSetType(ts, TSALPHA2); CHKERRQ(ierr);
-ierr = TSSetI2Function(ts, nullptr, FormFunction2, this); CHKERRQ(ierr);
-ierr = TSSetI2Jacobian(ts, jacobian, jacobian, FormJacobian2, this); CHKERRQ(ierr);
-```
+    // Displacement gradient: uniform uniaxial strain eps_xx = eps_0
+    PetscScalar u_x[9] = {0};
+    u_x[0] = eps_0;  // du_x/dx
 
-If TSALPHA2 / I2Function is not available in PETSc 3.20 or the DMPlex I2 compute
-functions don't exist, fall back to Newmark-beta implemented manually in the first-order
-form, or use TSCN as a second-order alternative that uses the same IFunction interface.
-Check what's actually available before writing code.
+    PetscInt uOff[1] = {0}, uOff_x[1] = {0};
+    PetscScalar f1[9] = {0};
+    PetscReal x[3] = {0.5, 0.5, 0.5};
 
-### Bug 3: No validation
-Nothing proves the solver produces correct displacement. Need a test that:
-1. Sets up a simple BVP (uniaxial tension or patch test)
-2. Solves with SNES
-3. Checks displacement against analytical solution
+    PetscFEElasticity::f1_elastostatics(
+        3, 1, 0, uOff, uOff_x, nullptr, nullptr, u_x,
+        nullptr, nullptr, nullptr, nullptr, nullptr,
+        0.0, x, 25, constants, f1);
 
-## Parallel Subagent Tasks
-
-### Subagent A: PetscFEPoroelasticity callbacks
-
-Create `include/numerics/PetscFEPoroelasticity.hpp` and `src/numerics/PetscFEPoroelasticity.cpp`.
-
-Two-field system: field 0 = pressure (1 component), field 1 = displacement (3 components).
-
-Uses the SAME unified constants layout as PetscFEElasticity (lambda at [0], mu at [1],
-rho_solid at [2], porosity at [3], permeability at [4], fluid_viscosity at [5],
-fluid_compressibility at [6], biot_coefficient at [7], biot_modulus at [8], rho_fluid at [9]).
-
-```cpp
-namespace FSRM {
-namespace PetscFEPoroelasticity {
-
-// Pressure equation: (1/M)*dp/dt + alpha*div(du/dt) + div((k/mu)*grad(p)) = q
-void f0_pressure(...);   // (1/M)*p_t + alpha*div(u_t)
-void f1_pressure(...);   // (k/mu)*grad(p)
-
-// Displacement equation: -div(sigma - alpha*p*I) = f
-void f0_displacement(...);  // 0 (quasi-static) or rho*u_tt (dynamic)
-void f1_displacement(...);  // sigma_{cd} - alpha*p*delta_{cd}
-
-// Jacobians (4 blocks):
-void g0_pp(...);   // (1/M)*shift
-void g3_pp(...);   // (k/mu)*delta_{dd}
-void g1_pu(...);   // alpha*shift*delta_{cd}  (pressure eq coupling to displacement)
-void g2_up(...);   // -alpha*delta_{cd}  (displacement eq coupling to pressure)
-void g3_uu(...);   // C_{cdef} elasticity stiffness tensor
-
-} // namespace
-} // namespace
-```
-
-Reference: PoroelasticSolver.cpp lines 600-900. The math is identical, the index arithmetic
-differs because PoroelasticSolver uses per-component scalar fields (P, Sw, ux, uy, uz = fields
-0-4) while PetscFEPoroelasticity uses (P=field 0, u=field 1 with 3 components).
-
-For a 3-component vector field 1:
-- u_x[uOff_x[1] + c*dim + d] = d(u_c)/dx_d
-- f1[c*dim + d] = stress contribution for component c, direction d
-
-For scalar field 0:
-- u[uOff[0]] = pressure
-- u_x[uOff_x[0] + d] = dp/dx_d
-- u_t[uOff[0]] = dp/dt
-
-
-### Subagent B: Dockerfile.cuda
-
-Create `Dockerfile.cuda` based on Dockerfile.ci but with CUDA support.
-
-```dockerfile
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
-
-# Same build deps as Dockerfile.ci plus CUDA toolkit
-# Build PETSc with: --with-cuda --with-cuda-dir=/usr/local/cuda
-# Add: --download-kokkos --download-kokkos-kernels for GPU backend
-# Set COPTFLAGS/CXXOPTFLAGS to -O3
-
-# PETSc configure line:
-# ./configure \
-#     --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 \
-#     --download-fblaslapack \
-#     --with-cuda --with-cuda-dir=/usr/local/cuda \
-#     --with-debugging=0 \
-#     COPTFLAGS='-O3' CXXOPTFLAGS='-O3' FOPTFLAGS='-O3'
-```
-
-Also create `.github/workflows/cuda-ci.yml` that builds with this Dockerfile
-but only runs on push to main (not every branch -- GPU runners are expensive).
-Use `runs-on: ubuntu-latest` with Docker build only (no GPU test execution),
-just verify compilation with -DENABLE_CUDA=ON.
-
-In CMakeLists.txt, when ENABLE_CUDA=ON, add VecType/MatType selection:
-```cmake
-if(ENABLE_CUDA)
-    add_definitions(-DUSE_CUDA)
-    # PETSc handles GPU Vec/Mat via runtime options:
-    # -vec_type cuda -mat_type aijcusparse
-endif()
-```
-
-The PetscDS pointwise callbacks (PetscFEElasticity, PetscFEPoroelasticity, etc.)
-run on GPU automatically when PETSc is built with CUDA and Vec/Mat types are set
-to CUDA variants. No custom CUDA kernels needed.
-
-
-### Subagent C: Validation tests
-
-Create `tests/physics_validation/test_elastostatics_patch.cpp`:
-```cpp
-// Patch test: uniform strain should produce exact stress
-// - Unit cube, Q1 hex elements
-// - Prescribed displacement: u_x = eps_0 * x, u_y = u_z = 0
-// - Check: sigma_xx = (lambda + 2*mu)*eps_0, sigma_yy = sigma_zz = lambda*eps_0
-// - This tests that the stiffness tensor g3 is correct
-```
-
-Create `tests/physics_validation/test_terzaghi.cpp`:
-```cpp
-// Terzaghi consolidation: 1D poroelastic column
-// - Column height H, load P0 on top, drained at top, impermeable bottom
-// - Analytical: p(z,t) = sum_n (4*P0/(pi*(2n+1))) * sin((2n+1)*pi*z/(2*H)) * exp(-(2n+1)^2*pi^2*cv*t/(4*H^2))
-// - cv = k/(mu_f * (1/M + alpha^2/(lambda+2*mu)))
-// - Check pressure at mid-height at t = 0.1*H^2/cv against series solution
-// This validates the Biot coupling Jacobian blocks
-```
-
-Register both in tests/CMakeLists.txt under PHYSICS_VALIDATION_TEST_SOURCES and add
-CTest registrations.
-
-Create `config/test_poroelasticity.config`:
-```ini
-[SIMULATION]
-fluid_model = SINGLE_COMPONENT
-solid_model = POROELASTIC
-enable_geomechanics = true
-max_timesteps = 50
-dt_initial = 0.001
-end_time = 0.05
-
-[GRID]
-nx = 1
-ny = 1
-nz = 20
-Lx = 1.0
-Ly = 1.0
-Lz = 10.0
-
-[ROCK]
-density = 2500.0
-youngs_modulus = 1.0e9
-poissons_ratio = 0.25
-porosity = 0.3
-permeability_x = 1e-12
-permeability_y = 1e-12
-permeability_z = 1e-12
-biot_coefficient = 1.0
-
-[FLUID]
-density = 1000.0
-viscosity = 0.001
-compressibility = 4.5e-10
-```
-
-
-## Main Agent Tasks (after subagents complete)
-
-### 1. Unify PetscDS constants
-
-In Simulator::setupPhysics(), build ONE constants array:
-
-```cpp
-PetscScalar unified_constants[20] = {0};
-// Always set elastic properties
-unified_constants[0] = lambda;
-unified_constants[1] = mu;
-unified_constants[2] = mat.density;
-// Set fluid properties if fluid flow is enabled
-if (config.fluid_model != FluidModelType::NONE) {
-    unified_constants[3] = mat.porosity;
-    unified_constants[4] = mat.permeability_x * 9.869233e-16; // mD -> m^2
-    unified_constants[5] = flu.viscosity;
-    unified_constants[6] = flu.water_compressibility;
-    unified_constants[7] = mat.biot_coefficient;
-    unified_constants[8] = 1.0 / (mat.porosity * flu.water_compressibility); // 1/M approx
-    unified_constants[9] = flu.density;
-    // [10-18] = black oil / compositional specific (existing layout)
+    // f1[c*dim+d] = sigma_{cd}
+    EXPECT_NEAR(PetscRealPart(f1[0]), (lambda+2*mu)*eps_0, 1e-6); // sigma_xx
+    EXPECT_NEAR(PetscRealPart(f1[4]), lambda*eps_0, 1e-6);         // sigma_yy
+    EXPECT_NEAR(PetscRealPart(f1[8]), lambda*eps_0, 1e-6);         // sigma_zz
+    EXPECT_NEAR(PetscRealPart(f1[1]), 0.0, 1e-12);                 // sigma_xy
 }
-ierr = PetscDSSetConstants(prob, 20, unified_constants); CHKERRQ(ierr);
 ```
 
-Call it ONCE. Remove the separate PetscDSSetConstants calls from both the fluid and
-elasticity blocks.
+Also test g3_elastostatics to verify the stiffness tensor entries.
 
-Update PetscFEFluidFlow callbacks to read from the unified layout. The pressure
-callbacks currently read porosity from constants[0], permeability from constants[1], etc.
-They need to read from the new offsets (constants[3], constants[4], etc.).
+### test_terzaghi.cpp
+Currently GTEST_SKIPs saying PetscFEPoroelasticity doesn't exist. It does now.
 
-### 2. Wire PetscFEPoroelasticity into Simulator
-
-In setupPhysics(), when solid_model == POROELASTIC and fluid_model != NONE:
+Add a test that calls PetscFEPoroelasticity callbacks directly with known inputs:
 
 ```cpp
-// Field 0: pressure (from fluid flow setup)
-// Field 1: displacement (from geomechanics setup)
-ierr = PetscDSSetResidual(prob, 0, PetscFEPoroelasticity::f0_pressure,
-                           PetscFEPoroelasticity::f1_pressure); CHKERRQ(ierr);
-ierr = PetscDSSetResidual(prob, 1, PetscFEPoroelasticity::f0_displacement,
-                           PetscFEPoroelasticity::f1_displacement); CHKERRQ(ierr);
+TEST_F(TerzaghiConsolidationTest, F1DisplacementBiotCoupling) {
+    // Verify that f1_displacement includes -alpha*p*delta_{cd} term
+    PetscScalar constants[25] = {0};
+    constants[0] = 4e9;   // lambda
+    constants[1] = 4e9;   // mu
+    constants[22] = 0.8;  // biot alpha
 
-// All 4 Jacobian blocks
-ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEPoroelasticity::g0_pp,
-                           nullptr, nullptr, PetscFEPoroelasticity::g3_pp); CHKERRQ(ierr);
-ierr = PetscDSSetJacobian(prob, 0, 1, nullptr, PetscFEPoroelasticity::g1_pu,
-                           nullptr, nullptr); CHKERRQ(ierr);
-ierr = PetscDSSetJacobian(prob, 1, 0, nullptr, nullptr,
-                           PetscFEPoroelasticity::g2_up, nullptr); CHKERRQ(ierr);
-ierr = PetscDSSetJacobian(prob, 1, 1, nullptr, nullptr, nullptr,
-                           PetscFEPoroelasticity::g3_uu); CHKERRQ(ierr);
-use_fem_time_residual_ = true;
+    PetscScalar u[4] = {0};  // [pressure, ux, uy, uz]
+    u[0] = 1e6;  // 1 MPa pore pressure
+
+    PetscInt uOff[2] = {0, 1};
+    PetscInt uOff_x[2] = {0, 3};
+    PetscScalar u_x[12] = {0};  // 3 for pressure grad + 9 for displacement grad
+    PetscScalar f1[9] = {0};
+    PetscReal x[3] = {0.5, 0.5, 0.5};
+
+    PetscFEPoroelasticity::f1_displacement(
+        3, 2, 0, uOff, uOff_x, u, nullptr, u_x,
+        nullptr, nullptr, nullptr, nullptr, nullptr,
+        0.0, x, 25, constants, f1);
+
+    // With zero strain, f1 should be just -alpha*p*delta
+    double alpha = 0.8, p = 1e6;
+    EXPECT_NEAR(PetscRealPart(f1[0]), -alpha*p, 1e-3);  // sigma_xx - alpha*p
+    EXPECT_NEAR(PetscRealPart(f1[4]), -alpha*p, 1e-3);  // sigma_yy - alpha*p
+    EXPECT_NEAR(PetscRealPart(f1[8]), -alpha*p, 1e-3);  // sigma_zz - alpha*p
+}
 ```
 
-Make sure setupFields() creates pressure (1 comp) as field 0 and displacement (3 comp)
-as field 1 when poroelastic mode is selected.
+Keep the existing analytical Terzaghi series tests -- they're fine as reference value checks. Just remove the GTEST_SKIP that claims poroelasticity doesn't exist, and add callback-level tests alongside.
 
-### 3. Wire TSALPHA2 or fix dynamics
+### Also update test_mms_elasticity.cpp and test_mms_wave_propagation.cpp:
+If these still GTEST_SKIP because they test GeomechanicsKernel::residual() (the old strong-form), consider adding parallel tests that exercise PetscFEElasticity callbacks directly, like the patch test above.
 
-Check PETSc 3.20 for TSSetI2Function availability:
-```bash
-docker run --rm fsrm-ci:local bash -c 'grep -r "TSSetI2Function" /opt/petsc-3.20.0/include/'
-```
 
-If it exists: add FormFunction2/FormJacobian2, wire TSALPHA2.
-If not: use TSCN (Crank-Nicolson) which is second-order and uses the same IFunction
-interface. Change TSSetType from TSBEULER to TSCN for dynamics.
+## Bug 3: End-to-End Verification
 
-### 4. Build, test, verify
+After fixing constants, run the Simulator and verify it produces nonzero output:
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c '
-  mkdir -p build && cd build &&
-  cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON &&
+  cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON &&
   make -j$(nproc) &&
-  ctest --output-on-failure &&
-  echo "=== Running elastostatics ===" &&
-  ./fsrm -c ../config/test_elastostatics.config &&
-  echo "=== Running elastodynamics ===" &&
-  ./fsrm -c ../config/test_elastodynamics.config
+  echo "=== ELASTOSTATICS ===" &&
+  ./fsrm -c ../config/test_elastostatics.config 2>&1 | tail -20 &&
+  echo "=== ELASTODYNAMICS ===" &&
+  ./fsrm -c ../config/test_elastodynamics.config 2>&1 | tail -20 &&
+  echo "=== TESTS ===" &&
+  ctest --output-on-failure 2>&1 | tail -30
 '
 ```
 
-Elastostatics should converge in 1 SNES iteration (linear problem).
-Elastodynamics should run multiple timesteps without diverging.
-All existing tests must still pass.
+If the Simulator segfaults or produces NaN, debug by checking:
+1. Is `prob` (PetscDS) actually created before PetscDSSetResidual? Check `DMGetDS(dm, &prob)`.
+2. Is the displacement field actually added to DM? Check setupFields() for the POROELASTIC / ELASTIC cases.
+3. Are boundary conditions set? Without Dirichlet BCs, the elastostatic system is singular.
+4. Is the solution vector created? Check `DMCreateGlobalVector(dm, &solution)`.
+
+## Parallel Subagent Tasks
+
+### Subagent A: Fix PetscFEPoroelasticity.cpp constants indices
+Update all 9 functions to read from the Simulator's actual layout:
+- constants[10] for fluid_viscosity (was [5])
+- constants[22] for biot_alpha (was [7])
+- constants[23] for 1/M (was [8])
+
+Also update the header doc comments in PetscFEPoroelasticity.hpp.
+
+### Subagent B: Fix PetscFEFluidFlow.cpp constants indices
+Update all BlackOil callbacks to use unified layout indices [3]-[21].
+Fix f0_SinglePhase to read phi and ct from constants instead of hardcoding.
+
+### Subagent C: Rewrite validation tests
+Rewrite test_elastostatics_patch.cpp to call PetscFEElasticity callbacks directly.
+Rewrite test_terzaghi.cpp to call PetscFEPoroelasticity callbacks directly.
+Remove stale GTEST_SKIPs.
+
+### Main agent after subagents:
+1. Build and run all tests
+2. Run `./fsrm -c config/test_elastostatics.config` and verify nonzero output
+3. Fix any runtime issues (segfaults, NaN, singular systems)
 
 ## Do NOT
-- Modify PoroelasticSolver.hpp/.cpp
-- Modify PetscFEFluidFlow if you can avoid it (but constants layout change may require it)
-- Modify friction law implementations
+- Modify PetscFEElasticity.hpp/.cpp (indices are already correct)
+- Modify PoroelasticSolver (standalone, not affected)
+- Change the Simulator constants array itself (the layout is fine, callbacks need to match it)
 - Delete or gut any tests
-- Change CMakeLists.txt structure (GLOB_RECURSE handles new .cpp files automatically)

@@ -96,8 +96,8 @@ void f0_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)numConstants; (void)constants;
 
     // Accumulation term: phi * ct * dP/dt
-    const PetscReal phi = 0.2;   // TODO: plumb from constants/auxiliary fields
-    const PetscReal ct  = 1e-9;  // TODO: plumb from constants/auxiliary fields
+    const PetscReal phi = getConst(numConstants, constants, 3, 0.2);
+    const PetscReal ct  = getConst(numConstants, constants, 7, 1e-9);
     f0[0] = phi * ct * u_t[uOff[0]];
 }
 
@@ -150,10 +150,10 @@ void f0_BlackOilPressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     PetscScalar So = 1.0 - Sw - Sg;
     if (So < 0.0) So = 0.0;
 
-    const PetscScalar phi = getConst(numConstants, constants, 0, 0.2);
-    const PetscScalar cw  = getConst(numConstants, constants, 4, 4.5e-10);
-    const PetscScalar co  = getConst(numConstants, constants, 5, 1.5e-9);
-    const PetscScalar cg  = getConst(numConstants, constants, 6, 1.0e-8);
+    const PetscScalar phi = getConst(numConstants, constants, 3, 0.2);
+    const PetscScalar cw  = getConst(numConstants, constants, 7, 4.5e-10);
+    const PetscScalar co  = getConst(numConstants, constants, 8, 1.5e-9);
+    const PetscScalar cg  = getConst(numConstants, constants, 9, 1.0e-8);
 
     const PetscScalar ct_eff = Sw * cw + So * co + Sg * cg;
     f0[0] = phi * ct_eff * u_t[uOff[0]];
@@ -176,25 +176,25 @@ void f1_BlackOilPressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscScalar Sw = u[uOff[1]];
     const PetscScalar Sg = u[uOff[2]];
 
-    const PetscScalar kx = getConst(numConstants, constants, 1, 100e-15);
-    const PetscScalar ky = getConst(numConstants, constants, 2, 100e-15);
-    const PetscScalar kz = getConst(numConstants, constants, 3, 10e-15);
+    const PetscScalar kx = getConst(numConstants, constants, 4, 100e-15);
+    const PetscScalar ky = getConst(numConstants, constants, 5, 100e-15);
+    const PetscScalar kz = getConst(numConstants, constants, 6, 10e-15);
 
-    const PetscScalar mu_w = getConst(numConstants, constants, 7, 1e-3);
-    const PetscScalar mu_o = getConst(numConstants, constants, 8, 5e-3);
-    const PetscScalar mu_g = getConst(numConstants, constants, 9, 1e-5);
+    const PetscScalar mu_w = getConst(numConstants, constants, 10, 1e-3);
+    const PetscScalar mu_o = getConst(numConstants, constants, 11, 5e-3);
+    const PetscScalar mu_g = getConst(numConstants, constants, 12, 1e-5);
 
-    const PetscScalar Swr = getConst(numConstants, constants, 10, 0.2);
-    const PetscScalar Sor = getConst(numConstants, constants, 11, 0.2);
-    const PetscScalar Sgr = getConst(numConstants, constants, 12, 0.05);
+    const PetscScalar Swr = getConst(numConstants, constants, 13, 0.2);
+    const PetscScalar Sor = getConst(numConstants, constants, 14, 0.2);
+    const PetscScalar Sgr = getConst(numConstants, constants, 15, 0.05);
 
-    const PetscScalar nw = getConst(numConstants, constants, 13, 2.0);
-    const PetscScalar no = getConst(numConstants, constants, 14, 2.0);
-    const PetscScalar ng = getConst(numConstants, constants, 15, 2.0);
+    const PetscScalar nw = getConst(numConstants, constants, 16, 2.0);
+    const PetscScalar no = getConst(numConstants, constants, 17, 2.0);
+    const PetscScalar ng = getConst(numConstants, constants, 18, 2.0);
 
-    const PetscScalar krw0 = getConst(numConstants, constants, 16, 0.5);
-    const PetscScalar kro0 = getConst(numConstants, constants, 17, 1.0);
-    const PetscScalar krg0 = getConst(numConstants, constants, 18, 0.8);
+    const PetscScalar krw0 = getConst(numConstants, constants, 19, 0.5);
+    const PetscScalar kro0 = getConst(numConstants, constants, 20, 1.0);
+    const PetscScalar krg0 = getConst(numConstants, constants, 21, 0.8);
 
     PetscScalar krw, kro, krg;
     blackOilRelPermCorey(Sw, Sg, Swr, Sor, Sgr, nw, no, ng, krw0, kro0, krg0, krw, kro, krg);
@@ -231,10 +231,10 @@ void g0_BlackOilPressurePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     PetscScalar So = 1.0 - Sw - Sg;
     if (So < 0.0) So = 0.0;
 
-    const PetscScalar phi = getConst(numConstants, constants, 0, 0.2);
-    const PetscScalar cw  = getConst(numConstants, constants, 4, 4.5e-10);
-    const PetscScalar co  = getConst(numConstants, constants, 5, 1.5e-9);
-    const PetscScalar cg  = getConst(numConstants, constants, 6, 1.0e-8);
+    const PetscScalar phi = getConst(numConstants, constants, 3, 0.2);
+    const PetscScalar cw  = getConst(numConstants, constants, 7, 4.5e-10);
+    const PetscScalar co  = getConst(numConstants, constants, 8, 1.5e-9);
+    const PetscScalar cg  = getConst(numConstants, constants, 9, 1.0e-8);
 
     const PetscScalar ct_eff = Sw * cw + So * co + Sg * cg;
     g0[0] = phi * ct_eff * u_tShift;
@@ -257,25 +257,25 @@ void g3_BlackOilPressurePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscScalar Sw = u[uOff[1]];
     const PetscScalar Sg = u[uOff[2]];
 
-    const PetscScalar kx = getConst(numConstants, constants, 1, 100e-15);
-    const PetscScalar ky = getConst(numConstants, constants, 2, 100e-15);
-    const PetscScalar kz = getConst(numConstants, constants, 3, 10e-15);
+    const PetscScalar kx = getConst(numConstants, constants, 4, 100e-15);
+    const PetscScalar ky = getConst(numConstants, constants, 5, 100e-15);
+    const PetscScalar kz = getConst(numConstants, constants, 6, 10e-15);
 
-    const PetscScalar mu_w = getConst(numConstants, constants, 7, 1e-3);
-    const PetscScalar mu_o = getConst(numConstants, constants, 8, 5e-3);
-    const PetscScalar mu_g = getConst(numConstants, constants, 9, 1e-5);
+    const PetscScalar mu_w = getConst(numConstants, constants, 10, 1e-3);
+    const PetscScalar mu_o = getConst(numConstants, constants, 11, 5e-3);
+    const PetscScalar mu_g = getConst(numConstants, constants, 12, 1e-5);
 
-    const PetscScalar Swr = getConst(numConstants, constants, 10, 0.2);
-    const PetscScalar Sor = getConst(numConstants, constants, 11, 0.2);
-    const PetscScalar Sgr = getConst(numConstants, constants, 12, 0.05);
+    const PetscScalar Swr = getConst(numConstants, constants, 13, 0.2);
+    const PetscScalar Sor = getConst(numConstants, constants, 14, 0.2);
+    const PetscScalar Sgr = getConst(numConstants, constants, 15, 0.05);
 
-    const PetscScalar nw = getConst(numConstants, constants, 13, 2.0);
-    const PetscScalar no = getConst(numConstants, constants, 14, 2.0);
-    const PetscScalar ng = getConst(numConstants, constants, 15, 2.0);
+    const PetscScalar nw = getConst(numConstants, constants, 16, 2.0);
+    const PetscScalar no = getConst(numConstants, constants, 17, 2.0);
+    const PetscScalar ng = getConst(numConstants, constants, 18, 2.0);
 
-    const PetscScalar krw0 = getConst(numConstants, constants, 16, 0.5);
-    const PetscScalar kro0 = getConst(numConstants, constants, 17, 1.0);
-    const PetscScalar krg0 = getConst(numConstants, constants, 18, 0.8);
+    const PetscScalar krw0 = getConst(numConstants, constants, 19, 0.5);
+    const PetscScalar kro0 = getConst(numConstants, constants, 20, 1.0);
+    const PetscScalar krg0 = getConst(numConstants, constants, 21, 0.8);
 
     PetscScalar krw, kro, krg;
     blackOilRelPermCorey(Sw, Sg, Swr, Sor, Sgr, nw, no, ng, krw0, kro0, krg0, krw, kro, krg);

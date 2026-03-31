@@ -16,19 +16,23 @@ namespace PetscFEPoroelasticity {
 //   Field 0: pressure (scalar, 1 component)
 //   Field 1: displacement (vector, 3 components: ux, uy, uz)
 //
-// Constants layout (MUST match this exact layout for compatibility):
+// UNIFIED PetscDS CONSTANTS LAYOUT (set once in Simulator::setupPhysics):
+//   [0]=lambda [1]=mu [2]=rho_s [3]=phi [4]=kx [5]=ky [6]=kz
+//   [7]=cw [8]=co [9]=cg [10]=mu_w [11]=mu_o [12]=mu_g
+//   [13]=Swr [14]=Sor [15]=Sgr [16]=nw [17]=no [18]=ng
+//   [19]=krw0 [20]=kro0 [21]=krg0 [22]=biot_alpha [23]=1/M [24]=rho_f
+//   Total: 25 constants
+//
+// Poroelasticity-specific indices used in callbacks:
 //   [0]  = lambda (first Lame parameter)
 //   [1]  = mu (shear modulus)
 //   [2]  = rho_solid
 //   [3]  = porosity
-//   [4]  = permeability (isotropic, m^2)
-//   [5]  = fluid_viscosity
-//   [6]  = fluid_compressibility
-//   [7]  = biot_coefficient (alpha)
-//   [8]  = biot_modulus_inv (1/M)
-//   [9]  = rho_fluid
-//   [10-18] = reserved
-//   Total: 19 constants minimum
+//   [4]  = permeability kx (isotropic assumption, m^2)
+//   [10] = mu_w (water/fluid viscosity, Pa*s)
+//   [22] = biot_alpha (Biot coefficient)
+//   [23] = 1/M (inverse Biot modulus)
+//   [24] = rho_f (fluid density)
 //
 // Governing equations:
 //   Pressure:     (1/M)*dp/dt + alpha*div(du/dt) + div((k/mu)*grad(p)) = 0
