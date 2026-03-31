@@ -130,6 +130,32 @@ PetscErrorCode FaultMeshManager::splitMeshAlongFault(DM* dm,
     ierr = DMPlexGetHeightStratum(*dm, 0, &cStart_before, &cEnd_before); CHKERRQ(ierr);
     PetscInt num_cells_before = cEnd_before - cStart_before;
 
+    // Check if mesh is interpolated (has all intermediate entities)
+    DMPlexInterpolatedFlag interpolated;
+    ierr = DMPlexIsInterpolated(*dm, &interpolated); CHKERRQ(ierr);
+
+    if (interpolated != DMPLEX_INTERPOLATED_FULL) {
+        if (rank_ == 0) {
+            PetscPrintf(comm_, "FaultMeshManager: Mesh is not interpolated, interpolating now\n");
+        }
+        DM idm = nullptr;
+        ierr = DMPlexInterpolate(*dm, &idm); CHKERRQ(ierr);
+        ierr = DMDestroy(dm); CHKERRQ(ierr);
+        *dm = idm;
+
+        // Re-get the fault label after interpolation
+        ierr = DMGetLabel(*dm, fault_label_name.c_str(), &fault_label); CHKERRQ(ierr);
+        if (!fault_label) {
+            SETERRQ(comm_, PETSC_ERR_ARG_WRONG,
+                    "Fault label lost during interpolation");
+        }
+    }
+
+    // Simply complete the fault label's transitive closure
+    // (add all vertices and edges of marked faces).
+    // NOTE: This may still fail if the fault extends to the mesh boundary.
+    ierr = DMPlexLabelComplete(*dm, fault_label); CHKERRQ(ierr);
+
     if (rank_ == 0) {
         PetscPrintf(comm_, "FaultMeshManager: Splitting mesh along '%s' "
                    "(%d cells before split)\n",
