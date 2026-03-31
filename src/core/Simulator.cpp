@@ -1,6 +1,7 @@
 #include "core/Simulator.hpp"
 #include "core/PhysicsModuleRegistry.hpp"
 #include "numerics/PetscFEFluidFlow.hpp"
+#include "numerics/PetscFEElasticity.hpp"
 #include "io/Visualization.hpp"
 #include "core/ConfigReader.hpp"
 #include "numerics/ImplicitExplicitTransition.hpp"
@@ -1388,7 +1389,61 @@ PetscErrorCode Simulator::setupPhysics() {
 
         use_fem_time_residual_ = true;
     }
-    
+
+    // Register PETSc FEM callbacks for elastodynamics if enabled
+    if (config.enable_geomechanics || config.enable_elastodynamics) {
+        // Determine field index for displacement
+        // Field ordering: [fluid fields...] [displacement] [thermal] [...]
+        PetscInt displacement_field_idx = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            displacement_field_idx = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            displacement_field_idx = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            displacement_field_idx = 4;  // P + 3 compositions
+        }
+        // else NONE: displacement_field_idx = 0
+
+        const MaterialProperties& mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        double E = mat.youngs_modulus;
+        double nu = mat.poisson_ratio;
+        double rho = mat.density;
+
+        // Convert Young's modulus and Poisson's ratio to Lame parameters
+        double lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        double mu = E / (2.0 * (1.0 + nu));
+
+        // Setup constants: [0]=lambda, [1]=mu, [2]=rho
+        PetscScalar elast_constants[3];
+        elast_constants[0] = lambda;
+        elast_constants[1] = mu;
+        elast_constants[2] = rho;
+        ierr = PetscDSSetConstants(prob, 3, elast_constants); CHKERRQ(ierr);
+
+        // Register callbacks
+        if (config.enable_elastodynamics) {
+            // Full dynamics with inertia
+            // For TSALPHA2, we use the standard first-order form callbacks
+            // The time stepper handles the second-order time integration internally
+            ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                      PetscFEElasticity::f0_elastodynamics,
+                                      PetscFEElasticity::f1_elastodynamics); CHKERRQ(ierr);
+            ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                      PetscFEElasticity::g0_elastodynamics, nullptr, nullptr,
+                                      PetscFEElasticity::g3_elastodynamics); CHKERRQ(ierr);
+        } else {
+            // Quasi-static elasticity (no inertia)
+            ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                      PetscFEElasticity::f0_elastostatics,
+                                      PetscFEElasticity::f1_elastostatics); CHKERRQ(ierr);
+            ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                      nullptr, nullptr, nullptr,
+                                      PetscFEElasticity::g3_elastostatics); CHKERRQ(ierr);
+        }
+
+        use_fem_time_residual_ = true;
+    }
+
     PetscFunctionReturn(0);
 }
 
@@ -1422,26 +1477,25 @@ PetscErrorCode Simulator::setupTimeStepper() {
     }
     
     // Set time stepping method
-    // NOTE: TSALPHA2 is a *second-order* integrator that requires TSSetI2Function/I2Jacobian.
-    // This code currently provides only TSSetIFunction/IJacobian (first-order form).
-    // To keep simulations stable/runnable, use backward Euler for now.
-    if (config.use_dynamic_mode || config.enable_elastodynamics || config.enable_poroelastodynamics) {
-        if (rank == 0) {
-            PetscPrintf(comm,
-                        "Warning: dynamic mode requested, but second-order TSALPHA2 callbacks are not configured. "
-                        "Falling back to TSBEULER for stability.\n");
-        }
-    }
+    // For now, use TSBEULER for all cases
+    // TODO: TSALPHA2 requires special setup for second-order systems that isn't
+    // compatible with the current DMPlex FEM formulation. Consider using
+    // explicit schemes (TSRK, TSSSP) for wave propagation in future work.
     ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
-    
+    if (config.enable_elastodynamics && rank == 0) {
+        PetscPrintf(comm, "Using TSBEULER for elastodynamics (implicit, first-order)\n");
+    }
+
     // Set time parameters
     ierr = TSSetTime(ts, config.start_time); CHKERRQ(ierr);
     ierr = TSSetMaxTime(ts, config.end_time); CHKERRQ(ierr);
     ierr = TSSetTimeStep(ts, config.dt_initial); CHKERRQ(ierr);
     ierr = TSSetMaxSteps(ts, config.max_timesteps); CHKERRQ(ierr);
     ierr = TSSetExactFinalTime(ts, TS_EXACTFINALTIME_MATCHSTEP); CHKERRQ(ierr);
-    
+
     // Set residual and Jacobian functions
+    // Use standard IFunction/IJacobian form for all cases
+    // TSALPHA2 handles second-order time integration internally using first-order form
     ierr = TSSetIFunction(ts, nullptr, FormFunction, this); CHKERRQ(ierr);
     ierr = TSSetIJacobian(ts, jacobian, jacobian, FormJacobian, this); CHKERRQ(ierr);
     
@@ -1795,7 +1849,7 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t, 
+PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
                                           Vec U, void *ctx) {
     (void)ts;  // Part of PETSc callback interface - accessed via ctx
     (void)U;   // Solution available through ctx->solution

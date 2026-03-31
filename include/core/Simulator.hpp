@@ -178,9 +178,9 @@ private:
     
     // Static callback functions for PETSc
     static PetscErrorCode FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F, void *ctx);
-    static PetscErrorCode FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t, 
+    static PetscErrorCode FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                                        PetscReal a, Mat J, Mat P, void *ctx);
-    static PetscErrorCode MonitorFunction(TS ts, PetscInt step, PetscReal t, 
+    static PetscErrorCode MonitorFunction(TS ts, PetscInt step, PetscReal t,
                                          Vec U, void *ctx);
     
     // Helper functions
