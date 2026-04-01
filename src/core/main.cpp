@@ -131,7 +131,8 @@ int main(int argc, char** argv) {
             // Setup
             ierr = sim.setupDM(); CHKERRQ(ierr);
             ierr = sim.setupFaultNetwork(); CHKERRQ(ierr);  // Must be after setupDM, before setupFields
-            ierr = sim.setupFields(); CHKERRQ(ierr);
+            ierr = sim.labelBoundaries(); CHKERRQ(ierr);     // Label boundary faces after mesh setup
+            ierr = sim.setupFields(); CHKERRQ(ierr);         // Calls setupBoundaryConditions internally
             ierr = sim.setupPhysics(); CHKERRQ(ierr);
             ierr = sim.setupTimeStepper(); CHKERRQ(ierr);
             ierr = sim.setupSolvers(); CHKERRQ(ierr);

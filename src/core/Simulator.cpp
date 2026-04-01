@@ -1165,12 +1165,50 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
-    
-    // Create DS
+
+    // Create DS (must be done before adding boundaries)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
     ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);
-    
+
+    // Add boundary conditions AFTER creating DS but BEFORE local section is created
+    // The local section will be created automatically when TS or SNES is set up
+    ierr = setupBoundaryConditions(); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
+}
+
+// ============================================================================
+// Boundary condition callback functions
+// ============================================================================
+
+// BC callback: all components = 0 (for fixed boundaries)
+static PetscErrorCode bc_zero(PetscInt dim, PetscReal time, const PetscReal x[],
+                               PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)ctx;  // Suppress unused warnings
+    for (PetscInt c = 0; c < Nc; c++) {
+        u[c] = 0.0;
+    }
+    return PETSC_SUCCESS;
+}
+
+// BC callback: applied compression on top (u_z = -0.001, u_x = u_y = 0)
+static PetscErrorCode bc_compression(PetscInt dim, PetscReal time, const PetscReal x[],
+                                      PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)ctx;  // Suppress unused warnings
+    if (Nc >= 3) {
+        u[0] = 0.0;   // u_x = 0
+        u[1] = 0.0;   // u_y = 0
+        u[2] = -0.001; // u_z = -1mm (compression)
+    }
+    return PETSC_SUCCESS;
+}
+
+// BC callback: drained boundary (pressure = 0)
+static PetscErrorCode bc_drained(PetscInt dim, PetscReal time, const PetscReal x[],
+                                  PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)Nc; (void)ctx;  // Suppress unused warnings
+    u[0] = 0.0; // pressure = 0
+    return PETSC_SUCCESS;
 }
 
 PetscErrorCode Simulator::setupPhysics() {
@@ -1892,16 +1930,14 @@ PetscErrorCode Simulator::setupFaultNetwork() {
 PetscErrorCode Simulator::setInitialConditions() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
-    
-    // Set initial conditions from Eclipse data
-    Vec local;
-    ierr = DMGetLocalVector(dm, &local); CHKERRQ(ierr);
-    
-    // Set uniform initial condition (for now)
-    ierr = VecSet(solution, 1.0e7); CHKERRQ(ierr); // 1 bar initial pressure
-    
-    ierr = DMRestoreLocalVector(dm, &local); CHKERRQ(ierr);
-    
+
+    // Start from zero (displacement at rest, zero pressure perturbation)
+    // This is appropriate because:
+    // - Displacement: body starts at rest
+    // - Pressure: for diffusion problems, IC is set via config or as perturbation
+    // - The Dirichlet BCs on the boundary will drive the solution
+    ierr = VecZeroEntries(solution); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
 }
 
@@ -2344,9 +2380,247 @@ void Simulator::transformToInputCoordinates(double& x, double& y, double& z) con
     }
 }
 
+PetscErrorCode Simulator::labelBoundaries() {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Labeling boundary faces...\n");
+    }
+
+    // Get mesh dimension
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Get bounding box
+    Vec coords;
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    const PetscScalar *coordArray;
+    ierr = VecGetArrayRead(coords, &coordArray); CHKERRQ(ierr);
+
+    PetscInt coordSize;
+    ierr = VecGetLocalSize(coords, &coordSize); CHKERRQ(ierr);
+    PetscInt nCoords = coordSize / dim;
+
+    // Compute bounding box
+    double xmin = 1e30, xmax = -1e30;
+    double ymin = 1e30, ymax = -1e30;
+    double zmin = 1e30, zmax = -1e30;
+
+    for (PetscInt i = 0; i < nCoords; i++) {
+        double x = PetscRealPart(coordArray[i * dim + 0]);
+        double y = (dim >= 2) ? PetscRealPart(coordArray[i * dim + 1]) : 0.0;
+        double z = (dim >= 3) ? PetscRealPart(coordArray[i * dim + 2]) : 0.0;
+
+        if (x < xmin) xmin = x;
+        if (x > xmax) xmax = x;
+        if (y < ymin) ymin = y;
+        if (y > ymax) ymax = y;
+        if (z < zmin) zmin = z;
+        if (z > zmax) zmax = z;
+    }
+
+    ierr = VecRestoreArrayRead(coords, &coordArray); CHKERRQ(ierr);
+
+    // Reduce across all ranks
+    double local_min[3] = {xmin, ymin, zmin};
+    double local_max[3] = {xmax, ymax, zmax};
+    double global_min[3], global_max[3];
+    ierr = MPI_Allreduce(local_min, global_min, 3, MPI_DOUBLE, MPI_MIN, comm); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(local_max, global_max, 3, MPI_DOUBLE, MPI_MAX, comm); CHKERRQ(ierr);
+
+    xmin = global_min[0]; ymin = global_min[1]; zmin = global_min[2];
+    xmax = global_max[0]; ymax = global_max[1]; zmax = global_max[2];
+
+    // Tolerance for boundary detection (1% of domain size)
+    double eps_x = 0.01 * (xmax - xmin);
+    double eps_y = 0.01 * (ymax - ymin);
+    double eps_z = 0.01 * (zmax - zmin);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "  Bounding box: [%.3f, %.3f] x [%.3f, %.3f] x [%.3f, %.3f]\n",
+                    xmin, xmax, ymin, ymax, zmin, zmax);
+    }
+
+    // Create DMLabels for each boundary face
+    const char *label_names[6] = {
+        "boundary_x_min", "boundary_x_max",
+        "boundary_y_min", "boundary_y_max",
+        "boundary_z_min", "boundary_z_max"
+    };
+
+    DMLabel labels[6];
+    for (int i = 0; i < 6; i++) {
+        ierr = DMCreateLabel(dm, label_names[i]); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, label_names[i], &labels[i]); CHKERRQ(ierr);
+    }
+
+    // Get face stratum (height 1)
+    PetscInt fStart, fEnd;
+    ierr = DMPlexGetHeightStratum(dm, 1, &fStart, &fEnd); CHKERRQ(ierr);
+
+    // Iterate over all faces
+    PetscInt nLabeled[6] = {0, 0, 0, 0, 0, 0};
+    for (PetscInt face = fStart; face < fEnd; face++) {
+        // Check if this is a boundary face (support size == 1)
+        PetscInt supportSize;
+        ierr = DMPlexGetSupportSize(dm, face, &supportSize); CHKERRQ(ierr);
+        if (supportSize != 1) continue; // Interior face
+
+        // Get face centroid
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        PetscReal normal[3] = {0.0, 0.0, 0.0};
+        ierr = DMPlexComputeCellGeometryFVM(dm, face, nullptr, centroid, normal); CHKERRQ(ierr);
+
+        // Assign to appropriate label based on centroid
+        if (dim >= 1 && PetscAbsReal(centroid[0] - xmin) < eps_x) {
+            ierr = DMLabelSetValue(labels[0], face, 1); CHKERRQ(ierr);
+            nLabeled[0]++;
+        } else if (dim >= 1 && PetscAbsReal(centroid[0] - xmax) < eps_x) {
+            ierr = DMLabelSetValue(labels[1], face, 1); CHKERRQ(ierr);
+            nLabeled[1]++;
+        }
+
+        if (dim >= 2 && PetscAbsReal(centroid[1] - ymin) < eps_y) {
+            ierr = DMLabelSetValue(labels[2], face, 1); CHKERRQ(ierr);
+            nLabeled[2]++;
+        } else if (dim >= 2 && PetscAbsReal(centroid[1] - ymax) < eps_y) {
+            ierr = DMLabelSetValue(labels[3], face, 1); CHKERRQ(ierr);
+            nLabeled[3]++;
+        }
+
+        if (dim >= 3 && PetscAbsReal(centroid[2] - zmin) < eps_z) {
+            ierr = DMLabelSetValue(labels[4], face, 1); CHKERRQ(ierr);
+            nLabeled[4]++;
+        } else if (dim >= 3 && PetscAbsReal(centroid[2] - zmax) < eps_z) {
+            ierr = DMLabelSetValue(labels[5], face, 1); CHKERRQ(ierr);
+            nLabeled[5]++;
+        }
+    }
+
+    // Call DMPlexLabelComplete on each label to add vertices and edges in closure
+    for (int i = 0; i < 6; i++) {
+        ierr = DMPlexLabelComplete(dm, labels[i]); CHKERRQ(ierr);
+    }
+
+    // Report labeled faces
+    if (rank == 0) {
+        for (int i = 0; i < 6; i++) {
+            PetscInt global_count;
+            ierr = MPI_Reduce(&nLabeled[i], &global_count, 1, MPIU_INT, MPI_SUM, 0, comm); CHKERRQ(ierr);
+            PetscPrintf(comm, "  %s: %d faces\n", label_names[i], global_count);
+        }
+    } else {
+        for (int i = 0; i < 6; i++) {
+            ierr = MPI_Reduce(&nLabeled[i], nullptr, 1, MPIU_INT, MPI_SUM, 0, comm); CHKERRQ(ierr);
+        }
+    }
+
+    PetscFunctionReturn(0);
+}
+
 PetscErrorCode Simulator::setupBoundaryConditions() {
     PetscFunctionBeginUser;
-    // Setup boundary conditions
+    PetscErrorCode ierr;
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Setting up boundary conditions...\n");
+    }
+
+    // Determine field indices based on configuration
+    // NOTE: This is called BEFORE DMCreateDS, so we cannot use DMGetDS yet
+    PetscInt pressure_field = -1;
+    PetscInt displacement_field = -1;
+
+    if (config.solid_model == SolidModelType::POROELASTIC &&
+        config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        // Poroelasticity: field 0 = pressure, field 1 = displacement
+        pressure_field = 0;
+        displacement_field = 1;
+    } else if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        // Fluid flow only: field 0 = pressure
+        pressure_field = 0;
+    } else if (config.enable_geomechanics || config.enable_elastodynamics) {
+        // Geomechanics only: displacement field is 0 for NONE fluid model, else 1
+        displacement_field = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            displacement_field = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            displacement_field = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            displacement_field = 4;
+        }
+    }
+
+    // Apply boundary conditions based on physics
+    DMLabel label_xmin, label_xmax, label_ymin, label_ymax, label_zmin, label_zmax;
+    ierr = DMGetLabel(dm, "boundary_x_min", &label_xmin); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_x_max", &label_xmax); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_y_min", &label_ymin); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_y_max", &label_ymax); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_z_min", &label_zmin); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_z_max", &label_zmax); CHKERRQ(ierr);
+
+    // For elastostatics/elastodynamics:
+    // - Fixed bottom (z_min): all displacement components = 0
+    // - Applied compression on top (z_max): u_z = -0.001
+    if (displacement_field >= 0) {
+        PetscInt field = displacement_field;
+        PetscInt comps_all[3] = {0, 1, 2}; // All displacement components
+
+        // Fixed bottom (z_min): all components = 0
+        if (label_zmin) {
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom", label_zmin, 1, &field,
+                                 0, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+            CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: fixed bottom (z_min), field %d, all components = 0\n", field);
+            }
+        }
+
+        // Applied compression on top (z_max): all components specified
+        if (label_zmax) {
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top", label_zmax, 1, &field,
+                                 0, 3, comps_all, (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
+            CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: compression top (z_max), field %d, u_z = -0.001\n", field);
+            }
+        }
+    }
+
+    // For poroelasticity: drained top (z_max, pressure = 0)
+    if (pressure_field >= 0 && config.solid_model == SolidModelType::POROELASTIC) {
+        PetscInt field = pressure_field;
+        PetscInt comp = 0; // Pressure is scalar (1 component)
+
+        if (label_zmax) {
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "drained_top", label_zmax, 1, &field,
+                                 0, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
+            CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: drained top (z_max), field %d, pressure = 0\n", field);
+            }
+        }
+    }
+
+    // For fluid flow only (no geomechanics):
+    // - Fixed pressure on x_min: p = 0 (reference)
+    if (pressure_field >= 0 && !config.enable_geomechanics &&
+        config.solid_model != SolidModelType::POROELASTIC) {
+        PetscInt field = pressure_field;
+        PetscInt comp = 0;
+
+        if (label_xmin) {
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &field,
+                                 0, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
+            CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
+            }
+        }
+    }
+
     PetscFunctionReturn(0);
 }
 

@@ -38,6 +38,8 @@ public:
     // IMEX transition setup for induced seismicity modeling
     PetscErrorCode setupIMEXTransition(const ConfigReader::IMEXConfig& imex_config);
     PetscErrorCode setupFaultNetwork();
+    PetscErrorCode labelBoundaries();
+    PetscErrorCode setupBoundaryConditions();
     
     // Load input
     PetscErrorCode loadEclipseInput(const std::string& filename);
@@ -189,7 +191,6 @@ private:
     PetscErrorCode setupGmshGrid();
     PetscErrorCode setupCoordinateSystem();
     PetscErrorCode createFieldsFromConfig();
-    PetscErrorCode setupBoundaryConditions();
     PetscErrorCode interpolateMaterialProperties();
     PetscErrorCode applyMaterialPropertiesToKernels();
     
