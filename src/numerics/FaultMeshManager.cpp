@@ -160,14 +160,10 @@ PetscErrorCode FaultMeshManager::splitMeshAlongFault(DM* dm,
     ierr = DMPlexGetHeightStratum(*dm, 0, &cStart_before, &cEnd_before); CHKERRQ(ierr);
     PetscInt num_cells_before = cEnd_before - cStart_before;
 
-    // Complete the fault label to include the transitive closure (vertices + edges)
-    ierr = DMPlexLabelComplete(*dm, fault_label); CHKERRQ(ierr);
-
-    // First, complete the label to include all closure points (vertices, edges)
-    ierr = DMPlexLabelComplete(*dm, fault_label); CHKERRQ(ierr);
-
-    // Then, classify vertices as split (value 2) vs unsplit for cohesive cell insertion
-    ierr = DMPlexLabelCohesiveComplete(*dm, fault_label, NULL, 1, PETSC_TRUE, PETSC_FALSE, NULL); CHKERRQ(ierr);
+    // DMPlexLabelCohesiveComplete will add vertices as split (value 2) or unsplit
+    // based on topology. The label should have ONLY faces marked (value 1) at this point.
+    // Try with value=0 to see if that triggers vertex classification
+    ierr = DMPlexLabelCohesiveComplete(*dm, fault_label, NULL, 0, PETSC_FALSE, PETSC_FALSE, NULL); CHKERRQ(ierr);
 
     if (rank_ == 0) {
         PetscPrintf(comm_, "FaultMeshManager: Fault label after completion:\n");
