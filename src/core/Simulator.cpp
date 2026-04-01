@@ -1083,6 +1083,8 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     PetscErrorCode ierr;
     
     // Create discretization based on fluid model
+    // Use PetscFECreateLagrange with degree 1 (Q1/P1) for continuous Galerkin FEM.
+    // This places DOFs on vertices, enabling proper Dirichlet BC enforcement.
     PetscFE fe;
     
     switch (config.fluid_model) {
@@ -1091,7 +1093,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             break;
         case FluidModelType::SINGLE_COMPONENT:
             // Single pressure field
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
@@ -1099,17 +1101,17 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             
         case FluidModelType::BLACK_OIL:
             // Pressure + saturations
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_w_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "saturation_w_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_g_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "saturation_g_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
@@ -1117,7 +1119,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             
         case FluidModelType::COMPOSITIONAL:
             // Pressure + compositions
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
@@ -1126,7 +1128,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             for (int i = 0; i < 3; ++i) {  // Example: 3 components
                 char name[256];
                 snprintf(name, sizeof(name), "composition_%d_", i);
-                ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, name, -1, &fe); CHKERRQ(ierr);
+                ierr = PetscFECreateLagrange(comm, 3, 1, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
                 ierr = PetscObjectSetName((PetscObject)fe, name); CHKERRQ(ierr);
                 ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
                 fe_fields.push_back(fe);
@@ -1139,7 +1141,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     
     // Add geomechanics field if enabled
     if (config.enable_geomechanics) {
-        ierr = PetscFECreateDefault(comm, 3, 3, PETSC_FALSE, "displacement_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscFECreateLagrange(comm, 3, 3, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
@@ -1149,7 +1151,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     if (config.enable_faults && cohesive_kernel_) {
         PetscFE fe_lagrange;
         // Lagrange multiplier: 3-component vector (traction) on cohesive cells
-        ierr = PetscFECreateDefault(comm, 3, 3, PETSC_FALSE, "lagrange_", -1, &fe_lagrange); CHKERRQ(ierr);
+        ierr = PetscFECreateLagrange(comm, 3, 3, PETSC_FALSE, 1, -1, &fe_lagrange); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
         fe_fields.push_back(fe_lagrange);
@@ -1160,13 +1162,13 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 
     // Add thermal field if enabled
     if (config.enable_thermal) {
-        ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "temperature_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscFECreateLagrange(comm, 3, 1, PETSC_FALSE, 1, -1, &fe); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe, "temperature_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
 
-    // Create DS first (required before adding boundaries in PETSc 3.22.2)
+    // Create DS (required before adding boundaries in PETSc 3.22.2)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
 
     // Add boundary conditions to the DS
@@ -2068,8 +2070,37 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
     ierr = VecSet(F, 0.0); CHKERRQ(ierr);
 
     if (sim->use_fem_time_residual_) {
-        // Compute residual from DMPlex FEM discretization
-        ierr = DMPlexTSComputeIFunctionFEM(sim->dm, t, U, U_t, F, ctx); CHKERRQ(ierr);
+        DM dm = sim->dm;
+
+        // DMPlexTSComputeIFunctionFEM expects LOCAL vectors.
+        // The TS callback provides GLOBAL vectors, so we must convert.
+        Vec locU, locU_t = NULL, locF;
+        ierr = DMGetLocalVector(dm, &locU); CHKERRQ(ierr);
+        ierr = DMGetLocalVector(dm, &locF); CHKERRQ(ierr);
+        ierr = VecZeroEntries(locU); CHKERRQ(ierr);
+        ierr = VecZeroEntries(locF); CHKERRQ(ierr);
+
+        // Scatter global solution to local and insert boundary values
+        ierr = DMGlobalToLocal(dm, U, INSERT_VALUES, locU); CHKERRQ(ierr);
+        ierr = DMPlexInsertBoundaryValues(dm, PETSC_TRUE, locU, t, NULL, NULL, NULL); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMGetLocalVector(dm, &locU_t); CHKERRQ(ierr);
+            ierr = VecZeroEntries(locU_t); CHKERRQ(ierr);
+            ierr = DMGlobalToLocal(dm, U_t, INSERT_VALUES, locU_t); CHKERRQ(ierr);
+        }
+
+        // Compute FEM residual on local vectors
+        ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
+
+        // Scatter local residual back to global (ADD_VALUES to accumulate)
+        ierr = DMLocalToGlobal(dm, locF, ADD_VALUES, F); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMRestoreLocalVector(dm, &locU_t); CHKERRQ(ierr);
+        }
+        ierr = DMRestoreLocalVector(dm, &locF); CHKERRQ(ierr);
+        ierr = DMRestoreLocalVector(dm, &locU); CHKERRQ(ierr);
     } else {
         // Safe fallback: enforce U_t = 0 (no time evolution) to keep simulations
         // runnable even when residuals aren't configured for the selected fields.
@@ -2089,8 +2120,27 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
     PetscErrorCode ierr;
     
     if (sim->use_fem_time_residual_) {
-        // Compute Jacobian from DMPlex FEM discretization
-        ierr = DMPlexTSComputeIJacobianFEM(sim->dm, t, U, U_t, a, J, P, ctx); CHKERRQ(ierr);
+        DM dm = sim->dm;
+
+        // DMPlexTSComputeIJacobianFEM expects LOCAL vectors.
+        Vec locU, locU_t = NULL;
+        ierr = DMGetLocalVector(dm, &locU); CHKERRQ(ierr);
+        ierr = VecZeroEntries(locU); CHKERRQ(ierr);
+        ierr = DMGlobalToLocal(dm, U, INSERT_VALUES, locU); CHKERRQ(ierr);
+        ierr = DMPlexInsertBoundaryValues(dm, PETSC_TRUE, locU, t, NULL, NULL, NULL); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMGetLocalVector(dm, &locU_t); CHKERRQ(ierr);
+            ierr = VecZeroEntries(locU_t); CHKERRQ(ierr);
+            ierr = DMGlobalToLocal(dm, U_t, INSERT_VALUES, locU_t); CHKERRQ(ierr);
+        }
+
+        ierr = DMPlexTSComputeIJacobianFEM(dm, t, locU, locU_t, a, J, P, ctx); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMRestoreLocalVector(dm, &locU_t); CHKERRQ(ierr);
+        }
+        ierr = DMRestoreLocalVector(dm, &locU); CHKERRQ(ierr);
     } else {
         // Jacobian for F = U_t is simply shift * I in PETSc's implicit form.
         ierr = MatZeroEntries(P); CHKERRQ(ierr);
