@@ -1932,11 +1932,11 @@ PetscErrorCode Simulator::setInitialConditions() {
     PetscErrorCode ierr;
 
     // Start from zero (displacement at rest, zero pressure perturbation)
-    // This is appropriate because:
-    // - Displacement: body starts at rest
-    // - Pressure: for diffusion problems, IC is set via config or as perturbation
-    // - The Dirichlet BCs on the boundary will drive the solution
     ierr = VecZeroEntries(solution); CHKERRQ(ierr);
+
+    // NOTE: DMPlexInsertBoundaryValues appears not to work in this context.
+    // BCs will be applied automatically during residual evaluation by PETSc FEM.
+    // For now, just start with zero initial guess.
 
     PetscFunctionReturn(0);
 }
@@ -2561,17 +2561,22 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
     ierr = DMGetLabel(dm, "boundary_z_min", &label_zmin); CHKERRQ(ierr);
     ierr = DMGetLabel(dm, "boundary_z_max", &label_zmax); CHKERRQ(ierr);
 
+    if (rank == 0) {
+        PetscPrintf(comm, "  Labels: z_min=%p, z_max=%p\n", (void*)label_zmin, (void*)label_zmax);
+    }
+
     // For elastostatics/elastodynamics:
     // - Fixed bottom (z_min): all displacement components = 0
     // - Applied compression on top (z_max): u_z = -0.001
     if (displacement_field >= 0) {
         PetscInt field = displacement_field;
         PetscInt comps_all[3] = {0, 1, 2}; // All displacement components
+        PetscInt label_value = 1; // We labeled boundary faces with value 1
 
         // Fixed bottom (z_min): all components = 0
         if (label_zmin) {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom", label_zmin, 1, &field,
-                                 0, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom", label_zmin, 1, &label_value,
+                                 field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
             CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm, "  Applied BC: fixed bottom (z_min), field %d, all components = 0\n", field);
@@ -2580,8 +2585,8 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
 
         // Applied compression on top (z_max): all components specified
         if (label_zmax) {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top", label_zmax, 1, &field,
-                                 0, 3, comps_all, (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top", label_zmax, 1, &label_value,
+                                 field, 3, comps_all, (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
             CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm, "  Applied BC: compression top (z_max), field %d, u_z = -0.001\n", field);
@@ -2593,10 +2598,11 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
     if (pressure_field >= 0 && config.solid_model == SolidModelType::POROELASTIC) {
         PetscInt field = pressure_field;
         PetscInt comp = 0; // Pressure is scalar (1 component)
+        PetscInt label_value = 1;
 
         if (label_zmax) {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "drained_top", label_zmax, 1, &field,
-                                 0, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "drained_top", label_zmax, 1, &label_value,
+                                 field, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
             CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm, "  Applied BC: drained top (z_max), field %d, pressure = 0\n", field);
@@ -2610,10 +2616,11 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
         config.solid_model != SolidModelType::POROELASTIC) {
         PetscInt field = pressure_field;
         PetscInt comp = 0;
+        PetscInt label_value = 1;
 
         if (label_xmin) {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &field,
-                                 0, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &label_value,
+                                 field, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
             CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
