@@ -117,6 +117,7 @@ PetscErrorCode FaultMeshManager::createPlanarFaultLabel(DM dm, DMLabel* fault_la
         // Check if face centroid lies on the fault plane
         if (isPointOnFaultPlane(point, normal, center, tolerance) &&
             isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width)) {
+            // Label fault faces with value 1 (submesh creation will handle depth classification)
             ierr = DMLabelSetValue(*fault_label, f, 1); CHKERRQ(ierr);
             num_marked++;
         }
@@ -147,6 +148,9 @@ PetscErrorCode FaultMeshManager::splitMeshAlongFault(DM* dm,
                                                       const std::string& fault_label_name) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
+    PetscInt dim;
+
+    ierr = DMGetDimension(*dm, &dim); CHKERRQ(ierr);
 
     DMLabel fault_label = nullptr;
     ierr = DMGetLabel(*dm, fault_label_name.c_str(), &fault_label); CHKERRQ(ierr);
@@ -160,22 +164,50 @@ PetscErrorCode FaultMeshManager::splitMeshAlongFault(DM* dm,
     ierr = DMPlexGetHeightStratum(*dm, 0, &cStart_before, &cEnd_before); CHKERRQ(ierr);
     PetscInt num_cells_before = cEnd_before - cStart_before;
 
-    // DMPlexLabelCohesiveComplete will add vertices as split (value 2) or unsplit
-    // based on topology. The label should have ONLY faces marked (value 1) at this point.
-    // Try with value=0 to see if that triggers vertex classification
-    ierr = DMPlexLabelCohesiveComplete(*dm, fault_label, NULL, 0, PETSC_FALSE, PETSC_FALSE, NULL); CHKERRQ(ierr);
-
     if (rank_ == 0) {
-        PetscPrintf(comm_, "FaultMeshManager: Fault label after completion:\n");
-        ierr = DMLabelView(fault_label, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
         PetscPrintf(comm_, "FaultMeshManager: Splitting mesh along '%s' "
                    "(%d cells before split)\n",
                    fault_label_name.c_str(), (int)num_cells_before);
     }
 
-    // Insert cohesive cells along the fault
+    // PyLith workflow for cohesive cell insertion:
+    // 1. Duplicate the fault label and complete it
+    DMLabel completed_label = nullptr;
+    ierr = DMLabelDuplicate(fault_label, &completed_label); CHKERRQ(ierr);
+    ierr = DMPlexLabelComplete(*dm, completed_label); CHKERRQ(ierr);
+
+    // 2. Create fault submesh from the completed label
+    DM fault_dm = nullptr;
+    ierr = DMPlexCreateSubmesh(*dm, completed_label, 1, PETSC_TRUE, &fault_dm); CHKERRQ(ierr);
+    ierr = DMLabelDestroy(&completed_label); CHKERRQ(ierr);
+
+    // 3. Orient the fault submesh
+    ierr = DMPlexOrient(fault_dm); CHKERRQ(ierr);
+
+    // 4. Get the subpoint map from the fault submesh
+    DMLabel subpoint_map = nullptr;
+    ierr = DMPlexGetSubpointMap(fault_dm, &subpoint_map); CHKERRQ(ierr);
+
+    // 5. Duplicate the subpoint map to create the cohesive label
+    DMLabel cohesive_label = nullptr;
+    ierr = DMLabelDuplicate(subpoint_map, &cohesive_label); CHKERRQ(ierr);
+
+    // 6. Clear the cell stratum (dim) from the cohesive label
+    ierr = DMLabelClearStratum(cohesive_label, dim); CHKERRQ(ierr);
+
+    // 7. Orient the cohesive label
+    ierr = DMPlexOrientLabel(*dm, cohesive_label); CHKERRQ(ierr);
+
+    // 8. Complete the cohesive label classification
+    ierr = DMPlexLabelCohesiveComplete(*dm, cohesive_label, NULL, 0, PETSC_FALSE, PETSC_FALSE, fault_dm); CHKERRQ(ierr);
+
+    // 9. Insert cohesive cells along the fault
     DM sdm = nullptr;
-    ierr = DMPlexConstructCohesiveCells(*dm, fault_label, nullptr, &sdm); CHKERRQ(ierr);
+    ierr = DMPlexConstructCohesiveCells(*dm, cohesive_label, nullptr, &sdm); CHKERRQ(ierr);
+
+    // 10. Clean up temporary structures
+    ierr = DMLabelDestroy(&cohesive_label); CHKERRQ(ierr);
+    ierr = DMDestroy(&fault_dm); CHKERRQ(ierr);
 
     // Replace the old DM with the split DM
     ierr = DMDestroy(dm); CHKERRQ(ierr);
