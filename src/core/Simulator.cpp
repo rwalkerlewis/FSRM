@@ -1166,13 +1166,15 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         fe_fields.push_back(fe);
     }
 
-    // Create DS (must be done before adding boundaries)
+    // Create DS first (required before adding boundaries in PETSc 3.22.2)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
-    ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);
 
-    // Add boundary conditions AFTER creating DS but BEFORE local section is created
-    // The local section will be created automatically when TS or SNES is set up
+    // Add boundary conditions to the DS
+    // This must be done after DMCreateDS but before the section is finalized
     ierr = setupBoundaryConditions(); CHKERRQ(ierr);
+
+    // Get the DS for later use
+    ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -1934,9 +1936,29 @@ PetscErrorCode Simulator::setInitialConditions() {
     // Start from zero (displacement at rest, zero pressure perturbation)
     ierr = VecZeroEntries(solution); CHKERRQ(ierr);
 
-    // NOTE: DMPlexInsertBoundaryValues appears not to work in this context.
-    // BCs will be applied automatically during residual evaluation by PETSc FEM.
-    // For now, just start with zero initial guess.
+    // Ensure DM section is created (required for DMPlexInsertBoundaryValues to work)
+    ierr = DMSetUp(dm); CHKERRQ(ierr);
+
+    // Debug: Check if we have boundary IDs registered
+    PetscDS ds;
+    PetscInt numBd;
+    ierr = DMGetDS(dm, &ds); CHKERRQ(ierr);
+    ierr = PetscDSGetNumBoundary(ds, &numBd); CHKERRQ(ierr);
+    ierr = PetscPrintf(PETSC_COMM_WORLD, "  Number of boundaries registered: %d\n", numBd); CHKERRQ(ierr);
+
+    // Insert boundary condition values into solution vector at boundary DOFs
+    // This creates a non-equilibrium initial state for SNES to solve
+    // DMPlexInsertBoundaryValues requires a local vector
+    Vec localVec;
+    ierr = DMGetLocalVector(dm, &localVec); CHKERRQ(ierr);
+    ierr = DMGlobalToLocal(dm, solution, INSERT_VALUES, localVec); CHKERRQ(ierr);
+    ierr = DMPlexInsertBoundaryValues(dm, PETSC_TRUE, localVec, 0.0, NULL, NULL, NULL); CHKERRQ(ierr);
+    ierr = DMLocalToGlobal(dm, localVec, INSERT_VALUES, solution); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(dm, &localVec); CHKERRQ(ierr);
+
+    PetscReal norm;
+    ierr = VecNorm(solution, NORM_2, &norm); CHKERRQ(ierr);
+    ierr = PetscPrintf(PETSC_COMM_WORLD, "  Solution norm after BC insertion: %.6e\n", norm); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -2560,10 +2582,6 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
     ierr = DMGetLabel(dm, "boundary_y_max", &label_ymax); CHKERRQ(ierr);
     ierr = DMGetLabel(dm, "boundary_z_min", &label_zmin); CHKERRQ(ierr);
     ierr = DMGetLabel(dm, "boundary_z_max", &label_zmax); CHKERRQ(ierr);
-
-    if (rank == 0) {
-        PetscPrintf(comm, "  Labels: z_min=%p, z_max=%p\n", (void*)label_zmin, (void*)label_zmax);
-    }
 
     // For elastostatics/elastodynamics:
     // - Fixed bottom (z_min): all displacement components = 0
