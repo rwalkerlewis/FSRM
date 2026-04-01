@@ -36,19 +36,20 @@ RUN mkdir -p /tmp/gtest-build \
     && ldconfig \
     && rm -rf /tmp/gtest-build
 
-# ── Build PETSc 3.20.0 from source (optimized, with CUDA) ───────────────────
+# ── Build PETSc 3.22.2 from source (optimized, with CUDA) ───────────────────
 WORKDIR /opt
-RUN wget -q https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-3.20.0.tar.gz \
-    && tar -xzf petsc-3.20.0.tar.gz \
-    && rm petsc-3.20.0.tar.gz \
-    && ls -d petsc-3.20* | head -1 | xargs -I{} mv {} petsc-3.20.0 || true
+RUN wget -q https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-3.22.2.tar.gz \
+    && tar -xzf petsc-3.22.2.tar.gz \
+    && rm petsc-3.22.2.tar.gz \
+    && ls -d petsc-3.22* | head -1 | xargs -I{} mv {} petsc-3.22.2 || true
 
-WORKDIR /opt/petsc-3.20.0
+WORKDIR /opt/petsc-3.22.2
 RUN ./configure \
         --with-cc=mpicc \
         --with-cxx=mpicxx \
         --with-fc=mpif90 \
         --download-fblaslapack \
+        --download-ctetgen \
         --with-hdf5-include=/usr/include/hdf5/openmpi \
         --with-hdf5-lib="-L/usr/lib/x86_64-linux-gnu/hdf5/openmpi -lhdf5" \
         --with-cuda \
@@ -57,12 +58,12 @@ RUN ./configure \
         COPTFLAGS='-O3' \
         CXXOPTFLAGS='-O3' \
         FOPTFLAGS='-O3' \
-    && make PETSC_DIR=/opt/petsc-3.20.0 PETSC_ARCH=arch-linux-c-opt all
+    && make PETSC_DIR=/opt/petsc-3.22.2 PETSC_ARCH=arch-linux-c-opt all
 
 # ── Environment variables (baked into image) ─────────────────────────────────
-ENV PETSC_DIR=/opt/petsc-3.20.0
+ENV PETSC_DIR=/opt/petsc-3.22.2
 ENV PETSC_ARCH=arch-linux-c-opt
-ENV PKG_CONFIG_PATH=/opt/petsc-3.20.0/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
+ENV PKG_CONFIG_PATH=/opt/petsc-3.22.2/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
 
 # Allow MPI to run as root inside CI containers
 ENV OMPI_ALLOW_RUN_AS_ROOT=1

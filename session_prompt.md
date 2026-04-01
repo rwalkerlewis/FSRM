@@ -1,155 +1,164 @@
-# FSRM: Debug PETSc Cohesive Cells in Docker CI
+# FSRM: Fix Cohesive Cell Insertion -- Skip Boundary Faces
 
-Read CLAUDE.md first. Everything runs in Docker.
+Read CLAUDE.md. Build and test in Docker.
 
-## Problem
+## The Problem
 
-Every test that touches DMPlex cohesive cell operations GTEST_SKIPs on failure.
-We have no idea which PETSc functions work and which don't in the CI image.
-The fault pipeline (FaultMeshManager -> CohesiveFaultKernel -> Simulator) is
-wired but possibly entirely non-functional.
+DMPlexConstructCohesiveCells fails with "Could not locate point X in split or
+unsplit points" because the fault label includes faces on the mesh boundary.
+PETSc cannot split a vertex that is shared between the fault and the domain
+boundary because it is ambiguous which side of the fault the boundary belongs to.
 
-## Step 1: Write a standalone diagnostic program
+## The Fix
 
-Create `tests/debug_cohesive.cpp` -- NOT a GTest, just a standalone PETSc main
-that tests each step and reports PASS/FAIL. This program should:
+In `src/numerics/FaultMeshManager.cpp`, function `createPlanarFaultLabel()`,
+add a boundary check INSIDE the face loop. A boundary face has exactly 1
+supporting cell. An interior face has exactly 2.
 
-1. Create a 3D hex box mesh (DMPlexCreateBoxMesh, 4x4x4)
-2. Print mesh stats (cells, faces, vertices)
-3. Create a "fault" label (DMCreateLabel)
-4. Mark faces near z=0.5 (DMPlexComputeCellGeometryFVM for centroids, DMLabelSetValue)
-5. Print how many faces were marked
-6. Call DMPlexConstructCohesiveCells
-7. Print mesh stats after split (count bulk vs cohesive cells by DMPlexGetCellType)
-8. Try PetscFECreateDefault for displacement (3 comp) and Lagrange multiplier (3 comp)
-9. Try DMSetField for both fields on the split mesh
-10. Try DMCreateDS
-11. Try PetscDSSetResidual on field 0 (bulk)
-12. Try PetscDSSetBdResidual on field 1 (cohesive)
-13. Try DMCreateGlobalVector -- print size
-14. Try DMCreateMatrix -- print size
+Find this code in the face labeling loop (around line 92):
 
-Each step should print PASS or FAIL with the PETSc error code. If a step fails,
-print the error and continue to the next step where possible (don't abort).
-
-Use a macro like:
 ```cpp
-#define TRY_STEP(name, call) do { \
-    PetscErrorCode _e = (call); \
-    if (_e) { PetscPrintf(PETSC_COMM_WORLD, "FAIL: %s (error %d)\n", name, (int)_e); } \
-    else    { PetscPrintf(PETSC_COMM_WORLD, "PASS: %s\n", name); } \
-} while(0)
+    for (PetscInt f = fStart; f < fEnd; ++f) {
+        // Compute face centroid
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        PetscReal vol;
+        ierr = DMPlexComputeCellGeometryFVM(dm, f, &vol, centroid, nullptr); CHKERRQ(ierr);
+
+        double point[3] = {centroid[0], centroid[1], centroid[2]};
+
+        // Check if face centroid lies on the fault plane
+        if (isPointOnFaultPlane(point, normal, center, tolerance) &&
+            isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width)) {
+            ierr = DMLabelSetValue(*fault_label, f, 1); CHKERRQ(ierr);
+            num_marked++;
+        }
+    }
 ```
 
-If the lambda for a dummy callback doesn't compile (C function pointer issue), use
-a static function instead:
+Add the boundary check as the FIRST thing inside the loop:
+
 ```cpp
-static void dummy_f0(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-                     const PetscInt uOff[], const PetscInt uOff_x[],
-                     const PetscScalar u[], const PetscScalar u_t[],
-                     const PetscScalar u_x[], const PetscInt aOff[],
-                     const PetscInt aOff_x[], const PetscScalar a[],
-                     const PetscScalar a_x[], const PetscScalar a_t[],
-                     PetscReal t, const PetscReal x[],
-                     PetscInt numConstants, const PetscScalar constants[],
-                     PetscScalar f0[]) {
-    (void)dim;(void)Nf;(void)NfAux;(void)uOff;(void)uOff_x;
-    (void)u;(void)u_t;(void)u_x;(void)aOff;(void)aOff_x;
-    (void)a;(void)a_x;(void)a_t;(void)t;(void)x;
-    (void)numConstants;(void)constants;
-    f0[0] = f0[1] = f0[2] = 0.0;
-}
+    PetscInt num_skipped_boundary = 0;
+    for (PetscInt f = fStart; f < fEnd; ++f) {
+        // Skip boundary faces: they have only 1 supporting cell.
+        // Interior faces have exactly 2. Labeling boundary faces causes
+        // DMPlexConstructCohesiveCells to fail because it cannot determine
+        // which side of the fault a boundary vertex belongs to.
+        PetscInt support_size;
+        ierr = DMPlexGetSupportSize(dm, f, &support_size); CHKERRQ(ierr);
+        if (support_size < 2) {
+            // Check if it would have been labeled (for diagnostic count)
+            PetscReal centroid[3] = {0.0, 0.0, 0.0};
+            PetscReal vol;
+            ierr = DMPlexComputeCellGeometryFVM(dm, f, &vol, centroid, nullptr); CHKERRQ(ierr);
+            double point[3] = {centroid[0], centroid[1], centroid[2]};
+            if (isPointOnFaultPlane(point, normal, center, tolerance) &&
+                isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width)) {
+                num_skipped_boundary++;
+            }
+            continue;
+        }
+
+        // Compute face centroid
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        PetscReal vol;
+        ierr = DMPlexComputeCellGeometryFVM(dm, f, &vol, centroid, nullptr); CHKERRQ(ierr);
+
+        double point[3] = {centroid[0], centroid[1], centroid[2]};
+
+        // Check if face centroid lies on the fault plane
+        if (isPointOnFaultPlane(point, normal, center, tolerance) &&
+            isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width)) {
+            ierr = DMLabelSetValue(*fault_label, f, 1); CHKERRQ(ierr);
+            num_marked++;
+        }
+    }
 ```
 
-Add a build target. Either add to CMakeLists.txt:
-```cmake
-add_executable(debug_cohesive tests/debug_cohesive.cpp)
-target_link_libraries(debug_cohesive ${PETSC_LIBRARIES} ${MPI_CXX_LIBRARIES})
-target_include_directories(debug_cohesive PRIVATE ${PETSC_INCLUDE_DIRS} ${MPI_CXX_INCLUDE_DIRS})
+Update the diagnostic print at the end to include the boundary count:
+
+```cpp
+    if (rank_ == 0) {
+        PetscPrintf(comm_, "FaultMeshManager: Marked %d interior faces on fault plane "
+                   "(skipped %d boundary faces) "
+                   "(strike=%.1f deg, dip=%.1f deg, center=[%.0f,%.0f,%.0f], "
+                   "L=%.0f, W=%.0f, tol=%.3f)\n",
+                   (int)num_marked, (int)num_skipped_boundary,
+                   strike * 180.0 / M_PI, dip * 180.0 / M_PI,
+                   center[0], center[1], center[2], length, width, tolerance);
+    }
+
+    if (num_marked == 0) {
+        if (rank_ == 0) {
+            PetscPrintf(comm_, "WARNING: No interior faces marked. The fault plane may not "
+                       "intersect any interior faces of the mesh. Check fault geometry, "
+                       "mesh resolution, and tolerance (%.3f).\n", tolerance);
+        }
+    }
 ```
 
-Or compile manually in Docker:
-```bash
-cd build && mpicxx -o debug_cohesive ../tests/debug_cohesive.cpp \
-  -I${PETSC_DIR}/include -I${PETSC_DIR}/${PETSC_ARCH}/include \
-  -L${PETSC_DIR}/${PETSC_ARCH}/lib -lpetsc -lm
-```
+That is the complete fix for createPlanarFaultLabel.
 
-## Step 2: Build and run
+## Also: Fix the test mesh sizes
+
+The tests use a 2x2x2 mesh with a fault at the center. On a 2x2x2 hex mesh,
+the interior face at z=0.5 may have ALL its vertices on the boundary (the
+fault plane passes through the exact center, and every vertex on that plane
+is also on one of the x or y boundary faces).
+
+There are two fixes for the tests:
+
+1. Use a larger mesh (4x4x4 or 6x6x6) so the fault plane has interior vertices
+   that are not on the boundary.
+
+2. Or use a fault that does not extend to the mesh boundary (set length and
+   width smaller than the mesh domain).
+
+Apply fix 1 to:
+- tests/unit/numerics/test_fault_mesh_manager.cpp: change faces from {2,2,2} to {4,4,4}
+- tests/integration/test_locked_fault.cpp: already uses {4,4,4}, should be fine
+- tests/integration/test_injection_rupture_chain.cpp: change faces from {2,2,2} to {4,4,4}
+
+## Verify
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c '
-  cd build &&
-  cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON &&
-  make -j$(nproc) debug_cohesive 2>&1 | tail -10 &&
-  echo "" &&
-  echo "============================================" &&
-  echo "  RUNNING COHESIVE CELL DIAGNOSTIC" &&
-  echo "============================================" &&
-  echo "" &&
-  ./debug_cohesive 2>&1
+  mkdir -p build && cd build &&
+  cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=OFF &&
+  make -j$(nproc) &&
+  echo "=== FAULT MESH MANAGER TEST ===" &&
+  ./tests/run_unit_tests --gtest_filter=FaultMeshManagerTest.SplitMeshAlongFaultRequiresDMPlex 2>&1 | tail -20 &&
+  echo "=== LOCKED FAULT TEST ===" &&
+  ./tests/run_integration_tests --gtest_filter=LockedFaultTest.* 2>&1 | tail -20 &&
+  echo "=== INJECTION CHAIN TEST ===" &&
+  ./tests/run_integration_tests --gtest_filter=InjectionRuptureChainTest.* 2>&1 | tail -20 &&
+  echo "=== ALL TESTS ===" &&
+  ctest --output-on-failure 2>&1 | tail -20
 '
 ```
 
-Read every line of output. Report the FULL output to me.
-
-## Step 3: Check PETSc 3.20 APIs
-
-Regardless of diagnostic results, also run:
-```bash
-docker run --rm fsrm-ci:local bash -c '
-  echo "=== DMPlexConstructCohesiveCells ===" &&
-  grep -rn "DMPlexConstructCohesiveCells" /opt/petsc-3.20.0/include/ &&
-  echo "" &&
-  echo "=== PetscDSSetBdResidual ===" &&
-  grep -rn "PetscDSSetBdResidual" /opt/petsc-3.20.0/include/ &&
-  echo "" &&
-  echo "=== DMPlexGetCellType ===" &&
-  grep -rn "DMPlexGetCellType" /opt/petsc-3.20.0/include/ &&
-  echo "" &&
-  echo "=== Cohesive examples ===" &&
-  find /opt/petsc-3.20.0/src -name "*.c" | xargs grep -l "CohesiveCells" 2>/dev/null &&
-  echo "" &&
-  echo "=== DMSetRegionDS ===" &&
-  grep -rn "DMSetRegionDS" /opt/petsc-3.20.0/include/ &&
-  echo "" &&
-  echo "=== TENSOR_PRISM types ===" &&
-  grep -rn "PRISM_TENSOR" /opt/petsc-3.20.0/include/petscdmplextypes.h
-'
+The fault tests should now PASS instead of SKIP. Expected output from the mesh manager:
+```
+FaultMeshManager: Marked N interior faces on fault plane (skipped M boundary faces)
+FaultMeshManager: Split complete: X cells after split (K cohesive cells inserted)
 ```
 
-This tells us what's available. Report the FULL output.
+Where N > 0 and K > 0.
 
-## Step 4: Based on results
+If N == 0 (no interior faces marked):
+- The mesh is too coarse. Increase from 4x4x4 to 6x6x6.
+- Or the tolerance is wrong. For a 4x4x4 mesh on [0,1]^3, cell size is 0.25,
+  face centroids at z=0.5 exist, tolerance 0.15 should capture them.
 
-If everything passes: great. Remove GTEST_SKIPs from fault tests, add real
-assertions, verify Simulator with config/test_locked_fault.config.
-
-If DMPlexConstructCohesiveCells fails: check the error message. Common issues:
-- Label must mark faces (height-1 entities), not vertices
-- Label values must be exactly 1
-- The fault surface must separate the mesh into two connected components
-- PETSc 3.20 may require specific mesh distribution state
-
-If PetscFE/PetscDS fails on hybrid mesh: need DMSetRegionDS or separate DS
-for bulk vs cohesive cells. Check PETSc examples for the pattern.
-
-If PetscDSSetBdResidual means "boundary" not "cohesive": need to find the
-correct API for cohesive cell residual registration.
-
-## Also run while you're in Docker
-
-Check if the existing fault tests pass or skip:
-```bash
-docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local bash -c '
-  ctest -R "FaultMesh\|LockedFault\|InjectionRupture" --output-on-failure -V 2>&1
-'
-```
-
-This tells us the actual test output, not just pass/skip counts.
+If N > 0 but DMPlexConstructCohesiveCells still fails:
+- Print the label contents before splitting: use DMLabelView(fault_label, PETSC_VIEWER_STDOUT_WORLD)
+- Check if DMPlexLabelComplete is adding the correct closure points
+- The issue might be that DMPlexLabelComplete marks boundary vertices that
+  DMPlexLabelCohesiveComplete would have handled differently. Try using
+  DMPlexLabelCohesiveComplete instead if it exists in PETSc 3.20.
 
 ## Do NOT
-- GTEST_SKIP over failures. Report them.
-- Modify PetscFE callback files.
-- Modify friction laws.
-- Try to fix everything. Diagnose first.
+- Modify any PetscFE callback files
+- Modify friction laws or CohesiveFaultKernel
+- Add new features
+- Delete tests

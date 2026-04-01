@@ -86,7 +86,27 @@ PetscErrorCode FaultMeshManager::createPlanarFaultLabel(DM dm, DMLabel* fault_la
     ierr = DMPlexGetHeightStratum(dm, 1, &fStart, &fEnd); CHKERRQ(ierr);
 
     PetscInt num_marked = 0;
+    PetscInt num_skipped_boundary = 0;
     for (PetscInt f = fStart; f < fEnd; ++f) {
+        // Skip boundary faces: they have only 1 supporting cell.
+        // Interior faces have exactly 2. Labeling boundary faces causes
+        // DMPlexConstructCohesiveCells to fail because it cannot determine
+        // which side of the fault a boundary vertex belongs to.
+        PetscInt support_size;
+        ierr = DMPlexGetSupportSize(dm, f, &support_size); CHKERRQ(ierr);
+        if (support_size < 2) {
+            // Check if it would have been labeled (for diagnostic count)
+            PetscReal centroid[3] = {0.0, 0.0, 0.0};
+            PetscReal vol;
+            ierr = DMPlexComputeCellGeometryFVM(dm, f, &vol, centroid, nullptr); CHKERRQ(ierr);
+            double point[3] = {centroid[0], centroid[1], centroid[2]};
+            if (isPointOnFaultPlane(point, normal, center, tolerance) &&
+                isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width)) {
+                num_skipped_boundary++;
+            }
+            continue;
+        }
+
         // Compute face centroid
         PetscReal centroid[3] = {0.0, 0.0, 0.0};
         PetscReal vol;
@@ -103,11 +123,21 @@ PetscErrorCode FaultMeshManager::createPlanarFaultLabel(DM dm, DMLabel* fault_la
     }
 
     if (rank_ == 0) {
-        PetscPrintf(comm_, "FaultMeshManager: Marked %d faces on fault plane "
-                   "(strike=%.1f°, dip=%.1f°, center=[%.0f,%.0f,%.0f], "
-                   "L=%.0f, W=%.0f, tol=%.1f)\n",
-                   (int)num_marked, strike * 180.0 / M_PI, dip * 180.0 / M_PI,
+        PetscPrintf(comm_, "FaultMeshManager: Marked %d interior faces on fault plane "
+                   "(skipped %d boundary faces) "
+                   "(strike=%.1f deg, dip=%.1f deg, center=[%.0f,%.0f,%.0f], "
+                   "L=%.0f, W=%.0f, tol=%.3f)\n",
+                   (int)num_marked, (int)num_skipped_boundary,
+                   strike * 180.0 / M_PI, dip * 180.0 / M_PI,
                    center[0], center[1], center[2], length, width, tolerance);
+    }
+
+    if (num_marked == 0) {
+        if (rank_ == 0) {
+            PetscPrintf(comm_, "WARNING: No interior faces marked. The fault plane may not "
+                       "intersect any interior faces of the mesh. Check fault geometry, "
+                       "mesh resolution, and tolerance (%.3f).\n", tolerance);
+        }
     }
 
     PetscFunctionReturn(0);
@@ -130,33 +160,18 @@ PetscErrorCode FaultMeshManager::splitMeshAlongFault(DM* dm,
     ierr = DMPlexGetHeightStratum(*dm, 0, &cStart_before, &cEnd_before); CHKERRQ(ierr);
     PetscInt num_cells_before = cEnd_before - cStart_before;
 
-    // Check if mesh is interpolated (has all intermediate entities)
-    DMPlexInterpolatedFlag interpolated;
-    ierr = DMPlexIsInterpolated(*dm, &interpolated); CHKERRQ(ierr);
-
-    if (interpolated != DMPLEX_INTERPOLATED_FULL) {
-        if (rank_ == 0) {
-            PetscPrintf(comm_, "FaultMeshManager: Mesh is not interpolated, interpolating now\n");
-        }
-        DM idm = nullptr;
-        ierr = DMPlexInterpolate(*dm, &idm); CHKERRQ(ierr);
-        ierr = DMDestroy(dm); CHKERRQ(ierr);
-        *dm = idm;
-
-        // Re-get the fault label after interpolation
-        ierr = DMGetLabel(*dm, fault_label_name.c_str(), &fault_label); CHKERRQ(ierr);
-        if (!fault_label) {
-            SETERRQ(comm_, PETSC_ERR_ARG_WRONG,
-                    "Fault label lost during interpolation");
-        }
-    }
-
-    // Simply complete the fault label's transitive closure
-    // (add all vertices and edges of marked faces).
-    // NOTE: This may still fail if the fault extends to the mesh boundary.
+    // Complete the fault label to include the transitive closure (vertices + edges)
     ierr = DMPlexLabelComplete(*dm, fault_label); CHKERRQ(ierr);
 
+    // First, complete the label to include all closure points (vertices, edges)
+    ierr = DMPlexLabelComplete(*dm, fault_label); CHKERRQ(ierr);
+
+    // Then, classify vertices as split (value 2) vs unsplit for cohesive cell insertion
+    ierr = DMPlexLabelCohesiveComplete(*dm, fault_label, NULL, 1, PETSC_TRUE, PETSC_FALSE, NULL); CHKERRQ(ierr);
+
     if (rank_ == 0) {
+        PetscPrintf(comm_, "FaultMeshManager: Fault label after completion:\n");
+        ierr = DMLabelView(fault_label, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
         PetscPrintf(comm_, "FaultMeshManager: Splitting mesh along '%s' "
                    "(%d cells before split)\n",
                    fault_label_name.c_str(), (int)num_cells_before);

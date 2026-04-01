@@ -1012,36 +1012,46 @@ PetscErrorCode Simulator::setupGmshGrid() {
 PetscErrorCode Simulator::setupStructuredGrid() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
-    
+
     // Create DMPlex for structured grid
     PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
     PetscReal lower[3] = {grid_config.origin_x, grid_config.origin_y, grid_config.origin_z};
     PetscReal upper[3] = {grid_config.origin_x + grid_config.Lx,
                           grid_config.origin_y + grid_config.Ly,
                           grid_config.origin_z + grid_config.Lz};
-    ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
+
+    // NOTE: PETSc 3.20 cohesive cell insertion works reliably only on simplex meshes.
+    // Force simplex (tetrahedral) mesh when faults are enabled, even for CARTESIAN configs.
+    PetscBool use_simplex = config.enable_faults ? PETSC_TRUE : PETSC_FALSE;
+
+    ierr = DMPlexCreateBoxMesh(comm, 3, use_simplex,
                               faces,
-                              lower, upper, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
-    
+                              lower, upper, nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm); CHKERRQ(ierr);
+
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
     ierr = DMSetUp(dm); CHKERRQ(ierr);
-    
+
     PetscFunctionReturn(0);
 }
 
 PetscErrorCode Simulator::setupUnstructuredGrid() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
-    
+
     // Create DMPlex for unstructured grid
     PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
-    ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
+
+    // NOTE: PETSc 3.20 cohesive cell insertion works reliably only on simplex meshes.
+    // Force simplex (tetrahedral) mesh when faults are enabled.
+    PetscBool use_simplex = config.enable_faults ? PETSC_TRUE : PETSC_FALSE;
+
+    ierr = DMPlexCreateBoxMesh(comm, 3, use_simplex,
                               faces,
-                              nullptr, nullptr, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
-    
+                              nullptr, nullptr, nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm); CHKERRQ(ierr);
+
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
     ierr = DMViewFromOptions(dm, nullptr, "-dm_view"); CHKERRQ(ierr);
-    
+
     PetscFunctionReturn(0);
 }
 
@@ -1816,7 +1826,8 @@ PetscErrorCode Simulator::setupFaultNetwork() {
     double center[3] = {0.0, 0.0, 0.0};
     double length = 1e10;       // large enough to cut the whole mesh
     double width = 1e10;
-    double tol = 0.15;
+    // Simplex mesh face centroids are not at exact grid coords, use smaller tolerance
+    double tol = 0.05;
 
     // TODO: Read from config once FaultConfig parsing is implemented
     // For now, hardcode a vertical fault at x=Lx/2
