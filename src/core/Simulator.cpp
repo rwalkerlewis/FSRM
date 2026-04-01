@@ -1168,11 +1168,15 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         fe_fields.push_back(fe);
     }
 
+    // Create DS (required before adding boundaries in PETSc 3.22.2)
+    ierr = DMCreateDS(dm); CHKERRQ(ierr);
+
     // Add boundary conditions to the DS
     ierr = setupBoundaryConditions(); CHKERRQ(ierr);
 
-    // Create DS (required before adding boundaries in PETSc 3.22.2)
-    ierr = DMCreateDS(dm); CHKERRQ(ierr);
+    // Force PETSc to rebuild the local section with BC constraints
+    ierr = DMSetLocalSection(dm, nullptr); CHKERRQ(ierr);
+    ierr = DMSetUp(dm); CHKERRQ(ierr);
 
     // Get the DS for later use
     ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);

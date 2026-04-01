@@ -1,47 +1,39 @@
 # FSRM Development Rules
 
 ## Build
-- Build Docker image: docker build -f Dockerfile.ci -t fsrm-ci:local .
-- Compile: docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c 'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON && make -j$(nproc)'
-- Test: docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local ctest --output-on-failure
+- docker build -f Dockerfile.ci -t fsrm-ci:local .
+- docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c 'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON && make -j$(nproc)'
+- docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local ctest --output-on-failure
 
 ## Architecture
-- PDE assembly: PETSc DMPlex FEM with PetscDS pointwise callbacks
-- FormFunction delegates to DMPlexTSComputeIFunctionFEM when use_fem_time_residual_ = true
-- Unified PetscDS constants (27 elements), set once in setupPhysics
-- PETSc 3.22.2 with ctetgen, simplex meshes when faults enabled
-- Cohesive cells working via PyLith submesh workflow
+- PETSc 3.22.2 with ctetgen, DMPlex FEM
+- PetscDS callbacks registered in setupPhysics()
+- BCs registered via DMAddBoundary in setupBoundaryConditions(), BEFORE DMCreateDS
+- DMPlexInsertBoundaryValues injects BC values into solution in setInitialConditions()
+- FormFunction calls DMPlexTSComputeIFunctionFEM on local vectors with BC insertion
+- Unified constants array (27 elements)
 
-## Critical gap
-setupBoundaryConditions() is empty. No Dirichlet or Neumann BCs applied.
-setInitialConditions() does VecSet(solution, 1e7) regardless of physics.
-Without BCs, elastostatic systems are singular. No end-to-end solve produces physical results.
+## Working physics paths
+- Elastostatics: PetscFEElasticity f0/f1/g3, field 0 = displacement (3 components)
+- Poroelasticity: PetscFEPoroelasticity, field 0 = pressure (1 component), field 1 = displacement (3 components)
+- Single-phase flow: PetscFEFluidFlow, field 0 = pressure (1 component)
+- Cohesive faults: PyLith workflow, CohesiveFaultKernel on hybrid cells
 
-## What works
-- PetscFEElasticity callbacks (unit tested)
-- PetscFEPoroelasticity callbacks (unit tested)
-- PetscFEFluidFlow callbacks (unit tested)
-- Mesh creation (structured hex, simplex for faults)
-- Fault mesh splitting (PyLith workflow, 50/50 tests pass)
-- Config parsing for simulation, grid, rock, fluid sections
-- Seismometer network with DMInterpolation sampling
+## Current BCs (hardcoded in setupBoundaryConditions)
+- Elastostatics: fixed bottom (u=0 at z_min), applied compression (u_z=-0.001 at z_max)
+- Poroelasticity: drained top (p=0 at z_max) added on top of elastostatics BCs
+- Single-phase flow: fixed pressure (p=0 at x_min)
 
-## Pipeline call order
-1. initializeFromConfigFile() - parse config
-2. setupDM() - create mesh
-3. setupFaultNetwork() - split mesh if faults enabled
-4. labelBoundaries() - NEW: label boundary faces by coordinate
-5. setupFields() - create PetscFE
-6. setupPhysics() - register PetscDS callbacks + constants
-7. setupBoundaryConditions() - NEW: register Dirichlet BCs via PetscDSAddBoundary
-8. setupTimeStepper() - create TS
-9. setupSolvers() - configure SNES/KSP
-10. setInitialConditions() - set IC
-11. run() - TSSolve
+## Known gaps
+- BCs are hardcoded, not read from config [BOUNDARY_CONDITIONS] section
+- No Neumann (traction/flux) BCs, only Dirichlet
+- setInitialConditions always zeros the solution
+- No injection source term in the pressure equation
+- HydraulicFractureModel exists standalone but is not connected to the solver
 
 ## Rules
 - Build and test in Docker
 - Do not modify PetscFE callback files
 - Do not modify FaultMeshManager or CohesiveFaultKernel
+- All existing tests must pass
 - Check PETSc 3.22.2 API signatures before using any function
-- All 50 existing tests must still pass

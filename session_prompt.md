@@ -1,280 +1,325 @@
-# FSRM: Boundary Conditions + Working Examples
+# FSRM: Verify BCs, Poroelastic Consolidation, Injection Source
 
-Read CLAUDE.md first. Build and test in Docker.
+Read CLAUDE.md first. Build and test everything in Docker.
 
-## The Problem
+## Phase 1: Verify Uniaxial Compression Works
 
-Simulator::setupBoundaryConditions() is empty. No Dirichlet or Neumann BCs are
-applied to the PetscDS. Without BCs, elastostatic systems are singular (rigid
-body modes) and no config produces a physical result. setInitialConditions()
-blindly sets VecSet(solution, 1e7) regardless of what physics are active.
-
-## Goal
-
-Implement boundary conditions via PetscDS, fix initial conditions, then create
-3 working examples that produce verifiable physical output.
-
-## Subagent A: Implement Boundary Labeling and Dirichlet BCs
-
-### Step 1: Label boundary faces by coordinate
-
-Add a new method Simulator::labelBoundaries() that creates DMLabels for each
-face of the bounding box. Call it after setupDM()/setupFaultNetwork() but
-BEFORE setupFields().
-
-For a box mesh on [0,Lx] x [0,Ly] x [0,Lz], iterate over all faces (height 1
-stratum), check support size == 1 (boundary), compute centroid, and assign to
-the appropriate label based on which coordinate is at min/max.
-
-Label names: "boundary_x_min", "boundary_x_max", "boundary_y_min",
-"boundary_y_max", "boundary_z_min", "boundary_z_max"
-
-After labeling faces, call DMPlexLabelComplete on each label to add vertices
-and edges in the closure. PetscDSAddBoundary needs the complete closure.
-
-Add the labelBoundaries() call to main.cpp between setupFaultNetwork() and
-setupFields().
-
-### Step 2: Register Dirichlet BCs in setupBoundaryConditions()
-
-Replace the empty stub. The key PETSc function is PetscDSAddBoundary (or
-DMAddBoundary in some versions).
-
-IMPORTANT: Check the PETSc 3.22.2 API first:
-```bash
-grep -n "PetscDSAddBoundary\|DMAddBoundary" /opt/petsc-3.22.2/include/petscds.h /opt/petsc-3.22.2/include/petscdm.h
-```
-
-Also look at PETSc examples for the correct calling convention:
-```bash
-grep -rn "PetscDSAddBoundary\|DMAddBoundary" /opt/petsc-3.22.2/src/snes/tutorials/ex56.c /opt/petsc-3.22.2/src/snes/tutorials/ex17.c 2>/dev/null | head -20
-```
-
-The BC callback function signature for essential (Dirichlet) BCs:
-```c
-void bc_zero(PetscInt dim, PetscReal time, const PetscReal x[],
-             PetscInt Nc, PetscScalar *u, void *ctx) {
-    for (PetscInt c = 0; c < Nc; c++) u[c] = 0.0;
-}
-```
-
-For elastostatics/elastodynamics, register:
-- Fixed bottom (z_min): all displacement components = 0
-- The top boundary forcing comes from the initial stress state or from
-  a Neumann BC. For the first pass, use a nonzero Dirichlet BC on top
-  (applied displacement) since it's simpler than Neumann.
-
-For the top boundary (applied compression), create:
-```c
-void bc_compression(PetscInt dim, PetscReal time, const PetscReal x[],
-                     PetscInt Nc, PetscScalar *u, void *ctx) {
-    u[0] = 0.0;
-    u[1] = 0.0;
-    u[2] = -0.001;  // 1mm downward displacement
-}
-```
-
-For poroelasticity, also register:
-- Drained top (z_max): pressure = 0
-
-For fluid flow only (no geomechanics):
-- Fixed pressure on x_min: p = reference_pressure
-- No-flow (natural BC) on all other faces
-
-### Step 3: Fix initial conditions
-
-Replace VecSet(solution, 1e7) with physics-appropriate initialization:
-
-```cpp
-PetscErrorCode Simulator::setInitialConditions() {
-    PetscFunctionBeginUser;
-    PetscErrorCode ierr;
-
-    // Start from zero (displacement at rest, zero pressure perturbation)
-    ierr = VecZeroEntries(solution); CHKERRQ(ierr);
-
-    PetscFunctionReturn(0);
-}
-```
-
-Zero is appropriate because:
-- Displacement: body starts at rest
-- Pressure: for diffusion problems, IC is set via config or as perturbation
-- The Dirichlet BCs on the boundary will drive the solution
-
-
-## Subagent B: Example 1 - Uniaxial Compression (Elastostatics)
-
-Create `config/examples/uniaxial_compression.config`:
-
-```ini
-# Uniaxial Compression: Applied displacement on top, fixed bottom
-# Expected: uniform strain eps_zz, linear displacement u_z(z)
-# Validates: PetscFEElasticity callbacks, Dirichlet BCs, SNES convergence
-
-[SIMULATION]
-name = uniaxial_compression
-start_time = 0.0
-end_time = 1.0
-dt_initial = 1.0
-output_frequency = 1
-fluid_model = NONE
-solid_model = ELASTIC
-enable_geomechanics = true
-enable_faults = false
-rtol = 1.0e-10
-atol = 1.0e-12
-max_nonlinear_iterations = 1
-
-[GRID]
-nx = 4
-ny = 4
-nz = 8
-Lx = 10.0
-Ly = 10.0
-Lz = 100.0
-
-[ROCK]
-density = 2650.0
-youngs_modulus = 10.0e9
-poissons_ratio = 0.25
-```
-
-This problem has an exact solution: u_z(z) = -0.001 * z/Lz (linear),
-eps_zz = -1e-5, sigma_zz = (lambda + 2*mu) * eps_zz.
-
-The SNES should converge in 1 iteration (linear problem).
-
-
-## Subagent C: Example 2 - Locked Fault Under Compression
-
-Create `config/examples/fault_compression.config`:
-
-```ini
-# Locked fault under uniaxial compression
-# Expected: continuous displacement across fault (locked = no slip)
-# Validates: Cohesive cell insertion, Lagrange multiplier constraint
-
-[SIMULATION]
-name = fault_compression
-start_time = 0.0
-end_time = 1.0
-dt_initial = 1.0
-output_frequency = 1
-fluid_model = NONE
-solid_model = ELASTIC
-enable_geomechanics = true
-enable_faults = true
-rtol = 1.0e-10
-atol = 1.0e-12
-max_nonlinear_iterations = 10
-
-[GRID]
-nx = 4
-ny = 4
-nz = 8
-Lx = 10.0
-Ly = 10.0
-Lz = 100.0
-
-[ROCK]
-density = 2650.0
-youngs_modulus = 10.0e9
-poissons_ratio = 0.25
-```
-
-Note: This uses simplex meshes (forced when enable_faults=true). The fault
-plane is created by setupFaultNetwork() at the domain center.
-
-
-## Main Agent: After Subagents Complete
-
-### 1. Wire labelBoundaries() into the pipeline
-
-In main.cpp, after setupFaultNetwork() and before setupFields():
-```cpp
-ierr = sim.labelBoundaries(); CHKERRQ(ierr);
-```
-
-Add the declaration to Simulator.hpp (public).
-
-### 2. Wire setupBoundaryConditions() 
-
-It's already called in the pipeline (check main.cpp). Just make sure it's
-called AFTER setupPhysics() (needs the PetscDS prob to be created).
-
-### 3. Clean up config directory
-
-```bash
-mkdir -p config/examples
-mkdir -p config/aspirational
-# Move new working examples
-# Keep test configs in config/
-# Move everything else to aspirational
-git mv config/atmospheric_nuclear_test*.config config/aspirational/
-git mv config/buckley_leverett*.config config/aspirational/
-git mv config/cascadia*.config config/aspirational/
-# ... etc for all non-test, non-example configs
-```
-
-### 4. Create config/examples/README.md
-
-```markdown
-# FSRM Working Examples
-
-These examples exercise verified code paths and produce physical results.
-
-## uniaxial_compression.config
-Quasi-static uniaxial compression of an elastic cube.
-Fixed bottom, applied 1mm displacement on top.
-Validates elastostatic PetscFE callbacks and Dirichlet BCs.
-
-## fault_compression.config  
-Same as uniaxial compression but with a locked cohesive fault
-at the domain center. Validates fault mesh splitting and
-Lagrange multiplier constraints.
-
-## Running
-```
-cd build
-./fsrm -c ../config/examples/uniaxial_compression.config
-./fsrm -c ../config/examples/fault_compression.config
-```
-```
-
-### 5. Build, run, verify
-
+Build and run:
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c '
   mkdir -p build && cd build &&
   cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON &&
   make -j$(nproc) &&
-  echo "=== ALL TESTS ===" &&
-  ctest --output-on-failure 2>&1 | tail -20 &&
+  echo "=== TESTS ===" &&
+  ctest --output-on-failure 2>&1 | tail -10 &&
   echo "=== UNIAXIAL COMPRESSION ===" &&
-  ./fsrm -c ../config/examples/uniaxial_compression.config -snes_monitor -snes_converged_reason -ksp_converged_reason 2>&1 | tail -30 &&
-  echo "=== FAULT COMPRESSION ===" &&
-  ./fsrm -c ../config/examples/fault_compression.config -snes_monitor -snes_converged_reason -ksp_converged_reason 2>&1 | tail -30
+  ./fsrm -c ../config/examples/uniaxial_compression.config \
+    -snes_monitor -ksp_monitor_short -snes_converged_reason \
+    -pc_type lu 2>&1 | tail -40
 '
 ```
 
-Expected output for uniaxial compression:
+Expected:
+- "Solution norm after BC insertion" should be NONZERO (the compression BC sets u_z=-0.001 on top)
+- SNES should show nonzero initial FNORM
+- SNES should converge in 1 iteration (linear problem with direct solver)
+- NOT expected: FNORM = 0 or "converged due to FNORM_ABS"
+
+If the solution norm is still zero after BC insertion, the constrained section
+is not being built correctly. Debug by adding before the solve:
+```cpp
+PetscSection section;
+DMGetLocalSection(dm, &section);
+PetscSectionView(section, PETSC_VIEWER_STDOUT_WORLD);
 ```
-SNES Function norm 1.234e-05
-  Linear solve converged due to CONVERGED_RTOL
-SNES converged due to CONVERGED_FNORM_RELATIVE
-Simulation completed successfully!
+Check that some DOFs show as constrained (cdof > 0).
+
+STOP HERE if this doesn't work. Fix it before proceeding to Phase 2.
+
+
+## Phase 2: Terzaghi Consolidation (Poroelasticity End-to-End)
+
+This validates the Biot coupling callbacks. A 1D column under sudden load,
+drained at the top. Pore pressure starts at the applied load value and
+dissipates over time as fluid drains out the top.
+
+### 2a: Add configurable BCs for the poroelastic case
+
+The current setupBoundaryConditions() hardcodes elastostatics BCs. The
+Terzaghi problem needs DIFFERENT BCs:
+
+For poroelasticity (field 0 = pressure, field 1 = displacement):
+- z_min (bottom): u = 0 (fixed), impermeable (no BC on pressure = natural zero-flux)
+- z_max (top): p = 0 (drained), u_z = -0.001 (or applied load)
+- x/y boundaries: roller (constrain normal displacement component only)
+
+Modify setupBoundaryConditions() to handle the POROELASTIC case differently:
+
+```cpp
+if (config.solid_model == SolidModelType::POROELASTIC &&
+    config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+    // Poroelasticity: field 0 = pressure (1 comp), field 1 = displacement (3 comp)
+
+    // Bottom: fixed displacement (all components)
+    if (label_zmin) {
+        PetscInt comps_all[3] = {0, 1, 2};
+        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom",
+                             label_zmin, 1, &label_value,
+                             1, 3, comps_all,  // field 1 = displacement
+                             (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+        CHKERRQ(ierr);
+    }
+
+    // Top: drained (p = 0)
+    if (label_zmax) {
+        PetscInt comp = 0;
+        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "drained_top",
+                             label_zmax, 1, &label_value,
+                             0, 1, &comp,      // field 0 = pressure
+                             (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+        CHKERRQ(ierr);
+    }
+
+    // Top: applied compression displacement
+    if (label_zmax) {
+        PetscInt comps_all[3] = {0, 1, 2};
+        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top",
+                             label_zmax, 1, &label_value,
+                             1, 3, comps_all,  // field 1 = displacement
+                             (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
+        CHKERRQ(ierr);
+    }
+
+    // Lateral rollers: constrain normal displacement only
+    // x_min: u_x = 0 (component 0 of displacement field 1)
+    if (label_xmin) {
+        PetscInt comp = 0;
+        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmin",
+                             label_xmin, 1, &label_value,
+                             1, 1, &comp,
+                             (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+        CHKERRQ(ierr);
+    }
+    // x_max: u_x = 0
+    if (label_xmax) {
+        PetscInt comp = 0;
+        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmax",
+                             label_xmax, 1, &label_value,
+                             1, 1, &comp,
+                             (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+        CHKERRQ(ierr);
+    }
+    // y_min: u_y = 0 (component 1 of displacement field 1)
+    if (label_ymin) {
+        PetscInt comp = 1;
+        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymin",
+                             label_ymin, 1, &label_value,
+                             1, 1, &comp,
+                             (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+        CHKERRQ(ierr);
+    }
+    // y_max: u_y = 0
+    if (label_ymax) {
+        PetscInt comp = 1;
+        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymax",
+                             label_ymax, 1, &label_value,
+                             1, 1, &comp,
+                             (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+        CHKERRQ(ierr);
+    }
+}
 ```
 
-If SNES doesn't converge:
-- Add -pc_type lu for direct solve (eliminates preconditioning issues)
-- Check that boundary labels have nonzero point counts
-- Print DMLabelView for boundary labels to verify
-- Check that PetscDSAddBoundary is called with correct field indices
+### 2b: Set Terzaghi initial conditions
+
+For Terzaghi: at t=0, the applied load generates undrained pore pressure
+p0 = B * sigma_applied, where B is Skempton's coefficient. For fully
+coupled (alpha=1, incompressible grains): p0 approximately equals the
+applied load.
+
+Add a Terzaghi-specific initial condition. In setInitialConditions(),
+after VecZeroEntries:
+
+```cpp
+// For poroelasticity: set initial pore pressure = applied load (undrained)
+if (config.solid_model == SolidModelType::POROELASTIC) {
+    // Get local vector, set pressure DOFs to initial pressure
+    Vec localVec;
+    ierr = DMGetLocalVector(dm, &localVec); CHKERRQ(ierr);
+    ierr = VecZeroEntries(localVec); CHKERRQ(ierr);
+
+    // Set pressure field (field 0) to initial value everywhere
+    // Using DMProjectFunctionLocal for field-specific projection
+    PetscErrorCode (*pressureIC)(PetscInt, PetscReal, const PetscReal[],
+                                  PetscInt, PetscScalar*, void*) = nullptr;
+    // For Terzaghi: p0 = applied_load (1 MPa)
+    pressureIC = [](PetscInt dim, PetscReal time, const PetscReal x[],
+                     PetscInt Nc, PetscScalar *u, void *ctx) -> PetscErrorCode {
+        (void)dim; (void)time; (void)x; (void)Nc; (void)ctx;
+        u[0] = 1.0e6;  // 1 MPa initial pore pressure
+        return PETSC_SUCCESS;
+    };
+
+    // Project pressure IC onto field 0 only
+    // NOTE: Check PETSc 3.22 API for DMProjectFieldLocal or DMProjectFunctionLocal
+    // Alternative: manually iterate over pressure DOFs and set them
+
+    ierr = DMRestoreLocalVector(dm, &localVec); CHKERRQ(ierr);
+}
+```
+
+If DMProjectFunctionLocal is too complex, the simpler approach is to
+iterate over DOFs using the PetscSection and set pressure DOFs manually.
+
+### 2c: Create Terzaghi config
+
+Create `config/examples/terzaghi_consolidation.config`:
+```ini
+# Terzaghi 1D Consolidation
+# Column loaded on top, drained at top, impermeable sides/bottom
+# Pressure dissipates over time as fluid drains upward
+# Validates: PetscFEPoroelasticity Biot coupling
+
+[SIMULATION]
+name = terzaghi_consolidation
+start_time = 0.0
+end_time = 10.0
+dt_initial = 0.1
+dt_min = 0.001
+dt_max = 1.0
+max_timesteps = 100
+output_frequency = 10
+fluid_model = SINGLE_COMPONENT
+solid_model = POROELASTIC
+enable_geomechanics = true
+enable_faults = false
+rtol = 1.0e-8
+atol = 1.0e-10
+max_nonlinear_iterations = 20
+
+[GRID]
+nx = 1
+ny = 1
+nz = 20
+Lx = 1.0
+Ly = 1.0
+Lz = 10.0
+
+[ROCK]
+density = 2500.0
+youngs_modulus = 1.0e9
+poissons_ratio = 0.25
+porosity = 0.3
+permeability_x = 1.0
+permeability_y = 1.0
+permeability_z = 1.0
+biot_coefficient = 1.0
+
+[FLUID]
+type = SINGLE_PHASE
+density = 1000.0
+viscosity = 0.001
+compressibility = 4.5e-10
+reference_pressure = 0.0
+```
+
+Run and verify:
+```bash
+./fsrm -c ../config/examples/terzaghi_consolidation.config \
+  -snes_monitor -ts_monitor -pc_type lu 2>&1 | tail -40
+```
+
+Expected: pressure should decrease over time as fluid drains. The TS monitor
+should show multiple timesteps progressing. SNES should converge at each step.
+
+
+## Phase 3: Injection Point Source
+
+Add a wellbore injection term to the pressure equation. This is needed for
+hydraulic fracturing (pressurize a point in the formation).
+
+### Approach: Add source term to FormFunction
+
+Similar to the explosion source pattern. After DMPlexTSComputeIFunctionFEM
+assembles the bulk residual, add a point source contribution.
+
+Add to Simulator.hpp (private):
+```cpp
+PetscErrorCode addInjectionSourceToResidual(PetscReal t, Vec F);
+```
+
+Implementation: find the cell containing the injection point (DMLocatePoints),
+get closure DOFs, add injection rate to the pressure DOF residual.
+
+For the pressure equation, the injection source is:
+  residual -= Q / V_cell  (mass injection rate per unit volume)
+
+where Q is the volumetric injection rate (m^3/s) and V_cell is the cell volume.
+
+This is simpler than the explosion moment tensor injection because it only
+touches one scalar DOF (pressure) per node in the source cell.
+
+Parse injection parameters from config:
+```ini
+[INJECTION]
+enabled = true
+x = 0.5
+y = 0.5
+z = 5.0
+rate = 1.0e-4    # m^3/s
+start_time = 0.0
+end_time = 100.0
+```
+
+### Create injection example
+
+Create `config/examples/injection_pressure_buildup.config`:
+- Poroelastic domain, 10x10x10
+- Single injection point at center
+- All boundaries: roller + impermeable (closed system)
+- Watch pressure build up around the injection point
+
+This is the precursor to hydraulic fracturing: inject fluid, watch pressure
+rise, and when it exceeds fracture gradient, trigger fracture propagation.
+
+
+## Phase 4: Connect HydraulicFractureModel
+
+In MonitorFunction (or a new post-timestep callback):
+
+1. Get pressure at the injection point from the solution vector
+2. Evaluate K_I using LEFM::computeStressIntensityFactor(pressure, crack_length, min_stress)
+3. If K_I > K_Ic, call HydraulicFractureModel::propagate(pressure, dt)
+4. Update fracture geometry (length, width, height)
+5. Modify permeability in the fracture zone:
+   - Identify cells along the fracture path
+   - Increase their permeability (via auxiliary field or modified constants)
+   - Fracture permeability from cubic law: k_f = w^2/12
+
+The permeability modification is the hard part. Options:
+a) Use PETSc auxiliary fields (DMAux) to store per-cell permeability
+b) Modify the PetscDS constants at each timestep (only works for uniform)
+c) Use a callback that reads fracture geometry and returns permeability
+
+Option (a) is the PETSc way. Options (b) and (c) are simpler for a first pass.
+
+Create `config/examples/hydraulic_fracture_pkn.config`:
+- Poroelastic domain
+- Injection at center
+- PKN fracture model
+- Watch fracture grow and pressure plateau
+
+### Subagent breakdown for this session
+
+Subagent A: Verify Phase 1 (build, run uniaxial compression, confirm nonzero)
+Subagent B: Implement Phase 2 (poroelastic BCs, Terzaghi IC, config)
+Subagent C: Implement Phase 3 (injection source, config)
+
+Main agent: Phase 4 (HydraulicFractureModel coupling) after subagents complete.
 
 
 ## Do NOT
 - Modify PetscFE callback files
 - Modify FaultMeshManager or CohesiveFaultKernel
 - Delete existing tests
-- Create examples for features that don't work (DG, ADER, GPU, plasticity, thermal)
+- Skip Phase 1 verification
