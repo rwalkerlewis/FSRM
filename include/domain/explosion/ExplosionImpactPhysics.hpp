@@ -203,6 +203,9 @@ public:
     
     // Far-field equivalent source strength
     double equivalentMoment() const;
+
+    // Rise time getter
+    double getRiseTime() const { return rise_time; }
     
 private:
     double cavity_radius;

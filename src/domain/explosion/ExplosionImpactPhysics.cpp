@@ -45,19 +45,20 @@ double NuclearSourceParameters::fractured_zone_radius() const {
 }
 
 double NuclearSourceParameters::scalar_moment() const {
-    // Phenomenological scaling for underground explosions (order-of-magnitude):
-    //
-    // M0 ~ 10^(13.3) * W^(0.75)  [N·m] is a common ballpark for mb-yield relations.
-    // Keep it simple and monotone.
-    const double W = std::max(0.0, yield_kt);
-    return 2.0e13 * std::pow(W, 0.75);
+    // Cavity mechanics formula: M0 = 4*pi*rho*vp^2*Rc^3
+    // where Rc is the cavity radius from empirical scaling.
+    const double W = std::max(1e-12, yield_kt);
+    double Rc = cavity_radius(2700.0);  // granite
+    double rho = 2700.0;
+    double vp = 5500.0;
+    return 4.0 * M_PI * rho * vp * vp * Rc * Rc * Rc;
 }
 
 double NuclearSourceParameters::body_wave_magnitude() const {
-    // Simple mb scaling (educational): mb ≈ A + B log10(W)
-    // Typical B ~ 0.75–0.85; choose 0.80 and A to give mb~4.5 at 1 kt.
+    // Murphy (1981) mb-yield relation: mb = 4.45 + 0.75 * log10(W)
+    // For DPRK 2017 (250 kt): mb = 4.45 + 0.75*2.398 = 6.25 (observed: 6.3)
     const double W = std::max(1e-12, yield_kt);
-    return 4.5 + 0.80 * std::log10(W);
+    return 4.45 + 0.75 * std::log10(W);
 }
 
 double NuclearSourceParameters::surface_wave_magnitude() const {
@@ -178,7 +179,17 @@ void MuellerMurphySource::setMediumProperties(double rho, double vp, double vs) 
 void MuellerMurphySource::computeDerivedQuantities() {
     scalar_moment = source_params.scalar_moment();
     const double depth = std::max(1.0, std::abs(source_params.depth_of_burial));
-    corner_frequency = std::max(0.1, s_velocity / (3.0 * depth));
+    // Mueller-Murphy (1971) psi function for corner frequency
+    const double W = std::max(1e-6, source_params.yield_kt);
+    double psi;
+    if (W <= 10.0) {
+        psi = 16.2 / std::pow(W, 0.33);
+    } else if (W <= 1000.0) {
+        psi = 10.4 / std::pow(W, 0.25);
+    } else {
+        psi = 5.85 / std::pow(W, 0.17);
+    }
+    corner_frequency = psi * std::pow(density / 2650.0, -1.0 / 3.0) / depth;
     rise_time = 0.55 / corner_frequency;
     overshoot = 1.0;
 }

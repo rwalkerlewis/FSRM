@@ -204,6 +204,23 @@ public:
     void setFormationProperties(double E, double nu);
     void setFluidProperties(double rho, double mu);
     void setProppantPackPorosity(double phi);
+
+    // Additional setters for simulator integration
+    void setFractureToughness(double Kc) { fracture_toughness = Kc; }
+    void setStressState(double sh_min, double sh_max, double sv) {
+        min_horizontal_stress = sh_min;
+        (void)sh_max; (void)sv;  // stored for future use
+    }
+    void setHeight(double h) { height = h; }
+    void setModel(const std::string& m) { fracture_model = m; }
+    void propagate(double pressure, double dt) { updateFractureGeometry(pressure, dt); }
+
+    // Getters
+    double getLength() const { return length; }
+    double getWidth() const { return width; }
+    double getHeight() const { return height; }
+    double getFractureToughness() const { return fracture_toughness; }
+    double getMinHorizontalStress() const { return min_horizontal_stress; }
 };
 
 // Fault model

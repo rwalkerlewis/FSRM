@@ -29,6 +29,10 @@ void CohesiveFaultKernel::setFrictionCoefficient(double mu_f) {
     mu_friction_ = mu_f;
 }
 
+void CohesiveFaultKernel::setTensileStrength(double T_s) {
+    tensile_strength_ = T_s;
+}
+
 void CohesiveFaultKernel::setFrictionModel(FaultFrictionModel* model) {
     friction_model_ = model;
 }
@@ -56,6 +60,7 @@ PetscErrorCode CohesiveFaultKernel::registerWithDS(PetscDS prob,
     for (PetscInt i = 0; i < nconst_old; ++i) new_c[i] = old_c[i];
     new_c[COHESIVE_CONST_MODE] = locked_ ? 0.0 : 1.0;
     new_c[COHESIVE_CONST_MU_F] = static_cast<PetscScalar>(mu_friction_);
+    new_c[COHESIVE_CONST_TENSILE_STRENGTH] = static_cast<PetscScalar>(tensile_strength_);
     ierr = PetscDSSetConstants(prob, nconst_new, new_c.data()); CHKERRQ(ierr);
 
     // Register residual callbacks for cohesive cells
@@ -157,26 +162,42 @@ void CohesiveFaultKernel::f0_lagrange_constraint(
     (void)t; (void)x;
 
     // Determine mode from dedicated constant slot (0 = locked, 1 = slipping).
-    // COHESIVE_CONST_MODE = 24 to avoid aliasing PoroelasticSolver constants.
+    // COHESIVE_CONST_MODE = 25 to avoid aliasing PoroelasticSolver constants.
     PetscScalar mode = (numConstants > COHESIVE_CONST_MODE)
                        ? constants[COHESIVE_CONST_MODE] : 0.0;
 
     if (PetscRealPart(mode) < 0.5) {
         // LOCKED: constraint = displacement jump = u+ - u- = 0
-        // In PETSc's hybrid convention, the displacement values from both
-        // sides are encoded in the u[] array. The exact layout depends on
-        // the PETSc version. For the standard convention:
-        // u[uOff[0]..] = displacement on negative side
-        // u[uOff[0] + dim..] = displacement on positive side (shifted)
-        // The normal n[] points from - to + side.
-        //
-        // For the locked constraint, we enforce: slip = u+ - u- = 0
-        for (PetscInt d = 0; d < dim; ++d) {
-            // Displacement jump projected onto fault coordinates
-            // For simplicity, enforce zero jump in all components
-            // A more sophisticated version would project onto
-            // (normal, strike, dip) components
-            f[d] = u[uOff[0] + dim + d] - u[uOff[0] + d];
+        // With optional tensile failure: if the Lagrange multiplier
+        // (normal traction) exceeds the tensile strength, release
+        // the normal constraint to allow opening.
+        PetscScalar T_s = (numConstants > COHESIVE_CONST_TENSILE_STRENGTH)
+                          ? constants[COHESIVE_CONST_TENSILE_STRENGTH] : 0.0;
+
+        if (PetscRealPart(T_s) > 0.0) {
+            // Check Lagrange multiplier for tensile failure
+            PetscScalar lambda_n = 0.0;
+            for (PetscInt d = 0; d < dim; ++d) {
+                lambda_n += u[uOff[1] + d] * n[d];
+            }
+
+            if (PetscRealPart(lambda_n) > PetscRealPart(T_s)) {
+                // Tensile failure: release constraint, enforce zero traction
+                // f = lambda (so solver drives lambda -> 0)
+                for (PetscInt d = 0; d < dim; ++d) {
+                    f[d] = u[uOff[1] + d];
+                }
+            } else {
+                // Still locked: zero displacement jump
+                for (PetscInt d = 0; d < dim; ++d) {
+                    f[d] = u[uOff[0] + dim + d] - u[uOff[0] + d];
+                }
+            }
+        } else {
+            // Standard locked: zero displacement jump (no tensile check)
+            for (PetscInt d = 0; d < dim; ++d) {
+                f[d] = u[uOff[0] + dim + d] - u[uOff[0] + d];
+            }
         }
     } else {
         // SLIPPING: friction-governed constraint

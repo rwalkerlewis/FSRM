@@ -172,6 +172,33 @@ private:
     // If false, fall back to a safe placeholder (U_t = 0) to avoid crashes when
     // the discretization/physics residuals are not configured.
     bool use_fem_time_residual_ = false;
+
+    // Injection source (Phase 2)
+    bool injection_enabled_ = false;
+    double injection_x_ = 0, injection_y_ = 0, injection_z_ = 0;
+    double injection_rate_ = 0;
+    double injection_start_ = 0, injection_end_ = 1e30;
+    PetscInt injection_cell_ = -1;
+    PetscErrorCode locateInjectionCell();
+    PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
+
+    // Hydraulic fracture model (Phase 3)
+    std::unique_ptr<HydraulicFractureModel> hydrofrac_;
+    bool hydrofrac_initiated_ = false;
+
+    // Cohesive fracture plane (Phase 4)
+    bool fracture_plane_enabled_ = false;
+    double fracture_plane_strike_ = 0.0;   // radians
+    double fracture_plane_dip_ = M_PI / 2.0;
+    double fracture_plane_center_[3] = {0, 0, 0};
+    double fracture_plane_length_ = 200.0;
+    double fracture_plane_width_ = 100.0;
+    double fracture_plane_tensile_strength_ = 5.0e6;  // Pa
+
+    // Explosion source FEM injection (Phase 5)
+    PetscInt explosion_cell_ = -1;
+    PetscErrorCode locateExplosionCell();
+    PetscErrorCode addExplosionSourceToResidual(PetscReal t, Vec locF);
     
     // Performance metrics
     std::vector<double> solve_times;

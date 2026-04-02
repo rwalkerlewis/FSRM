@@ -46,7 +46,8 @@ public:
     // Unified constants: [0-24] = fluid/elasticity/poroelasticity, [25-26] = cohesive fault
     static constexpr PetscInt COHESIVE_CONST_MODE  = 25;  // 0=locked, 1=slipping (was 24)
     static constexpr PetscInt COHESIVE_CONST_MU_F  = 26;  // friction coefficient (was 25)
-    static constexpr PetscInt COHESIVE_CONST_COUNT = 27;  // total constant slots needed (was 26)
+    static constexpr PetscInt COHESIVE_CONST_TENSILE_STRENGTH = 27;  // tensile strength (Pa)
+    static constexpr PetscInt COHESIVE_CONST_COUNT = 28;  // total constant slots needed
 
     CohesiveFaultKernel();
 
@@ -68,6 +69,12 @@ public:
      * the change to the PetscDS constants read by the static callbacks.
      */
     void setFrictionCoefficient(double mu_f);
+
+    /**
+     * @brief Set the tensile strength for cohesive fracture opening
+     * @param T_s Tensile strength in Pa (0 = no tensile failure check)
+     */
+    void setTensileStrength(double T_s);
 
     /**
      * @brief Set the friction model for slipping constraint
@@ -197,6 +204,7 @@ public:
 private:
     bool locked_ = true;
     double mu_friction_ = 0.6;  // Coulomb friction coefficient for slipping mode
+    double tensile_strength_ = 0.0;  // Tensile strength in Pa (0 = no check)
     FaultFrictionModel* friction_model_ = nullptr;
 };
 

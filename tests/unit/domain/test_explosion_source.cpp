@@ -57,3 +57,16 @@ TEST_F(ExplosionSourceKernelTest, MomentTensorVoigt) {
     EXPECT_TRUE(std::isfinite(M[1]));
     EXPECT_TRUE(std::isfinite(M[2]));
 }
+
+// DPRK 2017 validation test using NuclearSourceParameters directly
+#include "domain/explosion/ExplosionImpactPhysics.hpp"
+
+TEST_F(ExplosionSourceKernelTest, DPRK2017MagnitudeCheck) {
+    NuclearSourceParameters params;
+    params.yield_kt = 250.0;
+    params.depth_of_burial = 800.0;
+    double mb = params.body_wave_magnitude();
+    // Murphy (1981): mb = 4.45 + 0.75*log10(250) = 4.45 + 0.75*2.398 = 6.25
+    // Observed DPRK 2017: mb ~ 6.3
+    EXPECT_NEAR(mb, 6.25, 0.15);
+}
