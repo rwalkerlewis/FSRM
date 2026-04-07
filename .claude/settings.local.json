@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker build:*)",
+      "Bash(git rm:*)",
+      "Bash(pip3 install:*)",
+      "Bash(curl:*)",
+      "Bash(chmod:*)",
+      "Bash(/tmp/git-filter-repo:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(docker run:*)",
+      "Bash(mkdir:*)",
+      "Bash(while read f)",
+      "Bash(do git mv \"$f\" aspirational/)",
+      "Bash(done)",
+      "Bash(for f in atmospheric_nuclear_test.config atmospheric_nuclear_test_high_altitude_emp_1400kt.config atmospheric_nuclear_test_surface_fallout_50kt.config buckley_leverett_2d.config cascadia_m9_tsunami.config)",
+      "Bash(xargs -I {} mv {} aspirational/)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
