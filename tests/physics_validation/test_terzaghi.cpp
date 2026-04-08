@@ -14,8 +14,10 @@
 #include "physics/PhysicsKernel.hpp"
 #include "numerics/PetscFEPoroelasticity.hpp"
 #include "core/FSRM.hpp"
+#include "core/Simulator.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <fstream>
 
 using namespace FSRM;
 
@@ -292,4 +294,98 @@ TEST_F(TerzaghiConsolidationTest, G2UPCouplingJacobian) {
     EXPECT_NEAR(PetscRealPart(g2[2]), 0.0, 1e-12);     // g2[0*3+2]
 
     (void)rank;
+}
+
+// Full PDE pipeline test for Terzaghi consolidation
+class TerzaghiPipelineTest : public ::testing::Test
+{
+protected:
+  std::string config_path;
+
+  void SetUp() override
+  {
+    config_path = "test_terzaghi_pipeline.config";
+    std::ofstream cfg(config_path);
+    cfg << "[SIMULATION]\n"
+        << "name = terzaghi_pipeline_test\n"
+        << "start_time = 0.0\n"
+        << "end_time = 1.0\n"
+        << "dt_initial = 0.1\n"
+        << "dt_min = 0.001\n"
+        << "dt_max = 0.5\n"
+        << "max_timesteps = 20\n"
+        << "output_frequency = 10\n"
+        << "fluid_model = SINGLE_COMPONENT\n"
+        << "solid_model = POROELASTIC\n"
+        << "enable_geomechanics = true\n"
+        << "enable_faults = false\n"
+        << "rtol = 1.0e-8\n"
+        << "atol = 1.0e-10\n"
+        << "max_nonlinear_iterations = 20\n"
+        << "\n"
+        << "[GRID]\n"
+        << "nx = 2\n"
+        << "ny = 2\n"
+        << "nz = 10\n"
+        << "Lx = 1.0\n"
+        << "Ly = 1.0\n"
+        << "Lz = 10.0\n"
+        << "\n"
+        << "[ROCK]\n"
+        << "density = 2500.0\n"
+        << "youngs_modulus = 1.0e9\n"
+        << "poissons_ratio = 0.25\n"
+        << "porosity = 0.3\n"
+        << "permeability_x = 1.0\n"
+        << "permeability_y = 1.0\n"
+        << "permeability_z = 1.0\n"
+        << "biot_coefficient = 1.0\n"
+        << "\n"
+        << "[FLUID]\n"
+        << "type = SINGLE_PHASE\n"
+        << "density = 1000.0\n"
+        << "viscosity = 0.001\n"
+        << "compressibility = 4.5e-10\n"
+        << "reference_pressure = 0.0\n";
+    cfg.close();
+  }
+
+  void TearDown() override
+  {
+    std::remove(config_path.c_str());
+  }
+};
+
+TEST_F(TerzaghiPipelineTest, PoroelasticPipelineCompletes)
+{
+  // Run the full Terzaghi consolidation through the Simulator
+  FSRM::Simulator sim(PETSC_COMM_WORLD);
+  PetscErrorCode ierr;
+
+  ierr = sim.initializeFromConfigFile(config_path);
+  ASSERT_EQ(ierr, 0) << "initializeFromConfigFile failed";
+
+  ierr = sim.setupDM();
+  ASSERT_EQ(ierr, 0) << "setupDM failed";
+
+  ierr = sim.labelBoundaries();
+  ASSERT_EQ(ierr, 0) << "labelBoundaries failed";
+
+  ierr = sim.setupFields();
+  ASSERT_EQ(ierr, 0) << "setupFields failed";
+
+  ierr = sim.setupPhysics();
+  ASSERT_EQ(ierr, 0) << "setupPhysics failed";
+
+  ierr = sim.setupTimeStepper();
+  ASSERT_EQ(ierr, 0) << "setupTimeStepper failed";
+
+  ierr = sim.setupSolvers();
+  ASSERT_EQ(ierr, 0) << "setupSolvers failed";
+
+  ierr = sim.setInitialConditions();
+  ASSERT_EQ(ierr, 0) << "setInitialConditions failed";
+
+  ierr = sim.run();
+  ASSERT_EQ(ierr, 0) << "Terzaghi simulation run failed";
 }

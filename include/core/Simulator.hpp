@@ -161,6 +161,12 @@ private:
     // Material properties (per cell or per region)
     std::vector<MaterialProperties> material_props;
     std::vector<FluidProperties> fluid_props;
+
+    // Auxiliary DM for heterogeneous material properties
+    DM  auxDM_ = nullptr;
+    Vec auxVec_ = nullptr;
+    PetscErrorCode setupAuxiliaryDM();
+    PetscErrorCode populateAuxFieldsByDepth();
     
     // Simulation state
     double current_time;

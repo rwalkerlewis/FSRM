@@ -2,7 +2,9 @@
 #include "core/PhysicsModuleRegistry.hpp"
 #include "numerics/PetscFEFluidFlow.hpp"
 #include "numerics/PetscFEElasticity.hpp"
+#include "numerics/PetscFEElasticityAux.hpp"
 #include "numerics/PetscFEPoroelasticity.hpp"
+#include "numerics/AbsorbingBC.hpp"
 #include "io/Visualization.hpp"
 #include "core/ConfigReader.hpp"
 #include "numerics/ImplicitExplicitTransition.hpp"
@@ -437,6 +439,8 @@ Simulator::Simulator(MPI_Comm comm_in)
 }
 
 Simulator::~Simulator() {
+    if (auxVec_) VecDestroy(&auxVec_);
+    if (auxDM_) DMDestroy(&auxDM_);
     if (solution) VecDestroy(&solution);
     if (solution_old) VecDestroy(&solution_old);
     if (solution_prev_) VecDestroy(&solution_prev_);
@@ -569,6 +573,77 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     fracture_plane_length_, fracture_plane_width_);
             }
         }
+    }
+
+    // Parse heterogeneous material configuration (optional)
+    if (reader.hasSection("MATERIAL")) {
+        config.use_heterogeneous_material = reader.getBool("MATERIAL", "heterogeneous", false);
+        config.gravity = reader.getDouble("MATERIAL", "gravity", 0.0);
+    }
+    if (config.use_heterogeneous_material) {
+        // Look for LAYER_N sections
+        config.material_layers.clear();
+        for (int i = 1; i <= 100; ++i) {
+            std::string section_name = "LAYER_" + std::to_string(i);
+            if (!reader.hasSection(section_name)) break;
+            MaterialLayer layer;
+            layer.z_top    = reader.getDouble(section_name, "z_top", 0.0);
+            layer.z_bottom = reader.getDouble(section_name, "z_bottom", 0.0);
+            layer.lambda   = reader.getDouble(section_name, "lambda", 30.0e9);
+            layer.mu       = reader.getDouble(section_name, "mu", 25.0e9);
+            layer.rho      = reader.getDouble(section_name, "rho", 2650.0);
+            config.material_layers.push_back(layer);
+        }
+        if (rank == 0) {
+            PetscPrintf(comm, "Heterogeneous material: %d layers defined\n",
+                        (int)config.material_layers.size());
+        }
+    }
+
+    // Parse absorbing boundary conditions (optional)
+    if (reader.hasSection("ABSORBING_BC")) {
+        config.absorbing_bc_enabled = reader.getBool("ABSORBING_BC", "enabled", false);
+        config.absorbing_bc_x_min = reader.getBool("ABSORBING_BC", "x_min", true);
+        config.absorbing_bc_x_max = reader.getBool("ABSORBING_BC", "x_max", true);
+        config.absorbing_bc_y_min = reader.getBool("ABSORBING_BC", "y_min", true);
+        config.absorbing_bc_y_max = reader.getBool("ABSORBING_BC", "y_max", true);
+        config.absorbing_bc_z_min = reader.getBool("ABSORBING_BC", "z_min", true);
+        config.absorbing_bc_z_max = reader.getBool("ABSORBING_BC", "z_max", false);
+        if (config.absorbing_bc_enabled && rank == 0) {
+            PetscPrintf(comm, "Absorbing BCs: x=[%d,%d] y=[%d,%d] z=[%d,%d]\n",
+                (int)config.absorbing_bc_x_min, (int)config.absorbing_bc_x_max,
+                (int)config.absorbing_bc_y_min, (int)config.absorbing_bc_y_max,
+                (int)config.absorbing_bc_z_min, (int)config.absorbing_bc_z_max);
+        }
+    }
+
+    // Parse boundary condition configuration (optional)
+    if (reader.hasSection("BOUNDARY_CONDITIONS")) {
+        config.bottom_bc = reader.getString("BOUNDARY_CONDITIONS", "bottom", "fixed");
+        config.side_bc = reader.getString("BOUNDARY_CONDITIONS", "sides", "free");
+        config.top_bc = reader.getString("BOUNDARY_CONDITIONS", "top", "compression");
+        if (rank == 0) {
+            PetscPrintf(comm, "Boundary conditions: bottom=%s, sides=%s, top=%s\n",
+                        config.bottom_bc.c_str(), config.side_bc.c_str(), config.top_bc.c_str());
+        }
+    }
+
+    // Parse initial conditions (optional)
+    if (reader.hasSection("INITIAL_CONDITIONS")) {
+        config.initial_condition_type = reader.getString("INITIAL_CONDITIONS", "type", "zero");
+        config.initial_condition_path = reader.getString("INITIAL_CONDITIONS", "path", "");
+        if (rank == 0) {
+            PetscPrintf(comm, "Initial conditions: type=%s", config.initial_condition_type.c_str());
+            if (!config.initial_condition_path.empty()) {
+                PetscPrintf(comm, ", path=%s", config.initial_condition_path.c_str());
+            }
+            PetscPrintf(comm, "\n");
+        }
+    }
+
+    // Parse solution save path (optional)
+    if (reader.hasSection("OUTPUT")) {
+        config.save_solution_path = reader.getString("OUTPUT", "save_solution", "");
     }
 
     // Parse seismometers (optional)
@@ -724,7 +799,7 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     if (reader.hasSection("EXPLOSION_SOURCE")) {
         std::string ex_type = reader.getString("EXPLOSION_SOURCE", "type", "");
         // Currently only support underground nuclear coupling via spherical cavity proxy.
-        if (!ex_type.empty() && (ex_type == "NUCLEAR_UNDERGROUND" || ex_type == "UNDERGROUND_CONTAINED")) {
+        if (!ex_type.empty() && (ex_type == "NUCLEAR_UNDERGROUND" || ex_type == "UNDERGROUND_NUCLEAR" || ex_type == "UNDERGROUND_CONTAINED")) {
             double yield_kt = reader.getDouble("EXPLOSION_SOURCE", "yield_kt", 1.0);
             double depth_m = reader.getDouble("EXPLOSION_SOURCE", "depth_of_burial", 1000.0);
             double x = reader.getDouble("EXPLOSION_SOURCE", "location_x",
@@ -1586,6 +1661,16 @@ PetscErrorCode Simulator::setupPhysics() {
         }
     }
 
+    // When using heterogeneous material or gravity with homogeneous material,
+    // material properties (lambda, mu, rho) come from auxiliary fields instead of
+    // constants. Repurpose constants[0] as gravity magnitude.
+    bool use_aux_callbacks = config.use_heterogeneous_material || (config.gravity > 0.0);
+    if (use_aux_callbacks) {
+        unified_constants[0] = config.gravity;
+        unified_constants[1] = 0.0;
+        unified_constants[2] = 0.0;
+    }
+
     // Set constants ONCE for all physics (eliminates collision bug)
     // [0-24]=fluid/elasticity/poroelasticity, [25-26]=cohesive fault (if enabled)
     ierr = PetscDSSetConstants(prob, 27, unified_constants); CHKERRQ(ierr);
@@ -1671,20 +1756,40 @@ PetscErrorCode Simulator::setupPhysics() {
             // Full dynamics with inertia
             // For TSALPHA2, we use the standard first-order form callbacks
             // The time stepper handles the second-order time integration internally
-            ierr = PetscDSSetResidual(prob, displacement_field_idx,
-                                      PetscFEElasticity::f0_elastodynamics,
-                                      PetscFEElasticity::f1_elastodynamics); CHKERRQ(ierr);
-            ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
-                                      PetscFEElasticity::g0_elastodynamics, nullptr, nullptr,
-                                      PetscFEElasticity::g3_elastodynamics); CHKERRQ(ierr);
+            if (use_aux_callbacks) {
+                // Use auxiliary-field-aware callbacks (heterogeneous material)
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticityAux::f0_elastodynamics_aux,
+                                          PetscFEElasticityAux::f1_elastostatics_aux); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          PetscFEElasticityAux::g0_elastodynamics_aux, nullptr, nullptr,
+                                          PetscFEElasticityAux::g3_elastostatics_aux); CHKERRQ(ierr);
+            } else {
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticity::f0_elastodynamics,
+                                          PetscFEElasticity::f1_elastodynamics); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          PetscFEElasticity::g0_elastodynamics, nullptr, nullptr,
+                                          PetscFEElasticity::g3_elastodynamics); CHKERRQ(ierr);
+            }
         } else {
             // Quasi-static elasticity (no inertia)
-            ierr = PetscDSSetResidual(prob, displacement_field_idx,
-                                      PetscFEElasticity::f0_elastostatics,
-                                      PetscFEElasticity::f1_elastostatics); CHKERRQ(ierr);
-            ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
-                                      nullptr, nullptr, nullptr,
-                                      PetscFEElasticity::g3_elastostatics); CHKERRQ(ierr);
+            if (use_aux_callbacks) {
+                // Use auxiliary-field-aware callbacks (heterogeneous material or gravity)
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticityAux::f0_elastostatics_aux,
+                                          PetscFEElasticityAux::f1_elastostatics_aux); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          nullptr, nullptr, nullptr,
+                                          PetscFEElasticityAux::g3_elastostatics_aux); CHKERRQ(ierr);
+            } else {
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticity::f0_elastostatics,
+                                          PetscFEElasticity::f1_elastostatics); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          nullptr, nullptr, nullptr,
+                                          PetscFEElasticity::g3_elastostatics); CHKERRQ(ierr);
+            }
         }
 
         use_fem_time_residual_ = true;
@@ -1717,6 +1822,155 @@ PetscErrorCode Simulator::setupPhysics() {
                         disp_field, lagrange_field);
         }
     }
+
+    // Register absorbing boundary condition callbacks
+    if (config.absorbing_bc_enabled &&
+        (config.enable_geomechanics || config.enable_elastodynamics)) {
+        PetscInt displacement_field_idx = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            displacement_field_idx = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            displacement_field_idx = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            displacement_field_idx = 4;
+        }
+
+        ierr = PetscDSSetBdResidual(prob, displacement_field_idx,
+            AbsorbingBC::f0_absorbing, NULL); CHKERRQ(ierr);
+        ierr = PetscDSSetBdJacobian(prob, displacement_field_idx, displacement_field_idx,
+            AbsorbingBC::g0_absorbing, NULL, NULL, NULL); CHKERRQ(ierr);
+
+        if (rank == 0) {
+            PetscPrintf(comm, "Registered absorbing BC callbacks on field %d\n",
+                        displacement_field_idx);
+        }
+    }
+
+    // Setup auxiliary DM for heterogeneous material properties or gravity
+    if (use_aux_callbacks) {
+        ierr = setupAuxiliaryDM(); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::setupAuxiliaryDM()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Determine if mesh is simplex
+    PetscBool isSimplex = PETSC_FALSE;
+    DMPolytopeType ct;
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    if (cEnd > cStart) {
+        ierr = DMPlexGetCellType(dm, cStart, &ct); CHKERRQ(ierr);
+        if (ct == DM_POLYTOPE_TETRAHEDRON || ct == DM_POLYTOPE_TRIANGLE) {
+            isSimplex = PETSC_TRUE;
+        }
+    }
+
+    // Clone the primary DM topology
+    ierr = DMClone(dm, &auxDM_); CHKERRQ(ierr);
+
+    // Get quadrature from the primary FE to match tabulation points
+    PetscQuadrature quad = NULL;
+    if (!fe_fields.empty()) {
+        ierr = PetscFEGetQuadrature(fe_fields[0], &quad); CHKERRQ(ierr);
+    }
+
+    // Create scalar FE fields for lambda, mu, rho on the auxiliary DM
+    // Use degree-0 (constant per cell) for material properties
+    for (PetscInt f = 0; f < NUM_AUX_FIELDS; ++f) {
+        PetscFE fe_aux;
+        ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, 1, isSimplex, 0, PETSC_DETERMINE, &fe_aux); CHKERRQ(ierr);
+        // Match quadrature to primary FE so tabulation point counts agree
+        if (quad) {
+            ierr = PetscFESetQuadrature(fe_aux, quad); CHKERRQ(ierr);
+        }
+        ierr = DMSetField(auxDM_, f, NULL, (PetscObject)fe_aux); CHKERRQ(ierr);
+        ierr = PetscFEDestroy(&fe_aux); CHKERRQ(ierr);
+    }
+    ierr = DMCreateDS(auxDM_); CHKERRQ(ierr);
+
+    // Create local vector and populate with material properties
+    ierr = DMCreateLocalVector(auxDM_, &auxVec_); CHKERRQ(ierr);
+    ierr = populateAuxFieldsByDepth(); CHKERRQ(ierr);
+
+    // Attach auxiliary data to primary DM
+    ierr = DMSetAuxiliaryVec(dm, NULL, 0, 0, auxVec_); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Auxiliary DM setup complete: %d layers, %d aux fields\n",
+                    (int)config.material_layers.size(), (int)NUM_AUX_FIELDS);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::populateAuxFieldsByDepth()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Get cell range
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    // Get the section for the auxiliary DM
+    PetscSection section;
+    ierr = DMGetLocalSection(auxDM_, &section); CHKERRQ(ierr);
+
+    // Default material properties (from first material_props if available)
+    double default_lambda = 30.0e9, default_mu = 25.0e9, default_rho = 2650.0;
+    if (!material_props.empty()) {
+        double E = material_props[0].youngs_modulus;
+        double nu = material_props[0].poisson_ratio;
+        default_lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        default_mu = E / (2.0 * (1.0 + nu));
+        default_rho = material_props[0].density;
+    }
+
+    PetscScalar *a;
+    ierr = VecGetArray(auxVec_, &a); CHKERRQ(ierr);
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        // Compute cell centroid via FVM geometry
+        PetscReal vol, centroid[3], normal[3];
+        ierr = DMPlexComputeCellGeometryFVM(dm, c, &vol, centroid, normal); CHKERRQ(ierr);
+
+        // Determine z-coordinate (last dim)
+        PetscReal z = centroid[dim - 1];
+
+        // Look up material properties by depth
+        PetscScalar lambda = default_lambda;
+        PetscScalar mu = default_mu;
+        PetscScalar rho = default_rho;
+
+        for (const auto& layer : config.material_layers) {
+            if (z <= layer.z_top && z > layer.z_bottom) {
+                lambda = layer.lambda;
+                mu = layer.mu;
+                rho = layer.rho;
+                break;
+            }
+        }
+
+        // Get offset for this cell in the auxiliary vector
+        PetscInt offset;
+        ierr = PetscSectionGetOffset(section, c, &offset); CHKERRQ(ierr);
+
+        a[offset + AUX_LAMBDA] = lambda;
+        a[offset + AUX_MU]     = mu;
+        a[offset + AUX_RHO]    = rho;
+    }
+
+    ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -1751,13 +2005,16 @@ PetscErrorCode Simulator::setupTimeStepper() {
     }
     
     // Set time stepping method
-    // Use TSCN (Crank-Nicolson) for elastodynamics: second-order accurate, implicit
+    // Use TSALPHA2 (generalized-alpha) for elastodynamics: second-order time integrator
+    // TSALPHA2 handles the second-order ODE M*u_tt + K*u = f using generalized-alpha method.
+    // With IFunction form, u_t represents velocity and TSALPHA2 internally tracks acceleration.
     // Use TSBEULER for other cases (single-phase flow, poroelasticity): first-order, more stable
-    // Note: TSALPHA2 with I2Function/I2Jacobian is not available in PETSc 3.20 DMPlex FEM
     if (config.enable_elastodynamics) {
-        ierr = TSSetType(ts, TSCN); CHKERRQ(ierr);
+        ierr = TSSetType(ts, TSALPHA2); CHKERRQ(ierr);
+        // Set spectral radius for numerical dissipation (1.0 = no dissipation, 0.0 = maximum)
+        ierr = TSAlpha2SetRadius(ts, 1.0); CHKERRQ(ierr);
         if (rank == 0) {
-            PetscPrintf(comm, "Using TSCN for elastodynamics (implicit, second-order)\n");
+            PetscPrintf(comm, "Using TSALPHA2 for elastodynamics (generalized-alpha, second-order)\n");
         }
     } else {
         ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
@@ -1814,8 +2071,16 @@ PetscErrorCode Simulator::setupSolvers() {
     
     // Get preconditioner
     ierr = KSPGetPC(ksp, &pc); CHKERRQ(ierr);
+
+    // For elastodynamics with TSALPHA2, the system matrix is K + shift*M.
+    // Use direct LU solver for robustness. For larger problems, can be overridden
+    // with command-line options: -ksp_type cg -pc_type gamg
+    if (config.enable_elastodynamics) {
+        ierr = KSPSetType(ksp, KSPPREONLY); CHKERRQ(ierr);
+        ierr = PCSetType(pc, PCLU); CHKERRQ(ierr);
+    }
     
-    // Set solver options from command line
+    // Set solver options from command line (override programmatic defaults)
     ierr = SNESSetFromOptions(snes); CHKERRQ(ierr);
     ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
     ierr = PCSetFromOptions(pc); CHKERRQ(ierr);
@@ -2201,36 +2466,40 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
     PetscSection section;
     ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
 
-    // Get displacement DOFs for the explosion cell
-    PetscInt nDispDofs;
-    ierr = PetscSectionGetFieldDof(section, explosion_cell_, disp_field, &nDispDofs);
-    CHKERRQ(ierr);
-    if (nDispDofs <= 0) PetscFunctionReturn(0);
-
-    // Get closure
+    // Get the closure of DOFs for this cell (includes DOFs from all vertices)
     PetscScalar *closure = nullptr;
     PetscInt closureSize;
     ierr = DMPlexVecGetClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
     CHKERRQ(ierr);
-
-    // Find offset of displacement DOFs in closure
-    // For elastostatics: displacement is field 0, closure starts at 0
-    // For poroelastic: pressure DOFs come first
-    PetscInt disp_offset = 0;
-    if (disp_field > 0) {
-        PetscInt pDofs;
-        ierr = PetscSectionGetFieldDof(section, explosion_cell_, 0, &pDofs); CHKERRQ(ierr);
-        disp_offset = pDofs;
+    if (closureSize <= 0) {
+        ierr = DMPlexVecRestoreClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
+        CHKERRQ(ierr);
+        PetscFunctionReturn(0);
     }
 
-    // Add equivalent body force: f_i = -dM_ij/dx_j / V_cell
-    // For isotropic source in single cell: f = -M_trace / (3*V_cell) * gradient
-    // Simplified: distribute M/V as force equally over displacement DOFs
-    PetscInt nNodes = nDispDofs / 3;  // 3 components per node
-    for (PetscInt n = 0; n < nNodes; ++n) {
-        for (PetscInt d = 0; d < 3; ++d) {
-            // Force from divergence of moment tensor stress
-            closure[disp_offset + n * 3 + d] += -M[d] / vol;
+    // For elastostatics (disp_field=0), all closure DOFs are displacement DOFs
+    // For poroelastic (disp_field=1), we need to skip pressure DOFs
+    // In the closure ordering, DOFs from each vertex appear in field order:
+    // [p0, ux0, uy0, uz0, p1, ux1, uy1, uz1, ...] for poroelastic
+    // [ux0, uy0, uz0, ux1, uy1, uz1, ...] for pure elastic
+    PetscInt dim = 3;
+    if (disp_field == 0) {
+        // All closure DOFs are displacement, grouped by vertex: (ux,uy,uz) per node
+        PetscInt nNodes = closureSize / dim;
+        for (PetscInt n = 0; n < nNodes; ++n) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                closure[n * dim + d] += -M[d] / vol;
+            }
+        }
+    } else {
+        // Poroelastic: each vertex contributes 1 pressure DOF + dim displacement DOFs
+        PetscInt dofs_per_node = 1 + dim;
+        PetscInt nNodes = closureSize / dofs_per_node;
+        for (PetscInt n = 0; n < nNodes; ++n) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                // Skip pressure DOF (index 0 per node), displacement starts at index 1
+                closure[n * dofs_per_node + 1 + d] += -M[d] / vol;
+            }
         }
     }
 
@@ -2251,6 +2520,20 @@ PetscErrorCode Simulator::setInitialConditions() {
 
     // Locate explosion source cell
     ierr = locateExplosionCell(); CHKERRQ(ierr);
+
+    // Load initial conditions from file if requested
+    if (config.initial_condition_type == "from_file" && !config.initial_condition_path.empty()) {
+        PetscViewer viewer;
+        ierr = PetscViewerBinaryOpen(comm, config.initial_condition_path.c_str(),
+                                     FILE_MODE_READ, &viewer); CHKERRQ(ierr);
+        ierr = VecLoad(solution, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm, "  Loaded initial conditions from %s\n",
+                        config.initial_condition_path.c_str());
+        }
+        PetscFunctionReturn(0);
+    }
 
     // Start from zero (displacement at rest, zero pressure perturbation)
     ierr = VecZeroEntries(solution); CHKERRQ(ierr);
@@ -2412,11 +2695,32 @@ PetscErrorCode Simulator::run() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
-    // Set initial time
-    ierr = TSSetSolution(ts, solution); CHKERRQ(ierr);
+    // Set initial conditions for the time stepper
+    if (config.enable_elastodynamics) {
+        // TSALPHA2 requires both displacement (U) and velocity (V) initial conditions
+        Vec velocity;
+        ierr = VecDuplicate(solution, &velocity); CHKERRQ(ierr);
+        ierr = VecZeroEntries(velocity); CHKERRQ(ierr);
+        ierr = TS2SetSolution(ts, solution, velocity); CHKERRQ(ierr);
+        ierr = VecDestroy(&velocity); CHKERRQ(ierr);
+    } else {
+        ierr = TSSetSolution(ts, solution); CHKERRQ(ierr);
+    }
     
     // Solve
     ierr = TSSolve(ts, solution); CHKERRQ(ierr);
+
+    // Save solution to binary file if requested
+    if (!config.save_solution_path.empty()) {
+        PetscViewer viewer;
+        ierr = PetscViewerBinaryOpen(comm, config.save_solution_path.c_str(),
+                                     FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm, "Saved solution to %s\n", config.save_solution_path.c_str());
+        }
+    }
     
     PetscFunctionReturn(0);
 }
@@ -3131,8 +3435,8 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
         PetscInt comps_all[3] = {0, 1, 2};
         PetscInt label_value = 1;
 
-        // Fixed bottom (z_min): all components = 0
-        if (label_zmin) {
+        // Bottom BC
+        if (label_zmin && config.bottom_bc == "fixed") {
             ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom", label_zmin, 1, &label_value,
                                  field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
             CHKERRQ(ierr);
@@ -3141,13 +3445,54 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
             }
         }
 
-        // Applied compression on top (z_max): all components specified
-        if (label_zmax) {
+        // Top BC
+        if (label_zmax && config.top_bc == "compression") {
             ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top", label_zmax, 1, &label_value,
                                  field, 3, comps_all, (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
             CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm, "  Applied BC: compression top (z_max), field %d, u_z = -0.001\n", field);
+            }
+        }
+        // top_bc == "free" means no Dirichlet BC on top (natural zero-traction)
+
+        // Side BCs: roller constrains normal displacement to zero
+        if (config.side_bc == "roller") {
+            if (label_xmin) {
+                PetscInt comp = 0;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmin", label_xmin, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller x_min, field %d, u_x = 0\n", field);
+                }
+            }
+            if (label_xmax) {
+                PetscInt comp = 0;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmax", label_xmax, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller x_max, field %d, u_x = 0\n", field);
+                }
+            }
+            if (label_ymin) {
+                PetscInt comp = 1;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymin", label_ymin, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller y_min, field %d, u_y = 0\n", field);
+                }
+            }
+            if (label_ymax) {
+                PetscInt comp = 1;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymax", label_ymax, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller y_max, field %d, u_y = 0\n", field);
+                }
             }
         }
     }
@@ -3166,6 +3511,38 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
             CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
+            }
+        }
+    }
+
+    // Register absorbing boundary conditions (DM_BC_NATURAL)
+    if (config.absorbing_bc_enabled && displacement_field >= 0) {
+        PetscInt field = displacement_field;
+        PetscInt label_value = 1;
+
+        struct AbsorbingFace {
+            bool enabled;
+            DMLabel label;
+            const char* name;
+        };
+        AbsorbingFace faces[6] = {
+            {config.absorbing_bc_x_min, label_xmin, "absorbing_x_min"},
+            {config.absorbing_bc_x_max, label_xmax, "absorbing_x_max"},
+            {config.absorbing_bc_y_min, label_ymin, "absorbing_y_min"},
+            {config.absorbing_bc_y_max, label_ymax, "absorbing_y_max"},
+            {config.absorbing_bc_z_min, label_zmin, "absorbing_z_min"},
+            {config.absorbing_bc_z_max, label_zmax, "absorbing_z_max"},
+        };
+
+        for (int i = 0; i < 6; ++i) {
+            if (faces[i].enabled && faces[i].label) {
+                ierr = DMAddBoundary(dm, DM_BC_NATURAL, faces[i].name,
+                    faces[i].label, 1, &label_value, field, 0, NULL,
+                    NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: %s (absorbing), field %d\n",
+                        faces[i].name, field);
+                }
             }
         }
     }
