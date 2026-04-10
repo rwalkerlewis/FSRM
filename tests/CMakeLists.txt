@@ -84,6 +84,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_explosion_seismogram.cpp
     integration/test_prescribed_slip.cpp
     integration/test_output_file.cpp
+    integration/test_gmsh_import.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -203,6 +204,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.ExplosionSeismogram COMMAND run_integration_tests --gtest_filter=ExplosionSeismogramTest.*)
     add_test(NAME Integration.PrescribedSlip  COMMAND run_integration_tests --gtest_filter=PrescribedSlipTest.*)
     add_test(NAME Integration.OutputFile       COMMAND run_integration_tests --gtest_filter=OutputFileTest.*)
+    add_test(NAME Integration.GmshImport      COMMAND run_integration_tests --gtest_filter=GmshImportTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -258,6 +260,7 @@ if(GTest_FOUND)
         Integration.LockedFault Integration.LayeredElastostatics
         Integration.ExplosionSeismogram Integration.PrescribedSlip
         Integration.OutputFile
+        Integration.GmshImport
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 
