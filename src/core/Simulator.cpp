@@ -1655,13 +1655,17 @@ PetscErrorCode Simulator::setupPhysics() {
         const MaterialProperties mat = material_props.empty() ? MaterialProperties() : material_props[0];
         const FluidProperties flu = fluid_props.empty() ? FluidProperties() : fluid_props[0];
 
-        // Convert permeability from mD -> m^2
+        // ConfigReader::getDoubleWithUnit already converts permeability from
+        // mD to m^2 via UnitSystem::toBase("mD"). Do NOT multiply by mD_to_m2
+        // again. The MaterialProperties default values (100.0) are expressed
+        // in mD and must be converted when no config file is loaded.
         constexpr double mD_to_m2 = 9.869233e-16;
+        bool from_config = !material_props.empty();
 
         unified_constants[3]  = mat.porosity;
-        unified_constants[4]  = mat.permeability_x * mD_to_m2;
-        unified_constants[5]  = mat.permeability_y * mD_to_m2;
-        unified_constants[6]  = mat.permeability_z * mD_to_m2;
+        unified_constants[4]  = from_config ? mat.permeability_x : mat.permeability_x * mD_to_m2;
+        unified_constants[5]  = from_config ? mat.permeability_y : mat.permeability_y * mD_to_m2;
+        unified_constants[6]  = from_config ? mat.permeability_z : mat.permeability_z * mD_to_m2;
         unified_constants[7]  = flu.water_compressibility;
         unified_constants[8]  = flu.oil_compressibility;
         unified_constants[9]  = flu.gas_compressibility;
@@ -1720,9 +1724,11 @@ PetscErrorCode Simulator::setupPhysics() {
                                   PetscFEPoroelasticity::g3_pp); CHKERRQ(ierr);
 
         // Jacobian block: pressure-displacement (off-diagonal coupling)
+        // The Biot coupling -alpha*u_t appears in f1_pressure (test gradient),
+        // so its Jacobian goes in the g2 slot (test_gradient, trial_basis)
         ierr = PetscDSSetJacobian(prob, 0, 1,
-                                  nullptr, PetscFEPoroelasticity::g1_pu,
-                                  nullptr, nullptr); CHKERRQ(ierr);
+                                  nullptr, nullptr,
+                                  PetscFEPoroelasticity::g2_pu, nullptr); CHKERRQ(ierr);
 
         // Jacobian block: displacement-pressure (off-diagonal coupling)
         ierr = PetscDSSetJacobian(prob, 1, 0,

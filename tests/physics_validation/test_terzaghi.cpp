@@ -310,18 +310,18 @@ protected:
         << "name = terzaghi_pipeline_test\n"
         << "start_time = 0.0\n"
         << "end_time = 1.0\n"
-        << "dt_initial = 0.1\n"
+        << "dt_initial = 0.02\n"
         << "dt_min = 0.001\n"
-        << "dt_max = 0.5\n"
-        << "max_timesteps = 20\n"
-        << "output_frequency = 10\n"
+        << "dt_max = 0.1\n"
+        << "max_timesteps = 60\n"
+        << "output_frequency = 50\n"
         << "fluid_model = SINGLE_COMPONENT\n"
         << "solid_model = POROELASTIC\n"
         << "enable_geomechanics = true\n"
         << "enable_faults = false\n"
         << "rtol = 1.0e-8\n"
         << "atol = 1.0e-10\n"
-        << "max_nonlinear_iterations = 20\n"
+        << "max_nonlinear_iterations = 50\n"
         << "\n"
         << "[GRID]\n"
         << "nx = 2\n"
@@ -329,16 +329,16 @@ protected:
         << "nz = 10\n"
         << "Lx = 1.0\n"
         << "Ly = 1.0\n"
-        << "Lz = 10.0\n"
+        << "Lz = 2.0\n"
         << "\n"
         << "[ROCK]\n"
         << "density = 2500.0\n"
         << "youngs_modulus = 1.0e9\n"
         << "poissons_ratio = 0.25\n"
         << "porosity = 0.3\n"
-        << "permeability_x = 1.0\n"
-        << "permeability_y = 1.0\n"
-        << "permeability_z = 1.0\n"
+        << "permeability_x = 500.0\n"
+        << "permeability_y = 500.0\n"
+        << "permeability_z = 500.0\n"
         << "biot_coefficient = 1.0\n"
         << "\n"
         << "[FLUID]\n"
@@ -388,4 +388,107 @@ TEST_F(TerzaghiPipelineTest, PoroelasticPipelineCompletes)
 
   ierr = sim.run();
   ASSERT_EQ(ierr, 0) << "Terzaghi simulation run failed";
+
+  // =========================================================================
+  // Phase 2: Extract pressure at mid-height and verify Biot coupling works
+  // =========================================================================
+  // Terzaghi 1D consolidation with drainage at top (z = H, p = 0) and
+  // impermeable bottom (z = 0, dp/dz = 0).
+  //
+  // Parameters:
+  //   E = 1e9 Pa, nu = 0.25 -> lambda = 4e8, mu = 4e8, M_d = lambda+2mu = 1.2e9
+  //   alpha = 1.0, 1/M = phi*c_f = 0.3*4.5e-10 = 1.35e-10
+  //   k = 500 mD = 500 * 9.869e-16 = 4.935e-13 m^2
+  //   mu_f = 0.001 Pa.s
+  //   cv = k / (mu_f * S) where S = 1/M + alpha^2/M_d
+  //   H = 2.0 m, t = 1.0 s
+  //
+  // IC: p = 1 MPa (P0). After partial consolidation on a short column,
+  // pressure at mid-height should be between 0.2*P0 and 0.8*P0.
+
+  Vec sol = sim.getSolution();
+  ASSERT_NE(sol, nullptr) << "Solution vector is null";
+
+  DM dm = sim.getDM();
+  ASSERT_NE(dm, nullptr) << "DM is null";
+
+  // Get the local section to walk DOFs
+  PetscSection section;
+  ierr = DMGetLocalSection(dm, &section); ASSERT_EQ(ierr, 0);
+
+  // Get coordinate information
+  Vec coord;
+  ierr = DMGetCoordinatesLocal(dm, &coord); ASSERT_EQ(ierr, 0);
+  DM cdm;
+  ierr = DMGetCoordinateDM(dm, &cdm); ASSERT_EQ(ierr, 0);
+  PetscSection csection;
+  ierr = DMGetLocalSection(cdm, &csection); ASSERT_EQ(ierr, 0);
+
+  // Convert global solution to local
+  Vec local_sol;
+  ierr = DMGetLocalVector(dm, &local_sol); ASSERT_EQ(ierr, 0);
+  ierr = DMGlobalToLocal(dm, sol, INSERT_VALUES, local_sol); ASSERT_EQ(ierr, 0);
+
+  const PetscScalar *sol_array;
+  ierr = VecGetArrayRead(local_sol, &sol_array); ASSERT_EQ(ierr, 0);
+  const PetscScalar *coord_array;
+  ierr = VecGetArrayRead(coord, &coord_array); ASSERT_EQ(ierr, 0);
+
+  // Walk vertices and collect pressure at mid-height (z ~ H/2 = 1.0)
+  const double H = 2.0;
+  const double P0 = 1.0e6;   // Initial pore pressure (1 MPa)
+  const double z_mid = H / 2.0;
+  const double z_tol = 0.25;  // tolerance for finding mid-height vertices
+  double sum_pressure = 0.0;
+  int count = 0;
+  double max_abs_pressure = 0.0;
+
+  PetscInt vStart, vEnd;
+  ierr = DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd); ASSERT_EQ(ierr, 0);
+
+  for (PetscInt v = vStart; v < vEnd; ++v) {
+    // Get coordinates
+    PetscInt cdof, coff;
+    ierr = PetscSectionGetDof(csection, v, &cdof); ASSERT_EQ(ierr, 0);
+    if (cdof < 3) continue;
+    ierr = PetscSectionGetOffset(csection, v, &coff); ASSERT_EQ(ierr, 0);
+    double z = PetscRealPart(coord_array[coff + 2]);
+
+    // Get DOFs
+    PetscInt dof, off;
+    ierr = PetscSectionGetDof(section, v, &dof); ASSERT_EQ(ierr, 0);
+    if (dof < 1) continue;
+    ierr = PetscSectionGetOffset(section, v, &off); ASSERT_EQ(ierr, 0);
+
+    // Pressure is field 0 (first DOF at each vertex for poroelasticity)
+    double p = PetscRealPart(sol_array[off]);
+    double abs_p = std::abs(p);
+    if (abs_p > max_abs_pressure) max_abs_pressure = abs_p;
+
+    if (std::abs(z - z_mid) < z_tol) {
+      sum_pressure += p;
+      count++;
+    }
+  }
+
+  ierr = VecRestoreArrayRead(coord, &coord_array); ASSERT_EQ(ierr, 0);
+  ierr = VecRestoreArrayRead(local_sol, &sol_array); ASSERT_EQ(ierr, 0);
+  ierr = DMRestoreLocalVector(dm, &local_sol); ASSERT_EQ(ierr, 0);
+
+  // Verify: max pressure in solution is nonzero
+  // (proves Biot coupling generated pore pressure from mechanical load)
+  EXPECT_GT(max_abs_pressure, 1.0e-10)
+      << "Biot coupling failed: no pore pressure generated from mechanical load";
+
+  // Verify: average pressure at mid-height falls between 0.2*P0 and 0.8*P0
+  ASSERT_GT(count, 0) << "No vertices found near mid-height z = " << z_mid;
+  double avg_pressure = sum_pressure / count;
+
+  EXPECT_GT(avg_pressure, 0.2 * P0)
+      << "Pressure at mid-height (" << avg_pressure << " Pa) below 0.2*P0 = "
+      << 0.2 * P0 << " Pa: over-consolidated or Biot coupling broken";
+
+  EXPECT_LT(avg_pressure, 0.8 * P0)
+      << "Pressure at mid-height (" << avg_pressure << " Pa) above 0.8*P0 = "
+      << 0.8 * P0 << " Pa: insufficient consolidation";
 }

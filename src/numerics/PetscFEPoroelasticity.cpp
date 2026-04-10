@@ -46,7 +46,9 @@ void f0_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     // and the coupling term alpha*div(du/dt) appears in the strong form.
     // In the weak form, after integration by parts, this becomes:
     //   int( (1/M)*p_t * v + alpha*(du/dt):grad(v) ) dx
-    // The alpha*div(du/dt) term will be handled via g1_pu Jacobian in the coupled system.
+    // The alpha*div(du/dt) coupling goes into f1 via integration by parts:
+    //   int(alpha*div(u_t)*v) = -int(alpha*u_t . grad(v))
+    // So f1[d] -= alpha*u_t[d], with Jacobian in g2_pu.
 
     // For the f0 term (no integration by parts):
     // f0 = (1/M)*dp/dt
@@ -68,22 +70,27 @@ void f1_pressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
 
     // Suppress unused parameter warnings
     (void)Nf; (void)NfAux;
-    (void)uOff; (void)u; (void)u_t;
+    (void)u;
     (void)aOff; (void)aOff_x;
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)x;
 
-    // Constants: [4]=permeability, [10]=fluid_viscosity (mu_w)
+    // Constants: [4]=permeability, [10]=fluid_viscosity, [22]=biot_coefficient
     const PetscScalar k     = (numConstants > 4) ? constants[4] : 1e-13;  // m^2
     const PetscScalar mu_f  = (numConstants > 10) ? constants[10] : 1e-3;   // Pa*s
+    const PetscScalar alpha = (numConstants > 22) ? constants[22] : 1.0;
 
     // Mobility: k/mu
     const PetscScalar mobility = k / mu_f;
 
-    // Pressure gradient: grad(p)
-    // For scalar field 0: u_x[uOff_x[0] + d] = dp/dx_d
+    // Weak form of pressure equation after integration by parts on Biot coupling:
+    //   int[(1/M)*p_t * v] + int[(k/mu)*grad(p) - alpha*u_t] . grad(v) = 0
+    // f1[d] = (k/mu)*dp/dx_d - alpha*du_d/dt
     for (PetscInt d = 0; d < dim; ++d) {
         f1[d] = mobility * u_x[uOff_x[0] + d];
+        if (u_t) {
+            f1[d] -= alpha * u_t[uOff[1] + d];
+        }
     }
 
     PetscFunctionReturnVoid();
@@ -262,10 +269,10 @@ void g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     PetscFunctionReturnVoid();
 }
 
-// g1_pu: d(f0_pressure)/d(grad_u)
-// The coupling term alpha*div(du/dt) in strong form becomes -alpha*grad(v):du/dt in weak form
-// This is represented through the Jacobian as alpha*shift*delta_{cd}
-void g1_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+// g2_pu: d(f1_pressure)/d(u_t) = -alpha*shift*delta_{dc}
+// Biot coupling in pressure residual: f1[d] -= alpha*u_t[d]
+// Jacobian: d(f1[d])/d(u_t_c) * shift = -alpha*shift*delta_{dc}
+void g2_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
            const PetscInt uOff[], const PetscInt uOff_x[],
            const PetscScalar u[], const PetscScalar u_t[],
            const PetscScalar u_x[], const PetscInt aOff[],
@@ -273,7 +280,7 @@ void g1_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
            const PetscScalar a_x[], const PetscScalar a_t[],
            PetscReal t, PetscReal u_tShift,
            const PetscReal x[], PetscInt numConstants,
-           const PetscScalar constants[], PetscScalar g1[]) {
+           const PetscScalar constants[], PetscScalar g2[]) {
     PetscFunctionBeginUser;
 
     // Suppress unused parameter warnings
@@ -287,15 +294,14 @@ void g1_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     // Constants: [22]=biot_coefficient
     const PetscScalar alpha = (numConstants > 22) ? constants[22] : 1.0;
 
-    // g1[c*dim + d] = d(f0_pressure)/d(du_c/dx_d)
-    // The term alpha*div(du/dt) contributes to f0 after integration by parts
-    // In the weak form: -int( alpha*(du/dt) : grad(v) ) dx
-    // Jacobian: alpha*shift*delta_{cd} for diagonal terms (div coupling)
+    // g2[d*dim + c] = shift * d(f1_pressure[d])/d(u_t_c)
+    // f1[d] = (k/mu)*dp/dx_d - alpha*u_t[d]
+    // d(f1[d])/d(u_t_c) = -alpha*delta_{dc}
+    // With shift: g2[d*dim+c] = -alpha*u_tShift*delta_{dc}
 
-    for (PetscInt c = 0; c < dim; ++c) {
-        for (PetscInt d = 0; d < dim; ++d) {
-            // Only diagonal terms contribute to divergence
-            g1[c*dim + d] = (c == d) ? alpha * u_tShift : 0.0;
+    for (PetscInt d = 0; d < dim; ++d) {
+        for (PetscInt c = 0; c < dim; ++c) {
+            g2[d*dim + c] = (d == c) ? -alpha * u_tShift : 0.0;
         }
     }
 

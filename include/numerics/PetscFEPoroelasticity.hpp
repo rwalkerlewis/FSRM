@@ -126,9 +126,9 @@ void g3_pp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
            const PetscReal x[], PetscInt numConstants,
            const PetscScalar constants[], PetscScalar g3[]);
 
-// g1_pu: d(f0_pressure)/d(grad_u) = alpha*shift*delta_{cd}
-// Coupling from displacement gradient to pressure equation
-void g1_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+// g2_pu: d(f1_pressure)/d(u_t) = -alpha*shift*delta_{dc}
+// Biot coupling: f1[d] -= alpha*u_t[d], registered in g2 slot (test_grad, trial_basis)
+void g2_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
            const PetscInt uOff[], const PetscInt uOff_x[],
            const PetscScalar u[], const PetscScalar u_t[],
            const PetscScalar u_x[], const PetscInt aOff[],
@@ -136,7 +136,7 @@ void g1_pu(PetscInt dim, PetscInt Nf, PetscInt NfAux,
            const PetscScalar a_x[], const PetscScalar a_t[],
            PetscReal t, PetscReal u_tShift,
            const PetscReal x[], PetscInt numConstants,
-           const PetscScalar constants[], PetscScalar g1[]);
+           const PetscScalar constants[], PetscScalar g2[]);
 
 // g2_up: d(f1_displacement)/d(p) = -alpha*delta_{cd}
 // Coupling from pressure to displacement equation
