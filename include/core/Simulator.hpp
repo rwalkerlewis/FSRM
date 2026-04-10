@@ -212,6 +212,10 @@ private:
     double fault_slip_dip_ = 0.0;
     double fault_slip_opening_ = 0.0;
 
+    // Output directory and format for HDF5/VTK output
+    std::string output_directory_ = "output";
+    bool output_topology_written_ = false;
+
     // Explosion source FEM injection (Phase 5)
     PetscInt explosion_cell_ = -1;
     PetscErrorCode locateExplosionCell();

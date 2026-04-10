@@ -83,6 +83,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_layered_elastostatics.cpp
     integration/test_explosion_seismogram.cpp
     integration/test_prescribed_slip.cpp
+    integration/test_output_file.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -201,6 +202,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.LayeredElastostatics COMMAND run_integration_tests --gtest_filter=LayeredElastostaticsTest.*)
     add_test(NAME Integration.ExplosionSeismogram COMMAND run_integration_tests --gtest_filter=ExplosionSeismogramTest.*)
     add_test(NAME Integration.PrescribedSlip  COMMAND run_integration_tests --gtest_filter=PrescribedSlipTest.*)
+    add_test(NAME Integration.OutputFile       COMMAND run_integration_tests --gtest_filter=OutputFileTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -255,6 +257,7 @@ if(GTest_FOUND)
         Integration.CoupledPhysics Integration.InjectionRuptureChain
         Integration.LockedFault Integration.LayeredElastostatics
         Integration.ExplosionSeismogram Integration.PrescribedSlip
+        Integration.OutputFile
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

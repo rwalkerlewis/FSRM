@@ -26,6 +26,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <limits>
+#include <sys/stat.h>
+#include <petscviewerhdf5.h>
 
 namespace {
 
@@ -658,9 +660,14 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         }
     }
 
-    // Parse solution save path (optional)
+    // Parse solution save path and output directory (optional)
     if (reader.hasSection("OUTPUT")) {
         config.save_solution_path = reader.getString("OUTPUT", "save_solution", "");
+        output_directory_ = reader.getString("OUTPUT", "output_directory", "output");
+        std::string fmt = reader.getString("OUTPUT", "format", "");
+        if (!fmt.empty()) {
+            config.output_format = fmt;
+        }
     }
 
     // Parse seismometers (optional)
@@ -2757,6 +2764,15 @@ PetscErrorCode Simulator::run() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
+    // Create output directory if it does not exist
+    if (rank == 0) {
+        struct stat st;
+        if (stat(output_directory_.c_str(), &st) != 0) {
+            mkdir(output_directory_.c_str(), 0755);
+        }
+    }
+    MPI_Barrier(comm);
+    
     // Set initial conditions for the time stepper
     if (config.enable_elastodynamics) {
         // TSALPHA2 requires both displacement (U) and velocity (V) initial conditions
@@ -3063,14 +3079,78 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
 
 PetscErrorCode Simulator::writeOutput(int step) {
     PetscFunctionBeginUser;
-    // PetscErrorCode ierr;  // Not used in current implementation
-    
-    // Disable VTK output for now to avoid format incompatibility
-    // TODO: Properly implement output based on DM type (DMPlex)
-    if (rank == 0 && step % 10 == 0) {
-        PetscPrintf(comm, "Output at step %d would be written here\n", step);
+    PetscErrorCode ierr;
+
+    // Determine output format: HDF5 (default) or VTK
+    std::string fmt = config.output_format;
+    std::transform(fmt.begin(), fmt.end(), fmt.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+    if (fmt == "HDF5" || fmt == "XDMF") {
+        // Build HDF5 output file path
+        std::string h5_path = output_directory_ + "/solution.h5";
+
+        PetscViewer viewer;
+        if (!output_topology_written_) {
+            // First write: create the file and write the DM topology
+            ierr = PetscViewerHDF5Open(comm, h5_path.c_str(), FILE_MODE_WRITE, &viewer);
+            CHKERRQ(ierr);
+
+            // Write mesh topology once
+            ierr = DMView(dm, viewer); CHKERRQ(ierr);
+
+            output_topology_written_ = true;
+        } else {
+            // Subsequent writes: append to the existing file
+            ierr = PetscViewerHDF5Open(comm, h5_path.c_str(), FILE_MODE_APPEND, &viewer);
+            CHKERRQ(ierr);
+        }
+
+        // Use DMSetOutputSequenceNumber to associate a timestep index and time
+        // with this output. DMPlex VecView reads this to label HDF5 datasets.
+        ierr = DMSetOutputSequenceNumber(dm, static_cast<PetscInt>(step),
+                                         static_cast<PetscReal>(current_time));
+        CHKERRQ(ierr);
+
+        // Name the solution vector so HDF5 datasets have meaningful labels
+        ierr = PetscObjectSetName(reinterpret_cast<PetscObject>(solution), "solution");
+        CHKERRQ(ierr);
+
+        // Write the solution vector
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+
+        if (rank == 0 && step % 10 == 0) {
+            PetscPrintf(comm, "HDF5 output written at step %d to %s\n", step, h5_path.c_str());
+        }
+    } else if (fmt == "VTK") {
+        // Write VTK output (.vtu file per step)
+        char vtu_path[PETSC_MAX_PATH_LEN];
+        ierr = PetscSNPrintf(vtu_path, sizeof(vtu_path), "%s/solution_%06d.vtu",
+                             output_directory_.c_str(), step); CHKERRQ(ierr);
+
+        PetscViewer viewer;
+        ierr = PetscViewerVTKOpen(comm, vtu_path, FILE_MODE_WRITE, &viewer);
+        CHKERRQ(ierr);
+
+        ierr = PetscObjectSetName(reinterpret_cast<PetscObject>(solution), "solution");
+        CHKERRQ(ierr);
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+
+        if (rank == 0 && step % 10 == 0) {
+            PetscPrintf(comm, "VTK output written at step %d to %s\n", step, vtu_path);
+        }
+    } else {
+        // Unknown format or ECLIPSE -- print stub message
+        if (rank == 0 && step % 10 == 0) {
+            PetscPrintf(comm, "Output at step %d (format=%s not implemented)\n",
+                        step, config.output_format.c_str());
+        }
     }
-    
+
     PetscFunctionReturn(0);
 }
 
