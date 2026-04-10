@@ -33,6 +33,13 @@ void CohesiveFaultKernel::setTensileStrength(double T_s) {
     tensile_strength_ = T_s;
 }
 
+void CohesiveFaultKernel::setPrescribedSlip(double sx, double sy, double sz) {
+    prescribed_slip_[0] = sx;
+    prescribed_slip_[1] = sy;
+    prescribed_slip_[2] = sz;
+    prescribed_slip_mode_ = true;
+}
+
 void CohesiveFaultKernel::setFrictionModel(FaultFrictionModel* model) {
     friction_model_ = model;
 }
@@ -375,6 +382,84 @@ void CohesiveFaultKernel::g0_lagrange_lagrange(
                 g0[i * dim + j] = (i == j) ? 1.0 : 0.0;
             }
         }
+    }
+}
+
+PetscErrorCode CohesiveFaultKernel::registerPrescribedSlipWithDS(
+    PetscDS prob, int displacement_field, int lagrange_field) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    // Read existing constants, expand to COHESIVE_CONST_COUNT, patch prescribed slip slots
+    PetscInt nconst_old = 0;
+    const PetscScalar *old_c = nullptr;
+    ierr = PetscDSGetConstants(prob, &nconst_old, &old_c); CHKERRQ(ierr);
+
+    PetscInt nconst_new = (nconst_old >= COHESIVE_CONST_COUNT)
+                          ? nconst_old : COHESIVE_CONST_COUNT;
+    std::vector<PetscScalar> new_c(static_cast<std::size_t>(nconst_new), 0.0);
+    for (PetscInt i = 0; i < nconst_old; ++i) new_c[i] = old_c[i];
+    new_c[COHESIVE_CONST_MODE] = 2.0;  // prescribed_slip mode
+    new_c[COHESIVE_CONST_MU_F] = static_cast<PetscScalar>(mu_friction_);
+    new_c[COHESIVE_CONST_TENSILE_STRENGTH] = static_cast<PetscScalar>(tensile_strength_);
+    new_c[COHESIVE_CONST_PRESCRIBED_SLIP_X] = static_cast<PetscScalar>(prescribed_slip_[0]);
+    new_c[COHESIVE_CONST_PRESCRIBED_SLIP_Y] = static_cast<PetscScalar>(prescribed_slip_[1]);
+    new_c[COHESIVE_CONST_PRESCRIBED_SLIP_Z] = static_cast<PetscScalar>(prescribed_slip_[2]);
+    ierr = PetscDSSetConstants(prob, nconst_new, new_c.data()); CHKERRQ(ierr);
+
+    // Register residual: displacement still gets traction from lambda
+    ierr = PetscDSSetBdResidual(prob, displacement_field,
+                                 f0_displacement_cohesive, nullptr); CHKERRQ(ierr);
+    // Lagrange multiplier gets prescribed slip constraint
+    ierr = PetscDSSetBdResidual(prob, lagrange_field,
+                                 f0_prescribed_slip, nullptr); CHKERRQ(ierr);
+
+    // Jacobian blocks are identical to the locked case:
+    // d(f_u)/d(lambda) = I, d(f_lambda)/d(u) = I, d(f_lambda)/d(lambda) = 0
+    ierr = PetscDSSetBdJacobian(prob, displacement_field, lagrange_field,
+                                 g0_displacement_lagrange, nullptr,
+                                 nullptr, nullptr); CHKERRQ(ierr);
+    ierr = PetscDSSetBdJacobian(prob, lagrange_field, displacement_field,
+                                 g0_lagrange_displacement, nullptr,
+                                 nullptr, nullptr); CHKERRQ(ierr);
+    ierr = PetscDSSetBdJacobian(prob, lagrange_field, lagrange_field,
+                                 g0_lagrange_lagrange, nullptr,
+                                 nullptr, nullptr); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+// ============================================================================
+// Prescribed slip callback
+// ============================================================================
+
+void CohesiveFaultKernel::f0_prescribed_slip(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar f[]) {
+
+    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x; (void)n;
+
+    // Prescribed slip constraint: f_lambda = (u+ - u-) - delta_prescribed
+    // u[uOff[0]..uOff[0]+dim-1] = u_minus (negative side)
+    // u[uOff[0]+dim..uOff[0]+2*dim-1] = u_plus (positive side)
+    // constants[COHESIVE_CONST_PRESCRIBED_SLIP_X..Z] = delta
+    for (PetscInt d = 0; d < dim; ++d) {
+        PetscScalar jump = u[uOff[0] + dim + d] - u[uOff[0] + d];
+        PetscScalar delta = (numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + d)
+                            ? constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + d] : 0.0;
+        f[d] = jump - delta;
     }
 }
 

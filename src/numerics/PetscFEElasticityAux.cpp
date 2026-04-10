@@ -5,6 +5,12 @@ namespace FSRM
 
 // Residual f0: body force from gravity using auxiliary rho
 // constants[0] = gravity magnitude (positive value, e.g. 9.81; 0 if disabled)
+//
+// PETSc FEM convention: the weak form residual is
+//   F = integral(f0 . v) + integral(f1 : grad(v)) = 0
+// Integration by parts gives: div(sigma) = f0 (strong form).
+// The equilibrium PDE is: div(sigma) + b = 0, where b = -rho*g*ez (gravity).
+// So f0 = -b = rho*g*ez, i.e. f0[dim-1] = +rho*g (positive upward).
 void PetscFEElasticityAux::f0_elastostatics_aux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[],
     const PetscScalar u_t[], const PetscScalar u_x[],
@@ -15,10 +21,10 @@ void PetscFEElasticityAux::f0_elastostatics_aux(PetscInt dim, PetscInt Nf, Petsc
 {
   const PetscScalar rho = a[aOff[AUX_RHO]];
   for (PetscInt d = 0; d < dim; ++d) f0[d] = 0.0;
-  // Gravity in negative z-direction (last coordinate)
+  // Gravity body force: f0 = -b = rho*g (positive, since b = -rho*g*ez)
   if (numConstants > 0 && PetscRealPart(constants[0]) != 0.0)
   {
-    f0[dim - 1] = -rho * constants[0];
+    f0[dim - 1] = rho * constants[0];
   }
 }
 

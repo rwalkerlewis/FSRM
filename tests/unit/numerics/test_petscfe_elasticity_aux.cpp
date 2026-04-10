@@ -172,8 +172,9 @@ TEST_F(PetscFEElasticityAuxTest, F0GravityBodyForce)
   // f0[0] = f0[1] = 0
   EXPECT_NEAR(PetscRealPart(f0[0]), 0.0, 1.0e-6);
   EXPECT_NEAR(PetscRealPart(f0[1]), 0.0, 1.0e-6);
-  // f0[2] = -rho * g = -2650 * 9.81 = -25996.5
-  EXPECT_NEAR(PetscRealPart(f0[2]), -25996.5, 1.0);
+  // f0[2] = +rho * g = +2650 * 9.81 = +25996.5
+  // (positive: PETSc FEM convention where f0 = -body_force)
+  EXPECT_NEAR(PetscRealPart(f0[2]), 25996.5, 1.0);
 }
 
 TEST_F(PetscFEElasticityAuxTest, F0NoGravity)

@@ -322,6 +322,8 @@ struct SimulationConfig {
     // =========================================================================
     bool use_heterogeneous_material = false;       // Use auxiliary fields for per-cell properties
     double gravity = 0.0;                          // Gravity magnitude (m/s^2), 0 = disabled
+    bool enable_gravity = false;                   // Explicit gravity enable flag
+    double K0 = 0.5;                               // Lateral earth pressure coefficient
     std::vector<MaterialLayer> material_layers;    // Layer definitions (sorted by z)
 
     // =========================================================================

@@ -82,3 +82,5 @@ historic_nuclear/*
 
 # Generated figures (run scripts/plot_*.py to regenerate)
 figures/
+data/historic_nuclear/
+

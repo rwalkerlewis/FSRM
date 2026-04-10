@@ -575,10 +575,27 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         }
     }
 
+    // Parse fault mode and prescribed slip (optional)
+    if (reader.hasSection("FAULT")) {
+        fault_mode_ = reader.getString("FAULT", "mode", "locked");
+        fault_slip_strike_ = reader.getDouble("FAULT", "slip_strike", 0.0);
+        fault_slip_dip_ = reader.getDouble("FAULT", "slip_dip", 0.0);
+        fault_slip_opening_ = reader.getDouble("FAULT", "slip_opening", 0.0);
+        config.enable_faults = true;
+    }
+
     // Parse heterogeneous material configuration (optional)
     if (reader.hasSection("MATERIAL")) {
         config.use_heterogeneous_material = reader.getBool("MATERIAL", "heterogeneous", false);
         config.gravity = reader.getDouble("MATERIAL", "gravity", 0.0);
+    }
+    // Also accept gravity from [SIMULATION] section
+    if (reader.hasSection("SIMULATION")) {
+        config.enable_gravity = reader.getBool("SIMULATION", "enable_gravity", config.gravity > 0.0);
+        if (config.enable_gravity && config.gravity == 0.0) {
+            config.gravity = reader.getDouble("SIMULATION", "gravity", 9.81);
+        }
+        config.K0 = reader.getDouble("SIMULATION", "K0", 0.5);
     }
     if (config.use_heterogeneous_material) {
         // Look for LAYER_N sections
@@ -1812,9 +1829,13 @@ PetscErrorCode Simulator::setupPhysics() {
         // Lagrange multiplier field is next after displacement
         PetscInt lagrange_field = disp_field + 1;
 
-        // Register cohesive callbacks via CohesiveFaultKernel::registerWithDS
+        // Register cohesive callbacks via CohesiveFaultKernel
         // This expands the constants array and registers PetscDSSetBdResidual/BdJacobian
-        ierr = cohesive_kernel_->registerWithDS(prob, disp_field, lagrange_field);
+        if (cohesive_kernel_->isPrescribedSlip()) {
+            ierr = cohesive_kernel_->registerPrescribedSlipWithDS(prob, disp_field, lagrange_field);
+        } else {
+            ierr = cohesive_kernel_->registerWithDS(prob, disp_field, lagrange_field);
+        }
         CHKERRQ(ierr);
 
         if (rank == 0) {
@@ -2296,8 +2317,49 @@ PetscErrorCode Simulator::setupFaultNetwork() {
 
     // 9. Create cohesive kernel
     cohesive_kernel_ = std::make_unique<CohesiveFaultKernel>();
-    cohesive_kernel_->setMode(true);  // locked
-    cohesive_kernel_->setFrictionCoefficient(0.6);
+    
+    if (fault_mode_ == "prescribed_slip") {
+        // Convert from fault-local (strike, dip, opening) to Cartesian (x, y, z)
+        double fault_strike = fracture_plane_enabled_ ? fracture_plane_strike_ : 0.0;
+        double fault_dip = fracture_plane_enabled_ ? fracture_plane_dip_ : M_PI / 2.0;
+        
+        double cs = std::cos(fault_strike);
+        double ss = std::sin(fault_strike);
+        double cd = std::cos(fault_dip);
+        double sd = std::sin(fault_dip);
+        
+        // Strike direction (horizontal, along-fault)
+        double strike_dir[3] = {cs, ss, 0.0};
+        // Normal direction (into hanging wall)
+        double normal_dir[3] = {-ss * sd, cs * sd, -cd};
+        // Dip direction = normal x strike (downdip)
+        double dip_dir[3] = {
+            normal_dir[1] * strike_dir[2] - normal_dir[2] * strike_dir[1],
+            normal_dir[2] * strike_dir[0] - normal_dir[0] * strike_dir[2],
+            normal_dir[0] * strike_dir[1] - normal_dir[1] * strike_dir[0]
+        };
+        
+        double slip_x = fault_slip_strike_ * strike_dir[0] + fault_slip_dip_ * dip_dir[0] + fault_slip_opening_ * normal_dir[0];
+        double slip_y = fault_slip_strike_ * strike_dir[1] + fault_slip_dip_ * dip_dir[1] + fault_slip_opening_ * normal_dir[1];
+        double slip_z = fault_slip_strike_ * strike_dir[2] + fault_slip_dip_ * dip_dir[2] + fault_slip_opening_ * normal_dir[2];
+        
+        cohesive_kernel_->setPrescribedSlip(slip_x, slip_y, slip_z);
+        cohesive_kernel_->setMode(true);
+        
+        if (rank == 0) {
+            PetscPrintf(comm, "Prescribed slip mode: strike=%.3f, dip=%.3f, opening=%.3f\n",
+                        fault_slip_strike_, fault_slip_dip_, fault_slip_opening_);
+            PetscPrintf(comm, "Prescribed slip (Cartesian): (%.6f, %.6f, %.6f)\n",
+                        slip_x, slip_y, slip_z);
+        }
+    } else if (fault_mode_ == "slipping") {
+        cohesive_kernel_->setMode(false);
+        cohesive_kernel_->setFrictionCoefficient(0.6);
+    } else {
+        cohesive_kernel_->setMode(true);  // locked
+        cohesive_kernel_->setFrictionCoefficient(0.6);
+    }
+    
     if (fracture_plane_enabled_) {
         cohesive_kernel_->setTensileStrength(fracture_plane_tensile_strength_);
     }

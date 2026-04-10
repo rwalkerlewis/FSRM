@@ -77,6 +77,11 @@ public:
     PetscErrorCode computePerformanceMetrics();
     PetscErrorCode generatePlots();
     PetscErrorCode writeStatistics();
+
+    // Accessors for testing
+    DM getDM() const { return dm; }
+    Vec getSolution() const { return solution; }
+    const SimulationConfig& getConfig() const { return config; }
     
 private:
     MPI_Comm comm;
@@ -200,6 +205,12 @@ private:
     double fracture_plane_length_ = 200.0;
     double fracture_plane_width_ = 100.0;
     double fracture_plane_tensile_strength_ = 5.0e6;  // Pa
+
+    // Fault mode and prescribed slip
+    std::string fault_mode_ = "locked";
+    double fault_slip_strike_ = 0.0;
+    double fault_slip_dip_ = 0.0;
+    double fault_slip_opening_ = 0.0;
 
     // Explosion source FEM injection (Phase 5)
     PetscInt explosion_cell_ = -1;

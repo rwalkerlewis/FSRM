@@ -69,6 +69,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_terzaghi.cpp
     physics_validation/test_absorbing_bc.cpp
     physics_validation/test_gravity_lithostatic.cpp
+    physics_validation/test_lithostatic_stress.cpp
     physics_validation/test_lambs_problem.cpp
     physics_validation/test_garvins_problem.cpp
 )
@@ -81,6 +82,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_locked_fault.cpp
     integration/test_layered_elastostatics.cpp
     integration/test_explosion_seismogram.cpp
+    integration/test_prescribed_slip.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -186,6 +188,7 @@ if(GTest_FOUND)
     add_test(NAME Physics.TerzaghiConsolidation COMMAND run_physics_tests --gtest_filter=TerzaghiConsolidationTest.*:TerzaghiPipelineTest.*)
     add_test(NAME Physics.AbsorbingBC            COMMAND run_physics_tests --gtest_filter=AbsorbingBC*.*:AbsorbingBCEnergyTest.*)
     add_test(NAME Physics.GravityLithostatic       COMMAND run_physics_tests --gtest_filter=GravityLithostaticTest.*:LithostaticSimulatorTest.*)
+    add_test(NAME Physics.LithostaticStress        COMMAND run_physics_tests --gtest_filter=LithostaticStressTest.*)
     add_test(NAME Physics.LambsProblem             COMMAND run_physics_tests --gtest_filter=LambsProblemTest.*)
     add_test(NAME Physics.GarvinsProblem           COMMAND run_physics_tests --gtest_filter=GarvinsProblemTest.*)
 
@@ -197,6 +200,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.LockedFault     COMMAND run_integration_tests --gtest_filter=LockedFaultTest.*)
     add_test(NAME Integration.LayeredElastostatics COMMAND run_integration_tests --gtest_filter=LayeredElastostaticsTest.*)
     add_test(NAME Integration.ExplosionSeismogram COMMAND run_integration_tests --gtest_filter=ExplosionSeismogramTest.*)
+    add_test(NAME Integration.PrescribedSlip  COMMAND run_integration_tests --gtest_filter=PrescribedSlipTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -240,6 +244,7 @@ if(GTest_FOUND)
         Physics.Thermoporoelastic Physics.SCEC.TPV5
         Physics.ElastostaticsPatch Physics.TerzaghiConsolidation
         Physics.AbsorbingBC Physics.GravityLithostatic
+        Physics.LithostaticStress
         Physics.LambsProblem Physics.GarvinsProblem
         PROPERTIES TIMEOUT 300 LABELS "physics_validation"
     )
@@ -249,7 +254,7 @@ if(GTest_FOUND)
         Integration.FullSimulation Integration.Restart
         Integration.CoupledPhysics Integration.InjectionRuptureChain
         Integration.LockedFault Integration.LayeredElastostatics
-        Integration.ExplosionSeismogram
+        Integration.ExplosionSeismogram Integration.PrescribedSlip
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

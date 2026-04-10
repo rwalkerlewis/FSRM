@@ -651,6 +651,14 @@ std::vector<ConfigReader::FaultConfig> ConfigReader::parseFaults() {
             fault.b_parameter = getDouble(section, "b_parameter", 0.015);
             fault.Dc_parameter = getDouble(section, "Dc_parameter", 0.001);
             
+            // Fault mode: "locked", "slipping", or "prescribed_slip"
+            fault.fault_mode = getString(section, "mode", "locked");
+            
+            // Prescribed slip components (along-strike, along-dip, opening)
+            fault.slip_strike = getDouble(section, "slip_strike", 0.0);
+            fault.slip_dip = getDouble(section, "slip_dip", 0.0);
+            fault.slip_opening = getDouble(section, "slip_opening", 0.0);
+            
             // Split node options
             fault.use_split_nodes = getBool(section, "use_split_nodes", false);
             fault.split_node_method = getString(section, "split_node_method", "PENALTY");

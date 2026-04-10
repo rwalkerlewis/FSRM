@@ -191,6 +191,14 @@ public:
         double b_parameter;
         double Dc_parameter;
         
+        // Fault mode: "locked", "slipping", "prescribed_slip"
+        std::string fault_mode;
+        
+        // Prescribed slip components (used when fault_mode = "prescribed_slip")
+        double slip_strike;
+        double slip_dip;
+        double slip_opening;
+        
         // Split node options
         bool use_split_nodes;
         std::string split_node_method;      // PENALTY, LAGRANGE, NITSCHE, etc.

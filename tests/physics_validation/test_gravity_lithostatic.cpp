@@ -45,8 +45,9 @@ TEST_F(GravityLithostaticTest, GravityBodyForceCallback)
   // f0[0] and f0[1] should be zero (no lateral gravity)
   EXPECT_DOUBLE_EQ(PetscRealPart(f0[0]), 0.0);
   EXPECT_DOUBLE_EQ(PetscRealPart(f0[1]), 0.0);
-  // f0[2] = -rho * g = -2650 * 9.81 = -25996.5
-  double expected_f0z = -2650.0 * 9.81;
+  // f0[2] = rho * g = 2650 * 9.81 = 25996.5
+  // (positive: in PETSc FEM convention, f0 = -body_force = rho*g*ez)
+  double expected_f0z = 2650.0 * 9.81;
   EXPECT_NEAR(PetscRealPart(f0[2]), expected_f0z, 1.0e-8);
 }
 
