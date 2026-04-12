@@ -86,7 +86,27 @@ PetscErrorCode FaultMeshManager::createPlanarFaultLabel(DM dm, DMLabel* fault_la
     ierr = DMPlexGetHeightStratum(dm, 1, &fStart, &fEnd); CHKERRQ(ierr);
 
     PetscInt num_marked = 0;
+    PetscInt num_skipped_boundary = 0;
     for (PetscInt f = fStart; f < fEnd; ++f) {
+        // Skip boundary faces: they have only 1 supporting cell.
+        // Interior faces have exactly 2. Labeling boundary faces causes
+        // DMPlexConstructCohesiveCells to fail because it cannot determine
+        // which side of the fault a boundary vertex belongs to.
+        PetscInt support_size;
+        ierr = DMPlexGetSupportSize(dm, f, &support_size); CHKERRQ(ierr);
+        if (support_size < 2) {
+            // Check if it would have been labeled (for diagnostic count)
+            PetscReal centroid[3] = {0.0, 0.0, 0.0};
+            PetscReal vol;
+            ierr = DMPlexComputeCellGeometryFVM(dm, f, &vol, centroid, nullptr); CHKERRQ(ierr);
+            double point[3] = {centroid[0], centroid[1], centroid[2]};
+            if (isPointOnFaultPlane(point, normal, center, tolerance) &&
+                isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width)) {
+                num_skipped_boundary++;
+            }
+            continue;
+        }
+
         // Compute face centroid
         PetscReal centroid[3] = {0.0, 0.0, 0.0};
         PetscReal vol;
@@ -97,17 +117,28 @@ PetscErrorCode FaultMeshManager::createPlanarFaultLabel(DM dm, DMLabel* fault_la
         // Check if face centroid lies on the fault plane
         if (isPointOnFaultPlane(point, normal, center, tolerance) &&
             isPointWithinFaultExtent(point, center, strike_dir, dip_dir, length, width)) {
+            // Label fault faces with value 1 (submesh creation will handle depth classification)
             ierr = DMLabelSetValue(*fault_label, f, 1); CHKERRQ(ierr);
             num_marked++;
         }
     }
 
     if (rank_ == 0) {
-        PetscPrintf(comm_, "FaultMeshManager: Marked %d faces on fault plane "
-                   "(strike=%.1f°, dip=%.1f°, center=[%.0f,%.0f,%.0f], "
-                   "L=%.0f, W=%.0f, tol=%.1f)\n",
-                   (int)num_marked, strike * 180.0 / M_PI, dip * 180.0 / M_PI,
+        PetscPrintf(comm_, "FaultMeshManager: Marked %d interior faces on fault plane "
+                   "(skipped %d boundary faces) "
+                   "(strike=%.1f deg, dip=%.1f deg, center=[%.0f,%.0f,%.0f], "
+                   "L=%.0f, W=%.0f, tol=%.3f)\n",
+                   (int)num_marked, (int)num_skipped_boundary,
+                   strike * 180.0 / M_PI, dip * 180.0 / M_PI,
                    center[0], center[1], center[2], length, width, tolerance);
+    }
+
+    if (num_marked == 0) {
+        if (rank_ == 0) {
+            PetscPrintf(comm_, "WARNING: No interior faces marked. The fault plane may not "
+                       "intersect any interior faces of the mesh. Check fault geometry, "
+                       "mesh resolution, and tolerance (%.3f).\n", tolerance);
+        }
     }
 
     PetscFunctionReturn(0);
@@ -117,6 +148,9 @@ PetscErrorCode FaultMeshManager::splitMeshAlongFault(DM* dm,
                                                       const std::string& fault_label_name) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
+    PetscInt dim;
+
+    ierr = DMGetDimension(*dm, &dim); CHKERRQ(ierr);
 
     DMLabel fault_label = nullptr;
     ierr = DMGetLabel(*dm, fault_label_name.c_str(), &fault_label); CHKERRQ(ierr);
@@ -136,9 +170,44 @@ PetscErrorCode FaultMeshManager::splitMeshAlongFault(DM* dm,
                    fault_label_name.c_str(), (int)num_cells_before);
     }
 
-    // Insert cohesive cells along the fault
+    // PyLith workflow for cohesive cell insertion:
+    // 1. Duplicate the fault label and complete it
+    DMLabel completed_label = nullptr;
+    ierr = DMLabelDuplicate(fault_label, &completed_label); CHKERRQ(ierr);
+    ierr = DMPlexLabelComplete(*dm, completed_label); CHKERRQ(ierr);
+
+    // 2. Create fault submesh from the completed label
+    DM fault_dm = nullptr;
+    ierr = DMPlexCreateSubmesh(*dm, completed_label, 1, PETSC_TRUE, &fault_dm); CHKERRQ(ierr);
+    ierr = DMLabelDestroy(&completed_label); CHKERRQ(ierr);
+
+    // 3. Orient the fault submesh
+    ierr = DMPlexOrient(fault_dm); CHKERRQ(ierr);
+
+    // 4. Get the subpoint map from the fault submesh
+    DMLabel subpoint_map = nullptr;
+    ierr = DMPlexGetSubpointMap(fault_dm, &subpoint_map); CHKERRQ(ierr);
+
+    // 5. Duplicate the subpoint map to create the cohesive label
+    DMLabel cohesive_label = nullptr;
+    ierr = DMLabelDuplicate(subpoint_map, &cohesive_label); CHKERRQ(ierr);
+
+    // 6. Clear the cell stratum (dim) from the cohesive label
+    ierr = DMLabelClearStratum(cohesive_label, dim); CHKERRQ(ierr);
+
+    // 7. Orient the cohesive label
+    ierr = DMPlexOrientLabel(*dm, cohesive_label); CHKERRQ(ierr);
+
+    // 8. Complete the cohesive label classification
+    ierr = DMPlexLabelCohesiveComplete(*dm, cohesive_label, NULL, 0, PETSC_FALSE, PETSC_FALSE, fault_dm); CHKERRQ(ierr);
+
+    // 9. Insert cohesive cells along the fault
     DM sdm = nullptr;
-    ierr = DMPlexConstructCohesiveCells(*dm, fault_label, nullptr, &sdm); CHKERRQ(ierr);
+    ierr = DMPlexConstructCohesiveCells(*dm, cohesive_label, nullptr, &sdm); CHKERRQ(ierr);
+
+    // 10. Clean up temporary structures
+    ierr = DMLabelDestroy(&cohesive_label); CHKERRQ(ierr);
+    ierr = DMDestroy(&fault_dm); CHKERRQ(ierr);
 
     // Replace the old DM with the split DM
     ierr = DMDestroy(dm); CHKERRQ(ierr);

@@ -271,7 +271,7 @@ def main():
 
     # ── 4. Generate figures ──
     kw = dict(event_info=EVENT_INFO, phase_velocities=PHASE_VELOCITIES,
-              freqmin=FREQMIN, fmax=FREQMAX)
+              freqmin=FREQMIN, fmax=FREQMAX, event_depth_km=EVENT_DEPTH_KM)
 
     print("Generating figures ...")
 
@@ -289,7 +289,8 @@ def main():
     print("  [4/6] Long-period filter (surface waves) ...")
     fetch_plot_long_period(kndc_raw, EVENT_TIME, OUTDIR,
                            event_info=EVENT_INFO,
-                           phase_velocities=PHASE_VELOCITIES)
+                           phase_velocities=PHASE_VELOCITIES,
+                           event_depth_km=EVENT_DEPTH_KM)
 
     print("  [5/6] Spectrograms ...")
     fetch_plot_spectrograms(all_results, EVENT_TIME, OUTDIR, **kw)

@@ -1,6 +1,10 @@
 #include "core/Simulator.hpp"
 #include "core/PhysicsModuleRegistry.hpp"
 #include "numerics/PetscFEFluidFlow.hpp"
+#include "numerics/PetscFEElasticity.hpp"
+#include "numerics/PetscFEElasticityAux.hpp"
+#include "numerics/PetscFEPoroelasticity.hpp"
+#include "numerics/AbsorbingBC.hpp"
 #include "io/Visualization.hpp"
 #include "core/ConfigReader.hpp"
 #include "numerics/ImplicitExplicitTransition.hpp"
@@ -22,6 +26,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <limits>
+#include <sys/stat.h>
+#include <petscviewerhdf5.h>
 
 namespace {
 
@@ -435,6 +441,8 @@ Simulator::Simulator(MPI_Comm comm_in)
 }
 
 Simulator::~Simulator() {
+    if (auxVec_) VecDestroy(&auxVec_);
+    if (auxDM_) DMDestroy(&auxDM_);
     if (solution) VecDestroy(&solution);
     if (solution_old) VecDestroy(&solution_old);
     if (solution_prev_) VecDestroy(&solution_prev_);
@@ -497,6 +505,175 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     
     // Parse grid configuration
     reader.parseGridConfig(grid_config);
+
+    // Parse injection source (optional)
+    if (reader.hasSection("INJECTION")) {
+        injection_enabled_ = reader.getBool("INJECTION", "enabled", true);
+        injection_x_ = reader.getDouble("INJECTION", "x", 0.0);
+        injection_y_ = reader.getDouble("INJECTION", "y", 0.0);
+        injection_z_ = reader.getDouble("INJECTION", "z", 0.0);
+        injection_rate_ = reader.getDouble("INJECTION", "rate", 1e-4);
+        injection_start_ = reader.getDouble("INJECTION", "start_time", 0.0);
+        injection_end_ = reader.getDouble("INJECTION", "end_time", 1e30);
+        if (rank == 0 && injection_enabled_) {
+            PetscPrintf(comm, "Injection source: (%.1f, %.1f, %.1f), rate=%.2e m^3/s\n",
+                        injection_x_, injection_y_, injection_z_, injection_rate_);
+        }
+    }
+
+    // Parse hydraulic fracture model (optional)
+    if (reader.hasSection("HYDRAULIC_FRACTURE")) {
+        hydrofrac_ = std::make_unique<HydraulicFractureModel>();
+        hydrofrac_->setFormationProperties(
+            reader.getDouble("HYDRAULIC_FRACTURE", "youngs_modulus", 10e9),
+            reader.getDouble("HYDRAULIC_FRACTURE", "poissons_ratio", 0.25));
+        hydrofrac_->setFractureToughness(
+            reader.getDouble("HYDRAULIC_FRACTURE", "toughness", 1.5e6));
+        hydrofrac_->setStressState(
+            reader.getDouble("HYDRAULIC_FRACTURE", "min_horizontal_stress", 20e6),
+            reader.getDouble("HYDRAULIC_FRACTURE", "max_horizontal_stress", 25e6),
+            reader.getDouble("HYDRAULIC_FRACTURE", "vertical_stress", 30e6));
+        hydrofrac_->setHeight(
+            reader.getDouble("HYDRAULIC_FRACTURE", "height", 50.0));
+        hydrofrac_->setFluidProperties(
+            reader.getDouble("HYDRAULIC_FRACTURE", "fluid_density", 1000.0),
+            reader.getDouble("HYDRAULIC_FRACTURE", "fluid_viscosity", 0.001));
+        std::string model = reader.getString("HYDRAULIC_FRACTURE", "model", "PKN");
+        if (model == "KGD") hydrofrac_->setModel("KGD");
+        else if (model == "P3D") hydrofrac_->setModel("P3D");
+        else hydrofrac_->setModel("PKN");
+        if (rank == 0) {
+            PetscPrintf(comm, "Hydraulic fracture model: %s, K_Ic=%.2e\n",
+                        model.c_str(), hydrofrac_->getFractureToughness());
+        }
+    }
+
+    // Parse fracture plane for cohesive fracture propagation (optional)
+    if (reader.hasSection("FRACTURE_PLANE")) {
+        fracture_plane_enabled_ = reader.getBool("FRACTURE_PLANE", "enabled", true);
+        if (fracture_plane_enabled_) {
+            double strike_deg = reader.getDouble("FRACTURE_PLANE", "strike", 0.0);
+            double dip_deg = reader.getDouble("FRACTURE_PLANE", "dip", 90.0);
+            fracture_plane_strike_ = strike_deg * M_PI / 180.0;
+            fracture_plane_dip_ = dip_deg * M_PI / 180.0;
+            fracture_plane_center_[0] = reader.getDouble("FRACTURE_PLANE", "center_x",
+                                                          grid_config.Lx / 2.0);
+            fracture_plane_center_[1] = reader.getDouble("FRACTURE_PLANE", "center_y",
+                                                          grid_config.Ly / 2.0);
+            fracture_plane_center_[2] = reader.getDouble("FRACTURE_PLANE", "center_z",
+                                                          grid_config.Lz / 2.0);
+            fracture_plane_length_ = reader.getDouble("FRACTURE_PLANE", "length", 200.0);
+            fracture_plane_width_ = reader.getDouble("FRACTURE_PLANE", "width", 100.0);
+            fracture_plane_tensile_strength_ = reader.getDouble("FRACTURE_PLANE",
+                "tensile_strength", 5.0e6);
+            // Enable faults so setupFaultNetwork() runs
+            config.enable_faults = true;
+            if (rank == 0) {
+                PetscPrintf(comm, "Fracture plane: strike=%.1f deg, dip=%.1f deg, "
+                    "T_s=%.2e Pa, L=%.1f m, W=%.1f m\n",
+                    strike_deg, dip_deg, fracture_plane_tensile_strength_,
+                    fracture_plane_length_, fracture_plane_width_);
+            }
+        }
+    }
+
+    // Parse fault mode and prescribed slip (optional)
+    if (reader.hasSection("FAULT")) {
+        fault_mode_ = reader.getString("FAULT", "mode", "locked");
+        fault_slip_strike_ = reader.getDouble("FAULT", "slip_strike", 0.0);
+        fault_slip_dip_ = reader.getDouble("FAULT", "slip_dip", 0.0);
+        fault_slip_opening_ = reader.getDouble("FAULT", "slip_opening", 0.0);
+        config.enable_faults = true;
+    }
+
+    // Parse heterogeneous material configuration (optional)
+    if (reader.hasSection("MATERIAL")) {
+        config.use_heterogeneous_material = reader.getBool("MATERIAL", "heterogeneous", false);
+        config.gravity = reader.getDouble("MATERIAL", "gravity", 0.0);
+    }
+    // Also accept gravity from [SIMULATION] section
+    if (reader.hasSection("SIMULATION")) {
+        config.enable_gravity = reader.getBool("SIMULATION", "enable_gravity", config.gravity > 0.0);
+        if (config.enable_gravity && config.gravity == 0.0) {
+            config.gravity = reader.getDouble("SIMULATION", "gravity", 9.81);
+        }
+        config.K0 = reader.getDouble("SIMULATION", "K0", 0.5);
+    }
+    if (config.use_heterogeneous_material) {
+        // Look for LAYER_N sections
+        config.material_layers.clear();
+        for (int i = 1; i <= 100; ++i) {
+            std::string section_name = "LAYER_" + std::to_string(i);
+            if (!reader.hasSection(section_name)) break;
+            MaterialLayer layer;
+            layer.z_top    = reader.getDouble(section_name, "z_top", 0.0);
+            layer.z_bottom = reader.getDouble(section_name, "z_bottom", 0.0);
+            layer.lambda   = reader.getDouble(section_name, "lambda", 30.0e9);
+            layer.mu       = reader.getDouble(section_name, "mu", 25.0e9);
+            layer.rho      = reader.getDouble(section_name, "rho", 2650.0);
+            config.material_layers.push_back(layer);
+        }
+        if (rank == 0) {
+            PetscPrintf(comm, "Heterogeneous material: %d layers defined\n",
+                        (int)config.material_layers.size());
+        }
+    }
+
+    // Parse absorbing boundary conditions (optional)
+    if (reader.hasSection("ABSORBING_BC")) {
+        config.absorbing_bc_enabled = reader.getBool("ABSORBING_BC", "enabled", false);
+        config.absorbing_bc_x_min = reader.getBool("ABSORBING_BC", "x_min", true);
+        config.absorbing_bc_x_max = reader.getBool("ABSORBING_BC", "x_max", true);
+        config.absorbing_bc_y_min = reader.getBool("ABSORBING_BC", "y_min", true);
+        config.absorbing_bc_y_max = reader.getBool("ABSORBING_BC", "y_max", true);
+        config.absorbing_bc_z_min = reader.getBool("ABSORBING_BC", "z_min", true);
+        config.absorbing_bc_z_max = reader.getBool("ABSORBING_BC", "z_max", false);
+        if (config.absorbing_bc_enabled && rank == 0) {
+            PetscPrintf(comm, "Absorbing BCs: x=[%d,%d] y=[%d,%d] z=[%d,%d]\n",
+                (int)config.absorbing_bc_x_min, (int)config.absorbing_bc_x_max,
+                (int)config.absorbing_bc_y_min, (int)config.absorbing_bc_y_max,
+                (int)config.absorbing_bc_z_min, (int)config.absorbing_bc_z_max);
+        }
+    }
+
+    // Parse boundary condition configuration (optional)
+    if (reader.hasSection("BOUNDARY_CONDITIONS")) {
+        config.bottom_bc = reader.getString("BOUNDARY_CONDITIONS", "bottom", "fixed");
+        config.side_bc = reader.getString("BOUNDARY_CONDITIONS", "sides", "free");
+        config.top_bc = reader.getString("BOUNDARY_CONDITIONS", "top", "compression");
+        if (rank == 0) {
+            PetscPrintf(comm, "Boundary conditions: bottom=%s, sides=%s, top=%s\n",
+                        config.bottom_bc.c_str(), config.side_bc.c_str(), config.top_bc.c_str());
+        }
+    }
+
+    // Parse initial conditions (optional)
+    if (reader.hasSection("INITIAL_CONDITIONS")) {
+        config.initial_condition_type = reader.getString("INITIAL_CONDITIONS", "type", "zero");
+        config.initial_condition_path = reader.getString("INITIAL_CONDITIONS", "path", "");
+        if (rank == 0) {
+            PetscPrintf(comm, "Initial conditions: type=%s", config.initial_condition_type.c_str());
+            if (!config.initial_condition_path.empty()) {
+                PetscPrintf(comm, ", path=%s", config.initial_condition_path.c_str());
+            }
+            PetscPrintf(comm, "\n");
+        }
+    }
+
+    // Parse solution save path and output directory (optional)
+    if (reader.hasSection("OUTPUT")) {
+        config.save_solution_path = reader.getString("OUTPUT", "save_solution", "");
+        output_directory_ = reader.getString("OUTPUT", "output_directory", "output");
+        std::string fmt = reader.getString("OUTPUT", "format", "");
+        if (!fmt.empty()) {
+            config.output_format = fmt;
+        }
+        config.output_stress = reader.getBool("OUTPUT", "output_stress", false);
+        config.output_cfs = reader.getBool("OUTPUT", "output_cfs", false);
+        config.cfs_receiver_strike = reader.getDouble("OUTPUT", "cfs_receiver_strike", 0.0);
+        config.cfs_receiver_dip = reader.getDouble("OUTPUT", "cfs_receiver_dip", 90.0);
+        config.cfs_friction = reader.getDouble("OUTPUT", "cfs_friction", 0.4);
+    }
 
     // Parse seismometers (optional)
     seismo_specs_.clear();
@@ -651,7 +828,7 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     if (reader.hasSection("EXPLOSION_SOURCE")) {
         std::string ex_type = reader.getString("EXPLOSION_SOURCE", "type", "");
         // Currently only support underground nuclear coupling via spherical cavity proxy.
-        if (!ex_type.empty() && (ex_type == "NUCLEAR_UNDERGROUND" || ex_type == "UNDERGROUND_CONTAINED")) {
+        if (!ex_type.empty() && (ex_type == "NUCLEAR_UNDERGROUND" || ex_type == "UNDERGROUND_NUCLEAR" || ex_type == "UNDERGROUND_CONTAINED")) {
             double yield_kt = reader.getDouble("EXPLOSION_SOURCE", "yield_kt", 1.0);
             double depth_m = reader.getDouble("EXPLOSION_SOURCE", "depth_of_burial", 1000.0);
             double x = reader.getDouble("EXPLOSION_SOURCE", "location_x",
@@ -1010,36 +1187,46 @@ PetscErrorCode Simulator::setupGmshGrid() {
 PetscErrorCode Simulator::setupStructuredGrid() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
-    
+
     // Create DMPlex for structured grid
     PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
     PetscReal lower[3] = {grid_config.origin_x, grid_config.origin_y, grid_config.origin_z};
     PetscReal upper[3] = {grid_config.origin_x + grid_config.Lx,
                           grid_config.origin_y + grid_config.Ly,
                           grid_config.origin_z + grid_config.Lz};
-    ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
+
+    // NOTE: PETSc 3.20 cohesive cell insertion works reliably only on simplex meshes.
+    // Force simplex (tetrahedral) mesh when faults are enabled, even for CARTESIAN configs.
+    PetscBool use_simplex = config.enable_faults ? PETSC_TRUE : PETSC_FALSE;
+
+    ierr = DMPlexCreateBoxMesh(comm, 3, use_simplex,
                               faces,
-                              lower, upper, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
-    
+                              lower, upper, nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm); CHKERRQ(ierr);
+
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
     ierr = DMSetUp(dm); CHKERRQ(ierr);
-    
+
     PetscFunctionReturn(0);
 }
 
 PetscErrorCode Simulator::setupUnstructuredGrid() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
-    
+
     // Create DMPlex for unstructured grid
     PetscInt faces[3] = {grid_config.nx, grid_config.ny, grid_config.nz};
-    ierr = DMPlexCreateBoxMesh(comm, 3, PETSC_FALSE, 
+
+    // NOTE: PETSc 3.20 cohesive cell insertion works reliably only on simplex meshes.
+    // Force simplex (tetrahedral) mesh when faults are enabled.
+    PetscBool use_simplex = config.enable_faults ? PETSC_TRUE : PETSC_FALSE;
+
+    ierr = DMPlexCreateBoxMesh(comm, 3, use_simplex,
                               faces,
-                              nullptr, nullptr, nullptr, PETSC_TRUE, &dm); CHKERRQ(ierr);
-    
+                              nullptr, nullptr, nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm); CHKERRQ(ierr);
+
     ierr = DMSetFromOptions(dm); CHKERRQ(ierr);
     ierr = DMViewFromOptions(dm, nullptr, "-dm_view"); CHKERRQ(ierr);
-    
+
     PetscFunctionReturn(0);
 }
 
@@ -1071,7 +1258,23 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     PetscErrorCode ierr;
     
     // Create discretization based on fluid model
+    // Use PetscFECreateLagrange with degree 1 (Q1/P1) for continuous Galerkin FEM.
+    // This places DOFs on vertices, enabling proper Dirichlet BC enforcement.
     PetscFE fe;
+
+    // Detect if the mesh is simplex (tets) or tensor-product (hexes).
+    // When faults are enabled the mesh is forced to simplex in setupDM().
+    PetscBool isSimplex = PETSC_FALSE;
+    {
+        PetscInt cStart, cEnd;
+        ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+        if (cStart < cEnd) {
+            DMPolytopeType ct;
+            ierr = DMPlexGetCellType(dm, cStart, &ct); CHKERRQ(ierr);
+            isSimplex = (ct == DM_POLYTOPE_TETRAHEDRON || ct == DM_POLYTOPE_TRIANGLE)
+                        ? PETSC_TRUE : PETSC_FALSE;
+        }
+    }
     
     switch (config.fluid_model) {
         case FluidModelType::NONE:
@@ -1079,7 +1282,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             break;
         case FluidModelType::SINGLE_COMPONENT:
             // Single pressure field
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
@@ -1087,17 +1290,17 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             
         case FluidModelType::BLACK_OIL:
             // Pressure + saturations
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_w_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "saturation_w_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
             
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "saturation_g_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "saturation_g_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
@@ -1105,7 +1308,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             
         case FluidModelType::COMPOSITIONAL:
             // Pressure + compositions
-            ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "pressure_", -1, &fe); CHKERRQ(ierr);
+            ierr = PetscFECreateLagrange(comm, 3, 1, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
             ierr = PetscObjectSetName((PetscObject)fe, "pressure_"); CHKERRQ(ierr);
             ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
             fe_fields.push_back(fe);
@@ -1114,7 +1317,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             for (int i = 0; i < 3; ++i) {  // Example: 3 components
                 char name[256];
                 snprintf(name, sizeof(name), "composition_%d_", i);
-                ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, name, -1, &fe); CHKERRQ(ierr);
+                ierr = PetscFECreateLagrange(comm, 3, 1, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
                 ierr = PetscObjectSetName((PetscObject)fe, name); CHKERRQ(ierr);
                 ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
                 fe_fields.push_back(fe);
@@ -1127,25 +1330,94 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     
     // Add geomechanics field if enabled
     if (config.enable_geomechanics) {
-        ierr = PetscFECreateDefault(comm, 3, 3, PETSC_FALSE, "displacement_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
-    
+
+    // Add Lagrange multiplier field for cohesive faults if enabled
+    if (config.enable_faults && cohesive_kernel_) {
+        PetscFE fe_lagrange;
+        // Lagrange multiplier: 3-component vector (traction) on cohesive cells
+        ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe_lagrange); CHKERRQ(ierr);
+        ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
+        ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
+        fe_fields.push_back(fe_lagrange);
+        if (rank == 0) {
+            PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
+        }
+    }
+
     // Add thermal field if enabled
     if (config.enable_thermal) {
-        ierr = PetscFECreateDefault(comm, 3, 1, PETSC_FALSE, "temperature_", -1, &fe); CHKERRQ(ierr);
+        ierr = PetscFECreateLagrange(comm, 3, 1, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe, "temperature_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
-    
-    // Create DS
+
+    // Create DS (required before adding boundaries in PETSc 3.22.2)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
+
+    // Add boundary conditions to the DS
+    ierr = setupBoundaryConditions(); CHKERRQ(ierr);
+
+    // Force PETSc to rebuild the local section with BC constraints
+    ierr = DMSetLocalSection(dm, nullptr); CHKERRQ(ierr);
+    ierr = DMSetUp(dm); CHKERRQ(ierr);
+
+    // Get the DS for later use
     ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);
-    
+
     PetscFunctionReturn(0);
+}
+
+// ============================================================================
+// Boundary condition callback functions
+// ============================================================================
+
+// BC callback: all components = 0 (for fixed boundaries)
+static PetscErrorCode bc_zero(PetscInt dim, PetscReal time, const PetscReal x[],
+                               PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)ctx;  // Suppress unused warnings
+    for (PetscInt c = 0; c < Nc; c++) {
+        u[c] = 0.0;
+    }
+    return PETSC_SUCCESS;
+}
+
+// BC callback: applied compression on top (u_z = -0.001, u_x = u_y = 0)
+static PetscErrorCode bc_compression(PetscInt dim, PetscReal time, const PetscReal x[],
+                                      PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)ctx;  // Suppress unused warnings
+    if (Nc >= 3) {
+        u[0] = 0.0;   // u_x = 0
+        u[1] = 0.0;   // u_y = 0
+        u[2] = -0.001; // u_z = -1mm (compression)
+    }
+    return PETSC_SUCCESS;
+}
+
+// BC callback: drained boundary (pressure = 0)
+static PetscErrorCode bc_drained(PetscInt dim, PetscReal time, const PetscReal x[],
+                                  PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)Nc; (void)ctx;  // Suppress unused warnings
+    u[0] = 0.0; // pressure = 0
+    return PETSC_SUCCESS;
+}
+
+// IC callback: Terzaghi consolidation initial conditions
+// Nc=1 for pressure field (set to 1 MPa undrained response), Nc=3 for displacement (zero)
+static PetscErrorCode terzaghi_ic(PetscInt dim, PetscReal time, const PetscReal x[],
+                                   PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)ctx;
+    if (Nc == 1) {
+        u[0] = 1.0e6;  // 1 MPa initial pore pressure
+    } else {
+        for (PetscInt c = 0; c < Nc; c++) u[c] = 0.0;
+    }
+    return PETSC_SUCCESS;
 }
 
 PetscErrorCode Simulator::setupPhysics() {
@@ -1336,7 +1608,147 @@ PetscErrorCode Simulator::setupPhysics() {
     // DMPlexTSComputeIFunctionFEM yet, so we must not enable the FEM path or
     // PETSc will crash during assembly.
     use_fem_time_residual_ = false;
-    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+
+    // Unified PetscDS constants array (shared by all physics callbacks)
+    // Layout:
+    //   [0]  = lambda (first Lame parameter)
+    //   [1]  = mu (shear modulus)
+    //   [2]  = rho_solid
+    //   [3]  = porosity
+    //   [4]  = kx (permeability x, m^2)
+    //   [5]  = ky (permeability y, m^2)
+    //   [6]  = kz (permeability z, m^2)
+    //   [7]  = cw (water compressibility, 1/Pa)
+    //   [8]  = co (oil compressibility, 1/Pa)
+    //   [9]  = cg (gas compressibility, 1/Pa)
+    //   [10] = mu_w (water viscosity, Pa*s)
+    //   [11] = mu_o (oil viscosity, Pa*s)
+    //   [12] = mu_g (gas viscosity, Pa*s)
+    //   [13] = Swr (water residual saturation)
+    //   [14] = Sor (oil residual saturation)
+    //   [15] = Sgr (gas residual saturation)
+    //   [16] = nw (Corey exponent water)
+    //   [17] = no (Corey exponent oil)
+    //   [18] = ng (Corey exponent gas)
+    //   [19] = krw0 (max relative perm water)
+    //   [20] = kro0 (max relative perm oil)
+    //   [21] = krg0 (max relative perm gas)
+    //   [22] = biot_coefficient (alpha)
+    //   [23] = biot_modulus_inv (1/M)
+    //   [24] = rho_fluid
+    PetscScalar unified_constants[27] = {0};  // [0-24]=fluid/elasticity/poroelasticity, [25-26]=cohesive fault
+
+    // Always set material properties if geomechanics is enabled
+    if (config.enable_geomechanics || config.enable_elastodynamics) {
+        const MaterialProperties& mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        double E = mat.youngs_modulus;
+        double nu = mat.poisson_ratio;
+        double rho = mat.density;
+
+        // Convert Young's modulus and Poisson's ratio to Lame parameters
+        double lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        double mu = E / (2.0 * (1.0 + nu));
+
+        unified_constants[0] = lambda;
+        unified_constants[1] = mu;
+        unified_constants[2] = rho;
+        unified_constants[22] = mat.biot_coefficient;
+    }
+
+    // Set fluid properties if fluid flow is enabled
+    if (config.fluid_model != FluidModelType::NONE) {
+        const MaterialProperties mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        const FluidProperties flu = fluid_props.empty() ? FluidProperties() : fluid_props[0];
+
+        // ConfigReader::getDoubleWithUnit already converts permeability from
+        // mD to m^2 via UnitSystem::toBase("mD"). Do NOT multiply by mD_to_m2
+        // again. The MaterialProperties default values (100.0) are expressed
+        // in mD and must be converted when no config file is loaded.
+        constexpr double mD_to_m2 = 9.869233e-16;
+        bool from_config = !material_props.empty();
+
+        unified_constants[3]  = mat.porosity;
+        unified_constants[4]  = from_config ? mat.permeability_x : mat.permeability_x * mD_to_m2;
+        unified_constants[5]  = from_config ? mat.permeability_y : mat.permeability_y * mD_to_m2;
+        unified_constants[6]  = from_config ? mat.permeability_z : mat.permeability_z * mD_to_m2;
+        unified_constants[7]  = flu.water_compressibility;
+        unified_constants[8]  = flu.oil_compressibility;
+        unified_constants[9]  = flu.gas_compressibility;
+        unified_constants[10] = flu.water_viscosity;
+        unified_constants[11] = flu.oil_viscosity;
+        unified_constants[12] = flu.gas_viscosity;
+        unified_constants[13] = flu.water_residual_saturation;
+        unified_constants[14] = flu.residual_saturation;       // Sor
+        unified_constants[15] = flu.gas_residual_saturation;
+        unified_constants[16] = flu.corey_exponent_water;
+        unified_constants[17] = flu.corey_exponent_oil;
+        unified_constants[18] = flu.corey_exponent_gas;
+        unified_constants[19] = flu.kr_max_water;
+        unified_constants[20] = flu.kr_max_oil;
+        unified_constants[21] = flu.kr_max_gas;
+        unified_constants[24] = flu.density;
+
+        // Biot modulus: 1/M = phi * cf (simplified, assumes incompressible grains)
+        if (config.enable_geomechanics) {
+            unified_constants[23] = mat.porosity * flu.water_compressibility;
+        }
+    }
+
+    // When using heterogeneous material or gravity with homogeneous material,
+    // material properties (lambda, mu, rho) come from auxiliary fields instead of
+    // constants. Repurpose constants[0] as gravity magnitude.
+    bool use_aux_callbacks = config.use_heterogeneous_material || (config.gravity > 0.0);
+    if (use_aux_callbacks) {
+        unified_constants[0] = config.gravity;
+        unified_constants[1] = 0.0;
+        unified_constants[2] = 0.0;
+    }
+
+    // Set constants ONCE for all physics (eliminates collision bug)
+    // [0-24]=fluid/elasticity/poroelasticity, [25-26]=cohesive fault (if enabled)
+    ierr = PetscDSSetConstants(prob, 27, unified_constants); CHKERRQ(ierr);
+
+    // Register PetscFEPoroelasticity callbacks for fully coupled Biot poroelasticity
+    if (config.solid_model == SolidModelType::POROELASTIC &&
+        config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        // Two-field system: field 0 = pressure (1 component), field 1 = displacement (3 components)
+
+        // Pressure equation: (1/M)*dp/dt + alpha*div(du/dt) + div((k/mu)*grad(p)) = 0
+        ierr = PetscDSSetResidual(prob, 0,
+                                  PetscFEPoroelasticity::f0_pressure,
+                                  PetscFEPoroelasticity::f1_pressure); CHKERRQ(ierr);
+
+        // Displacement equation: -div(sigma - alpha*p*I) = 0
+        ierr = PetscDSSetResidual(prob, 1,
+                                  PetscFEPoroelasticity::f0_displacement,
+                                  PetscFEPoroelasticity::f1_displacement); CHKERRQ(ierr);
+
+        // Jacobian block: pressure-pressure (diagonal)
+        ierr = PetscDSSetJacobian(prob, 0, 0,
+                                  PetscFEPoroelasticity::g0_pp, nullptr, nullptr,
+                                  PetscFEPoroelasticity::g3_pp); CHKERRQ(ierr);
+
+        // Jacobian block: pressure-displacement (off-diagonal coupling)
+        // The Biot coupling -alpha*u_t appears in f1_pressure (test gradient),
+        // so its Jacobian goes in the g2 slot (test_gradient, trial_basis)
+        ierr = PetscDSSetJacobian(prob, 0, 1,
+                                  nullptr, nullptr,
+                                  PetscFEPoroelasticity::g2_pu, nullptr); CHKERRQ(ierr);
+
+        // Jacobian block: displacement-pressure (off-diagonal coupling)
+        ierr = PetscDSSetJacobian(prob, 1, 0,
+                                  nullptr, nullptr,
+                                  PetscFEPoroelasticity::g2_up, nullptr); CHKERRQ(ierr);
+
+        // Jacobian block: displacement-displacement (diagonal)
+        ierr = PetscDSSetJacobian(prob, 1, 1,
+                                  nullptr, nullptr, nullptr,
+                                  PetscFEPoroelasticity::g3_uu); CHKERRQ(ierr);
+
+        use_fem_time_residual_ = true;
+    }
+    // Register fluid flow residuals and jacobians (uncoupled or non-poroelastic)
+    else if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
         ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_SinglePhase, PetscFEFluidFlow::f1_SinglePhase); CHKERRQ(ierr);
         // Provide a basic Jacobian for pressure diffusion
         // g0 = phi*ct*shift, g3 = (k/mu)*I
@@ -1344,37 +1756,6 @@ PetscErrorCode Simulator::setupPhysics() {
         ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
         use_fem_time_residual_ = true;
     } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
-        // Set constants used by the black-oil PETScFE callbacks (see comment in f0/f1).
-        // Use the first material/fluid property set as a uniform medium default.
-        const MaterialProperties mat = material_props.empty() ? MaterialProperties() : material_props[0];
-        const FluidProperties flu = fluid_props.empty() ? FluidProperties() : fluid_props[0];
-
-        // Convert permeability from mD -> m^2
-        constexpr double mD_to_m2 = 9.869233e-16;
-
-        PetscScalar constants[19];
-        constants[0]  = mat.porosity;
-        constants[1]  = mat.permeability_x * mD_to_m2;
-        constants[2]  = mat.permeability_y * mD_to_m2;
-        constants[3]  = mat.permeability_z * mD_to_m2;
-        constants[4]  = flu.water_compressibility;
-        constants[5]  = flu.oil_compressibility;
-        constants[6]  = flu.gas_compressibility;
-        constants[7]  = flu.water_viscosity;
-        constants[8]  = flu.oil_viscosity;
-        constants[9]  = flu.gas_viscosity;
-        constants[10] = flu.water_residual_saturation;
-        constants[11] = flu.residual_saturation;       // Sor
-        constants[12] = flu.gas_residual_saturation;
-        constants[13] = flu.corey_exponent_water;
-        constants[14] = flu.corey_exponent_oil;
-        constants[15] = flu.corey_exponent_gas;
-        constants[16] = flu.kr_max_water;
-        constants[17] = flu.kr_max_oil;
-        constants[18] = flu.kr_max_gas;
-
-        ierr = PetscDSSetConstants(prob, 19, constants); CHKERRQ(ierr);
-
         // Pressure equation
         ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_BlackOilPressure, PetscFEFluidFlow::f1_BlackOilPressure); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
@@ -1388,7 +1769,248 @@ PetscErrorCode Simulator::setupPhysics() {
 
         use_fem_time_residual_ = true;
     }
-    
+
+    // Register PETSc FEM callbacks for elasticity if enabled (skip if poroelastic, already handled above)
+    if ((config.enable_geomechanics || config.enable_elastodynamics) &&
+        !(config.solid_model == SolidModelType::POROELASTIC &&
+          config.fluid_model == FluidModelType::SINGLE_COMPONENT)) {
+        // Determine field index for displacement
+        // Field ordering: [fluid fields...] [displacement] [thermal] [...]
+        PetscInt displacement_field_idx = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            displacement_field_idx = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            displacement_field_idx = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            displacement_field_idx = 4;  // P + 3 compositions
+        }
+        // else NONE: displacement_field_idx = 0
+
+        // Register callbacks
+        if (config.enable_elastodynamics) {
+            // Full dynamics with inertia
+            // For TSALPHA2, we use the standard first-order form callbacks
+            // The time stepper handles the second-order time integration internally
+            if (use_aux_callbacks) {
+                // Use auxiliary-field-aware callbacks (heterogeneous material)
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticityAux::f0_elastodynamics_aux,
+                                          PetscFEElasticityAux::f1_elastostatics_aux); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          PetscFEElasticityAux::g0_elastodynamics_aux, nullptr, nullptr,
+                                          PetscFEElasticityAux::g3_elastostatics_aux); CHKERRQ(ierr);
+            } else {
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticity::f0_elastodynamics,
+                                          PetscFEElasticity::f1_elastodynamics); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          PetscFEElasticity::g0_elastodynamics, nullptr, nullptr,
+                                          PetscFEElasticity::g3_elastodynamics); CHKERRQ(ierr);
+            }
+        } else {
+            // Quasi-static elasticity (no inertia)
+            if (use_aux_callbacks) {
+                // Use auxiliary-field-aware callbacks (heterogeneous material or gravity)
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticityAux::f0_elastostatics_aux,
+                                          PetscFEElasticityAux::f1_elastostatics_aux); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          nullptr, nullptr, nullptr,
+                                          PetscFEElasticityAux::g3_elastostatics_aux); CHKERRQ(ierr);
+            } else {
+                ierr = PetscDSSetResidual(prob, displacement_field_idx,
+                                          PetscFEElasticity::f0_elastostatics,
+                                          PetscFEElasticity::f1_elastostatics); CHKERRQ(ierr);
+                ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
+                                          nullptr, nullptr, nullptr,
+                                          PetscFEElasticity::g3_elastostatics); CHKERRQ(ierr);
+            }
+        }
+
+        use_fem_time_residual_ = true;
+    }
+
+    // Register cohesive fault callbacks if enabled
+    if (config.enable_faults && cohesive_kernel_) {
+        // Determine field indices
+        // Field ordering: [fluid fields...] [displacement] [lagrange] [thermal] [...]
+        PetscInt disp_field = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            disp_field = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            disp_field = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            disp_field = 4;  // P + 3 compositions
+        }
+        // else NONE: disp_field = 0
+
+        // Lagrange multiplier field is next after displacement
+        PetscInt lagrange_field = disp_field + 1;
+
+        // Register cohesive callbacks via CohesiveFaultKernel
+        // This expands the constants array and registers PetscDSSetBdResidual/BdJacobian
+        if (cohesive_kernel_->isPrescribedSlip()) {
+            ierr = cohesive_kernel_->registerPrescribedSlipWithDS(prob, disp_field, lagrange_field);
+        } else {
+            ierr = cohesive_kernel_->registerWithDS(prob, disp_field, lagrange_field);
+        }
+        CHKERRQ(ierr);
+
+        if (rank == 0) {
+            PetscPrintf(comm, "Registered cohesive fault callbacks on fields %d (disp), %d (lagrange)\n",
+                        disp_field, lagrange_field);
+        }
+    }
+
+    // Register absorbing boundary condition callbacks
+    if (config.absorbing_bc_enabled &&
+        (config.enable_geomechanics || config.enable_elastodynamics)) {
+        PetscInt displacement_field_idx = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            displacement_field_idx = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            displacement_field_idx = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            displacement_field_idx = 4;
+        }
+
+        ierr = PetscDSSetBdResidual(prob, displacement_field_idx,
+            AbsorbingBC::f0_absorbing, NULL); CHKERRQ(ierr);
+        ierr = PetscDSSetBdJacobian(prob, displacement_field_idx, displacement_field_idx,
+            AbsorbingBC::g0_absorbing, NULL, NULL, NULL); CHKERRQ(ierr);
+
+        if (rank == 0) {
+            PetscPrintf(comm, "Registered absorbing BC callbacks on field %d\n",
+                        displacement_field_idx);
+        }
+    }
+
+    // Setup auxiliary DM for heterogeneous material properties or gravity
+    if (use_aux_callbacks) {
+        ierr = setupAuxiliaryDM(); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::setupAuxiliaryDM()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Determine if mesh is simplex
+    PetscBool isSimplex = PETSC_FALSE;
+    DMPolytopeType ct;
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    if (cEnd > cStart) {
+        ierr = DMPlexGetCellType(dm, cStart, &ct); CHKERRQ(ierr);
+        if (ct == DM_POLYTOPE_TETRAHEDRON || ct == DM_POLYTOPE_TRIANGLE) {
+            isSimplex = PETSC_TRUE;
+        }
+    }
+
+    // Clone the primary DM topology
+    ierr = DMClone(dm, &auxDM_); CHKERRQ(ierr);
+
+    // Get quadrature from the primary FE to match tabulation points
+    PetscQuadrature quad = NULL;
+    if (!fe_fields.empty()) {
+        ierr = PetscFEGetQuadrature(fe_fields[0], &quad); CHKERRQ(ierr);
+    }
+
+    // Create scalar FE fields for lambda, mu, rho on the auxiliary DM
+    // Use degree-0 (constant per cell) for material properties
+    for (PetscInt f = 0; f < NUM_AUX_FIELDS; ++f) {
+        PetscFE fe_aux;
+        ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, 1, isSimplex, 0, PETSC_DETERMINE, &fe_aux); CHKERRQ(ierr);
+        // Match quadrature to primary FE so tabulation point counts agree
+        if (quad) {
+            ierr = PetscFESetQuadrature(fe_aux, quad); CHKERRQ(ierr);
+        }
+        ierr = DMSetField(auxDM_, f, NULL, (PetscObject)fe_aux); CHKERRQ(ierr);
+        ierr = PetscFEDestroy(&fe_aux); CHKERRQ(ierr);
+    }
+    ierr = DMCreateDS(auxDM_); CHKERRQ(ierr);
+
+    // Create local vector and populate with material properties
+    ierr = DMCreateLocalVector(auxDM_, &auxVec_); CHKERRQ(ierr);
+    ierr = populateAuxFieldsByDepth(); CHKERRQ(ierr);
+
+    // Attach auxiliary data to primary DM
+    ierr = DMSetAuxiliaryVec(dm, NULL, 0, 0, auxVec_); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Auxiliary DM setup complete: %d layers, %d aux fields\n",
+                    (int)config.material_layers.size(), (int)NUM_AUX_FIELDS);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::populateAuxFieldsByDepth()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Get cell range
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    // Get the section for the auxiliary DM
+    PetscSection section;
+    ierr = DMGetLocalSection(auxDM_, &section); CHKERRQ(ierr);
+
+    // Default material properties (from first material_props if available)
+    double default_lambda = 30.0e9, default_mu = 25.0e9, default_rho = 2650.0;
+    if (!material_props.empty()) {
+        double E = material_props[0].youngs_modulus;
+        double nu = material_props[0].poisson_ratio;
+        default_lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        default_mu = E / (2.0 * (1.0 + nu));
+        default_rho = material_props[0].density;
+    }
+
+    PetscScalar *a;
+    ierr = VecGetArray(auxVec_, &a); CHKERRQ(ierr);
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        // Compute cell centroid via FVM geometry
+        PetscReal vol, centroid[3], normal[3];
+        ierr = DMPlexComputeCellGeometryFVM(dm, c, &vol, centroid, normal); CHKERRQ(ierr);
+
+        // Determine z-coordinate (last dim)
+        PetscReal z = centroid[dim - 1];
+
+        // Look up material properties by depth
+        PetscScalar lambda = default_lambda;
+        PetscScalar mu = default_mu;
+        PetscScalar rho = default_rho;
+
+        for (const auto& layer : config.material_layers) {
+            if (z <= layer.z_top && z > layer.z_bottom) {
+                lambda = layer.lambda;
+                mu = layer.mu;
+                rho = layer.rho;
+                break;
+            }
+        }
+
+        // Get offset for this cell in the auxiliary vector
+        PetscInt offset;
+        ierr = PetscSectionGetOffset(section, c, &offset); CHKERRQ(ierr);
+
+        a[offset + AUX_LAMBDA] = lambda;
+        a[offset + AUX_MU]     = mu;
+        a[offset + AUX_RHO]    = rho;
+    }
+
+    ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
 }
 
@@ -1422,26 +2044,31 @@ PetscErrorCode Simulator::setupTimeStepper() {
     }
     
     // Set time stepping method
-    // NOTE: TSALPHA2 is a *second-order* integrator that requires TSSetI2Function/I2Jacobian.
-    // This code currently provides only TSSetIFunction/IJacobian (first-order form).
-    // To keep simulations stable/runnable, use backward Euler for now.
-    if (config.use_dynamic_mode || config.enable_elastodynamics || config.enable_poroelastodynamics) {
+    // Use TSALPHA2 (generalized-alpha) for elastodynamics: second-order time integrator
+    // TSALPHA2 handles the second-order ODE M*u_tt + K*u = f using generalized-alpha method.
+    // With IFunction form, u_t represents velocity and TSALPHA2 internally tracks acceleration.
+    // Use TSBEULER for other cases (single-phase flow, poroelasticity): first-order, more stable
+    if (config.enable_elastodynamics) {
+        ierr = TSSetType(ts, TSALPHA2); CHKERRQ(ierr);
+        // Set spectral radius for numerical dissipation (1.0 = no dissipation, 0.0 = maximum)
+        ierr = TSAlpha2SetRadius(ts, 1.0); CHKERRQ(ierr);
         if (rank == 0) {
-            PetscPrintf(comm,
-                        "Warning: dynamic mode requested, but second-order TSALPHA2 callbacks are not configured. "
-                        "Falling back to TSBEULER for stability.\n");
+            PetscPrintf(comm, "Using TSALPHA2 for elastodynamics (generalized-alpha, second-order)\n");
         }
+    } else {
+        ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
     }
-    ierr = TSSetType(ts, TSBEULER); CHKERRQ(ierr);
-    
+
     // Set time parameters
     ierr = TSSetTime(ts, config.start_time); CHKERRQ(ierr);
     ierr = TSSetMaxTime(ts, config.end_time); CHKERRQ(ierr);
     ierr = TSSetTimeStep(ts, config.dt_initial); CHKERRQ(ierr);
     ierr = TSSetMaxSteps(ts, config.max_timesteps); CHKERRQ(ierr);
     ierr = TSSetExactFinalTime(ts, TS_EXACTFINALTIME_MATCHSTEP); CHKERRQ(ierr);
-    
+
     // Set residual and Jacobian functions
+    // Use standard IFunction/IJacobian form for all cases
+    // TSALPHA2 handles second-order time integration internally using first-order form
     ierr = TSSetIFunction(ts, nullptr, FormFunction, this); CHKERRQ(ierr);
     ierr = TSSetIJacobian(ts, jacobian, jacobian, FormJacobian, this); CHKERRQ(ierr);
     
@@ -1483,8 +2110,16 @@ PetscErrorCode Simulator::setupSolvers() {
     
     // Get preconditioner
     ierr = KSPGetPC(ksp, &pc); CHKERRQ(ierr);
+
+    // For elastodynamics with TSALPHA2, the system matrix is K + shift*M.
+    // Use direct LU solver for robustness. For larger problems, can be overridden
+    // with command-line options: -ksp_type cg -pc_type gamg
+    if (config.enable_elastodynamics) {
+        ierr = KSPSetType(ksp, KSPPREONLY); CHKERRQ(ierr);
+        ierr = PCSetType(pc, PCLU); CHKERRQ(ierr);
+    }
     
-    // Set solver options from command line
+    // Set solver options from command line (override programmatic defaults)
     ierr = SNESSetFromOptions(snes); CHKERRQ(ierr);
     ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
     ierr = PCSetFromOptions(pc); CHKERRQ(ierr);
@@ -1621,36 +2256,438 @@ PetscErrorCode Simulator::setupIMEXTransition(const ConfigReader::IMEXConfig& im
 
 PetscErrorCode Simulator::setupFaultNetwork() {
     PetscFunctionBeginUser;
-    
-    if (!config.enable_faults) {
+    if (!config.enable_faults) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
+
+    if (rank == 0) PetscPrintf(comm, "Setting up fault network...\n");
+
+    // 1. Create fault mesh manager
+    fault_mesh_manager_ = std::make_unique<FaultMeshManager>(comm);
+
+    // 2. Read fault geometry from config
+    //    ConfigReader should have parsed [FAULT] section with:
+    //    strike, dip, center_x/y/z, length, width, tolerance
+    //    For now, use defaults if not in config
+    double strike = 0.0;        // radians
+    double dip = M_PI / 2.0;    // vertical fault
+    double center[3] = {0.0, 0.0, 0.0};
+    double length = 1e10;       // large enough to cut the whole mesh
+    double width = 1e10;
+    // Simplex mesh face centroids are not at exact grid coords, use smaller tolerance
+    double tol = 0.05;
+
+    if (fracture_plane_enabled_) {
+        // Use fracture plane geometry from [FRACTURE_PLANE] config
+        strike = fracture_plane_strike_;
+        dip = fracture_plane_dip_;
+        center[0] = fracture_plane_center_[0];
+        center[1] = fracture_plane_center_[1];
+        center[2] = fracture_plane_center_[2];
+        length = fracture_plane_length_;
+        width = fracture_plane_width_;
+    } else {
+        // Default: vertical fault at mesh center cutting entire domain
+        center[0] = grid_config.Lx / 2.0;
+        center[1] = grid_config.Ly / 2.0;
+        center[2] = grid_config.Lz / 2.0;
+        length = 2.0 * std::max({grid_config.Lx, grid_config.Ly, grid_config.Lz});
+        width = length;
+    }
+
+    // 3. Label fault faces on the DM
+    DMLabel fault_label = nullptr;
+    ierr = fault_mesh_manager_->createPlanarFaultLabel(
+        dm, &fault_label, strike, dip, center, length, width, tol);
+    if (ierr != 0) {
+        if (rank == 0) PetscPrintf(comm, "Warning: fault labeling failed, skipping fault setup\n");
+        fault_mesh_manager_.reset();
         PetscFunctionReturn(0);
     }
+
+    // 4. Split mesh along fault (inserts cohesive cells)
+    //    THIS CHANGES THE DM TOPOLOGY
+    ierr = fault_mesh_manager_->splitMeshAlongFault(&dm, "fault");
+    if (ierr != 0) {
+        if (rank == 0) PetscPrintf(comm, "Warning: mesh splitting failed, skipping fault setup\n");
+        fault_mesh_manager_.reset();
+        PetscFunctionReturn(0);
+    }
+
+    // 5. Create FaultCohesiveDyn and extract topology from cohesive cells
+    cohesive_fault_ = std::make_unique<FaultCohesiveDyn>();
+    ierr = fault_mesh_manager_->extractCohesiveTopology(dm, cohesive_fault_.get());
+    CHKERRQ(ierr);
+
+    // 6. Set friction model
+    //    TODO: Read from config. Default: slip-weakening
+    auto friction = std::make_unique<SlipWeakeningFriction>();
+    friction->setStaticCoefficient(0.6);
+    friction->setDynamicCoefficient(0.4);
+    friction->setCriticalSlipDistance(0.4);
+    cohesive_fault_->setFrictionModel(std::move(friction));
+
+    // 7. Set initial traction (pre-stress on fault)
+    //    For locked fault test: doesn't matter, but set something physical
+    cohesive_fault_->setUniformInitialTraction(25e6, 0.0, -50e6);
+
+    // 8. Initialize fault state
+    cohesive_fault_->initialize();
+
+    // 9. Create cohesive kernel
+    cohesive_kernel_ = std::make_unique<CohesiveFaultKernel>();
     
-    if (rank == 0) {
-        PetscPrintf(comm, "Setting up fault network for induced seismicity...\n");
+    if (fault_mode_ == "prescribed_slip") {
+        // Convert from fault-local (strike, dip, opening) to Cartesian (x, y, z)
+        double fault_strike = fracture_plane_enabled_ ? fracture_plane_strike_ : 0.0;
+        double fault_dip = fracture_plane_enabled_ ? fracture_plane_dip_ : M_PI / 2.0;
+        
+        double cs = std::cos(fault_strike);
+        double ss = std::sin(fault_strike);
+        double cd = std::cos(fault_dip);
+        double sd = std::sin(fault_dip);
+        
+        // Strike direction (horizontal, along-fault)
+        double strike_dir[3] = {cs, ss, 0.0};
+        // Normal direction (into hanging wall)
+        double normal_dir[3] = {-ss * sd, cs * sd, -cd};
+        // Dip direction = normal x strike (downdip)
+        double dip_dir[3] = {
+            normal_dir[1] * strike_dir[2] - normal_dir[2] * strike_dir[1],
+            normal_dir[2] * strike_dir[0] - normal_dir[0] * strike_dir[2],
+            normal_dir[0] * strike_dir[1] - normal_dir[1] * strike_dir[0]
+        };
+        
+        double slip_x = fault_slip_strike_ * strike_dir[0] + fault_slip_dip_ * dip_dir[0] + fault_slip_opening_ * normal_dir[0];
+        double slip_y = fault_slip_strike_ * strike_dir[1] + fault_slip_dip_ * dip_dir[1] + fault_slip_opening_ * normal_dir[1];
+        double slip_z = fault_slip_strike_ * strike_dir[2] + fault_slip_dip_ * dip_dir[2] + fault_slip_opening_ * normal_dir[2];
+        
+        cohesive_kernel_->setPrescribedSlip(slip_x, slip_y, slip_z);
+        cohesive_kernel_->setMode(true);
+        
+        if (rank == 0) {
+            PetscPrintf(comm, "Prescribed slip mode: strike=%.3f, dip=%.3f, opening=%.3f\n",
+                        fault_slip_strike_, fault_slip_dip_, fault_slip_opening_);
+            PetscPrintf(comm, "Prescribed slip (Cartesian): (%.6f, %.6f, %.6f)\n",
+                        slip_x, slip_y, slip_z);
+        }
+    } else if (fault_mode_ == "slipping") {
+        cohesive_kernel_->setMode(false);
+        cohesive_kernel_->setFrictionCoefficient(0.6);
+    } else {
+        cohesive_kernel_->setMode(true);  // locked
+        cohesive_kernel_->setFrictionCoefficient(0.6);
     }
     
-    fault_network = std::make_unique<FaultNetwork>();
-    
-    // Fault network will be populated from config file parsing
-    // This is called after config parsing to finalize setup
-    
+    if (fracture_plane_enabled_) {
+        cohesive_kernel_->setTensileStrength(fracture_plane_tensile_strength_);
+    }
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Fault network setup complete: %zu fault vertices\n",
+                    cohesive_fault_->numVertices());
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::locateInjectionCell() {
+    PetscFunctionBeginUser;
+    if (!injection_enabled_) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
+
+    Vec pointVec;
+    ierr = VecCreateSeq(PETSC_COMM_SELF, 3, &pointVec); CHKERRQ(ierr);
+    ierr = VecSetBlockSize(pointVec, 3); CHKERRQ(ierr);
+    PetscScalar *pv;
+    ierr = VecGetArray(pointVec, &pv); CHKERRQ(ierr);
+    pv[0] = injection_x_; pv[1] = injection_y_; pv[2] = injection_z_;
+    ierr = VecRestoreArray(pointVec, &pv); CHKERRQ(ierr);
+
+    PetscSF cellSF = nullptr;
+    ierr = DMLocatePoints(dm, pointVec, DM_POINTLOCATION_NONE, &cellSF); CHKERRQ(ierr);
+
+    // Extract the cell index from the PetscSF
+    const PetscSFNode *remotePoints;
+    PetscInt nFound;
+    ierr = PetscSFGetGraph(cellSF, nullptr, &nFound, nullptr, &remotePoints); CHKERRQ(ierr);
+    if (nFound > 0 && remotePoints[0].index >= 0) {
+        injection_cell_ = remotePoints[0].index;
+    } else {
+        injection_cell_ = -1;
+    }
+
+    ierr = PetscSFDestroy(&cellSF); CHKERRQ(ierr);
+    ierr = VecDestroy(&pointVec); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Injection point located in cell %d\n", (int)injection_cell_);
+    }
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::addInjectionToResidual(PetscReal t, Vec locF) {
+    PetscFunctionBeginUser;
+    if (injection_cell_ < 0) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
+
+    // Compute cell volume
+    PetscReal vol;
+    ierr = DMPlexComputeCellGeometryFVM(dm, injection_cell_, &vol, nullptr, nullptr);
+    CHKERRQ(ierr);
+
+    // Get the local section to find pressure DOFs
+    PetscSection section;
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+
+    // Pressure field index: 0 for poroelastic and single-phase
+    PetscInt pressure_field = 0;
+
+    // Get the number of pressure DOFs for this cell
+    PetscInt nPressureDofs;
+    ierr = PetscSectionGetFieldDof(section, injection_cell_, pressure_field, &nPressureDofs);
+    CHKERRQ(ierr);
+
+    if (nPressureDofs <= 0) PetscFunctionReturn(0);
+
+    // Get the closure for this cell
+    PetscScalar *closure = nullptr;
+    PetscInt closureSize;
+    ierr = DMPlexVecGetClosure(dm, section, locF, injection_cell_, &closureSize, &closure);
+    CHKERRQ(ierr);
+
+    // Source term: Q / V_cell distributed over pressure DOFs
+    // Negative because IFunction form: F(t,U,U_t) = 0, source goes on RHS
+    PetscScalar source = -injection_rate_ / vol;
+
+    // Pressure DOFs come first in the closure for poroelastic (field 0)
+    for (PetscInt i = 0; i < nPressureDofs; i++) {
+        closure[i] += source / nPressureDofs;
+    }
+
+    ierr = DMPlexVecSetClosure(dm, section, locF, injection_cell_, closure, INSERT_VALUES);
+    CHKERRQ(ierr);
+    ierr = DMPlexVecRestoreClosure(dm, section, locF, injection_cell_, &closureSize, &closure);
+    CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::locateExplosionCell() {
+    PetscFunctionBeginUser;
+    if (!explosion_) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
+
+    Vec pointVec;
+    ierr = VecCreateSeq(PETSC_COMM_SELF, 3, &pointVec); CHKERRQ(ierr);
+    ierr = VecSetBlockSize(pointVec, 3); CHKERRQ(ierr);
+    PetscScalar *pv;
+    ierr = VecGetArray(pointVec, &pv); CHKERRQ(ierr);
+    pv[0] = explosion_->sx; pv[1] = explosion_->sy; pv[2] = explosion_->sz;
+    ierr = VecRestoreArray(pointVec, &pv); CHKERRQ(ierr);
+
+    PetscSF cellSF = nullptr;
+    ierr = DMLocatePoints(dm, pointVec, DM_POINTLOCATION_NONE, &cellSF); CHKERRQ(ierr);
+
+    const PetscSFNode *remotePoints;
+    PetscInt nFound;
+    ierr = PetscSFGetGraph(cellSF, nullptr, &nFound, nullptr, &remotePoints); CHKERRQ(ierr);
+    if (nFound > 0 && remotePoints[0].index >= 0) {
+        explosion_cell_ = remotePoints[0].index;
+    } else {
+        explosion_cell_ = -1;
+    }
+
+    ierr = PetscSFDestroy(&cellSF); CHKERRQ(ierr);
+    ierr = VecDestroy(&pointVec); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Explosion source located in cell %d\n", (int)explosion_cell_);
+    }
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
+    PetscFunctionBeginUser;
+    if (explosion_cell_ < 0 || !explosion_) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
+
+    // Get moment tensor at current time
+    double M[6];  // Mxx, Myy, Mzz, Mxy, Mxz, Myz
+    MuellerMurphySource mm;
+    NuclearSourceParameters nsp;
+    nsp.yield_kt = 0;
+    nsp.depth_of_burial = 0;
+    // Use the cavity's equivalent moment as the source magnitude
+    double mr = 0.0;
+    double elapsed = static_cast<double>(t) - explosion_->t0;
+    if (elapsed >= 0.0) {
+        double tau = explosion_->cavity.getRiseTime();
+        if (tau < 1e-12) tau = 1e-12;
+        double M0 = explosion_->cavity.equivalentMoment();
+        // Isotropic moment tensor: M_ij = M0(t)/3 * delta_ij
+        mr = (M0 / tau) * std::exp(-elapsed / tau);
+    }
+    double scale = mr / 3.0;
+    M[0] = M[1] = M[2] = scale;
+    M[3] = M[4] = M[5] = 0.0;
+
+    // Compute cell volume
+    PetscReal vol;
+    ierr = DMPlexComputeCellGeometryFVM(dm, explosion_cell_, &vol, nullptr, nullptr);
+    CHKERRQ(ierr);
+
+    // Get displacement field index (0 for elastostatics, 1 for poroelastic)
+    PetscInt disp_field = 0;
+    if (config.solid_model == SolidModelType::POROELASTIC &&
+        config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        disp_field = 1;
+    }
+
+    PetscSection section;
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+
+    // Get the closure of DOFs for this cell (includes DOFs from all vertices)
+    PetscScalar *closure = nullptr;
+    PetscInt closureSize;
+    ierr = DMPlexVecGetClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
+    CHKERRQ(ierr);
+    if (closureSize <= 0) {
+        ierr = DMPlexVecRestoreClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
+        CHKERRQ(ierr);
+        PetscFunctionReturn(0);
+    }
+
+    // For elastostatics (disp_field=0), all closure DOFs are displacement DOFs
+    // For poroelastic (disp_field=1), we need to skip pressure DOFs
+    // In the closure ordering, DOFs from each vertex appear in field order:
+    // [p0, ux0, uy0, uz0, p1, ux1, uy1, uz1, ...] for poroelastic
+    // [ux0, uy0, uz0, ux1, uy1, uz1, ...] for pure elastic
+    PetscInt dim = 3;
+    if (disp_field == 0) {
+        // All closure DOFs are displacement, grouped by vertex: (ux,uy,uz) per node
+        PetscInt nNodes = closureSize / dim;
+        for (PetscInt n = 0; n < nNodes; ++n) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                closure[n * dim + d] += -M[d] / vol;
+            }
+        }
+    } else {
+        // Poroelastic: each vertex contributes 1 pressure DOF + dim displacement DOFs
+        PetscInt dofs_per_node = 1 + dim;
+        PetscInt nNodes = closureSize / dofs_per_node;
+        for (PetscInt n = 0; n < nNodes; ++n) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                // Skip pressure DOF (index 0 per node), displacement starts at index 1
+                closure[n * dofs_per_node + 1 + d] += -M[d] / vol;
+            }
+        }
+    }
+
+    ierr = DMPlexVecSetClosure(dm, section, locF, explosion_cell_, closure, INSERT_VALUES);
+    CHKERRQ(ierr);
+    ierr = DMPlexVecRestoreClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
+    CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
 }
 
 PetscErrorCode Simulator::setInitialConditions() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
-    
-    // Set initial conditions from Eclipse data
-    Vec local;
-    ierr = DMGetLocalVector(dm, &local); CHKERRQ(ierr);
-    
-    // Set uniform initial condition (for now)
-    ierr = VecSet(solution, 1.0e7); CHKERRQ(ierr); // 1 bar initial pressure
-    
-    ierr = DMRestoreLocalVector(dm, &local); CHKERRQ(ierr);
-    
+
+    // Locate injection cell if injection is enabled (needs DM fully set up)
+    ierr = locateInjectionCell(); CHKERRQ(ierr);
+
+    // Locate explosion source cell
+    ierr = locateExplosionCell(); CHKERRQ(ierr);
+
+    // Load initial conditions from file if requested
+    if (config.initial_condition_type == "from_file" && !config.initial_condition_path.empty()) {
+        PetscViewer viewer;
+        ierr = PetscViewerBinaryOpen(comm, config.initial_condition_path.c_str(),
+                                     FILE_MODE_READ, &viewer); CHKERRQ(ierr);
+        ierr = VecLoad(solution, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm, "  Loaded initial conditions from %s\n",
+                        config.initial_condition_path.c_str());
+        }
+        PetscFunctionReturn(0);
+    }
+
+    // Start from zero (displacement at rest, zero pressure perturbation)
+    ierr = VecZeroEntries(solution); CHKERRQ(ierr);
+
+    // For poroelasticity: set initial pore pressure (undrained response to sudden load)
+    if (config.solid_model == SolidModelType::POROELASTIC &&
+        config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        PetscInt nfields;
+        ierr = DMGetNumFields(dm, &nfields); CHKERRQ(ierr);
+        if (nfields >= 3 && config.enable_faults) {
+            // Hybrid mesh with cohesive cells: DMProjectFunction fails on cohesive
+            // cells. Manually set pressure DOFs to 1 MPa via the PetscSection.
+            PetscSection section;
+            ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+            Vec localVec_ic;
+            ierr = DMGetLocalVector(dm, &localVec_ic); CHKERRQ(ierr);
+            ierr = VecZeroEntries(localVec_ic); CHKERRQ(ierr);
+            PetscInt pStart, pEnd;
+            ierr = PetscSectionGetChart(section, &pStart, &pEnd); CHKERRQ(ierr);
+            PetscScalar *larray;
+            ierr = VecGetArray(localVec_ic, &larray); CHKERRQ(ierr);
+            for (PetscInt p = pStart; p < pEnd; ++p) {
+                PetscInt dof, off, fdof, foff;
+                ierr = PetscSectionGetDof(section, p, &dof); CHKERRQ(ierr);
+                if (dof <= 0) continue;
+                ierr = PetscSectionGetOffset(section, p, &off); CHKERRQ(ierr);
+                // Field 0 = pressure (1 component)
+                ierr = PetscSectionGetFieldDof(section, p, 0, &fdof); CHKERRQ(ierr);
+                if (fdof > 0) {
+                    ierr = PetscSectionGetFieldOffset(section, p, 0, &foff); CHKERRQ(ierr);
+                    for (PetscInt i = 0; i < fdof; ++i) {
+                        larray[off + foff + i] = 1.0e6;  // 1 MPa
+                    }
+                }
+            }
+            ierr = VecRestoreArray(localVec_ic, &larray); CHKERRQ(ierr);
+            ierr = DMLocalToGlobal(dm, localVec_ic, INSERT_VALUES, solution); CHKERRQ(ierr);
+            ierr = DMRestoreLocalVector(dm, &localVec_ic); CHKERRQ(ierr);
+        } else {
+            // Standard mesh: use DMProjectFunction
+            // terzaghi_ic returns 1 MPa for pressure (Nc=1) and 0 for displacement (Nc=3)
+            PetscErrorCode (*funcs[2])(PetscInt, PetscReal, const PetscReal[], PetscInt, PetscScalar*, void*) = {terzaghi_ic, terzaghi_ic};
+            void *ctxs[2] = {nullptr, nullptr};
+            ierr = DMProjectFunction(dm, 0.0, funcs, ctxs, INSERT_VALUES, solution); CHKERRQ(ierr);
+        }
+        if (rank == 0) {
+            PetscPrintf(comm, "  Set Terzaghi initial conditions: p0 = 1 MPa\n");
+        }
+    }
+
+    // Ensure DM section is created (required for DMPlexInsertBoundaryValues to work)
+    ierr = DMSetUp(dm); CHKERRQ(ierr);
+
+    // Debug: Check if we have boundary IDs registered
+    PetscDS ds;
+    PetscInt numBd;
+    ierr = DMGetDS(dm, &ds); CHKERRQ(ierr);
+    ierr = PetscDSGetNumBoundary(ds, &numBd); CHKERRQ(ierr);
+    ierr = PetscPrintf(PETSC_COMM_WORLD, "  Number of boundaries registered: %d\n", numBd); CHKERRQ(ierr);
+
+    // Insert boundary condition values into solution vector at boundary DOFs
+    // This creates a non-equilibrium initial state for SNES to solve
+    // DMPlexInsertBoundaryValues requires a local vector
+    Vec localVec;
+    ierr = DMGetLocalVector(dm, &localVec); CHKERRQ(ierr);
+    ierr = DMGlobalToLocal(dm, solution, INSERT_VALUES, localVec); CHKERRQ(ierr);
+    ierr = DMPlexInsertBoundaryValues(dm, PETSC_TRUE, localVec, 0.0, NULL, NULL, NULL); CHKERRQ(ierr);
+    ierr = DMLocalToGlobal(dm, localVec, INSERT_VALUES, solution); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(dm, &localVec); CHKERRQ(ierr);
+
+    PetscReal norm;
+    ierr = VecNorm(solution, NORM_2, &norm); CHKERRQ(ierr);
+    ierr = PetscPrintf(PETSC_COMM_WORLD, "  Solution norm after BC insertion: %.6e\n", norm); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
 }
 
@@ -1738,11 +2775,90 @@ PetscErrorCode Simulator::run() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
-    // Set initial time
-    ierr = TSSetSolution(ts, solution); CHKERRQ(ierr);
+    // Create output directory if it does not exist
+    if (rank == 0) {
+        struct stat st;
+        if (stat(output_directory_.c_str(), &st) != 0) {
+            mkdir(output_directory_.c_str(), 0755);
+        }
+    }
+    MPI_Barrier(comm);
+    
+    // Set initial conditions for the time stepper
+    if (config.enable_elastodynamics) {
+        // TSALPHA2 requires both displacement (U) and velocity (V) initial conditions
+        Vec velocity;
+        ierr = VecDuplicate(solution, &velocity); CHKERRQ(ierr);
+        ierr = VecZeroEntries(velocity); CHKERRQ(ierr);
+        ierr = TS2SetSolution(ts, solution, velocity); CHKERRQ(ierr);
+        ierr = VecDestroy(&velocity); CHKERRQ(ierr);
+    } else {
+        ierr = TSSetSolution(ts, solution); CHKERRQ(ierr);
+    }
     
     // Solve
     ierr = TSSolve(ts, solution); CHKERRQ(ierr);
+
+    // Compute and write derived fields (stress, strain, CFS) if requested
+    if (config.output_stress || config.output_cfs)
+    {
+      // Get material parameters from the first material
+      double lambda = 0.0, mu_mat = 0.0, biot = 0.0;
+      if (!material_props.empty())
+      {
+        const auto& mat = material_props[0];
+        double E = mat.youngs_modulus;
+        double nu = mat.poisson_ratio;
+        lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        mu_mat = E / (2.0 * (1.0 + nu));
+        biot = mat.biot_coefficient;
+      }
+      derived_fields_.setMaterialParameters(lambda, mu_mat, biot);
+
+      if (config.output_cfs)
+      {
+        derived_fields_.setReceiverOrientation(
+          config.cfs_receiver_strike, config.cfs_receiver_dip, config.cfs_friction);
+      }
+
+      ierr = derived_fields_.compute(dm, solution); CHKERRQ(ierr);
+
+      if (config.output_stress)
+      {
+        std::string stress_path = output_directory_ + "/stress.h5";
+        ierr = derived_fields_.writeStressHDF5(comm, stress_path.c_str(), timestep, current_time);
+        CHKERRQ(ierr);
+        if (rank == 0)
+        {
+          PetscPrintf(comm, "Stress field written to %s (%d cells, 6 components)\n",
+                      stress_path.c_str(), (int)derived_fields_.numCells());
+        }
+      }
+
+      if (config.output_cfs)
+      {
+        std::string cfs_path = output_directory_ + "/cfs.h5";
+        ierr = derived_fields_.writeCfsHDF5(comm, cfs_path.c_str(), timestep, current_time);
+        CHKERRQ(ierr);
+        if (rank == 0)
+        {
+          PetscPrintf(comm, "CFS field written to %s (%d cells)\n",
+                      cfs_path.c_str(), (int)derived_fields_.numCells());
+        }
+      }
+    }
+
+    // Save solution to binary file if requested
+    if (!config.save_solution_path.empty()) {
+        PetscViewer viewer;
+        ierr = PetscViewerBinaryOpen(comm, config.save_solution_path.c_str(),
+                                     FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm, "Saved solution to %s\n", config.save_solution_path.c_str());
+        }
+    }
     
     PetscFunctionReturn(0);
 }
@@ -1759,8 +2875,50 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
     ierr = VecSet(F, 0.0); CHKERRQ(ierr);
 
     if (sim->use_fem_time_residual_) {
-        // Compute residual from DMPlex FEM discretization
-        ierr = DMPlexTSComputeIFunctionFEM(sim->dm, t, U, U_t, F, ctx); CHKERRQ(ierr);
+        DM dm = sim->dm;
+
+        // DMPlexTSComputeIFunctionFEM expects LOCAL vectors.
+        // The TS callback provides GLOBAL vectors, so we must convert.
+        Vec locU, locU_t = NULL, locF;
+        ierr = DMGetLocalVector(dm, &locU); CHKERRQ(ierr);
+        ierr = DMGetLocalVector(dm, &locF); CHKERRQ(ierr);
+        ierr = VecZeroEntries(locU); CHKERRQ(ierr);
+        ierr = VecZeroEntries(locF); CHKERRQ(ierr);
+
+        // Scatter global solution to local and insert boundary values
+        ierr = DMGlobalToLocal(dm, U, INSERT_VALUES, locU); CHKERRQ(ierr);
+        ierr = DMPlexInsertBoundaryValues(dm, PETSC_TRUE, locU, t, NULL, NULL, NULL); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMGetLocalVector(dm, &locU_t); CHKERRQ(ierr);
+            ierr = VecZeroEntries(locU_t); CHKERRQ(ierr);
+            ierr = DMGlobalToLocal(dm, U_t, INSERT_VALUES, locU_t); CHKERRQ(ierr);
+        }
+
+        // Compute FEM residual on local vectors
+        ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
+
+        // Add injection source to the local residual (modifies pressure DOFs)
+        if (sim->injection_enabled_ && sim->injection_cell_ >= 0) {
+            PetscReal t_local = static_cast<double>(t);
+            if (t_local >= sim->injection_start_ && t_local <= sim->injection_end_) {
+                ierr = sim->addInjectionToResidual(t, locF); CHKERRQ(ierr);
+            }
+        }
+
+        // Add explosion moment tensor source to displacement DOFs
+        if (sim->explosion_ && sim->explosion_cell_ >= 0 && sim->use_fem_time_residual_) {
+            ierr = sim->addExplosionSourceToResidual(t, locF); CHKERRQ(ierr);
+        }
+
+        // Scatter local residual back to global (ADD_VALUES to accumulate)
+        ierr = DMLocalToGlobal(dm, locF, ADD_VALUES, F); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMRestoreLocalVector(dm, &locU_t); CHKERRQ(ierr);
+        }
+        ierr = DMRestoreLocalVector(dm, &locF); CHKERRQ(ierr);
+        ierr = DMRestoreLocalVector(dm, &locU); CHKERRQ(ierr);
     } else {
         // Safe fallback: enforce U_t = 0 (no time evolution) to keep simulations
         // runnable even when residuals aren't configured for the selected fields.
@@ -1780,8 +2938,27 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
     PetscErrorCode ierr;
     
     if (sim->use_fem_time_residual_) {
-        // Compute Jacobian from DMPlex FEM discretization
-        ierr = DMPlexTSComputeIJacobianFEM(sim->dm, t, U, U_t, a, J, P, ctx); CHKERRQ(ierr);
+        DM dm = sim->dm;
+
+        // DMPlexTSComputeIJacobianFEM expects LOCAL vectors.
+        Vec locU, locU_t = NULL;
+        ierr = DMGetLocalVector(dm, &locU); CHKERRQ(ierr);
+        ierr = VecZeroEntries(locU); CHKERRQ(ierr);
+        ierr = DMGlobalToLocal(dm, U, INSERT_VALUES, locU); CHKERRQ(ierr);
+        ierr = DMPlexInsertBoundaryValues(dm, PETSC_TRUE, locU, t, NULL, NULL, NULL); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMGetLocalVector(dm, &locU_t); CHKERRQ(ierr);
+            ierr = VecZeroEntries(locU_t); CHKERRQ(ierr);
+            ierr = DMGlobalToLocal(dm, U_t, INSERT_VALUES, locU_t); CHKERRQ(ierr);
+        }
+
+        ierr = DMPlexTSComputeIJacobianFEM(dm, t, locU, locU_t, a, J, P, ctx); CHKERRQ(ierr);
+
+        if (U_t) {
+            ierr = DMRestoreLocalVector(dm, &locU_t); CHKERRQ(ierr);
+        }
+        ierr = DMRestoreLocalVector(dm, &locU); CHKERRQ(ierr);
     } else {
         // Jacobian for F = U_t is simply shift * I in PETSc's implicit form.
         ierr = MatZeroEntries(P); CHKERRQ(ierr);
@@ -1795,7 +2972,7 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t, 
+PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
                                           Vec U, void *ctx) {
     (void)ts;  // Part of PETSc callback interface - accessed via ctx
     (void)U;   // Solution available through ctx->solution
@@ -1817,6 +2994,48 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
     // Sample seismometers (if enabled)
     if (sim->seismometers_) {
         ierr = sim->seismometers_->sample(static_cast<double>(t), U); CHKERRQ(ierr);
+    }
+
+    // Update hydraulic fracture model (if enabled)
+    if (sim->hydrofrac_ && sim->injection_enabled_) {
+        // Estimate wellbore pressure from injection rate and formation transmissibility
+        // For a proper estimate we would extract pressure from the FEM solution at the
+        // injection point. Use a simplified analytical estimate instead:
+        // p = Q * mu / (4*pi*k*H) * ln(re/rw) + sigma_min
+        double k = 10.0 * 9.869233e-16;  // 10 mD in m^2
+        double H = sim->hydrofrac_->getHeight();
+        double mu_f = 0.001;
+        double rw = 0.1;
+        double re = 100.0;
+        double sigma_min = sim->hydrofrac_->getMinHorizontalStress();
+        double wellbore_pressure = sigma_min +
+            sim->injection_rate_ / (4.0 * M_PI * k * H / mu_f) * std::log(re / rw);
+
+        // Compute stress intensity factor
+        double half_len = sim->hydrofrac_->getLength() / 2.0;
+        if (half_len < 1.0) half_len = 1.0;
+        double net_pressure = wellbore_pressure - sigma_min;
+        double K_I = net_pressure * std::sqrt(M_PI * half_len);
+
+        if (K_I > sim->hydrofrac_->getFractureToughness()) {
+            if (!sim->hydrofrac_initiated_) {
+                sim->hydrofrac_initiated_ = true;
+                if (sim->rank == 0) {
+                    PetscPrintf(sim->comm,
+                        "FRACTURE INITIATED at t=%.2f, K_I=%.2e > K_Ic=%.2e\n",
+                        (double)t, K_I, sim->hydrofrac_->getFractureToughness());
+                }
+            }
+            sim->hydrofrac_->propagate(wellbore_pressure, sim->dt);
+
+            double frac_perm = sim->hydrofrac_->getWidth() * sim->hydrofrac_->getWidth() / 12.0;
+            if (sim->rank == 0 && ((int)step % 10 == 0)) {
+                PetscPrintf(sim->comm,
+                    "FRACTURE: L=%.2f m, W=%.4e m, H=%.1f m, k_f=%.2e m^2\n",
+                    sim->hydrofrac_->getLength(), sim->hydrofrac_->getWidth(),
+                    sim->hydrofrac_->getHeight(), frac_perm);
+            }
+        }
     }
 
     // Estimate velocity from finite difference (needed by IMEX manager)
@@ -1920,14 +3139,78 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
 
 PetscErrorCode Simulator::writeOutput(int step) {
     PetscFunctionBeginUser;
-    // PetscErrorCode ierr;  // Not used in current implementation
-    
-    // Disable VTK output for now to avoid format incompatibility
-    // TODO: Properly implement output based on DM type (DMPlex)
-    if (rank == 0 && step % 10 == 0) {
-        PetscPrintf(comm, "Output at step %d would be written here\n", step);
+    PetscErrorCode ierr;
+
+    // Determine output format: HDF5 (default) or VTK
+    std::string fmt = config.output_format;
+    std::transform(fmt.begin(), fmt.end(), fmt.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+    if (fmt == "HDF5" || fmt == "XDMF") {
+        // Build HDF5 output file path
+        std::string h5_path = output_directory_ + "/solution.h5";
+
+        PetscViewer viewer;
+        if (!output_topology_written_) {
+            // First write: create the file and write the DM topology
+            ierr = PetscViewerHDF5Open(comm, h5_path.c_str(), FILE_MODE_WRITE, &viewer);
+            CHKERRQ(ierr);
+
+            // Write mesh topology once
+            ierr = DMView(dm, viewer); CHKERRQ(ierr);
+
+            output_topology_written_ = true;
+        } else {
+            // Subsequent writes: append to the existing file
+            ierr = PetscViewerHDF5Open(comm, h5_path.c_str(), FILE_MODE_APPEND, &viewer);
+            CHKERRQ(ierr);
+        }
+
+        // Use DMSetOutputSequenceNumber to associate a timestep index and time
+        // with this output. DMPlex VecView reads this to label HDF5 datasets.
+        ierr = DMSetOutputSequenceNumber(dm, static_cast<PetscInt>(step),
+                                         static_cast<PetscReal>(current_time));
+        CHKERRQ(ierr);
+
+        // Name the solution vector so HDF5 datasets have meaningful labels
+        ierr = PetscObjectSetName(reinterpret_cast<PetscObject>(solution), "solution");
+        CHKERRQ(ierr);
+
+        // Write the solution vector
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+
+        if (rank == 0 && step % 10 == 0) {
+            PetscPrintf(comm, "HDF5 output written at step %d to %s\n", step, h5_path.c_str());
+        }
+    } else if (fmt == "VTK") {
+        // Write VTK output (.vtu file per step)
+        char vtu_path[PETSC_MAX_PATH_LEN];
+        ierr = PetscSNPrintf(vtu_path, sizeof(vtu_path), "%s/solution_%06d.vtu",
+                             output_directory_.c_str(), step); CHKERRQ(ierr);
+
+        PetscViewer viewer;
+        ierr = PetscViewerVTKOpen(comm, vtu_path, FILE_MODE_WRITE, &viewer);
+        CHKERRQ(ierr);
+
+        ierr = PetscObjectSetName(reinterpret_cast<PetscObject>(solution), "solution");
+        CHKERRQ(ierr);
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+
+        if (rank == 0 && step % 10 == 0) {
+            PetscPrintf(comm, "VTK output written at step %d to %s\n", step, vtu_path);
+        }
+    } else {
+        // Unknown format or ECLIPSE -- print stub message
+        if (rank == 0 && step % 10 == 0) {
+            PetscPrintf(comm, "Output at step %d (format=%s not implemented)\n",
+                        step, config.output_format.c_str());
+        }
     }
-    
+
     PetscFunctionReturn(0);
 }
 
@@ -2093,9 +3376,379 @@ void Simulator::transformToInputCoordinates(double& x, double& y, double& z) con
     }
 }
 
+PetscErrorCode Simulator::labelBoundaries() {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Labeling boundary faces...\n");
+    }
+
+    // Get mesh dimension
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Get bounding box
+    Vec coords;
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    const PetscScalar *coordArray;
+    ierr = VecGetArrayRead(coords, &coordArray); CHKERRQ(ierr);
+
+    PetscInt coordSize;
+    ierr = VecGetLocalSize(coords, &coordSize); CHKERRQ(ierr);
+    PetscInt nCoords = coordSize / dim;
+
+    // Compute bounding box
+    double xmin = 1e30, xmax = -1e30;
+    double ymin = 1e30, ymax = -1e30;
+    double zmin = 1e30, zmax = -1e30;
+
+    for (PetscInt i = 0; i < nCoords; i++) {
+        double x = PetscRealPart(coordArray[i * dim + 0]);
+        double y = (dim >= 2) ? PetscRealPart(coordArray[i * dim + 1]) : 0.0;
+        double z = (dim >= 3) ? PetscRealPart(coordArray[i * dim + 2]) : 0.0;
+
+        if (x < xmin) xmin = x;
+        if (x > xmax) xmax = x;
+        if (y < ymin) ymin = y;
+        if (y > ymax) ymax = y;
+        if (z < zmin) zmin = z;
+        if (z > zmax) zmax = z;
+    }
+
+    ierr = VecRestoreArrayRead(coords, &coordArray); CHKERRQ(ierr);
+
+    // Reduce across all ranks
+    double local_min[3] = {xmin, ymin, zmin};
+    double local_max[3] = {xmax, ymax, zmax};
+    double global_min[3], global_max[3];
+    ierr = MPI_Allreduce(local_min, global_min, 3, MPI_DOUBLE, MPI_MIN, comm); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(local_max, global_max, 3, MPI_DOUBLE, MPI_MAX, comm); CHKERRQ(ierr);
+
+    xmin = global_min[0]; ymin = global_min[1]; zmin = global_min[2];
+    xmax = global_max[0]; ymax = global_max[1]; zmax = global_max[2];
+
+    // Tolerance for boundary detection (1% of domain size)
+    double eps_x = 0.01 * (xmax - xmin);
+    double eps_y = 0.01 * (ymax - ymin);
+    double eps_z = 0.01 * (zmax - zmin);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "  Bounding box: [%.3f, %.3f] x [%.3f, %.3f] x [%.3f, %.3f]\n",
+                    xmin, xmax, ymin, ymax, zmin, zmax);
+    }
+
+    // Create DMLabels for each boundary face
+    const char *label_names[6] = {
+        "boundary_x_min", "boundary_x_max",
+        "boundary_y_min", "boundary_y_max",
+        "boundary_z_min", "boundary_z_max"
+    };
+
+    DMLabel labels[6];
+    for (int i = 0; i < 6; i++) {
+        ierr = DMCreateLabel(dm, label_names[i]); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, label_names[i], &labels[i]); CHKERRQ(ierr);
+    }
+
+    // Get face stratum (height 1)
+    PetscInt fStart, fEnd;
+    ierr = DMPlexGetHeightStratum(dm, 1, &fStart, &fEnd); CHKERRQ(ierr);
+
+    // Iterate over all faces
+    PetscInt nLabeled[6] = {0, 0, 0, 0, 0, 0};
+    for (PetscInt face = fStart; face < fEnd; face++) {
+        // Check if this is a boundary face (support size == 1)
+        PetscInt supportSize;
+        ierr = DMPlexGetSupportSize(dm, face, &supportSize); CHKERRQ(ierr);
+        if (supportSize != 1) continue; // Interior face
+
+        // Get face centroid
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        PetscReal normal[3] = {0.0, 0.0, 0.0};
+        ierr = DMPlexComputeCellGeometryFVM(dm, face, nullptr, centroid, normal); CHKERRQ(ierr);
+
+        // Assign to appropriate label based on centroid
+        if (dim >= 1 && PetscAbsReal(centroid[0] - xmin) < eps_x) {
+            ierr = DMLabelSetValue(labels[0], face, 1); CHKERRQ(ierr);
+            nLabeled[0]++;
+        } else if (dim >= 1 && PetscAbsReal(centroid[0] - xmax) < eps_x) {
+            ierr = DMLabelSetValue(labels[1], face, 1); CHKERRQ(ierr);
+            nLabeled[1]++;
+        }
+
+        if (dim >= 2 && PetscAbsReal(centroid[1] - ymin) < eps_y) {
+            ierr = DMLabelSetValue(labels[2], face, 1); CHKERRQ(ierr);
+            nLabeled[2]++;
+        } else if (dim >= 2 && PetscAbsReal(centroid[1] - ymax) < eps_y) {
+            ierr = DMLabelSetValue(labels[3], face, 1); CHKERRQ(ierr);
+            nLabeled[3]++;
+        }
+
+        if (dim >= 3 && PetscAbsReal(centroid[2] - zmin) < eps_z) {
+            ierr = DMLabelSetValue(labels[4], face, 1); CHKERRQ(ierr);
+            nLabeled[4]++;
+        } else if (dim >= 3 && PetscAbsReal(centroid[2] - zmax) < eps_z) {
+            ierr = DMLabelSetValue(labels[5], face, 1); CHKERRQ(ierr);
+            nLabeled[5]++;
+        }
+    }
+
+    // Call DMPlexLabelComplete on each label to add vertices and edges in closure
+    for (int i = 0; i < 6; i++) {
+        ierr = DMPlexLabelComplete(dm, labels[i]); CHKERRQ(ierr);
+    }
+
+    // Report labeled faces
+    if (rank == 0) {
+        for (int i = 0; i < 6; i++) {
+            PetscInt global_count;
+            ierr = MPI_Reduce(&nLabeled[i], &global_count, 1, MPIU_INT, MPI_SUM, 0, comm); CHKERRQ(ierr);
+            PetscPrintf(comm, "  %s: %d faces\n", label_names[i], global_count);
+        }
+    } else {
+        for (int i = 0; i < 6; i++) {
+            ierr = MPI_Reduce(&nLabeled[i], nullptr, 1, MPIU_INT, MPI_SUM, 0, comm); CHKERRQ(ierr);
+        }
+    }
+
+    PetscFunctionReturn(0);
+}
+
 PetscErrorCode Simulator::setupBoundaryConditions() {
     PetscFunctionBeginUser;
-    // Setup boundary conditions
+    PetscErrorCode ierr;
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Setting up boundary conditions...\n");
+    }
+
+    // Determine field indices based on configuration
+    // NOTE: This is called BEFORE DMCreateDS, so we cannot use DMGetDS yet
+    PetscInt pressure_field = -1;
+    PetscInt displacement_field = -1;
+
+    if (config.solid_model == SolidModelType::POROELASTIC &&
+        config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        // Poroelasticity: field 0 = pressure, field 1 = displacement
+        pressure_field = 0;
+        displacement_field = 1;
+    } else if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        // Fluid flow only: field 0 = pressure
+        pressure_field = 0;
+    } else if (config.enable_geomechanics || config.enable_elastodynamics) {
+        // Geomechanics only: displacement field is 0 for NONE fluid model, else 1
+        displacement_field = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            displacement_field = 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            displacement_field = 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            displacement_field = 4;
+        }
+    }
+
+    // Apply boundary conditions based on physics
+    DMLabel label_xmin, label_xmax, label_ymin, label_ymax, label_zmin, label_zmax;
+    ierr = DMGetLabel(dm, "boundary_x_min", &label_xmin); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_x_max", &label_xmax); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_y_min", &label_ymin); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_y_max", &label_ymax); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_z_min", &label_zmin); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, "boundary_z_max", &label_zmax); CHKERRQ(ierr);
+
+    if (config.solid_model == SolidModelType::POROELASTIC &&
+        config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        // POROELASTIC case: field 0 = pressure, field 1 = displacement
+        PetscInt pfield = 0;
+        PetscInt ufield = 1;
+        PetscInt label_value = 1;
+
+        // Bottom: fix all displacement components (impermeable = natural BC on pressure)
+        if (label_zmin) {
+            PetscInt comps[3] = {0, 1, 2};
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom",
+                label_zmin, 1, &label_value, ufield, 3, comps,
+                (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: fixed bottom (z_min), field %d, all components = 0\n", ufield);
+            }
+        }
+        // Top: drained (p = 0)
+        if (label_zmax) {
+            PetscInt comp = 0;
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "drained_top",
+                label_zmax, 1, &label_value, pfield, 1, &comp,
+                (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: drained top (z_max), field %d, pressure = 0\n", pfield);
+            }
+        }
+        // Top: applied compression (u_z = -0.001)
+        if (label_zmax) {
+            PetscInt comps[3] = {0, 1, 2};
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top",
+                label_zmax, 1, &label_value, ufield, 3, comps,
+                (void (*)(void))bc_compression, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: compression top (z_max), field %d, u_z = -0.001\n", ufield);
+            }
+        }
+        // Lateral rollers
+        if (label_xmin) {
+            PetscInt comp = 0;
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmin",
+                label_xmin, 1, &label_value, ufield, 1, &comp,
+                (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: roller x_min, field %d, u_x = 0\n", ufield);
+            }
+        }
+        if (label_xmax) {
+            PetscInt comp = 0;
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmax",
+                label_xmax, 1, &label_value, ufield, 1, &comp,
+                (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: roller x_max, field %d, u_x = 0\n", ufield);
+            }
+        }
+        if (label_ymin) {
+            PetscInt comp = 1;
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymin",
+                label_ymin, 1, &label_value, ufield, 1, &comp,
+                (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: roller y_min, field %d, u_y = 0\n", ufield);
+            }
+        }
+        if (label_ymax) {
+            PetscInt comp = 1;
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymax",
+                label_ymax, 1, &label_value, ufield, 1, &comp,
+                (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: roller y_max, field %d, u_y = 0\n", ufield);
+            }
+        }
+    } else if (displacement_field >= 0) {
+        // Pure elastostatics: field 0 = displacement
+        PetscInt field = displacement_field;
+        PetscInt comps_all[3] = {0, 1, 2};
+        PetscInt label_value = 1;
+
+        // Bottom BC
+        if (label_zmin && config.bottom_bc == "fixed") {
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom", label_zmin, 1, &label_value,
+                                 field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+            CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: fixed bottom (z_min), field %d, all components = 0\n", field);
+            }
+        }
+
+        // Top BC
+        if (label_zmax && config.top_bc == "compression") {
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top", label_zmax, 1, &label_value,
+                                 field, 3, comps_all, (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
+            CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: compression top (z_max), field %d, u_z = -0.001\n", field);
+            }
+        }
+        // top_bc == "free" means no Dirichlet BC on top (natural zero-traction)
+
+        // Side BCs: roller constrains normal displacement to zero
+        if (config.side_bc == "roller") {
+            if (label_xmin) {
+                PetscInt comp = 0;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmin", label_xmin, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller x_min, field %d, u_x = 0\n", field);
+                }
+            }
+            if (label_xmax) {
+                PetscInt comp = 0;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmax", label_xmax, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller x_max, field %d, u_x = 0\n", field);
+                }
+            }
+            if (label_ymin) {
+                PetscInt comp = 1;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymin", label_ymin, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller y_min, field %d, u_y = 0\n", field);
+                }
+            }
+            if (label_ymax) {
+                PetscInt comp = 1;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymax", label_ymax, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: roller y_max, field %d, u_y = 0\n", field);
+                }
+            }
+        }
+    }
+
+    // For fluid flow only (no geomechanics):
+    // - Fixed pressure on x_min: p = 0 (reference)
+    if (pressure_field >= 0 && !config.enable_geomechanics &&
+        config.solid_model != SolidModelType::POROELASTIC) {
+        PetscInt field = pressure_field;
+        PetscInt comp = 0;
+        PetscInt label_value = 1;
+
+        if (label_xmin) {
+            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &label_value,
+                                 field, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
+            CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
+            }
+        }
+    }
+
+    // Register absorbing boundary conditions (DM_BC_NATURAL)
+    if (config.absorbing_bc_enabled && displacement_field >= 0) {
+        PetscInt field = displacement_field;
+        PetscInt label_value = 1;
+
+        struct AbsorbingFace {
+            bool enabled;
+            DMLabel label;
+            const char* name;
+        };
+        AbsorbingFace faces[6] = {
+            {config.absorbing_bc_x_min, label_xmin, "absorbing_x_min"},
+            {config.absorbing_bc_x_max, label_xmax, "absorbing_x_max"},
+            {config.absorbing_bc_y_min, label_ymin, "absorbing_y_min"},
+            {config.absorbing_bc_y_max, label_ymax, "absorbing_y_max"},
+            {config.absorbing_bc_z_min, label_zmin, "absorbing_z_min"},
+            {config.absorbing_bc_z_max, label_zmax, "absorbing_z_max"},
+        };
+
+        for (int i = 0; i < 6; ++i) {
+            if (faces[i].enabled && faces[i].label) {
+                ierr = DMAddBoundary(dm, DM_BC_NATURAL, faces[i].name,
+                    faces[i].label, 1, &label_value, field, 0, NULL,
+                    NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: %s (absorbing), field %d\n",
+                        faces[i].name, field);
+                }
+            }
+        }
+    }
+
     PetscFunctionReturn(0);
 }
 

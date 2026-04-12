@@ -16,6 +16,7 @@
 #include "numerics/FaultMeshManager.hpp"
 #include "physics/CohesiveFaultKernel.hpp"
 #include "domain/geomechanics/CoulombStressTransfer.hpp"
+#include "core/DerivedFieldComputer.hpp"
 #include <memory>
 #include <vector>
 
@@ -38,6 +39,8 @@ public:
     // IMEX transition setup for induced seismicity modeling
     PetscErrorCode setupIMEXTransition(const ConfigReader::IMEXConfig& imex_config);
     PetscErrorCode setupFaultNetwork();
+    PetscErrorCode labelBoundaries();
+    PetscErrorCode setupBoundaryConditions();
     
     // Load input
     PetscErrorCode loadEclipseInput(const std::string& filename);
@@ -75,6 +78,12 @@ public:
     PetscErrorCode computePerformanceMetrics();
     PetscErrorCode generatePlots();
     PetscErrorCode writeStatistics();
+
+    // Accessors for testing
+    DM getDM() const { return dm; }
+    Vec getSolution() const { return solution; }
+    const SimulationConfig& getConfig() const { return config; }
+    const DerivedFieldComputer& getDerivedFields() const { return derived_fields_; }
     
 private:
     MPI_Comm comm;
@@ -155,10 +164,19 @@ private:
     std::unique_ptr<FaultMeshManager> fault_mesh_manager_;
     std::unique_ptr<CohesiveFaultKernel> cohesive_kernel_;
     std::unique_ptr<CoulombStressTransfer> cfs_transfer_;
+
+    // Derived field computation (stress, strain, CFS)
+    DerivedFieldComputer derived_fields_;
     
     // Material properties (per cell or per region)
     std::vector<MaterialProperties> material_props;
     std::vector<FluidProperties> fluid_props;
+
+    // Auxiliary DM for heterogeneous material properties
+    DM  auxDM_ = nullptr;
+    Vec auxVec_ = nullptr;
+    PetscErrorCode setupAuxiliaryDM();
+    PetscErrorCode populateAuxFieldsByDepth();
     
     // Simulation state
     double current_time;
@@ -170,6 +188,43 @@ private:
     // If false, fall back to a safe placeholder (U_t = 0) to avoid crashes when
     // the discretization/physics residuals are not configured.
     bool use_fem_time_residual_ = false;
+
+    // Injection source (Phase 2)
+    bool injection_enabled_ = false;
+    double injection_x_ = 0, injection_y_ = 0, injection_z_ = 0;
+    double injection_rate_ = 0;
+    double injection_start_ = 0, injection_end_ = 1e30;
+    PetscInt injection_cell_ = -1;
+    PetscErrorCode locateInjectionCell();
+    PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
+
+    // Hydraulic fracture model (Phase 3)
+    std::unique_ptr<HydraulicFractureModel> hydrofrac_;
+    bool hydrofrac_initiated_ = false;
+
+    // Cohesive fracture plane (Phase 4)
+    bool fracture_plane_enabled_ = false;
+    double fracture_plane_strike_ = 0.0;   // radians
+    double fracture_plane_dip_ = M_PI / 2.0;
+    double fracture_plane_center_[3] = {0, 0, 0};
+    double fracture_plane_length_ = 200.0;
+    double fracture_plane_width_ = 100.0;
+    double fracture_plane_tensile_strength_ = 5.0e6;  // Pa
+
+    // Fault mode and prescribed slip
+    std::string fault_mode_ = "locked";
+    double fault_slip_strike_ = 0.0;
+    double fault_slip_dip_ = 0.0;
+    double fault_slip_opening_ = 0.0;
+
+    // Output directory and format for HDF5/VTK output
+    std::string output_directory_ = "output";
+    bool output_topology_written_ = false;
+
+    // Explosion source FEM injection (Phase 5)
+    PetscInt explosion_cell_ = -1;
+    PetscErrorCode locateExplosionCell();
+    PetscErrorCode addExplosionSourceToResidual(PetscReal t, Vec locF);
     
     // Performance metrics
     std::vector<double> solve_times;
@@ -178,9 +233,9 @@ private:
     
     // Static callback functions for PETSc
     static PetscErrorCode FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F, void *ctx);
-    static PetscErrorCode FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t, 
+    static PetscErrorCode FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                                        PetscReal a, Mat J, Mat P, void *ctx);
-    static PetscErrorCode MonitorFunction(TS ts, PetscInt step, PetscReal t, 
+    static PetscErrorCode MonitorFunction(TS ts, PetscInt step, PetscReal t,
                                          Vec U, void *ctx);
     
     // Helper functions
@@ -189,7 +244,6 @@ private:
     PetscErrorCode setupGmshGrid();
     PetscErrorCode setupCoordinateSystem();
     PetscErrorCode createFieldsFromConfig();
-    PetscErrorCode setupBoundaryConditions();
     PetscErrorCode interpolateMaterialProperties();
     PetscErrorCode applyMaterialPropertiesToKernels();
     

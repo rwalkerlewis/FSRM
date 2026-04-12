@@ -286,6 +286,7 @@ PetscErrorCode SeismometerNetwork::initialize(DM dm,
     // Setup interpolation
     PetscCall(DMInterpolationCreate(comm_, &interp_));
     PetscCall(DMInterpolationSetDim(interp_, 3));
+    PetscCall(DMInterpolationSetDof(interp_, dof_per_point_));
 
     std::vector<PetscReal> pts;
     pts.reserve(stations_.size() * 3);

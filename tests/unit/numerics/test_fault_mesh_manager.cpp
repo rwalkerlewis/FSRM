@@ -73,11 +73,12 @@ TEST_F(FaultMeshManagerTest, IsPointWithinFaultRectangularExtent) {
 
 TEST_F(FaultMeshManagerTest, SplitMeshAlongFaultRequiresDMPlex) {
     DM dm = nullptr;
-    PetscInt faces[3] = {2, 2, 2};
+    PetscInt faces[3] = {4, 4, 4};
     PetscReal lower[3] = {0.0, 0.0, 0.0};
     PetscReal upper[3] = {1.0, 1.0, 1.0};
-    PetscErrorCode ierr = DMPlexCreateBoxMesh(PETSC_COMM_WORLD, 3, PETSC_FALSE, faces, lower,
-                                              upper, nullptr, PETSC_TRUE, &dm);
+    // Use simplex mesh (PETSC_TRUE) - cohesive cells work reliably on simplex in PETSc 3.22
+    PetscErrorCode ierr = DMPlexCreateBoxMesh(PETSC_COMM_WORLD, 3, PETSC_TRUE, faces, lower,
+                                              upper, nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm);
     if (ierr != 0 || !dm) {
         GTEST_SKIP() << "DMPlexCreateBoxMesh unavailable or failed (PETSc build without "
                         "full DMPlex support)";
@@ -86,8 +87,9 @@ TEST_F(FaultMeshManagerTest, SplitMeshAlongFaultRequiresDMPlex) {
     FaultMeshManager mgr(PETSC_COMM_WORLD);
     DMLabel fault_label = nullptr;
     const double center[3] = {0.5, 0.5, 0.5};
+    // Simplex mesh face centroids are not at exact grid coords, use smaller tolerance
     ierr = mgr.createPlanarFaultLabel(dm, &fault_label, 0.0, 0.5 * M_PI, center, 2.0, 2.0,
-                                      0.15);
+                                      0.05);
     if (ierr != 0) {
         DMDestroy(&dm);
         GTEST_SKIP() << "createPlanarFaultLabel failed on box mesh; geometry labeling not "

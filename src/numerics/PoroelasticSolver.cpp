@@ -39,7 +39,7 @@ PetscErrorCode PoroelasticSolver::setupDMPlex() {
     PetscReal upper[3] = {domain_size_.x, domain_size_.y, domain_size_.z};
     
     ierr = DMPlexCreateBoxMesh(comm_, 3, PETSC_FALSE, faces, lower, upper,
-                               nullptr, PETSC_TRUE, &dm_); CHKERRQ(ierr);
+                               nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm_); CHKERRQ(ierr);
     
     // Set name for visualization
     ierr = PetscObjectSetName((PetscObject)dm_, "Poroelastic Mesh"); CHKERRQ(ierr);

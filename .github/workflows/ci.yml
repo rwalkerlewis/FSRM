@@ -109,7 +109,7 @@ jobs:
             -w /workspace/build \
             fsrm-ci:local \
             ctest -L "unit" --output-on-failure --timeout 120 \
-                  --output-junit unit-results.xml || true
+                  --output-junit unit-results.xml
 
       - name: Upload Results
         if: always()
@@ -156,7 +156,7 @@ jobs:
             -w /workspace/build \
             fsrm-ci:local \
             ctest -L "functional" --output-on-failure --timeout 180 \
-                  --output-junit functional-results.xml || true
+                  --output-junit functional-results.xml
 
       - name: Upload Results
         if: always()
@@ -203,7 +203,7 @@ jobs:
             -w /workspace/build \
             fsrm-ci:local \
             ctest -L "physics_validation" --output-on-failure --timeout 300 \
-                  --output-junit physics-results.xml || true
+                  --output-junit physics-results.xml
 
       - name: Upload Results
         if: always()
@@ -250,7 +250,7 @@ jobs:
             -w /workspace/build \
             fsrm-ci:local \
             ctest -L "integration" --output-on-failure --timeout 600 \
-                  --output-junit integration-results.xml || true
+                  --output-junit integration-results.xml
 
       - name: Upload Results
         if: always()
@@ -298,7 +298,7 @@ jobs:
             -w /workspace/build \
             fsrm-ci:local \
             ctest -L "performance" --output-on-failure --timeout 900 \
-                  --output-junit performance-results.xml || true
+                  --output-junit performance-results.xml
 
       - name: Upload Results
         if: always()

@@ -9,9 +9,12 @@
 
 #include "domain/geomechanics/CoulombStressTransfer.hpp"
 #include "domain/geomechanics/PyLithFault.hpp"
+#include <petscfe.h>
+#include <petscdt.h>
 #include <cmath>
 #include <algorithm>
 #include <limits>
+#include <vector>
 
 namespace FSRM {
 
@@ -56,123 +59,173 @@ PetscErrorCode CoulombStressTransfer::sampleStressAtFaults(Vec solution) {
     PetscSection section;
     ierr = DMGetLocalSection(dm_, &section); CHKERRQ(ierr);
 
-    const PetscScalar* sol_array;
-    ierr = VecGetArrayRead(local, &sol_array); CHKERRQ(ierr);
+    // Get cell range for height-0 (volume cells)
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm_, 0, &cStart, &cEnd); CHKERRQ(ierr);
 
-    // For each fault vertex, find the adjacent cell and compute stress
-    size_t nv = fault_->numVertices();
-    for (size_t vi = 0; vi < nv; ++vi) {
-        const FaultVertex& fv = fault_->getVertex(vi);
+    // Get the displacement FE from the DM.
+    // Field ordering: displacement is field 0 for elastostatics,
+    // field 1 for poroelastic (field 0 = pressure).
+    // Determine displacement field index by checking field component count.
+    PetscInt nFields;
+    ierr = DMGetNumFields(dm_, &nFields); CHKERRQ(ierr);
 
-        // Use the negative-side vertex to find the adjacent cell
-        PetscInt vert = fv.vertex_negative;
-        if (vert < 0) continue;
-
-        // Get the support (cells) of this vertex
-        PetscInt support_size;
-        const PetscInt* support;
-        ierr = DMPlexGetSupportSize(dm_, vert, &support_size); CHKERRQ(ierr);
-        ierr = DMPlexGetSupport(dm_, vert, &support); CHKERRQ(ierr);
-
-        // Find a volume cell (height 0) connected to this vertex
-        // Walk up the support chain: vertex → edge → face → cell
-        PetscInt cStart, cEnd;
-        ierr = DMPlexGetHeightStratum(dm_, 0, &cStart, &cEnd); CHKERRQ(ierr);
-
-        // For simplicity, use the vertex DOFs directly
-        // In the 6-field layout: 0=P, 1=S, 2=ux, 3=uy, 4=uz, 5=phi
-        // We need the displacement gradients, which are not directly available
-        // from a vertex. Instead, we approximate using the cell-averaged gradient.
-
-        // Get DOFs at this vertex
-        PetscInt dof, offset;
-        ierr = PetscSectionGetDof(section, vert, &dof); CHKERRQ(ierr);
-        ierr = PetscSectionGetOffset(section, vert, &offset); CHKERRQ(ierr);
-
-        // Extract pressure (field 0) and displacement (fields 2,3,4)
-        double P = 0.0;
-        double ux = 0.0, uy = 0.0, uz = 0.0;
-        if (dof >= 6) {
-            P  = PetscRealPart(sol_array[offset + 0]);
-            ux = PetscRealPart(sol_array[offset + 2]);
-            uy = PetscRealPart(sol_array[offset + 3]);
-            uz = PetscRealPart(sol_array[offset + 4]);
-        } else if (dof >= 4) {
-            P  = PetscRealPart(sol_array[offset + 0]);
-            ux = PetscRealPart(sol_array[offset + 1]);
-            uy = (dof > 2) ? PetscRealPart(sol_array[offset + 2]) : 0.0;
-            uz = (dof > 3) ? PetscRealPart(sol_array[offset + 3]) : 0.0;
-        }
-
-        // For strain computation, we need displacement gradients.
-        // Since we're sampling at a vertex, we estimate gradients using
-        // the positive-side vertex displacement to get the displacement jump.
-        // The strain in the continuum is obtained from neighboring vertex values.
-        //
-        // Simplified approach: estimate strain from the displacement magnitude
-        // relative to a characteristic length scale. This is a proxy that works
-        // for detecting CFS changes during injection, though a full implementation
-        // would project strain to a DG field and sample properly.
-
-        // Get positive-side vertex displacement for displacement jump
-        double ux_pos = ux, uy_pos = uy, uz_pos = uz;
-        PetscInt pos_vert = fv.vertex_positive;
-        if (pos_vert >= 0) {
-            PetscInt pos_dof, pos_off;
-            ierr = PetscSectionGetDof(section, pos_vert, &pos_dof); CHKERRQ(ierr);
-            ierr = PetscSectionGetOffset(section, pos_vert, &pos_off); CHKERRQ(ierr);
-            if (pos_dof >= 6) {
-                ux_pos = PetscRealPart(sol_array[pos_off + 2]);
-                uy_pos = PetscRealPart(sol_array[pos_off + 3]);
-                uz_pos = PetscRealPart(sol_array[pos_off + 4]);
-            }
-        }
-
-        // Estimate strain using finite differences between support cells
-        // For now, use a simplified approach: the stress is estimated from
-        // the pressure change via Biot coupling: sigma' = -alpha*P*I + deviatoric
-        // For a uniform injection, the stress change is primarily isotropic:
-        //   delta_sigma_xx = delta_sigma_yy = delta_sigma_zz ≈ alpha * delta_P / 3
-        // The shear stress change comes from geometric effects near the fault.
-
-        // For CFS computation, the key quantity is the pore pressure change
-        // and its effect on effective normal stress. Use Biot coupling:
-        //   delta_sigma_n_eff = delta_sigma_n - alpha * delta_P
-        // For isotropic loading: delta_sigma_n ≈ 0 (confined), so
-        //   delta_sigma_n_eff ≈ -alpha * delta_P (pore pressure increase reduces effective stress)
-
-        // Store the stress state using Biot effective stress coupling
-        VertexStress& vs = current_[vi];
-        vs.pressure = P;
-
-        // Estimate strain from average displacement gradient using the
-        // displacement jump across the fault as a proxy. This is a simple
-        // first-order approximation that avoids full FEM reconstruction
-        // but still captures the effect of deformation on stress.
-        //
-        // Δu = u_pos - u  (displacement jump across the fault)
-        // eps_xx ≈ Δux / L_ref, etc., with a local reference length scale.
-        const double ref_len = 1.0;  // [m] reference length; tune if mesh scale is known
-
-        const double dux = ux_pos - ux;
-        const double duy = uy_pos - uy;
-        const double duz = uz_pos - uz;
-
-        double eps[6];
-        // Normal strains
-        eps[0] = dux / ref_len;  // eps_xx
-        eps[1] = duy / ref_len;  // eps_yy
-        eps[2] = duz / ref_len;  // eps_zz
-        // Shear strains (symmetric combinations; small-strain assumption)
-        eps[3] = 0.5 * (dux + duy) / ref_len;  // eps_xy
-        eps[4] = 0.5 * (dux + duz) / ref_len;  // eps_xz
-        eps[5] = 0.5 * (duy + duz) / ref_len;  // eps_yz
-
-        // Compute stress from strain (including Biot pressure coupling)
-        computeStressFromStrain(eps, P, vs.sigma.data());
+    PetscInt disp_field = 0;
+    PetscFE fe_disp = nullptr;
+    for (PetscInt f = 0; f < nFields; ++f) {
+      PetscObject obj;
+      ierr = DMGetField(dm_, f, nullptr, &obj); CHKERRQ(ierr);
+      PetscFE fe = (PetscFE)obj;
+      PetscInt nc;
+      ierr = PetscFEGetNumComponents(fe, &nc); CHKERRQ(ierr);
+      if (nc == dim) {
+        disp_field = f;
+        fe_disp = fe;
+        break;
+      }
     }
 
-    ierr = VecRestoreArrayRead(local, &sol_array); CHKERRQ(ierr);
+    // Tabulate basis function derivatives at the cell centroid (reference origin).
+    // For simplex affine elements, the gradients are constant over the cell,
+    // so the reference point does not matter; we use the origin {0,0,0}.
+    PetscTabulation tab = nullptr;
+    if (fe_disp) {
+      std::vector<PetscReal> refPoint(dim, 0.0);
+      // K=1: tabulate values (T[0]) and first derivatives (T[1])
+      ierr = PetscFECreateTabulation(fe_disp, 1, 1, refPoint.data(), 1, &tab); CHKERRQ(ierr);
+    }
+
+    PetscInt Nb = 0;  // number of basis functions
+    if (tab) {
+      Nb = tab->Nb;
+    }
+
+    // For each fault vertex, find an adjacent volume cell and compute
+    // the displacement gradient using FEM basis function derivatives
+    size_t nv = fault_->numVertices();
+    for (size_t vi = 0; vi < nv; ++vi) {
+      const FaultVertex& fv = fault_->getVertex(vi);
+
+      // Use the negative-side vertex to find the adjacent cell
+      PetscInt vert = fv.vertex_negative;
+      if (vert < 0) continue;
+
+      // Walk the DAG upward from the vertex to find a volume cell.
+      // DMPlexGetTransitiveClosure with useCone=PETSC_FALSE gives the
+      // star (support closure) of the point: all mesh entities that
+      // contain this vertex, including edges, faces, and cells.
+      PetscInt *closure = nullptr;
+      PetscInt closureSize = 0;
+      ierr = DMPlexGetTransitiveClosure(dm_, vert, PETSC_FALSE, &closureSize, &closure);
+      CHKERRQ(ierr);
+
+      PetscInt cell = -1;
+      for (PetscInt ci = 0; ci < closureSize; ++ci) {
+        PetscInt p = closure[2 * ci];
+        if (p >= cStart && p < cEnd) {
+          cell = p;
+          break;
+        }
+      }
+      ierr = DMPlexRestoreTransitiveClosure(dm_, vert, PETSC_FALSE, &closureSize, &closure);
+      CHKERRQ(ierr);
+
+      if (cell < 0) continue;
+
+      // Get the inverse Jacobian for this cell (affine geometry)
+      // v0[dim]: cell vertex, J[dim*dim]: Jacobian, invJ[dim*dim]: inverse, detJ
+      std::vector<PetscReal> v0(dim), J(dim * dim), invJ(dim * dim);
+      PetscReal detJ;
+      ierr = DMPlexComputeCellGeometryAffineFEM(dm_, cell, v0.data(), J.data(),
+                                                 invJ.data(), &detJ);
+      CHKERRQ(ierr);
+
+      // Get the displacement DOFs for this cell via closure
+      PetscScalar *cellDofs = nullptr;
+      PetscInt cellDofSize;
+      ierr = DMPlexVecGetClosure(dm_, section, local, cell, &cellDofSize, &cellDofs);
+      CHKERRQ(ierr);
+
+      // Extract displacement DOFs.
+      // The closure contains DOFs for ALL fields, ordered as:
+      //   [field_0: Nb0 values] [field_1: Nb1 values] ...
+      // where Nb includes all components (e.g., Nb=12 for P1 vector in 3D).
+      PetscInt disp_offset = 0;
+      for (PetscInt f = 0; f < disp_field; ++f) {
+        PetscObject obj;
+        ierr = DMGetField(dm_, f, nullptr, &obj); CHKERRQ(ierr);
+        PetscFE fe_f = (PetscFE)obj;
+        PetscInt nb_f;
+        ierr = PetscFEGetDimension(fe_f, &nb_f); CHKERRQ(ierr);
+        disp_offset += nb_f;
+      }
+
+      // Sample pressure from the solution at this vertex (for Biot coupling)
+      double P = 0.0;
+      {
+        const PetscScalar* sol_array;
+        ierr = VecGetArrayRead(local, &sol_array); CHKERRQ(ierr);
+        PetscInt vdof, voff;
+        ierr = PetscSectionGetDof(section, vert, &vdof); CHKERRQ(ierr);
+        ierr = PetscSectionGetOffset(section, vert, &voff); CHKERRQ(ierr);
+        // Pressure is field 0 if there are more fields than just displacement.
+        // Check if the displacement field is > 0 (meaning pressure is field 0).
+        if (disp_field > 0 && vdof > 0) {
+          P = PetscRealPart(sol_array[voff]);
+        }
+        ierr = VecRestoreArrayRead(local, &sol_array); CHKERRQ(ierr);
+      }
+
+      // Compute displacement gradient: du_c/dx_j
+      // For PETSc vector Lagrange FE, each basis function b controls a single
+      // component c = b % Nc. The tabulation D[b][c][k] = dN_b^c / dX_k is
+      // nonzero only when c == b % Nc.
+      //
+      // Physical gradient:
+      //   du_c/dx_j = sum_b closureDofs[disp_offset + b] *
+      //               sum_k D[b*Nc*cdim + c*cdim + k] * invJ[k*dim + j]
+      // where c = b % dim.
+      double grad_u[3][3] = {{0}};
+
+      if (tab && Nb > 0) {
+        const PetscReal *D = tab->T[1];
+
+        for (PetscInt b = 0; b < Nb; ++b) {
+          PetscInt c = b % dim;  // component this basis function controls
+          double u_val = PetscRealPart(cellDofs[disp_offset + b]);
+
+          for (PetscInt j = 0; j < dim; ++j) {
+            double phys_grad = 0.0;
+            for (PetscInt k = 0; k < dim; ++k) {
+              phys_grad += D[b * dim * dim + c * dim + k] * invJ[k * dim + j];
+            }
+            grad_u[c][j] += u_val * phys_grad;
+          }
+        }
+      }
+
+      ierr = DMPlexVecRestoreClosure(dm_, section, local, cell, &cellDofSize, &cellDofs);
+      CHKERRQ(ierr);
+
+      // Symmetrize to get strain: eps_ij = 0.5 * (du_i/dx_j + du_j/dx_i)
+      double eps[6];
+      eps[0] = grad_u[0][0];                                // eps_xx
+      eps[1] = grad_u[1][1];                                // eps_yy
+      eps[2] = (dim > 2) ? grad_u[2][2] : 0.0;             // eps_zz
+      eps[3] = 0.5 * (grad_u[0][1] + grad_u[1][0]);        // eps_xy
+      eps[4] = (dim > 2) ? 0.5 * (grad_u[0][2] + grad_u[2][0]) : 0.0; // eps_xz
+      eps[5] = (dim > 2) ? 0.5 * (grad_u[1][2] + grad_u[2][1]) : 0.0; // eps_yz
+
+      // Compute stress from strain (including Biot pressure coupling)
+      VertexStress& vs = current_[vi];
+      vs.pressure = P;
+      computeStressFromStrain(eps, P, vs.sigma.data());
+    }
+
+    if (tab) {
+      ierr = PetscTabulationDestroy(&tab); CHKERRQ(ierr);
+    }
+
     ierr = DMRestoreLocalVector(dm_, &local); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);

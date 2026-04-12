@@ -129,6 +129,16 @@ enum class GPUExecutionMode {
 };
 
 // Configuration structures
+
+// Layer definition for heterogeneous material properties
+struct MaterialLayer {
+    double z_top = 0.0;       // Top of layer (m, typically 0 or positive)
+    double z_bottom = 0.0;    // Bottom of layer (m, typically negative)
+    double lambda = 30.0e9;   // First Lame parameter (Pa)
+    double mu = 25.0e9;       // Shear modulus (Pa)
+    double rho = 2650.0;      // Density (kg/m^3)
+};
+
 struct SimulationConfig {
     std::string input_file;
     std::string output_file;
@@ -152,6 +162,13 @@ struct SimulationConfig {
     
     int max_timesteps = 10000;
     int output_frequency = 10;
+
+    // Derived field output
+    bool output_stress = false;
+    bool output_cfs = false;
+    double cfs_receiver_strike = 0.0;   // degrees
+    double cfs_receiver_dip = 90.0;     // degrees
+    double cfs_friction = 0.4;
     
     bool enable_adaptive_timestepping = true;
     bool enable_checkpointing = true;
@@ -306,6 +323,40 @@ struct SimulationConfig {
     // =========================================================================
     FluidModelType fluid_model = FluidModelType::SINGLE_COMPONENT;
     SolidModelType solid_model = SolidModelType::ELASTIC;
+
+    // =========================================================================
+    // Heterogeneous Material Properties
+    // =========================================================================
+    bool use_heterogeneous_material = false;       // Use auxiliary fields for per-cell properties
+    double gravity = 0.0;                          // Gravity magnitude (m/s^2), 0 = disabled
+    bool enable_gravity = false;                   // Explicit gravity enable flag
+    double K0 = 0.5;                               // Lateral earth pressure coefficient
+    std::vector<MaterialLayer> material_layers;    // Layer definitions (sorted by z)
+
+    // =========================================================================
+    // Boundary Condition Configuration
+    // =========================================================================
+    std::string bottom_bc = "fixed";               // "fixed" or "free"
+    std::string side_bc = "free";                  // "free" or "roller"
+    std::string top_bc = "compression";            // "free", "compression", or "traction"
+
+    // =========================================================================
+    // Initial Conditions and Checkpointing
+    // =========================================================================
+    std::string initial_condition_type = "zero";   // "zero" or "from_file"
+    std::string initial_condition_path = "";        // Path to binary file for from_file
+    std::string save_solution_path = "";            // Save solution to binary file after solve
+
+    // =========================================================================
+    // Absorbing Boundary Conditions
+    // =========================================================================
+    bool absorbing_bc_enabled = false;             // Enable absorbing BCs
+    bool absorbing_bc_x_min = true;                // Apply absorbing BC on x_min face
+    bool absorbing_bc_x_max = true;                // Apply absorbing BC on x_max face
+    bool absorbing_bc_y_min = true;                // Apply absorbing BC on y_min face
+    bool absorbing_bc_y_max = true;                // Apply absorbing BC on y_max face
+    bool absorbing_bc_z_min = true;                // Apply absorbing BC on z_min face
+    bool absorbing_bc_z_max = false;               // Apply absorbing BC on z_max face (usually free surface)
     
     // =========================================================================
     // HIGH-FIDELITY OPTIONS (Optional Advanced Features)

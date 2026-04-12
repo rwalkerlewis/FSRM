@@ -117,7 +117,7 @@ def main():
     print(f"\n  Processed {len(processed)} trace(s)\n")
 
     kw = dict(event_info=EVENT_INFO, phase_velocities=PHASE_VELOCITIES,
-              freqmin=FREQMIN, fmax=FREQMAX)
+              freqmin=FREQMIN, fmax=FREQMAX, event_depth_km=EVENT_DEPTH_KM)
 
     print("Generating waveform gather (record section – full window) ...")
     fetch_plot_record_section(
@@ -140,6 +140,7 @@ def main():
     fetch_plot_long_period(
         raw_results, EVENT_TIME, OUTDIR,
         event_info=EVENT_INFO, phase_velocities=PHASE_VELOCITIES,
+        event_depth_km=EVENT_DEPTH_KM,
         fname="observed_waveform_gather_long_period")
 
     print("Generating spectrograms ...")
@@ -154,6 +155,7 @@ def main():
         event_info=EVENT_INFO, key_stations=KEY_STATIONS,
         phase_velocities=PHASE_VELOCITIES,
         freqmin=FREQMIN, fmax=FREQMAX, post_origin=POST_ORIGIN,
+        event_depth_km=EVENT_DEPTH_KM,
         fname="observed_closeup_ps23")
 
     print()

@@ -31,9 +31,9 @@ class FaultCohesiveDyn;
  * @brief Manages PetscDS callback registration for cohesive fault cells
  *
  * Constants layout (shared PetscDS constant array):
- *   Slots 0-23 are reserved for PoroelasticSolver (porosity, permeability, …).
- *   Slot COHESIVE_CONST_MODE (24): 0.0 = locked, 1.0 = slipping.
- *   Slot COHESIVE_CONST_MU_F  (25): Coulomb friction coefficient μ_f.
+ *   Slots 0-24 are reserved for fluid/elasticity/poroelasticity (unified layout).
+ *   Slot COHESIVE_CONST_MODE (25): 0.0 = locked, 1.0 = slipping.
+ *   Slot COHESIVE_CONST_MU_F  (26): Coulomb friction coefficient μ_f.
  *
  * registerWithDS() reads the existing constants array, patches these two
  * dedicated slots, and writes the updated array back with PetscDSSetConstants.
@@ -43,10 +43,14 @@ class FaultCohesiveDyn;
 class CohesiveFaultKernel {
 public:
     // Dedicated constant indices for the cohesive kernel.
-    // These must not overlap with PoroelasticSolver constants (0-23).
-    static constexpr PetscInt COHESIVE_CONST_MODE  = 24;  // 0=locked, 1=slipping
-    static constexpr PetscInt COHESIVE_CONST_MU_F  = 25;  // friction coefficient
-    static constexpr PetscInt COHESIVE_CONST_COUNT = 26;  // total constant slots needed
+    // Unified constants: [0-24] = fluid/elasticity/poroelasticity, [25-26] = cohesive fault
+    static constexpr PetscInt COHESIVE_CONST_MODE  = 25;  // 0=locked, 1=slipping, 2=prescribed_slip
+    static constexpr PetscInt COHESIVE_CONST_MU_F  = 26;  // friction coefficient (was 25)
+    static constexpr PetscInt COHESIVE_CONST_TENSILE_STRENGTH = 27;  // tensile strength (Pa)
+    static constexpr PetscInt COHESIVE_CONST_PRESCRIBED_SLIP_X = 28;  // prescribed slip x
+    static constexpr PetscInt COHESIVE_CONST_PRESCRIBED_SLIP_Y = 29;  // prescribed slip y
+    static constexpr PetscInt COHESIVE_CONST_PRESCRIBED_SLIP_Z = 30;  // prescribed slip z
+    static constexpr PetscInt COHESIVE_CONST_COUNT = 31;  // total constant slots needed
 
     CohesiveFaultKernel();
 
@@ -68,6 +72,20 @@ public:
      * the change to the PetscDS constants read by the static callbacks.
      */
     void setFrictionCoefficient(double mu_f);
+
+    /**
+     * @brief Set the tensile strength for cohesive fracture opening
+     * @param T_s Tensile strength in Pa (0 = no tensile failure check)
+     */
+    void setTensileStrength(double T_s);
+
+    /**
+     * @brief Set the prescribed slip vector in Cartesian coordinates
+     * @param sx Prescribed displacement jump in x
+     * @param sy Prescribed displacement jump in y
+     * @param sz Prescribed displacement jump in z
+     */
+    void setPrescribedSlip(double sx, double sy, double sz);
 
     /**
      * @brief Set the friction model for slipping constraint
@@ -94,11 +112,28 @@ public:
                                    int lagrange_field);
 
     /**
+     * @brief Register prescribed-slip residual and Jacobian callbacks with PetscDS
+     *
+     * Similar to registerWithDS() but registers f0_prescribed_slip instead of
+     * f0_lagrange_constraint, enforcing u+ - u- = delta_prescribed.
+     * The prescribed slip vector is stored in constants slots 28-30.
+     *
+     * @param prob The PetscDS problem
+     * @param displacement_field Field index for displacement
+     * @param lagrange_field Field index for Lagrange multiplier
+     * @return PETSc error code
+     */
+    PetscErrorCode registerPrescribedSlipWithDS(PetscDS prob,
+                                                 int displacement_field,
+                                                 int lagrange_field);
+
+    /**
      * @brief Update auxiliary state data (friction state) before residual evaluation
      */
     PetscErrorCode updateAuxiliaryState(DM dm, FaultCohesiveDyn* fault);
 
     bool isLocked() const { return locked_; }
+    bool isPrescribedSlip() const { return prescribed_slip_mode_; }
 
     // =========================================================================
     // Static PetscDS pointwise callback functions
@@ -123,6 +158,26 @@ public:
                                           PetscInt numConstants,
                                           const PetscScalar constants[],
                                           PetscScalar f[]);
+
+    /**
+     * @brief Residual for Lagrange multiplier: prescribed slip constraint
+     *
+     * Enforces u+ - u- = delta_prescribed:
+     *   f_lambda = (u+ - u-) - delta
+     * where delta is read from constants[COHESIVE_CONST_PRESCRIBED_SLIP_X..Z].
+     */
+    static void f0_prescribed_slip(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                    const PetscInt uOff[], const PetscInt uOff_x[],
+                                    const PetscScalar u[], const PetscScalar u_t[],
+                                    const PetscScalar u_x[],
+                                    const PetscInt aOff[], const PetscInt aOff_x[],
+                                    const PetscScalar a[], const PetscScalar a_t[],
+                                    const PetscScalar a_x[],
+                                    PetscReal t, const PetscReal x[],
+                                    const PetscReal n[],
+                                    PetscInt numConstants,
+                                    const PetscScalar constants[],
+                                    PetscScalar f[]);
 
     /**
      * @brief Residual for Lagrange multiplier (constraint equation)
@@ -196,7 +251,10 @@ public:
 
 private:
     bool locked_ = true;
+    bool prescribed_slip_mode_ = false;
     double mu_friction_ = 0.6;  // Coulomb friction coefficient for slipping mode
+    double tensile_strength_ = 0.0;  // Tensile strength in Pa (0 = no check)
+    double prescribed_slip_[3] = {0.0, 0.0, 0.0};  // Cartesian slip vector
     FaultFrictionModel* friction_model_ = nullptr;
 };
 

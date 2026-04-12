@@ -1,0 +1,85 @@
+FSRM Test Baseline - Phase 0
+Date: 2026-04-11
+Branch: local_fix
+Build: Docker (fsrm-ci:local), CMake Release, ENABLE_TESTING=ON, ENABLE_CUDA=OFF, BUILD_EXAMPLES=ON
+Total: 62/62 PASS
+
+Unit Tests (30):
+  1. Unit.ConfigReader               PASS
+  2. Unit.PhysicsModuleRegistry      PASS
+  3. Unit.SimulationConfig           PASS
+  4. Unit.PhysicsKernelBase          PASS
+  5. Unit.SinglePhaseFlow            PASS
+  6. Unit.Geomechanics               PASS
+  7. Unit.Thermal                    PASS
+  8. Unit.Elastodynamics             PASS
+  9. Unit.Poroelastodynamics         PASS
+  10. Unit.BoundaryConditions        PASS
+  11. Unit.WellModel                 PASS
+  12. Unit.FractureModel             PASS
+  13. Unit.MaterialModel             PASS
+  14. Unit.SeismicSource             PASS
+  15. Unit.ExplosionSource           PASS
+  16. Unit.EclipseIO                 PASS
+  17. Unit.MLRegistry                PASS
+  18. Unit.UnitSystem                PASS
+  19. Unit.CoordinateSystem          PASS
+  20. Unit.CO2Properties             PASS
+  21. Unit.FlashCalculation          PASS
+  22. Unit.ResidualTrapping          PASS
+  23. Unit.CaprockIntegrity          PASS
+  24. Unit.MultiphaseFlow            PASS
+  25. Unit.FaultMechanics            PASS
+  26. Unit.FaultCohesiveDyn          PASS
+  27. Unit.CoulombStressTransfer     PASS
+  28. Unit.FaultMeshManager          PASS
+  29. Unit.CohesiveFaultKernel       PASS
+  30. Unit.ElasticityAux             PASS
+
+Functional Tests (4):
+  31. Functional.SimulatorInit       PASS
+  32. Functional.ModuleLifecycle     PASS
+  33. Functional.SolverConvergence   PASS
+  34. Functional.WellOperations      PASS
+
+Physics Validation Tests (13):
+  35. Physics.MMS.Diffusion          PASS
+  36. Physics.MMS.Elasticity         PASS
+  37. Physics.MMS.WavePropagation    PASS
+  38. Physics.AnalyticalSolutions    PASS
+  39. Physics.Thermoporoelastic      PASS
+  40. Physics.SCEC.TPV5              PASS
+  41. Physics.ElastostaticsPatch     PASS
+  42. Physics.TerzaghiConsolidation  PASS
+  43. Physics.AbsorbingBC            PASS
+  44. Physics.GravityLithostatic     PASS
+  45. Physics.LithostaticStress      PASS
+  46. Physics.LambsProblem           PASS
+  47. Physics.GarvinsProblem         PASS
+
+Integration Tests (11):
+  48. Integration.FullSimulation     PASS
+  49. Integration.Restart            PASS
+  50. Integration.CoupledPhysics     PASS
+  51. Integration.InjectionRuptureChain PASS
+  52. Integration.LockedFault        PASS
+  53. Integration.LayeredElastostatics PASS
+  54. Integration.ExplosionSeismogram PASS
+  55. Integration.PrescribedSlip     PASS
+  56. Integration.OutputFile         PASS
+  57. Integration.GmshImport         PASS
+  58. Integration.DerivedFields      PASS
+
+Performance Tests (3):
+  59. Performance.Benchmarks         PASS
+  60. Performance.Scaling            PASS
+  61. Performance.Memory             PASS
+
+Experimental (1):
+  62. Experimental.NeuralStubs       PASS
+
+Bugs Fixed During Phase 0:
+  1. DerivedFieldComputer.cpp: removed reference to undeclared 'coordDofs_saved' variable (compilation error)
+  2. DerivedFieldComputer.cpp: added DMPlexInsertBoundaryValues after DMGlobalToLocal to correctly
+     fill constrained DOFs with Dirichlet BC values. Without this, boundary displacement values were
+     zero in the local vector, causing incorrect gradient and stress computation.

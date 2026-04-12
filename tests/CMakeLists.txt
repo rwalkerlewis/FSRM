@@ -39,6 +39,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_fault_cohesive_dyn.cpp
     unit/domain/test_coulomb_stress_transfer.cpp
     unit/numerics/test_fault_mesh_manager.cpp
+    unit/numerics/test_petscfe_elasticity_aux.cpp
     # Physics kernels (CCS)
     unit/physics/test_multiphase_flow.cpp
     # I/O
@@ -64,6 +65,17 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_analytical_solutions.cpp
     physics_validation/test_thermoporoelastic.cpp
     physics_validation/test_scec_tpv5.cpp
+    physics_validation/test_elastostatics_patch.cpp
+    physics_validation/test_terzaghi.cpp
+    physics_validation/test_absorbing_bc.cpp
+    physics_validation/test_gravity_lithostatic.cpp
+    physics_validation/test_lithostatic_stress.cpp
+    physics_validation/test_lambs_problem.cpp
+    physics_validation/test_garvins_problem.cpp
+    physics_validation/test_mueller_murphy.cpp
+    physics_validation/test_atmospheric_explosion.cpp
+    physics_validation/test_near_field_explosion.cpp
+    physics_validation/test_drucker_prager.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -71,6 +83,14 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_restart.cpp
     integration/test_coupled_physics.cpp
     integration/test_injection_rupture_chain.cpp
+    integration/test_locked_fault.cpp
+    integration/test_layered_elastostatics.cpp
+    integration/test_explosion_seismogram.cpp
+    integration/test_prescribed_slip.cpp
+    integration/test_output_file.cpp
+    integration/test_gmsh_import.cpp
+    integration/test_derived_fields.cpp
+    integration/test_dprk_2017_comparison.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -157,6 +177,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.CoulombStressTransfer  COMMAND run_unit_tests --gtest_filter=CoulombStressTransferTest.*)
     add_test(NAME Unit.FaultMeshManager       COMMAND run_unit_tests --gtest_filter=FaultMeshManagerTest.*)
     add_test(NAME Unit.CohesiveFaultKernel    COMMAND run_unit_tests --gtest_filter=CohesiveFaultKernelTest.*)
+    add_test(NAME Unit.ElasticityAux           COMMAND run_unit_tests --gtest_filter=PetscFEElasticityAuxTest.*)
 
     # --- Functional tests ---
     add_test(NAME Functional.SimulatorInit    COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)
@@ -171,12 +192,31 @@ if(GTest_FOUND)
     add_test(NAME Physics.AnalyticalSolutions COMMAND run_physics_tests --gtest_filter=AnalyticalSolutionsTest.*)
     add_test(NAME Physics.Thermoporoelastic   COMMAND run_physics_tests --gtest_filter=ThermoporoelasticConsolidationTest.*)
     add_test(NAME Physics.SCEC.TPV5          COMMAND run_physics_tests --gtest_filter=SCECTPV5Test.*)
+    add_test(NAME Physics.ElastostaticsPatch  COMMAND run_physics_tests --gtest_filter=ElastostaticsPatchTest.*)
+    add_test(NAME Physics.TerzaghiConsolidation COMMAND run_physics_tests --gtest_filter=TerzaghiConsolidationTest.*:TerzaghiPipelineTest.*)
+    add_test(NAME Physics.AbsorbingBC            COMMAND run_physics_tests --gtest_filter=AbsorbingBC*.*:AbsorbingBCEnergyTest.*)
+    add_test(NAME Physics.GravityLithostatic       COMMAND run_physics_tests --gtest_filter=GravityLithostaticTest.*:LithostaticSimulatorTest.*)
+    add_test(NAME Physics.LithostaticStress        COMMAND run_physics_tests --gtest_filter=LithostaticStressTest.*)
+    add_test(NAME Physics.LambsProblem             COMMAND run_physics_tests --gtest_filter=LambsProblemTest.*)
+    add_test(NAME Physics.GarvinsProblem           COMMAND run_physics_tests --gtest_filter=GarvinsProblemTest.*)
+    add_test(NAME Physics.MuellerMurphy            COMMAND run_physics_tests --gtest_filter=MuellerMurphyValidationTest.*)
+    add_test(NAME Physics.AtmosphericExplosion     COMMAND run_physics_tests --gtest_filter=AtmosphericExplosionValidationTest.*)
+    add_test(NAME Physics.NearFieldExplosion        COMMAND run_physics_tests --gtest_filter=NearFieldExplosionValidationTest.*)
+    add_test(NAME Physics.DruckerPrager              COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
     add_test(NAME Integration.Restart         COMMAND run_integration_tests --gtest_filter=RestartTest.*)
     add_test(NAME Integration.CoupledPhysics  COMMAND run_integration_tests --gtest_filter=CoupledPhysicsTest.*)
     add_test(NAME Integration.InjectionRuptureChain COMMAND run_integration_tests --gtest_filter=InjectionRuptureChainTest.*)
+    add_test(NAME Integration.LockedFault     COMMAND run_integration_tests --gtest_filter=LockedFaultTest.*)
+    add_test(NAME Integration.LayeredElastostatics COMMAND run_integration_tests --gtest_filter=LayeredElastostaticsTest.*)
+    add_test(NAME Integration.ExplosionSeismogram COMMAND run_integration_tests --gtest_filter=ExplosionSeismogramTest.*)
+    add_test(NAME Integration.PrescribedSlip  COMMAND run_integration_tests --gtest_filter=PrescribedSlipTest.*)
+    add_test(NAME Integration.OutputFile       COMMAND run_integration_tests --gtest_filter=OutputFileTest.*)
+    add_test(NAME Integration.GmshImport      COMMAND run_integration_tests --gtest_filter=GmshImportTest.*)
+    add_test(NAME Integration.DerivedFields    COMMAND run_integration_tests --gtest_filter=DerivedFieldTest.*)
+    add_test(NAME Integration.DPRK2017Comparison COMMAND run_integration_tests --gtest_filter=DPRK2017ComparisonTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -202,6 +242,7 @@ if(GTest_FOUND)
         Unit.CaprockIntegrity Unit.MultiphaseFlow
         Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
         Unit.FaultMeshManager Unit.CohesiveFaultKernel
+        Unit.ElasticityAux
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
@@ -217,6 +258,14 @@ if(GTest_FOUND)
         Physics.MMS.Diffusion Physics.MMS.Elasticity
         Physics.MMS.WavePropagation Physics.AnalyticalSolutions
         Physics.Thermoporoelastic Physics.SCEC.TPV5
+        Physics.ElastostaticsPatch Physics.TerzaghiConsolidation
+        Physics.AbsorbingBC Physics.GravityLithostatic
+        Physics.LithostaticStress
+        Physics.LambsProblem Physics.GarvinsProblem
+        Physics.MuellerMurphy
+        Physics.AtmosphericExplosion
+        Physics.NearFieldExplosion
+        Physics.DruckerPrager
         PROPERTIES TIMEOUT 300 LABELS "physics_validation"
     )
 
@@ -224,6 +273,12 @@ if(GTest_FOUND)
     set_tests_properties(
         Integration.FullSimulation Integration.Restart
         Integration.CoupledPhysics Integration.InjectionRuptureChain
+        Integration.LockedFault Integration.LayeredElastostatics
+        Integration.ExplosionSeismogram Integration.PrescribedSlip
+        Integration.OutputFile
+        Integration.GmshImport
+        Integration.DerivedFields
+        Integration.DPRK2017Comparison
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

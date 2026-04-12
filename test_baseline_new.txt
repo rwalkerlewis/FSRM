@@ -1,0 +1,147 @@
+Test project /workspace/build
+      Start  1: Unit.ConfigReader
+ 1/67 Test  #1: Unit.ConfigReader ...................   Passed    2.11 sec
+      Start  2: Unit.PhysicsModuleRegistry
+ 2/67 Test  #2: Unit.PhysicsModuleRegistry ..........   Passed    0.34 sec
+      Start  3: Unit.SimulationConfig
+ 3/67 Test  #3: Unit.SimulationConfig ...............   Passed    0.35 sec
+      Start  4: Unit.PhysicsKernelBase
+ 4/67 Test  #4: Unit.PhysicsKernelBase ..............   Passed    0.37 sec
+      Start  5: Unit.SinglePhaseFlow
+ 5/67 Test  #5: Unit.SinglePhaseFlow ................   Passed    0.35 sec
+      Start  6: Unit.Geomechanics
+ 6/67 Test  #6: Unit.Geomechanics ...................   Passed    0.38 sec
+      Start  7: Unit.Thermal
+ 7/67 Test  #7: Unit.Thermal ........................   Passed    0.38 sec
+      Start  8: Unit.Elastodynamics
+ 8/67 Test  #8: Unit.Elastodynamics .................   Passed    0.38 sec
+      Start  9: Unit.Poroelastodynamics
+ 9/67 Test  #9: Unit.Poroelastodynamics .............   Passed    0.36 sec
+      Start 10: Unit.BoundaryConditions
+10/67 Test #10: Unit.BoundaryConditions .............   Passed    0.35 sec
+      Start 11: Unit.WellModel
+11/67 Test #11: Unit.WellModel ......................   Passed    0.36 sec
+      Start 12: Unit.FractureModel
+12/67 Test #12: Unit.FractureModel ..................   Passed    0.37 sec
+      Start 13: Unit.MaterialModel
+13/67 Test #13: Unit.MaterialModel ..................   Passed    0.40 sec
+      Start 14: Unit.SeismicSource
+14/67 Test #14: Unit.SeismicSource ..................   Passed    0.36 sec
+      Start 15: Unit.ExplosionSource
+15/67 Test #15: Unit.ExplosionSource ................   Passed    0.38 sec
+      Start 16: Unit.EclipseIO
+16/67 Test #16: Unit.EclipseIO ......................   Passed    0.39 sec
+      Start 17: Unit.MLRegistry
+17/67 Test #17: Unit.MLRegistry .....................   Passed    0.41 sec
+      Start 18: Unit.UnitSystem
+18/67 Test #18: Unit.UnitSystem .....................   Passed    0.37 sec
+      Start 19: Unit.CoordinateSystem
+19/67 Test #19: Unit.CoordinateSystem ...............   Passed    0.38 sec
+      Start 20: Unit.CO2Properties
+20/67 Test #20: Unit.CO2Properties ..................   Passed    0.37 sec
+      Start 21: Unit.FlashCalculation
+21/67 Test #21: Unit.FlashCalculation ...............   Passed    0.39 sec
+      Start 22: Unit.ResidualTrapping
+22/67 Test #22: Unit.ResidualTrapping ...............   Passed    0.38 sec
+      Start 23: Unit.CaprockIntegrity
+23/67 Test #23: Unit.CaprockIntegrity ...............   Passed    0.39 sec
+      Start 24: Unit.MultiphaseFlow
+24/67 Test #24: Unit.MultiphaseFlow .................   Passed    0.36 sec
+      Start 25: Unit.FaultMechanics
+25/67 Test #25: Unit.FaultMechanics .................   Passed    0.37 sec
+      Start 26: Unit.FaultCohesiveDyn
+26/67 Test #26: Unit.FaultCohesiveDyn ...............   Passed    0.40 sec
+      Start 27: Unit.CoulombStressTransfer
+27/67 Test #27: Unit.CoulombStressTransfer ..........   Passed    0.39 sec
+      Start 28: Unit.FaultMeshManager
+28/67 Test #28: Unit.FaultMeshManager ...............   Passed    0.37 sec
+      Start 29: Unit.CohesiveFaultKernel
+29/67 Test #29: Unit.CohesiveFaultKernel ............   Passed    0.36 sec
+      Start 30: Unit.ElasticityAux
+30/67 Test #30: Unit.ElasticityAux ..................   Passed    0.35 sec
+      Start 31: Functional.SimulatorInit
+31/67 Test #31: Functional.SimulatorInit ............   Passed    0.36 sec
+      Start 32: Functional.ModuleLifecycle
+32/67 Test #32: Functional.ModuleLifecycle ..........   Passed    0.39 sec
+      Start 33: Functional.SolverConvergence
+33/67 Test #33: Functional.SolverConvergence ........   Passed    0.37 sec
+      Start 34: Functional.WellOperations
+34/67 Test #34: Functional.WellOperations ...........   Passed    0.37 sec
+      Start 35: Physics.MMS.Diffusion
+35/67 Test #35: Physics.MMS.Diffusion ...............   Passed    0.37 sec
+      Start 36: Physics.MMS.Elasticity
+36/67 Test #36: Physics.MMS.Elasticity ..............   Passed    0.38 sec
+      Start 37: Physics.MMS.WavePropagation
+37/67 Test #37: Physics.MMS.WavePropagation .........   Passed    0.39 sec
+      Start 38: Physics.AnalyticalSolutions
+38/67 Test #38: Physics.AnalyticalSolutions .........   Passed    0.39 sec
+      Start 39: Physics.Thermoporoelastic
+39/67 Test #39: Physics.Thermoporoelastic ...........   Passed    0.37 sec
+      Start 40: Physics.SCEC.TPV5
+40/67 Test #40: Physics.SCEC.TPV5 ...................   Passed    0.38 sec
+      Start 41: Physics.ElastostaticsPatch
+41/67 Test #41: Physics.ElastostaticsPatch ..........   Passed    0.35 sec
+      Start 42: Physics.TerzaghiConsolidation
+42/67 Test #42: Physics.TerzaghiConsolidation .......   Passed    1.90 sec
+      Start 43: Physics.AbsorbingBC
+43/67 Test #43: Physics.AbsorbingBC .................   Passed    7.22 sec
+      Start 44: Physics.GravityLithostatic
+44/67 Test #44: Physics.GravityLithostatic ..........   Passed    0.48 sec
+      Start 45: Physics.LithostaticStress
+45/67 Test #45: Physics.LithostaticStress ...........   Passed    0.95 sec
+      Start 46: Physics.LambsProblem
+46/67 Test #46: Physics.LambsProblem ................   Passed    1.56 sec
+      Start 47: Physics.GarvinsProblem
+47/67 Test #47: Physics.GarvinsProblem ..............   Passed    1.56 sec
+      Start 48: Physics.MuellerMurphy
+48/67 Test #48: Physics.MuellerMurphy ...............   Passed    0.36 sec
+      Start 49: Physics.AtmosphericExplosion
+49/67 Test #49: Physics.AtmosphericExplosion ........   Passed    0.36 sec
+      Start 50: Physics.NearFieldExplosion
+50/67 Test #50: Physics.NearFieldExplosion ..........   Passed    0.38 sec
+      Start 51: Physics.DruckerPrager
+51/67 Test #51: Physics.DruckerPrager ...............   Passed    0.37 sec
+      Start 52: Integration.FullSimulation
+52/67 Test #52: Integration.FullSimulation ..........   Passed    0.39 sec
+      Start 53: Integration.Restart
+53/67 Test #53: Integration.Restart .................   Passed    0.35 sec
+      Start 54: Integration.CoupledPhysics
+54/67 Test #54: Integration.CoupledPhysics ..........   Passed    0.35 sec
+      Start 55: Integration.InjectionRuptureChain
+55/67 Test #55: Integration.InjectionRuptureChain ...   Passed    0.37 sec
+      Start 56: Integration.LockedFault
+56/67 Test #56: Integration.LockedFault .............   Passed    0.37 sec
+      Start 57: Integration.LayeredElastostatics
+57/67 Test #57: Integration.LayeredElastostatics ....   Passed    0.37 sec
+      Start 58: Integration.ExplosionSeismogram
+58/67 Test #58: Integration.ExplosionSeismogram .....   Passed    1.62 sec
+      Start 59: Integration.PrescribedSlip
+59/67 Test #59: Integration.PrescribedSlip ..........   Passed    0.39 sec
+      Start 60: Integration.OutputFile
+60/67 Test #60: Integration.OutputFile ..............   Passed    3.29 sec
+      Start 61: Integration.GmshImport
+61/67 Test #61: Integration.GmshImport ..............   Passed    0.65 sec
+      Start 62: Integration.DerivedFields
+62/67 Test #62: Integration.DerivedFields ...........   Passed    0.60 sec
+      Start 63: Integration.DPRK2017Comparison
+63/67 Test #63: Integration.DPRK2017Comparison ......   Passed    0.35 sec
+      Start 64: Performance.Benchmarks
+64/67 Test #64: Performance.Benchmarks ..............   Passed    0.40 sec
+      Start 65: Performance.Scaling
+65/67 Test #65: Performance.Scaling .................   Passed    1.11 sec
+      Start 66: Performance.Memory
+66/67 Test #66: Performance.Memory ..................   Passed    0.36 sec
+      Start 67: Experimental.NeuralStubs
+67/67 Test #67: Experimental.NeuralStubs ............   Passed    0.37 sec
+
+100% tests passed, 0 tests failed out of 67
+
+Label Time Summary:
+experimental          =   0.37 sec*proc (1 test)
+functional            =   1.50 sec*proc (4 tests)
+integration           =   9.11 sec*proc (12 tests)
+performance           =   1.86 sec*proc (3 tests)
+physics_validation    =  17.77 sec*proc (17 tests)
+unit                  =  12.90 sec*proc (30 tests)
+
+Total Test time (real) =  43.55 sec
