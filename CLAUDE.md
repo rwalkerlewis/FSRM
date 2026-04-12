@@ -7,7 +7,7 @@ This file provides all context needed to work on FSRM. Read it fully before maki
 FSRM (Full Service Reservoir Model) is a C++17/PETSc/MPI coupled multiphysics simulator for nuclear explosion monitoring, seismic wave propagation, dynamic fault rupture, and coupled THM poroelasticity. MIT licensed. ~134k lines.
 
 Repository: github.com/rwalkerlewis/FSRM
-Branch: local_fix
+Branch: feature/hydrofrac-fem
 
 ## Build Environment
 
@@ -111,7 +111,7 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 | Example configs | config/examples/ | -- |
 | Aspirational configs | config/aspirational/ | DO NOT USE |
 
-## What Works (Verified, All 68 Tests Pass)
+## What Works (Verified, All 84 Tests Pass)
 
 1. **Elastostatics**: PetscFEElasticity f0/f1/g3 callbacks. Uniaxial compression converges with nonzero FNORM in 1 iteration. Unit tested.
 2. **Poroelasticity callbacks**: PetscFEPoroelasticity f0/f1 for pressure+displacement, all 4 Jacobian blocks. Unit tested. Terzaghi consolidation passes with analytical comparison.
@@ -132,6 +132,16 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 17. **Plasticity yield evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection works. Hydrostatic stress confirmed inside all surfaces. Return mapping is broken (see gap #1). 8 tests pass.
 18. **Gravity body force**: Density-scaled gravity callback tested. Lithostatic stress column with analytical comparison passes within 5% tolerance. K0 ratio verified.
 19. **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Produces nonzero displacement. Solution vector size verified. 3 tests pass.
+20. **Pressurized hydrofracture foundation**: New `PetscFEHydrofrac` callbacks provide cohesive pressure traction balance (`lambda + p_f*n = 0`) and Sneddon aperture validation. Physics test passes.
+21. **Fault plus absorbing BC coexistence**: `DMSetRegionDS` region split assigns cohesive and absorbing callbacks to separate DS regions, removing displacement-field BdResidual overwrite. Integration tests pass.
+22. **Fracture lubrication callback layer**: `f0_fracture_pressure` and `f1_fracture_pressure` callbacks added with aperture-cubed Poiseuille scaling checks. Integration test passes.
+23. **Coupled hydrofrac utility scaling checks**: PKN quarter-power width scaling utilities and tests added for coupled flow-deformation validation scaffolding.
+24. **Fracture propagation utility checks**: LEFM-inspired cohesive strength mapping from `K_Ic` and opening criterion tests added for propagation scaffolding.
+25. **Multi-cluster stress shadowing**: Sneddon normal-stress perturbation, shadow factor decay, and cluster efficiency utilities. Edge clusters receive more fluid than center clusters under stress shadow. 6 tests pass.
+26. **Induced seismicity from hydrofracture**: Scalar moment M0 = mu*slip*area, Hanks-Kanamori Mw conversion, microseismic range validation (-3 < Mw < 1). 6 tests pass.
+27. **Proppant transport utilities**: Stokes settling velocity, bridging criterion (w/d ratio), pack minimum aperture, mass conservation balance. 8 tests pass.
+28. **Carter leak-off coupling**: Carter leak-off rate (C_L/sqrt(t)) and cumulative volume (2*C_L*sqrt(t)), delayed opening, area scaling. 7 tests pass.
+29. **Production forecasting**: Arps hyperbolic/exponential/harmonic decline curves, cumulative production, fracture productivity index. 9 tests pass.
 
 ## What Does NOT Work (Known Gaps)
 
@@ -145,7 +155,7 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 
 1. Build and test in Docker. Always.
 2. Check PETSc 3.22.2 API signatures before calling any PETSc function.
-3. All existing 68 tests must continue to pass after every change.
+3. All existing 84 tests must continue to pass after every change.
 4. NEVER change the DS/BC ordering in setupFields().
 5. Do NOT modify callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp. New callbacks for auxiliary fields go in new files.
 6. Do NOT modify FaultMeshManager::splitMeshAlongFault or CohesiveFaultKernel::registerWithDS.

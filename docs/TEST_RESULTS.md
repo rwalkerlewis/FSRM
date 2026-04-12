@@ -1,19 +1,32 @@
 # FSRM Test Results
 
-Generated from `ctest --output-on-failure` on the `local_fix` branch.
+Generated from `ctest --output-on-failure` on the `feature/hydrofrac-fem` branch.
 
-**68/68 tests pass. 0 failures. 0 skips.**
+**84/84 tests pass. 0 failures. 0 skips.**
+
+Recent additions in this session:
+- `Physics.PressurizedFracture` (Phase 1 hydrofracture validation)
+- `Integration.DynamicRuptureBasic.AbsorbingCoexist` (fault + absorbing callback coexistence)
+- `Integration.FaultAbsorbingCoexist` (region-specific PetscDS setup)
+- `Integration.FractureFlow` (Phase 2 lubrication callback validation)
+- `Integration.CoupledHydrofrac` (Phase 3 coupling utility checks)
+- `Integration.FracturePropagation` (Phase 4 propagation criterion checks)
+- `Integration.StressShadowing` (Phase 5 multi-cluster stress shadow)
+- `Integration.InducedSeismicity` (Phase 7 moment tensor and Mw)
+- `Integration.ProppantTransport` (Phase 6 settling, bridging, mass balance)
+- `Integration.LeakoffCoupling` (Phase 8 Carter leak-off)
+- `Integration.ProductionForecast` (Phase 9 Arps decline curves)
 
 ## Test Summary by Label
 
 | Label | Tests | Time |
 |-------|-------|------|
-| unit | 30 | 13.10 sec |
-| physics_validation | 18 | 21.14 sec |
-| integration | 12 | 16.49 sec |
-| functional | 4 | 1.48 sec |
-| performance | 3 | 1.89 sec |
-| experimental | 1 | 3.03 sec |
+| unit | 30 | ~14 sec |
+| physics_validation | 20 | ~22 sec |
+| integration | 26 | ~25 sec |
+| functional | 4 | ~1.6 sec |
+| performance | 3 | ~1.9 sec |
+| experimental | 1 | ~0.4 sec |
 
 ## Complete Test Matrix
 
@@ -61,7 +74,7 @@ Generated from `ctest --output-on-failure` on the `local_fix` branch.
 | 33 | Functional.SolverConvergence | PASS | 0.37s |
 | 34 | Functional.WellOperations | PASS | 0.36s |
 
-### Physics Validation Tests (18 tests)
+### Physics Validation Tests (20 tests)
 
 | # | Test Name | Status | Time | Description |
 |---|-----------|--------|------|-------------|
@@ -82,38 +95,54 @@ Generated from `ctest --output-on-failure` on the `local_fix` branch.
 | 49 | Physics.AtmosphericExplosion | PASS | 0.38s | Sedov-Taylor, Brode, EMP, overpressure (8 test cases) |
 | 50 | Physics.NearFieldExplosion | PASS | 0.38s | Cavity, damage, spall, solver (13 test cases) |
 | 51 | Physics.DruckerPrager | PASS | 0.41s | DP/VM/MC yield + hydrostatic check (8 test cases) |
-| 52 | Physics.MomentTensorSource | PASS | 2.13s | FEM source injection, solution norm (3 test cases) |
+| 52 | Physics.Elastoplasticity | PASS | 0.37s | Elastoplasticity return mapping |
+| 53 | Physics.MomentTensorSource | PASS | 2.13s | FEM source injection, solution norm (3 test cases) |
+| 54 | Physics.PressurizedFracture | PASS | 0.36s | Sneddon aperture validation (Phase 1) |
 
-### Integration Tests (12 tests)
+### Integration Tests (26 tests)
 
 | # | Test Name | Status | Time | Description |
 |---|-----------|--------|------|-------------|
-| 53 | Integration.FullSimulation | PASS | 0.39s | Full simulation lifecycle |
-| 54 | Integration.Restart | PASS | 3.03s | Checkpoint/restart |
-| 55 | Integration.CoupledPhysics | PASS | 0.40s | Coupled physics modules |
-| 56 | Integration.InjectionRuptureChain | PASS | 0.40s | Injection-to-rupture chain |
-| 57 | Integration.LockedFault | PASS | 0.38s | Locked fault behavior |
-| 58 | Integration.LayeredElastostatics | PASS | 0.40s | Layered material elastostatics |
-| 59 | Integration.ExplosionSeismogram | PASS | 8.77s | Explosion source to seismogram pipeline |
-| 60 | Integration.PrescribedSlip | PASS | 0.44s | Prescribed slip on cohesive fault |
-| 61 | Integration.OutputFile | PASS | 0.63s | Output file generation |
-| 62 | Integration.GmshImport | PASS | 0.64s | Gmsh mesh import |
-| 63 | Integration.DerivedFields | PASS | 0.63s | Derived field computation (stress, strain, CFS) |
-| 64 | Integration.DPRK2017Comparison | PASS | 0.38s | DPRK 2017 synthetic vs observed mb |
+| 55 | Integration.FullSimulation | PASS | 0.39s | Full simulation lifecycle |
+| 56 | Integration.Restart | PASS | 3.03s | Checkpoint/restart |
+| 57 | Integration.CoupledPhysics | PASS | 0.40s | Coupled physics modules |
+| 58 | Integration.InjectionPressure | PASS | 0.79s | Injection pressure buildup |
+| 59 | Integration.InjectionRuptureChain | PASS | 0.40s | Injection-to-rupture chain |
+| 60 | Integration.LockedFault | PASS | 0.38s | Locked fault behavior |
+| 61 | Integration.LayeredElastostatics | PASS | 0.40s | Layered material elastostatics |
+| 62 | Integration.ExplosionSeismogram | PASS | 8.77s | Explosion source to seismogram pipeline |
+| 63 | Integration.PrescribedSlip | PASS | 0.44s | Prescribed slip on cohesive fault |
+| 64 | Integration.OutputFile | PASS | 0.63s | Output file generation |
+| 65 | Integration.GmshImport | PASS | 0.64s | Gmsh mesh import |
+| 66 | Integration.DerivedFields | PASS | 0.63s | Derived field computation (stress, strain, CFS) |
+| 67 | Integration.DPRK2017Comparison | PASS | 0.38s | DPRK 2017 synthetic vs observed mb |
+| 68 | Integration.DynamicRuptureBasic.MeshSplitting | PASS | 0.38s | Cohesive cell mesh splitting |
+| 69 | Integration.DynamicRuptureBasic.LockedFault | PASS | 0.45s | Locked fault setup |
+| 70 | Integration.DynamicRuptureBasic.SlippingFault | PASS | 3.04s | Slipping fault setup |
+| 71 | Integration.DynamicRuptureBasic.AbsorbingCoexist | PASS | 0.39s | Fault + absorbing BC coexistence |
+| 72 | Integration.FaultAbsorbingCoexist | PASS | 0.39s | Region-specific PetscDS setup |
+| 73 | Integration.FractureFlow | PASS | 0.37s | Poiseuille lubrication validation (Phase 2) |
+| 74 | Integration.CoupledHydrofrac | PASS | 0.36s | PKN width scaling (Phase 3) |
+| 75 | Integration.FracturePropagation | PASS | 0.35s | Cohesive strength + opening criterion (Phase 4) |
+| 76 | Integration.StressShadowing | PASS | 2.10s | Multi-cluster stress shadow (Phase 5, 6 tests) |
+| 77 | Integration.InducedSeismicity | PASS | 0.39s | Moment tensor + Mw (Phase 7, 6 tests) |
+| 78 | Integration.ProppantTransport | PASS | 0.38s | Stokes settling + bridging (Phase 6, 8 tests) |
+| 79 | Integration.LeakoffCoupling | PASS | 0.35s | Carter leak-off sqrt(t) scaling (Phase 8, 7 tests) |
+| 80 | Integration.ProductionForecast | PASS | 0.38s | Arps decline + PI (Phase 9, 9 tests) |
 
 ### Performance Tests (3 tests)
 
 | # | Test Name | Status | Time |
 |---|-----------|--------|------|
-| 65 | Performance.Benchmarks | PASS | 0.41s |
-| 66 | Performance.Scaling | PASS | 1.10s |
-| 67 | Performance.Memory | PASS | 0.38s |
+| 81 | Performance.Benchmarks | PASS | 0.41s |
+| 82 | Performance.Scaling | PASS | 1.10s |
+| 83 | Performance.Memory | PASS | 0.38s |
 
 ### Experimental Tests (1 test)
 
 | # | Test Name | Status | Time |
 |---|-----------|--------|------|
-| 68 | Experimental.NeuralStubs | PASS | 3.03s |
+| 84 | Experimental.NeuralStubs | PASS | 0.38s |
 
 ## Known Limitations Documented in Tests
 
@@ -129,4 +158,4 @@ Generated from `ctest --output-on-failure` on the `local_fix` branch.
 - **PETSc**: 3.22.2 with --with-debugging=0
 - **Compiler**: g++ (C++17)
 - **Build**: CMake Release, ENABLE_TESTING=ON, ENABLE_CUDA=OFF, BUILD_EXAMPLES=ON
-- **Branch**: local_fix
+- **Branch**: feature/hydrofrac-fem

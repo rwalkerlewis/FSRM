@@ -201,6 +201,8 @@ private:
     // Hydraulic fracture model (Phase 3)
     std::unique_ptr<HydraulicFractureModel> hydrofrac_;
     bool hydrofrac_initiated_ = false;
+    bool hydrofrac_fem_pressurized_mode_ = false;
+    double hydrofrac_uniform_pressure_pa_ = 0.0;
 
     // Cohesive fracture plane (Phase 4)
     bool fracture_plane_enabled_ = false;
