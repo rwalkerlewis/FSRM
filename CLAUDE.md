@@ -7,7 +7,7 @@ This file provides all context needed to work on FSRM. Read it fully before maki
 FSRM (Full Service Reservoir Model) is a C++17/PETSc/MPI coupled multiphysics simulator for nuclear explosion monitoring, seismic wave propagation, dynamic fault rupture, and coupled THM poroelasticity. MIT licensed. ~134k lines.
 
 Repository: github.com/rwalkerlewis/FSRM
-Branch: feature/hydrofrac-fem
+Branch: main
 
 ## Build Environment
 
@@ -111,51 +111,68 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 | Example configs | config/examples/ | -- |
 | Aspirational configs | config/aspirational/ | DO NOT USE |
 
-## What Works (Verified, All 84 Tests Pass)
+## What Works
 
-1. **Elastostatics**: PetscFEElasticity f0/f1/g3 callbacks. Uniaxial compression converges with nonzero FNORM in 1 iteration. Unit tested.
-2. **Poroelasticity callbacks**: PetscFEPoroelasticity f0/f1 for pressure+displacement, all 4 Jacobian blocks. Unit tested. Terzaghi consolidation passes with analytical comparison.
-3. **Fluid flow callbacks**: PetscFEFluidFlow single-phase and black-oil. Unit tested. NOT verified end-to-end.
-4. **Cohesive fault mesh splitting**: PyLith workflow (DMPlexCreateSubmesh -> subpoint map -> DMPlexLabelCohesiveComplete -> DMPlexConstructCohesiveCells). 32 cohesive cells, 96 fault vertices on 4x4x4 simplex mesh. All fault tests pass.
-5. **Friction laws**: Slip-weakening and rate-state (aging). Tested.
-6. **CoulombStressTransfer**: Hooke stress, fault projection, delta_CFS. Tested.
-7. **Boundary conditions**: labelBoundaries() labels 6 box faces, setupBoundaryConditions() registers via DMAddBoundary, section rebuilt. Elastostatics BCs verified. 5 unit tests pass.
-8. **Mueller-Murphy source**: Patton (1988) corner frequency (fc = 3.0 * W^(-1/3) Hz), mb-yield scaling, RDP spectrum with correct omega^-2 rolloff, cavity radius scaling, moment rate function. 9 physics tests pass.
-9. **Absorbing BCs**: Clayton-Engquist first-order. Energy absorption >99% at normal incidence. Tested.
-10. **Elastodynamics**: Lamb's problem and Garvin's problem pass with quantitative error norms.
-11. **Explosion seismogram pipeline**: Source injection -> elastodynamic solve -> seismometer sampling -> SAC output. Integration-tested.
+### Verified End-to-End Through TSSolve (84 Tests Pass)
+
+These features are run through the Simulator with TSSolve and produce verified results:
+
+1. **Elastostatics**: PetscFEElasticity f0/f1/g3 callbacks. Uniaxial compression, patch test, lithostatic stress. Integration-tested.
+2. **Poroelasticity**: PetscFEPoroelasticity f0/f1 for pressure+displacement, all 4 Jacobian blocks. Terzaghi consolidation passes with analytical comparison. Integration-tested.
+3. **Elastodynamics**: Lamb's problem and Garvin's problem pass with quantitative error norms. Integration-tested.
+4. **Explosion seismogram pipeline**: Moment tensor source injection -> elastodynamic solve -> seismometer sampling -> SAC output. Integration-tested.
+5. **Absorbing BCs**: Clayton-Engquist first-order. Energy absorption >99% at normal incidence. Integration-tested.
+6. **Gravity body force**: Density-scaled gravity callback. Lithostatic stress column with analytical comparison passes within 5% tolerance. K0 ratio verified. Integration-tested.
+7. **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Produces nonzero displacement. Integration-tested.
+8. **Injection pressure buildup**: Poroelastic Simulator with point injection source runs end-to-end. Two-simulation comparison confirms injection affects solution. Integration-tested.
+9. **Derived fields**: Cell-centered stress, strain, CFS from FEM solution. Integration-tested.
+10. **Layered elastostatics**: Depth-based material layering via auxiliary fields. Integration-tested.
+11. **Simulation lifecycle and restart**: Checkpoint/restart verified. Integration-tested.
 12. **DPRK 2017 synthetic mb**: Synthetic body-wave magnitude vs observed for 250 kt. 4 tests pass.
-13. **Atmospheric explosion effects**: Sedov-Taylor blast, Brode fireball, EMP E1, overpressure, fireball radius ranges, seismic magnitude. 8 tests pass.
-14. **Near-field explosion phenomenology**: Cavity radius, damage zones, spall velocity/thickness, cavity source displacement/stress, solver initialization. 13 tests pass.
-15. **SCEC TPV5 infrastructure**: Parameters, CohesiveFaultKernel construction, FaultMeshManager, friction parameter setup. 3 tests pass. Full benchmark solve is WIP.
-16. **Derived fields**: Cell-centered stress, strain, CFS from FEM solution. Integration-tested.
-17. **Plasticity yield evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection works. Hydrostatic stress confirmed inside all surfaces. Return mapping is broken (see gap #1). 8 tests pass.
-18. **Gravity body force**: Density-scaled gravity callback tested. Lithostatic stress column with analytical comparison passes within 5% tolerance. K0 ratio verified.
-19. **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Produces nonzero displacement. Solution vector size verified. 3 tests pass.
-20. **Pressurized hydrofracture foundation**: New `PetscFEHydrofrac` callbacks provide cohesive pressure traction balance (`lambda + p_f*n = 0`) and Sneddon aperture validation. Physics test passes.
-21. **Fault plus absorbing BC coexistence**: `DMSetRegionDS` region split assigns cohesive and absorbing callbacks to separate DS regions, removing displacement-field BdResidual overwrite. Integration tests pass.
-22. **Fracture lubrication callback layer**: `f0_fracture_pressure` and `f1_fracture_pressure` callbacks added with aperture-cubed Poiseuille scaling checks. Integration test passes.
-23. **Coupled hydrofrac utility scaling checks**: PKN quarter-power width scaling utilities and tests added for coupled flow-deformation validation scaffolding.
-24. **Fracture propagation utility checks**: LEFM-inspired cohesive strength mapping from `K_Ic` and opening criterion tests added for propagation scaffolding.
-25. **Multi-cluster stress shadowing**: Sneddon normal-stress perturbation, shadow factor decay, and cluster efficiency utilities. Edge clusters receive more fluid than center clusters under stress shadow. 6 tests pass.
-26. **Induced seismicity from hydrofracture**: Scalar moment M0 = mu*slip*area, Hanks-Kanamori Mw conversion, microseismic range validation (-3 < Mw < 1). 6 tests pass.
-27. **Proppant transport utilities**: Stokes settling velocity, bridging criterion (w/d ratio), pack minimum aperture, mass conservation balance. 8 tests pass.
-28. **Carter leak-off coupling**: Carter leak-off rate (C_L/sqrt(t)) and cumulative volume (2*C_L*sqrt(t)), delayed opening, area scaling. 7 tests pass.
-29. **Production forecasting**: Arps hyperbolic/exponential/harmonic decline curves, cumulative production, fracture productivity index. 9 tests pass.
+13. **Seismometer network SAC output**: Coupled to explosion seismogram pipeline. Integration-tested.
+14. **Boundary conditions**: labelBoundaries() labels 6 box faces, setupBoundaryConditions() registers via DMAddBoundary. 5 unit tests pass.
+
+### Callback-Verified Only (Not Run Through TSSolve)
+
+These have correct callbacks wired into setupPhysics, but no test calls sim.run():
+
+15. **Cohesive fault mesh splitting**: PyLith workflow verified. 32 cohesive cells on 4x4x4 simplex mesh. Setup completes but TSSolve never called with cohesive cells.
+16. **Dynamic rupture setup**: Simulator setup pipeline with cohesive cells completes without error. TSSolve never called.
+17. **Fault plus absorbing BC coexistence**: DMSetRegionDS region split verified. setupPhysics and setupTimeStepper succeed. TSSolve never called.
+18. **Pressurized hydrofracture callbacks**: f0_lagrange_pressure_balance registered on cohesive DS. Callback tested in isolation. Never solved.
+19. **Fracture lubrication flow callbacks**: f0_fracture_pressure, f1_fracture_pressure registered. Callback tested in isolation. Never solved.
+20. **Elastoplasticity callback**: f1_elastoplastic_aux with Drucker-Prager return mapping. Callback returns stress to yield surface. Not wired into setupPhysics.
+
+### Unit-Tested Utility Functions (No FEM Context)
+
+These are standalone analytical formulas, correct but not FEM-integrated:
+
+21. **Fluid flow callbacks**: PetscFEFluidFlow single-phase and black-oil. Unit tested. NOT verified end-to-end.
+22. **Friction laws**: Slip-weakening and rate-state (aging). Unit tested.
+23. **CoulombStressTransfer**: Hooke stress, fault projection, delta_CFS. Unit tested.
+24. **Mueller-Murphy source**: Corner frequency, mb-yield scaling, RDP spectrum. 9 physics tests pass.
+25. **Atmospheric explosion effects**: Sedov-Taylor blast, Brode fireball, EMP E1. 8 tests pass.
+26. **Near-field explosion phenomenology**: Cavity radius, damage zones, spall. 13 tests pass.
+27. **SCEC TPV5 infrastructure**: Parameters, kernel construction, friction setup. 3 tests pass. Full solve WIP.
+28. **Plasticity yield evaluation**: DP, VM, MC yield surface detection works. Return mapping works at material point level. 8 tests pass.
+29. **Hydrofrac utility functions**: Sneddon aperture, PKN width scaling, Carter leak-off, stress shadowing, cluster efficiency, induced seismicity (M0/Mw), proppant transport, Arps decline curves, fracture productivity index. All correct. None assembled/solved via PetscDS.
 
 ## What Does NOT Work (Known Gaps)
 
-1. **Plasticity return mapping broken**: DruckerPragerModel returnMapping does not produce nonzero plastic strain. Not wired into PETSc FEM pipeline. See tests/physics_validation/test_drucker_prager.cpp.
-2. **Homogeneous material only**: Single constants array for the entire mesh. No per-cell material properties.
-3. **Unverified end-to-end**: Injection, hydraulic fracture have not been run to completion.
-4. **No Gmsh mesh import tested**: DMPlexCreateGmsh exists, config stubs exist, but material region assignment from physical groups is untested.
-5. **Stubs only**: DG/ADER, GPU (CUDA/HIP), FNO/ML solvers, volcano, tsunami, ocean, infrasound, radiation transport, hypervelocity impacts. Headers/docs exist but no functional implementation.
+1. **Elastoplasticity not wired into Simulator**: f1_elastoplastic_aux callback exists and works in isolation. PlasticityModel::integrateStress works. Neither is wired into setupPhysics(). No config flag to enable.
+2. **No per-cell material by Gmsh label**: setupAuxiliaryDM and populateAuxFieldsByDepth work for depth-based layering. populateAuxFieldsByLabel does not exist. Gmsh physical group to material mapping is unimplemented.
+3. **Hydrofrac never solved through TSSolve**: All hydrofrac PetscDS callbacks are registered but never assembled and solved. Pressurized fracture, lubrication flow, coupled flow-deformation are all callback-tested only.
+4. **Dynamic rupture never solved**: Cohesive cells inserted into mesh, callbacks registered, but TSSolve never called. Reason: "SNES may diverge at the first time step because the cohesive Jacobian blocks may not be fully consistent."
+5. **Fault + absorbing coexistence never solved**: DMSetRegionDS wired, setup succeeds, TSSolve never called.
+6. **No Gmsh mesh import with material regions tested**: DMPlexCreateGmsh exists, but material region assignment from physical groups is untested.
+7. **Stubs only**: DG/ADER, GPU (CUDA/HIP), FNO/ML solvers, volcano, tsunami, ocean, infrasound, radiation transport, hypervelocity impacts. Headers/docs exist but no functional implementation.
+8. **Dead hydrofrac code in MonitorFunction**: The hydrofrac_ member uses a standalone analytical Thiem equation estimate disconnected from the FEM solution. Redundant with PetscFEHydrofrac callbacks.
 
 ## Rules
 
 1. Build and test in Docker. Always.
 2. Check PETSc 3.22.2 API signatures before calling any PETSc function.
-3. All existing 84 tests must continue to pass after every change.
+3. All existing tests must continue to pass after every change.
 4. NEVER change the DS/BC ordering in setupFields().
 5. Do NOT modify callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp. New callbacks for auxiliary fields go in new files.
 6. Do NOT modify FaultMeshManager::splitMeshAlongFault or CohesiveFaultKernel::registerWithDS.
