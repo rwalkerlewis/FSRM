@@ -120,7 +120,7 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 5. **Friction laws**: Slip-weakening and rate-state (aging). Tested.
 6. **CoulombStressTransfer**: Hooke stress, fault projection, delta_CFS. Tested.
 7. **Boundary conditions**: labelBoundaries() labels 6 box faces, setupBoundaryConditions() registers via DMAddBoundary, section rebuilt. Elastostatics BCs verified.
-8. **Mueller-Murphy source**: Corner frequency, mb-yield scaling, RDP spectrum, cavity radius scaling, moment rate function. 6 physics tests pass.
+8. **Mueller-Murphy source**: Patton (1988) corner frequency (fc = 3.0 * W^(-1/3) Hz), mb-yield scaling, RDP spectrum with correct omega^-2 rolloff, cavity radius scaling, moment rate function. 6 physics tests pass.
 9. **Absorbing BCs**: Clayton-Engquist first-order. Energy absorption >99% at normal incidence. Tested.
 10. **Elastodynamics**: Lamb's problem and Garvin's problem pass with quantitative error norms.
 11. **Explosion seismogram pipeline**: Source injection -> elastodynamic solve -> seismometer sampling -> SAC output. Integration-tested.
@@ -130,15 +130,15 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 15. **SCEC TPV5 infrastructure**: Parameters, CohesiveFaultKernel construction, FaultMeshManager. Verified. Full benchmark solve is WIP.
 16. **Derived fields**: Cell-centered stress, strain, CFS from FEM solution. Integration-tested.
 17. **Plasticity yield evaluation**: Drucker-Prager, von Mises yield surface detection works. Return mapping is broken (see gap #1).
+18. **Gravity body force**: Density-scaled gravity callback tested. Lithostatic stress column with analytical comparison passes within 5% tolerance. K0 ratio verified.
 
 ## What Does NOT Work (Known Gaps)
 
 1. **Plasticity return mapping broken**: DruckerPragerModel returnMapping does not produce nonzero plastic strain. Not wired into PETSc FEM pipeline. See tests/physics_validation/test_drucker_prager.cpp.
 2. **Homogeneous material only**: Single constants array for the entire mesh. No per-cell material properties.
-3. **No gravity / lithostatic pre-stress**: Solver starts from zero stress state.
-4. **Unverified end-to-end**: Injection, hydraulic fracture, seismometer SAC output format have not been run to completion.
-5. **No Gmsh mesh import tested**: DMPlexCreateGmsh exists, config stubs exist, but material region assignment from physical groups is untested.
-6. **Stubs only**: DG/ADER, GPU (CUDA/HIP), FNO/ML solvers, volcano, tsunami, ocean, infrasound, radiation transport, hypervelocity impacts, ResFrac-equivalent fracturing. Headers/docs exist but no functional implementation.
+3. **Unverified end-to-end**: Injection, hydraulic fracture have not been run to completion.
+4. **No Gmsh mesh import tested**: DMPlexCreateGmsh exists, config stubs exist, but material region assignment from physical groups is untested.
+5. **Stubs only**: DG/ADER, GPU (CUDA/HIP), FNO/ML solvers, volcano, tsunami, ocean, infrasound, radiation transport, hypervelocity impacts. Headers/docs exist but no functional implementation.
 
 ## Rules
 

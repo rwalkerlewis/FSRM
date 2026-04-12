@@ -14,6 +14,8 @@ The following features have automated tests with quantitative pass/fail criteria
 
 ### Solid Mechanics
 - **Elastostatics**: PetscFE pointwise callbacks (f0, f1, g3). Uniaxial compression converges in 1 SNES iteration. Unit tested.
+- **Gravity body force**: Density-scaled body force callback. Unit tested and setup-verified.
+- **Lithostatic stress**: Full FEM solve of 1D gravitational column. Analytical comparison of vertical and lateral stress profiles (K0 ratio). Passes within 5% tolerance.
 - **Boundary conditions**: 6-face bounding box labeling, Dirichlet via DMAddBoundary, section rebuild. Verified with elastostatics.
 - **Derived fields**: Cell-centered stress, strain, and Coulomb failure stress from FEM solution (DerivedFieldComputer).
 
@@ -67,7 +69,7 @@ The following features exist as code stubs, partial implementations, or configur
 | Off-fault plasticity (return mapping) | Broken | Yield detection works; return mapping does not produce plastic strain. |
 | GPU acceleration (CUDA/HIP) | Stub | Build flags exist. No working GPU kernels. |
 | Fourier Neural Operator (FNO) solver | Stub | Headers exist. Not functional. |
-| Hydraulic fracturing (PKN/KGD) | Coded, unverified | Config exists. No end-to-end test. |
+| Hydraulic fracturing (prototype) | Coded, unverified | Config exists. No end-to-end test. |
 | Multi-phase fluid flow (end-to-end) | Coded, unverified | Callbacks unit-tested. No simulation test. |
 | Injection source term | Coded, unverified | Config exists (injection_pressure_buildup.config). |
 | Gmsh mesh import | Coded, unverified | Config stubs exist. Material region assignment untested. |
@@ -78,12 +80,11 @@ The following features exist as code stubs, partial implementations, or configur
 | Atmospheric infrasound | Stub | Documentation only. No physics implementation. |
 | Radiation transport / fallout | Stub | Documentation only. No physics implementation. |
 | Hypervelocity impacts | Stub | Documentation only. No physics implementation. |
-| ResFrac-equivalent fracturing | Stub | Documentation only. Multi-stage, proppant, diversion not implemented. |
+| Advanced fracturing (multi-stage, proppant) | Stub | Not implemented. |
 | Eclipse format I/O | Stub | Not tested. |
 | Compositional EOS fluid | Stub | Not implemented. |
 | Thermal coupling | Stub | Not implemented end-to-end. |
 | Per-cell material properties | Not implemented | Single constants array for entire mesh. |
-| Gravity / lithostatic pre-stress | Not implemented | Solver starts from zero stress state. |
 
 ## Technology Stack
 
