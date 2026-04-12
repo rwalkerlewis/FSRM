@@ -28,8 +28,9 @@ The following features have automated tests with quantitative pass/fail criteria
 - **Terzaghi consolidation**: 1D consolidation benchmark with analytical solution comparison. Passes with quantitative tolerance.
 
 ### Nuclear Explosion Monitoring
-- **Mueller-Murphy seismic source**: Corner frequency, mb-yield scaling, reduced displacement potential (RDP) spectrum, cavity radius scaling, moment rate function. 6 tests pass.
+- **Mueller-Murphy seismic source**: Corner frequency, mb-yield scaling, reduced displacement potential (RDP) spectrum, cavity radius scaling, moment rate function. 9 tests pass.
 - **Explosion seismogram pipeline**: Source injection via moment tensor, elastodynamic wave propagation, seismometer sampling (DMInterpolation), SAC output format. Integration-tested.
+- **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Verified with nonzero displacement norm and correct solution vector size.
 - **DPRK 2017 comparison**: Synthetic body-wave magnitude (mb) vs observed for 250 kt test at Punggye-ri. 4 tests pass.
 
 ### Atmospheric Explosion Effects
@@ -50,7 +51,7 @@ The following features have automated tests with quantitative pass/fail criteria
 - **SCEC TPV5**: Infrastructure verified (parameters, CohesiveFaultKernel construction, FaultMeshManager). Full benchmark solve is a work in progress.
 
 ### Plasticity (Partial)
-- **Yield function evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection works correctly.
+- **Yield function evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection works correctly. Hydrostatic stress confirmed inside all surfaces.
 - **Known limitation**: Return mapping algorithms do not produce nonzero plastic strain. Not wired into PETSc FEM pipeline.
 
 ### Fluid Flow Callbacks

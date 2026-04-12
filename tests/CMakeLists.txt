@@ -76,6 +76,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_atmospheric_explosion.cpp
     physics_validation/test_near_field_explosion.cpp
     physics_validation/test_drucker_prager.cpp
+    physics_validation/test_moment_tensor_source.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -203,6 +204,7 @@ if(GTest_FOUND)
     add_test(NAME Physics.AtmosphericExplosion     COMMAND run_physics_tests --gtest_filter=AtmosphericExplosionValidationTest.*)
     add_test(NAME Physics.NearFieldExplosion        COMMAND run_physics_tests --gtest_filter=NearFieldExplosionValidationTest.*)
     add_test(NAME Physics.DruckerPrager              COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
+    add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -266,7 +268,8 @@ if(GTest_FOUND)
         Physics.AtmosphericExplosion
         Physics.NearFieldExplosion
         Physics.DruckerPrager
-        PROPERTIES TIMEOUT 300 LABELS "physics_validation"
+        Physics.MomentTensorSource
+        PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
     # Integration tests

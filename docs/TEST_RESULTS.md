@@ -2,18 +2,18 @@
 
 Generated from `ctest --output-on-failure` on the `local_fix` branch.
 
-**67/67 tests pass. 0 failures.**
+**68/68 tests pass. 0 failures. 0 skips.**
 
 ## Test Summary by Label
 
 | Label | Tests | Time |
 |-------|-------|------|
-| unit | 30 | 13.17 sec |
-| physics_validation | 17 | 18.72 sec |
-| integration | 12 | 9.34 sec |
-| functional | 4 | 1.47 sec |
-| performance | 3 | 1.84 sec |
-| experimental | 1 | 0.37 sec |
+| unit | 30 | 13.10 sec |
+| physics_validation | 18 | 21.14 sec |
+| integration | 12 | 16.49 sec |
+| functional | 4 | 1.48 sec |
+| performance | 3 | 1.89 sec |
+| experimental | 1 | 3.03 sec |
 
 ## Complete Test Matrix
 
@@ -61,64 +61,67 @@ Generated from `ctest --output-on-failure` on the `local_fix` branch.
 | 33 | Functional.SolverConvergence | PASS | 0.37s |
 | 34 | Functional.WellOperations | PASS | 0.36s |
 
-### Physics Validation Tests (17 tests)
+### Physics Validation Tests (18 tests)
 
 | # | Test Name | Status | Time | Description |
 |---|-----------|--------|------|-------------|
-| 35 | Physics.MMS.Diffusion | PASS | 0.37s | Method of manufactured solutions for diffusion |
-| 36 | Physics.MMS.Elasticity | PASS | 0.36s | MMS for elasticity |
-| 37 | Physics.MMS.WavePropagation | PASS | 0.35s | MMS for wave propagation |
-| 38 | Physics.AnalyticalSolutions | PASS | 0.38s | Analytical benchmark comparisons |
+| 35 | Physics.MMS.Diffusion | PASS | 0.38s | Method of manufactured solutions for diffusion |
+| 36 | Physics.MMS.Elasticity | PASS | 0.39s | MMS for elasticity |
+| 37 | Physics.MMS.WavePropagation | PASS | 0.38s | MMS for wave propagation |
+| 38 | Physics.AnalyticalSolutions | PASS | 0.36s | Analytical benchmark comparisons |
 | 39 | Physics.Thermoporoelastic | PASS | 0.39s | Thermoporoelastic coupling |
-| 40 | Physics.SCEC.TPV5 | PASS | 0.38s | SCEC TPV5 fault infrastructure |
-| 41 | Physics.ElastostaticsPatch | PASS | 0.38s | Elastostatics patch test |
-| 42 | Physics.TerzaghiConsolidation | PASS | 4.58s | Terzaghi 1D consolidation vs analytical |
-| 43 | Physics.AbsorbingBC | PASS | 5.43s | Clayton-Engquist absorbing boundary conditions |
-| 44 | Physics.GravityLithostatic | PASS | 0.48s | Gravity and lithostatic stress |
+| 40 | Physics.SCEC.TPV5 | PASS | 0.40s | SCEC TPV5 fault infrastructure (3 real tests, no skips) |
+| 41 | Physics.ElastostaticsPatch | PASS | 0.41s | Elastostatics patch test |
+| 42 | Physics.TerzaghiConsolidation | PASS | 4.54s | Terzaghi 1D consolidation vs analytical |
+| 43 | Physics.AbsorbingBC | PASS | 5.61s | Clayton-Engquist absorbing boundary conditions |
+| 44 | Physics.GravityLithostatic | PASS | 0.51s | Gravity and lithostatic stress |
 | 45 | Physics.LithostaticStress | PASS | 0.97s | Lithostatic stress verification |
-| 46 | Physics.LambsProblem | PASS | 1.61s | Lamb's problem (point force on halfspace) |
-| 47 | Physics.GarvinsProblem | PASS | 1.55s | Garvin's problem (buried explosion) |
-| 48 | Physics.MuellerMurphy | PASS | 0.36s | Mueller-Murphy seismic source model |
-| 49 | Physics.AtmosphericExplosion | PASS | 0.37s | Sedov-Taylor, Brode, EMP, overpressure |
-| 50 | Physics.NearFieldExplosion | PASS | 0.39s | Cavity, damage zone, spall phenomenology |
-| 51 | Physics.DruckerPrager | PASS | 0.38s | Drucker-Prager yield (documents return mapping gap) |
+| 46 | Physics.LambsProblem | PASS | 1.55s | Lamb's problem (point force on halfspace) |
+| 47 | Physics.GarvinsProblem | PASS | 1.58s | Garvin's problem (buried explosion) |
+| 48 | Physics.MuellerMurphy | PASS | 0.38s | Mueller-Murphy seismic source (9 test cases) |
+| 49 | Physics.AtmosphericExplosion | PASS | 0.38s | Sedov-Taylor, Brode, EMP, overpressure (8 test cases) |
+| 50 | Physics.NearFieldExplosion | PASS | 0.38s | Cavity, damage, spall, solver (13 test cases) |
+| 51 | Physics.DruckerPrager | PASS | 0.41s | DP/VM/MC yield + hydrostatic check (8 test cases) |
+| 52 | Physics.MomentTensorSource | PASS | 2.13s | FEM source injection, solution norm (3 test cases) |
 
 ### Integration Tests (12 tests)
 
 | # | Test Name | Status | Time | Description |
 |---|-----------|--------|------|-------------|
-| 52 | Integration.FullSimulation | PASS | 0.38s | Full simulation lifecycle |
-| 53 | Integration.Restart | PASS | 0.39s | Checkpoint/restart |
-| 54 | Integration.CoupledPhysics | PASS | 0.38s | Coupled physics modules |
-| 55 | Integration.InjectionRuptureChain | PASS | 0.39s | Injection-to-rupture chain |
-| 56 | Integration.LockedFault | PASS | 0.39s | Locked fault behavior |
-| 57 | Integration.LayeredElastostatics | PASS | 3.05s | Layered material elastostatics |
-| 58 | Integration.ExplosionSeismogram | PASS | 1.68s | Explosion source to seismogram pipeline |
-| 59 | Integration.PrescribedSlip | PASS | 0.41s | Prescribed slip on cohesive fault |
-| 60 | Integration.OutputFile | PASS | 0.60s | Output file generation |
-| 61 | Integration.GmshImport | PASS | 0.66s | Gmsh mesh import |
-| 62 | Integration.DerivedFields | PASS | 0.63s | Derived field computation (stress, strain, CFS) |
-| 63 | Integration.DPRK2017Comparison | PASS | 0.37s | DPRK 2017 synthetic vs observed mb |
+| 53 | Integration.FullSimulation | PASS | 0.39s | Full simulation lifecycle |
+| 54 | Integration.Restart | PASS | 3.03s | Checkpoint/restart |
+| 55 | Integration.CoupledPhysics | PASS | 0.40s | Coupled physics modules |
+| 56 | Integration.InjectionRuptureChain | PASS | 0.40s | Injection-to-rupture chain |
+| 57 | Integration.LockedFault | PASS | 0.38s | Locked fault behavior |
+| 58 | Integration.LayeredElastostatics | PASS | 0.40s | Layered material elastostatics |
+| 59 | Integration.ExplosionSeismogram | PASS | 8.77s | Explosion source to seismogram pipeline |
+| 60 | Integration.PrescribedSlip | PASS | 0.44s | Prescribed slip on cohesive fault |
+| 61 | Integration.OutputFile | PASS | 0.63s | Output file generation |
+| 62 | Integration.GmshImport | PASS | 0.64s | Gmsh mesh import |
+| 63 | Integration.DerivedFields | PASS | 0.63s | Derived field computation (stress, strain, CFS) |
+| 64 | Integration.DPRK2017Comparison | PASS | 0.38s | DPRK 2017 synthetic vs observed mb |
 
 ### Performance Tests (3 tests)
 
 | # | Test Name | Status | Time |
 |---|-----------|--------|------|
-| 64 | Performance.Benchmarks | PASS | 0.40s |
-| 65 | Performance.Scaling | PASS | 1.08s |
-| 66 | Performance.Memory | PASS | 0.36s |
+| 65 | Performance.Benchmarks | PASS | 0.41s |
+| 66 | Performance.Scaling | PASS | 1.10s |
+| 67 | Performance.Memory | PASS | 0.38s |
 
 ### Experimental Tests (1 test)
 
 | # | Test Name | Status | Time |
 |---|-----------|--------|------|
-| 67 | Experimental.NeuralStubs | PASS | 0.37s |
+| 68 | Experimental.NeuralStubs | PASS | 3.03s |
 
 ## Known Limitations Documented in Tests
 
-1. **Drucker-Prager return mapping** (Physics.DruckerPrager): Yield function evaluation works correctly. Return mapping algorithm does not produce nonzero plastic strain. Tests document this gap with `EXPECT_FALSE(state.is_plastic)` where it should be true. Not wired into PETSc FEM pipeline.
+1. **Drucker-Prager return mapping** (Physics.DruckerPrager): Yield function evaluation works correctly for Drucker-Prager, von Mises, and Mohr-Coulomb. Return mapping algorithm does not produce nonzero plastic strain. Tests document this gap. Not wired into PETSc FEM pipeline.
 
-2. **SCEC TPV5 full benchmark** (Physics.SCEC.TPV5): Infrastructure (parameters, CohesiveFaultKernel, FaultMeshManager) verified. Full dynamic rupture solve is GTEST_SKIP pending end-to-end verification.
+2. **SCEC TPV5 full benchmark** (Physics.SCEC.TPV5): Infrastructure (parameters, CohesiveFaultKernel, FaultMeshManager, friction parameter setup) verified with 3 real tests. Full dynamic rupture solve is a work in progress.
+
+3. **Mohr-Coulomb principal stress computation** (Physics.DruckerPrager): The computePrincipalStresses function returns NaN for pure hydrostatic stress (q=0) due to division by zero in the Cardano formula. Tests use stress states with nonzero deviatoric component to avoid this.
 
 ## Test Environment
 

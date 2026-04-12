@@ -111,7 +111,7 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 | Example configs | config/examples/ | -- |
 | Aspirational configs | config/aspirational/ | DO NOT USE |
 
-## What Works (Verified, All 67 Tests Pass)
+## What Works (Verified, All 68 Tests Pass)
 
 1. **Elastostatics**: PetscFEElasticity f0/f1/g3 callbacks. Uniaxial compression converges with nonzero FNORM in 1 iteration. Unit tested.
 2. **Poroelasticity callbacks**: PetscFEPoroelasticity f0/f1 for pressure+displacement, all 4 Jacobian blocks. Unit tested. Terzaghi consolidation passes with analytical comparison.
@@ -119,18 +119,19 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 4. **Cohesive fault mesh splitting**: PyLith workflow (DMPlexCreateSubmesh -> subpoint map -> DMPlexLabelCohesiveComplete -> DMPlexConstructCohesiveCells). 32 cohesive cells, 96 fault vertices on 4x4x4 simplex mesh. All fault tests pass.
 5. **Friction laws**: Slip-weakening and rate-state (aging). Tested.
 6. **CoulombStressTransfer**: Hooke stress, fault projection, delta_CFS. Tested.
-7. **Boundary conditions**: labelBoundaries() labels 6 box faces, setupBoundaryConditions() registers via DMAddBoundary, section rebuilt. Elastostatics BCs verified.
-8. **Mueller-Murphy source**: Patton (1988) corner frequency (fc = 3.0 * W^(-1/3) Hz), mb-yield scaling, RDP spectrum with correct omega^-2 rolloff, cavity radius scaling, moment rate function. 6 physics tests pass.
+7. **Boundary conditions**: labelBoundaries() labels 6 box faces, setupBoundaryConditions() registers via DMAddBoundary, section rebuilt. Elastostatics BCs verified. 5 unit tests pass.
+8. **Mueller-Murphy source**: Patton (1988) corner frequency (fc = 3.0 * W^(-1/3) Hz), mb-yield scaling, RDP spectrum with correct omega^-2 rolloff, cavity radius scaling, moment rate function. 9 physics tests pass.
 9. **Absorbing BCs**: Clayton-Engquist first-order. Energy absorption >99% at normal incidence. Tested.
 10. **Elastodynamics**: Lamb's problem and Garvin's problem pass with quantitative error norms.
 11. **Explosion seismogram pipeline**: Source injection -> elastodynamic solve -> seismometer sampling -> SAC output. Integration-tested.
 12. **DPRK 2017 synthetic mb**: Synthetic body-wave magnitude vs observed for 250 kt. 4 tests pass.
-13. **Atmospheric explosion effects**: Sedov-Taylor blast, Brode fireball, EMP E1, overpressure. 6 tests pass.
-14. **Near-field explosion phenomenology**: Cavity radius, damage zones, spall velocity/thickness. 6 tests pass.
-15. **SCEC TPV5 infrastructure**: Parameters, CohesiveFaultKernel construction, FaultMeshManager. Verified. Full benchmark solve is WIP.
+13. **Atmospheric explosion effects**: Sedov-Taylor blast, Brode fireball, EMP E1, overpressure, fireball radius ranges, seismic magnitude. 8 tests pass.
+14. **Near-field explosion phenomenology**: Cavity radius, damage zones, spall velocity/thickness, cavity source displacement/stress, solver initialization. 13 tests pass.
+15. **SCEC TPV5 infrastructure**: Parameters, CohesiveFaultKernel construction, FaultMeshManager, friction parameter setup. 3 tests pass. Full benchmark solve is WIP.
 16. **Derived fields**: Cell-centered stress, strain, CFS from FEM solution. Integration-tested.
-17. **Plasticity yield evaluation**: Drucker-Prager, von Mises yield surface detection works. Return mapping is broken (see gap #1).
+17. **Plasticity yield evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection works. Hydrostatic stress confirmed inside all surfaces. Return mapping is broken (see gap #1). 8 tests pass.
 18. **Gravity body force**: Density-scaled gravity callback tested. Lithostatic stress column with analytical comparison passes within 5% tolerance. K0 ratio verified.
+19. **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Produces nonzero displacement. Solution vector size verified. 3 tests pass.
 
 ## What Does NOT Work (Known Gaps)
 
@@ -144,7 +145,7 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 
 1. Build and test in Docker. Always.
 2. Check PETSc 3.22.2 API signatures before calling any PETSc function.
-3. All existing 67 tests must continue to pass after every change.
+3. All existing 68 tests must continue to pass after every change.
 4. NEVER change the DS/BC ordering in setupFields().
 5. Do NOT modify callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp. New callbacks for auxiliary fields go in new files.
 6. Do NOT modify FaultMeshManager::splitMeshAlongFault or CohesiveFaultKernel::registerWithDS.

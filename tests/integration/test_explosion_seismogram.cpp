@@ -55,11 +55,11 @@ protected:
       cfg << "[SIMULATION]\n";
       cfg << "name = test_explosion\n";
       cfg << "start_time = 0.0\n";
-      cfg << "end_time = 0.05\n";
-      cfg << "dt_initial = 0.005\n";
+      cfg << "end_time = 0.5\n";
+      cfg << "dt_initial = 0.0025\n";
       cfg << "dt_min = 0.001\n";
-      cfg << "dt_max = 0.01\n";
-      cfg << "max_timesteps = 10\n";
+      cfg << "dt_max = 0.005\n";
+      cfg << "max_timesteps = 200\n";
       cfg << "output_frequency = 100\n";
       cfg << "fluid_model = NONE\n";
       cfg << "solid_model = ELASTIC\n";
@@ -91,9 +91,17 @@ protected:
       cfg << "rise_time = 0.01\n";
       cfg << "cavity_overpressure = 1.0e10\n";
       cfg << "\n[BOUNDARY_CONDITIONS]\n";
-      cfg << "bottom = fixed\n";
-      cfg << "sides = roller\n";
+      cfg << "bottom = free\n";
+      cfg << "sides = free\n";
       cfg << "top = free\n";
+      cfg << "\n[ABSORBING_BC]\n";
+      cfg << "enabled = true\n";
+      cfg << "x_min = true\n";
+      cfg << "x_max = true\n";
+      cfg << "y_min = true\n";
+      cfg << "y_max = true\n";
+      cfg << "z_min = true\n";
+      cfg << "z_max = false\n";
       cfg << "\n[SEISMOMETERS]\n";
       cfg << "enabled = true\n";
       cfg << "formats = SAC\n";
@@ -102,10 +110,10 @@ protected:
       cfg << "default_sample_rate_hz = 200.0\n";
       cfg << "\n[SEISMOMETER_1]\n";
       cfg << "sta = NEAR\n";
-      cfg << "location_xyz = 2500.0,2000.0,2000.0\n";
+      cfg << "location_xyz = 2100.0,2000.0,2000.0\n";
       cfg << "\n[SEISMOMETER_2]\n";
       cfg << "sta = FAR\n";
-      cfg << "location_xyz = 3500.0,2000.0,2000.0\n";
+      cfg << "location_xyz = 2500.0,2000.0,2000.0\n";
       cfg.close();
     }
     MPI_Barrier(PETSC_COMM_WORLD);
@@ -285,7 +293,7 @@ TEST_F(ExplosionSeismogramTest, AmplitudeDecreasesWithDistance)
   if (rank_ != 0) return;
 
   // Read the radial component (BHN = x-direction) for both stations
-  // NEAR is at 500m from source, FAR is at 1500m
+    // NEAR is at 100m from source, FAR is at 500m
   std::string near_path = output_dir_ + "/XX.NEAR.00.BHN.sac";
   std::string far_path = output_dir_ + "/XX.FAR.00.BHN.sac";
 

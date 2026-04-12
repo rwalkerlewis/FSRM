@@ -28,6 +28,7 @@
 #include <limits>
 #include <sys/stat.h>
 #include <petscviewerhdf5.h>
+#include <petscfe.h>
 
 namespace {
 
@@ -360,6 +361,10 @@ struct Simulator::ExplosionCoupling {
     double vp = 5500.0;
     double vs = 3200.0;
 
+    // Stored source parameters for Mueller-Murphy moment rate
+    double yield_kt = 0.0;
+    double depth_of_burial = 0.0;
+
     // Cavity model (spherically symmetric proxy)
     SphericalCavitySource cavity;
 
@@ -372,6 +377,8 @@ struct Simulator::ExplosionCoupling {
         t0 = detonation_time_s;
         sx = x; sy = y; sz = z;
         rho = rho_in; vp = vp_in; vs = vs_in;
+        this->yield_kt = yield_kt;
+        depth_of_burial = depth_m;
 
         // Compute elastic moduli from wave speeds (isotropic)
         double G = rho * vs * vs;
@@ -1699,6 +1706,15 @@ PetscErrorCode Simulator::setupPhysics() {
     // constants. Repurpose constants[0] as gravity magnitude.
     bool use_aux_callbacks = config.use_heterogeneous_material || (config.gravity > 0.0);
     if (use_aux_callbacks) {
+        // When absorbing BCs are enabled with gravity, the constants[0-2] slots
+        // are repurposed for gravity and cannot hold lambda/mu/rho. The AbsorbingBC
+        // callback must read material properties from aux fields.
+        // Aux fields are always populated when use_aux_callbacks is true
+        // (setupAuxiliaryDM + populateAuxFieldsByDepth), so this is safe.
+        if (config.absorbing_bc_enabled) {
+            PetscCheck(!material_props.empty(), PETSC_COMM_WORLD, PETSC_ERR_USER,
+                "Absorbing BCs with gravity require material properties to populate auxiliary fields");
+        }
         unified_constants[0] = config.gravity;
         unified_constants[1] = 0.0;
         unified_constants[2] = 0.0;
@@ -2513,19 +2529,17 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
 
     // Get moment tensor at current time
     double M[6];  // Mxx, Myy, Mzz, Mxy, Mxz, Myz
-    MuellerMurphySource mm;
-    NuclearSourceParameters nsp;
-    nsp.yield_kt = 0;
-    nsp.depth_of_burial = 0;
-    // Use the cavity's equivalent moment as the source magnitude
+    // Use Mueller-Murphy moment rate for physically consistent source magnitude
     double mr = 0.0;
     double elapsed = static_cast<double>(t) - explosion_->t0;
     if (elapsed >= 0.0) {
-        double tau = explosion_->cavity.getRiseTime();
-        if (tau < 1e-12) tau = 1e-12;
-        double M0 = explosion_->cavity.equivalentMoment();
-        // Isotropic moment tensor: M_ij = M0(t)/3 * delta_ij
-        mr = (M0 / tau) * std::exp(-elapsed / tau);
+        NuclearSourceParameters nsp;
+        nsp.yield_kt = explosion_->yield_kt;
+        nsp.depth_of_burial = explosion_->depth_of_burial;
+        MuellerMurphySource mm;
+        mm.setMediumProperties(explosion_->rho, explosion_->vp, explosion_->vs);
+        mm.setParameters(nsp);
+        mr = mm.momentRate(elapsed);
     }
     double scale = mr / 3.0;
     M[0] = M[1] = M[2] = scale;
@@ -2557,31 +2571,86 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
         PetscFunctionReturn(0);
     }
 
-    // For elastostatics (disp_field=0), all closure DOFs are displacement DOFs
-    // For poroelastic (disp_field=1), we need to skip pressure DOFs
-    // In the closure ordering, DOFs from each vertex appear in field order:
-    // [p0, ux0, uy0, uz0, p1, ux1, uy1, uz1, ...] for poroelastic
-    // [ux0, uy0, uz0, ux1, uy1, uz1, ...] for pure elastic
+    // Proper moment tensor equivalent nodal forces (BUG 5 fix)
+    // For a point moment tensor M_ij * delta(x - x_s):
+    //   F_i^a = -(sum_j dPhi_a/dx_j * M_ij)
+    // where dPhi_a is the scalar basis function of node a.
     PetscInt dim = 3;
-    if (disp_field == 0) {
-        // All closure DOFs are displacement, grouped by vertex: (ux,uy,uz) per node
-        PetscInt nNodes = closureSize / dim;
-        for (PetscInt n = 0; n < nNodes; ++n) {
+
+    // Build full symmetric moment tensor [3][3]
+    double Mmat[3][3] = {
+        {M[0], M[3], M[4]},
+        {M[3], M[1], M[5]},
+        {M[4], M[5], M[2]}
+    };
+
+    // Get the FE for the displacement field
+    PetscFE fe;
+    ierr = DMGetField(dm, disp_field, NULL, (PetscObject*)&fe); CHKERRQ(ierr);
+
+    // Get total number of basis functions and number of components
+    PetscInt Nb;
+    ierr = PetscFEGetDimension(fe, &Nb); CHKERRQ(ierr);
+    PetscInt nNodes = Nb / dim;
+
+    // Determine reference centroid based on cell type
+    DMPolytopeType cellType;
+    ierr = DMPlexGetCellType(dm, explosion_cell_, &cellType); CHKERRQ(ierr);
+
+    PetscReal refPt[3];
+    if (cellType == DM_POLYTOPE_TETRAHEDRON) {
+        refPt[0] = 0.25; refPt[1] = 0.25; refPt[2] = 0.25;
+    } else {
+        refPt[0] = 0.0; refPt[1] = 0.0; refPt[2] = 0.0;
+    }
+
+    // Tabulate basis derivatives at cell centroid (K=1 for first derivatives)
+    PetscTabulation T;
+    ierr = PetscFECreateTabulation(fe, 1, 1, refPt, 1, &T); CHKERRQ(ierr);
+
+    // Get inverse Jacobian for reference-to-physical coordinate mapping
+    PetscReal v0[3], J[9], invJ_g[9], detJ_val;
+    ierr = DMPlexComputeCellGeometryFEM(dm, explosion_cell_, NULL, v0, J, invJ_g, &detJ_val);
+    CHKERRQ(ierr);
+
+    // T->T[1] layout: [b * Nc * cdim + c * cdim + d]
+    // For vector FE with dim components:
+    //   basis b = node_a * dim + comp_k
+    //   dPhi_a/dxi_d = T->T[1][(a*dim + k) * dim * dim + k * dim + d] (for any k with c=k)
+    // Using k=0, c=0: dPhi_a/dxi_d = T->T[1][a * dim^3 + d]
+    // Physical gradient: dPhi_a/dx_j = sum_d dPhi_a/dxi_d * invJ[d*dim+j]
+
+    PetscInt dofs_per_node = (disp_field == 0) ? dim : (1 + dim);
+
+    for (PetscInt a = 0; a < nNodes; ++a) {
+        // Compute physical gradient of scalar basis function Phi_a
+        double dPhi_dx[3] = {0.0, 0.0, 0.0};
+        for (PetscInt j = 0; j < dim; ++j) {
             for (PetscInt d = 0; d < dim; ++d) {
-                closure[n * dim + d] += -M[d] / vol;
+                PetscInt tabIdx = a * dim * dim * dim + d;
+                dPhi_dx[j] += T->T[1][tabIdx] * invJ_g[d * dim + j];
             }
         }
-    } else {
-        // Poroelastic: each vertex contributes 1 pressure DOF + dim displacement DOFs
-        PetscInt dofs_per_node = 1 + dim;
-        PetscInt nNodes = closureSize / dofs_per_node;
-        for (PetscInt n = 0; n < nNodes; ++n) {
-            for (PetscInt d = 0; d < dim; ++d) {
-                // Skip pressure DOF (index 0 per node), displacement starts at index 1
-                closure[n * dofs_per_node + 1 + d] += -M[d] / vol;
+
+        // F_i^a = -(sum_j dPhi_a/dx_j * M_ij)
+        for (PetscInt i = 0; i < dim; ++i) {
+            double force = 0.0;
+            for (PetscInt j = 0; j < dim; ++j) {
+                force += dPhi_dx[j] * Mmat[i][j];
+            }
+            PetscInt closure_idx;
+            if (disp_field == 0) {
+                closure_idx = a * dim + i;
+            } else {
+                closure_idx = a * dofs_per_node + 1 + i;
+            }
+            if (closure_idx < closureSize) {
+                closure[closure_idx] += -force;
             }
         }
     }
+
+    ierr = PetscTabulationDestroy(&T); CHKERRQ(ierr);
 
     ierr = DMPlexVecSetClosure(dm, section, locF, explosion_cell_, closure, INSERT_VALUES);
     CHKERRQ(ierr);
