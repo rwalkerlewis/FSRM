@@ -162,6 +162,13 @@ struct SimulationConfig {
     
     int max_timesteps = 10000;
     int output_frequency = 10;
+
+    // Derived field output
+    bool output_stress = false;
+    bool output_cfs = false;
+    double cfs_receiver_strike = 0.0;   // degrees
+    double cfs_receiver_dip = 90.0;     // degrees
+    double cfs_friction = 0.4;
     
     bool enable_adaptive_timestepping = true;
     bool enable_checkpointing = true;

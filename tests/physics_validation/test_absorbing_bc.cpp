@@ -429,3 +429,122 @@ TEST_F(AbsorbingBCEnergyTest, WavePropagationWithAbsorbingBCCompletes)
   ierr = sim.run();
   ASSERT_EQ(ierr, 0) << "Simulation with absorbing BCs failed";
 }
+
+// Test 9: Quantitative energy absorption test
+// For a plane P-wave hitting the absorbing BC, the energy flux through the
+// boundary should equal the incident energy flux (perfect absorption at
+// normal incidence). We evaluate the f0_absorbing callback for plane waves
+// at multiple angles and compute the energy absorption efficiency.
+//
+// For first-order Clayton-Engquist ABC:
+//   Normal incidence (theta=0): 100% absorption
+//   Oblique incidence: absorption decreases with angle
+//   Average over hemisphere should be > 50%
+TEST_F(AbsorbingBCCallbackTest, EnergyAbsorptionEfficiency)
+{
+  // Material properties
+  const double rho = TEST_RHO;
+  const double cpv = cp();
+  const double csv = cs();
+
+  // Constants array matching the absorbing BC constants layout
+  // [0]=lambda, [1]=mu, [2]=rho_s
+  PetscScalar constants[27] = {0};
+  constants[0] = TEST_LAMBDA;
+  constants[1] = TEST_MU;
+  constants[2] = TEST_RHO;
+
+  // Test P-wave absorption at multiple incidence angles
+  // Boundary normal in +z direction
+  PetscReal n[3] = {0.0, 0.0, 1.0};
+  PetscReal x[3] = {0};
+
+  PetscInt uOff[1] = {0};
+  PetscInt uOff_x[1] = {0};
+  PetscInt aOff[1] = {0};
+  PetscInt aOff_x[1] = {0};
+  PetscScalar u[3] = {0};
+  PetscScalar u_x[9] = {0};
+
+  // Test angles from 0 (normal) to 75 degrees
+  double angles_deg[] = {0.0, 15.0, 30.0, 45.0, 60.0};
+  int n_angles = 5;
+  double total_absorbed_fraction = 0.0;
+
+  for (int ai = 0; ai < n_angles; ++ai)
+  {
+    double theta = angles_deg[ai] * M_PI / 180.0;
+
+    // P-wave velocity vector: particle motion in the propagation direction
+    // Propagation direction: (sin(theta), 0, cos(theta))
+    // For a P-wave with unit amplitude velocity:
+    double vx = std::sin(theta);
+    double vy = 0.0;
+    double vz = std::cos(theta);
+
+    PetscScalar u_t[3] = {vx, vy, vz};
+    PetscScalar f0[3] = {0};
+
+    AbsorbingBC::f0_absorbing(
+      DIM, 1, 0,
+      uOff, uOff_x, u, u_t, u_x,
+      aOff, aOff_x, nullptr, nullptr, nullptr,
+      0.0, x, n,
+      27, constants, f0);
+
+    // The boundary flux (power per unit area) is: P = t . v = f0 . u_t
+    double absorbed_power = PetscRealPart(f0[0]) * vx +
+                            PetscRealPart(f0[1]) * vy +
+                            PetscRealPart(f0[2]) * vz;
+
+    // Incident P-wave energy flux normal to the boundary:
+    // For a P-wave with velocity amplitude A propagating at angle theta:
+    // E_incident = 0.5 * rho * cp * A^2 * cos(theta)
+    // Since A=1 and we compute instantaneous power (not time-averaged):
+    // P_incident = rho * cp * A^2 * cos(theta)
+    double incident_power = rho * cpv * 1.0 * std::cos(theta);
+
+    double absorption_fraction = (incident_power > 0.0) ?
+      absorbed_power / incident_power : 1.0;
+
+    // At normal incidence (theta=0), absorption should be essentially perfect
+    if (angles_deg[ai] < 1.0)
+    {
+      EXPECT_NEAR(absorption_fraction, 1.0, 0.01)
+        << "Normal-incidence P-wave should have >99% energy absorption";
+    }
+
+    // At all tested angles, absorption should be positive
+    EXPECT_GT(absorption_fraction, 0.0)
+      << "Energy absorption must be positive at theta=" << angles_deg[ai];
+
+    total_absorbed_fraction += absorption_fraction;
+  }
+
+  // Average absorption across tested angles should be > 50%
+  double avg_absorption = total_absorbed_fraction / n_angles;
+  EXPECT_GT(avg_absorption, 0.50)
+    << "Average P-wave absorption across angles 0-60 deg should exceed 50%";
+
+  // Also test S-wave at normal incidence
+  {
+    PetscScalar u_t_s[3] = {1.0, 0.0, 0.0};  // tangential velocity
+    PetscScalar f0_s[3] = {0};
+
+    AbsorbingBC::f0_absorbing(
+      DIM, 1, 0,
+      uOff, uOff_x, u, u_t_s, u_x,
+      aOff, aOff_x, nullptr, nullptr, nullptr,
+      0.0, x, n,
+      27, constants, f0_s);
+
+    // For S-wave at normal incidence: traction = rho * cs * v_tangential
+    // Energy flux = rho * cs * |v_t|^2
+    double absorbed_s = PetscRealPart(f0_s[0]) * 1.0;
+    double incident_s = rho * csv * 1.0;
+
+    double absorption_s = absorbed_s / incident_s;
+    EXPECT_NEAR(absorption_s, 1.0, 0.01)
+      << "Normal-incidence S-wave should have >99% energy absorption";
+  }
+}

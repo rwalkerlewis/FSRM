@@ -668,6 +668,11 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         if (!fmt.empty()) {
             config.output_format = fmt;
         }
+        config.output_stress = reader.getBool("OUTPUT", "output_stress", false);
+        config.output_cfs = reader.getBool("OUTPUT", "output_cfs", false);
+        config.cfs_receiver_strike = reader.getDouble("OUTPUT", "cfs_receiver_strike", 0.0);
+        config.cfs_receiver_dip = reader.getDouble("OUTPUT", "cfs_receiver_dip", 90.0);
+        config.cfs_friction = reader.getDouble("OUTPUT", "cfs_friction", 0.4);
     }
 
     // Parse seismometers (optional)
@@ -2793,6 +2798,55 @@ PetscErrorCode Simulator::run() {
     
     // Solve
     ierr = TSSolve(ts, solution); CHKERRQ(ierr);
+
+    // Compute and write derived fields (stress, strain, CFS) if requested
+    if (config.output_stress || config.output_cfs)
+    {
+      // Get material parameters from the first material
+      double lambda = 0.0, mu_mat = 0.0, biot = 0.0;
+      if (!material_props.empty())
+      {
+        const auto& mat = material_props[0];
+        double E = mat.youngs_modulus;
+        double nu = mat.poisson_ratio;
+        lambda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        mu_mat = E / (2.0 * (1.0 + nu));
+        biot = mat.biot_coefficient;
+      }
+      derived_fields_.setMaterialParameters(lambda, mu_mat, biot);
+
+      if (config.output_cfs)
+      {
+        derived_fields_.setReceiverOrientation(
+          config.cfs_receiver_strike, config.cfs_receiver_dip, config.cfs_friction);
+      }
+
+      ierr = derived_fields_.compute(dm, solution); CHKERRQ(ierr);
+
+      if (config.output_stress)
+      {
+        std::string stress_path = output_directory_ + "/stress.h5";
+        ierr = derived_fields_.writeStressHDF5(comm, stress_path.c_str(), timestep, current_time);
+        CHKERRQ(ierr);
+        if (rank == 0)
+        {
+          PetscPrintf(comm, "Stress field written to %s (%d cells, 6 components)\n",
+                      stress_path.c_str(), (int)derived_fields_.numCells());
+        }
+      }
+
+      if (config.output_cfs)
+      {
+        std::string cfs_path = output_directory_ + "/cfs.h5";
+        ierr = derived_fields_.writeCfsHDF5(comm, cfs_path.c_str(), timestep, current_time);
+        CHKERRQ(ierr);
+        if (rank == 0)
+        {
+          PetscPrintf(comm, "CFS field written to %s (%d cells)\n",
+                      cfs_path.c_str(), (int)derived_fields_.numCells());
+        }
+      }
+    }
 
     // Save solution to binary file if requested
     if (!config.save_solution_path.empty()) {

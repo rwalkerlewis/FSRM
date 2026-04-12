@@ -16,6 +16,7 @@
 #include "numerics/FaultMeshManager.hpp"
 #include "physics/CohesiveFaultKernel.hpp"
 #include "domain/geomechanics/CoulombStressTransfer.hpp"
+#include "core/DerivedFieldComputer.hpp"
 #include <memory>
 #include <vector>
 
@@ -82,6 +83,7 @@ public:
     DM getDM() const { return dm; }
     Vec getSolution() const { return solution; }
     const SimulationConfig& getConfig() const { return config; }
+    const DerivedFieldComputer& getDerivedFields() const { return derived_fields_; }
     
 private:
     MPI_Comm comm;
@@ -162,6 +164,9 @@ private:
     std::unique_ptr<FaultMeshManager> fault_mesh_manager_;
     std::unique_ptr<CohesiveFaultKernel> cohesive_kernel_;
     std::unique_ptr<CoulombStressTransfer> cfs_transfer_;
+
+    // Derived field computation (stress, strain, CFS)
+    DerivedFieldComputer derived_fields_;
     
     // Material properties (per cell or per region)
     std::vector<MaterialProperties> material_props;

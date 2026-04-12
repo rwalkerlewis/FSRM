@@ -1,0 +1,203 @@
+Test project /workspace/build
+      Start  1: Unit.ConfigReader
+ 1/62 Test  #1: Unit.ConfigReader ...................   Passed    2.16 sec
+      Start  2: Unit.PhysicsModuleRegistry
+ 2/62 Test  #2: Unit.PhysicsModuleRegistry ..........   Passed    0.34 sec
+      Start  3: Unit.SimulationConfig
+ 3/62 Test  #3: Unit.SimulationConfig ...............   Passed    0.37 sec
+      Start  4: Unit.PhysicsKernelBase
+ 4/62 Test  #4: Unit.PhysicsKernelBase ..............   Passed    0.37 sec
+      Start  5: Unit.SinglePhaseFlow
+ 5/62 Test  #5: Unit.SinglePhaseFlow ................   Passed    0.35 sec
+      Start  6: Unit.Geomechanics
+ 6/62 Test  #6: Unit.Geomechanics ...................   Passed    0.39 sec
+      Start  7: Unit.Thermal
+ 7/62 Test  #7: Unit.Thermal ........................   Passed    0.35 sec
+      Start  8: Unit.Elastodynamics
+ 8/62 Test  #8: Unit.Elastodynamics .................   Passed    0.38 sec
+      Start  9: Unit.Poroelastodynamics
+ 9/62 Test  #9: Unit.Poroelastodynamics .............   Passed    0.36 sec
+      Start 10: Unit.BoundaryConditions
+10/62 Test #10: Unit.BoundaryConditions .............   Passed    0.39 sec
+      Start 11: Unit.WellModel
+11/62 Test #11: Unit.WellModel ......................   Passed    0.38 sec
+      Start 12: Unit.FractureModel
+12/62 Test #12: Unit.FractureModel ..................   Passed    0.39 sec
+      Start 13: Unit.MaterialModel
+13/62 Test #13: Unit.MaterialModel ..................   Passed    0.38 sec
+      Start 14: Unit.SeismicSource
+14/62 Test #14: Unit.SeismicSource ..................   Passed    0.39 sec
+      Start 15: Unit.ExplosionSource
+15/62 Test #15: Unit.ExplosionSource ................   Passed    0.36 sec
+      Start 16: Unit.EclipseIO
+16/62 Test #16: Unit.EclipseIO ......................   Passed    0.35 sec
+      Start 17: Unit.MLRegistry
+17/62 Test #17: Unit.MLRegistry .....................   Passed    0.36 sec
+      Start 18: Unit.UnitSystem
+18/62 Test #18: Unit.UnitSystem .....................   Passed    0.37 sec
+      Start 19: Unit.CoordinateSystem
+19/62 Test #19: Unit.CoordinateSystem ...............   Passed    0.37 sec
+      Start 20: Unit.CO2Properties
+20/62 Test #20: Unit.CO2Properties ..................   Passed    0.35 sec
+      Start 21: Unit.FlashCalculation
+21/62 Test #21: Unit.FlashCalculation ...............   Passed    0.37 sec
+      Start 22: Unit.ResidualTrapping
+22/62 Test #22: Unit.ResidualTrapping ...............   Passed    0.39 sec
+      Start 23: Unit.CaprockIntegrity
+23/62 Test #23: Unit.CaprockIntegrity ...............   Passed    0.36 sec
+      Start 24: Unit.MultiphaseFlow
+24/62 Test #24: Unit.MultiphaseFlow .................   Passed    0.38 sec
+      Start 25: Unit.FaultMechanics
+25/62 Test #25: Unit.FaultMechanics .................   Passed    0.38 sec
+      Start 26: Unit.FaultCohesiveDyn
+26/62 Test #26: Unit.FaultCohesiveDyn ...............   Passed    0.39 sec
+      Start 27: Unit.CoulombStressTransfer
+27/62 Test #27: Unit.CoulombStressTransfer ..........   Passed    0.43 sec
+      Start 28: Unit.FaultMeshManager
+28/62 Test #28: Unit.FaultMeshManager ...............   Passed    0.43 sec
+      Start 29: Unit.CohesiveFaultKernel
+29/62 Test #29: Unit.CohesiveFaultKernel ............   Passed    0.37 sec
+      Start 30: Unit.ElasticityAux
+30/62 Test #30: Unit.ElasticityAux ..................   Passed    0.36 sec
+      Start 31: Functional.SimulatorInit
+31/62 Test #31: Functional.SimulatorInit ............   Passed    0.37 sec
+      Start 32: Functional.ModuleLifecycle
+32/62 Test #32: Functional.ModuleLifecycle ..........   Passed    0.35 sec
+      Start 33: Functional.SolverConvergence
+33/62 Test #33: Functional.SolverConvergence ........   Passed    0.41 sec
+      Start 34: Functional.WellOperations
+34/62 Test #34: Functional.WellOperations ...........   Passed    0.35 sec
+      Start 35: Physics.MMS.Diffusion
+35/62 Test #35: Physics.MMS.Diffusion ...............   Passed    0.39 sec
+      Start 36: Physics.MMS.Elasticity
+36/62 Test #36: Physics.MMS.Elasticity ..............   Passed    0.39 sec
+      Start 37: Physics.MMS.WavePropagation
+37/62 Test #37: Physics.MMS.WavePropagation .........   Passed    0.38 sec
+      Start 38: Physics.AnalyticalSolutions
+38/62 Test #38: Physics.AnalyticalSolutions .........   Passed    0.36 sec
+      Start 39: Physics.Thermoporoelastic
+39/62 Test #39: Physics.Thermoporoelastic ...........   Passed    0.38 sec
+      Start 40: Physics.SCEC.TPV5
+40/62 Test #40: Physics.SCEC.TPV5 ...................   Passed    0.36 sec
+      Start 41: Physics.ElastostaticsPatch
+41/62 Test #41: Physics.ElastostaticsPatch ..........   Passed    0.44 sec
+      Start 42: Physics.TerzaghiConsolidation
+42/62 Test #42: Physics.TerzaghiConsolidation .......   Passed    4.48 sec
+      Start 43: Physics.AbsorbingBC
+43/62 Test #43: Physics.AbsorbingBC .................   Passed    5.50 sec
+      Start 44: Physics.GravityLithostatic
+44/62 Test #44: Physics.GravityLithostatic ..........   Passed    0.48 sec
+      Start 45: Physics.LithostaticStress
+45/62 Test #45: Physics.LithostaticStress ...........   Passed    0.93 sec
+      Start 46: Physics.LambsProblem
+46/62 Test #46: Physics.LambsProblem ................   Passed    1.45 sec
+      Start 47: Physics.GarvinsProblem
+47/62 Test #47: Physics.GarvinsProblem ..............   Passed    1.52 sec
+      Start 48: Integration.FullSimulation
+48/62 Test #48: Integration.FullSimulation ..........   Passed    0.38 sec
+      Start 49: Integration.Restart
+49/62 Test #49: Integration.Restart .................   Passed    0.34 sec
+      Start 50: Integration.CoupledPhysics
+50/62 Test #50: Integration.CoupledPhysics ..........   Passed    0.35 sec
+      Start 51: Integration.InjectionRuptureChain
+51/62 Test #51: Integration.InjectionRuptureChain ...   Passed    0.40 sec
+      Start 52: Integration.LockedFault
+52/62 Test #52: Integration.LockedFault .............   Passed    0.40 sec
+      Start 53: Integration.LayeredElastostatics
+53/62 Test #53: Integration.LayeredElastostatics ....   Passed    0.40 sec
+      Start 54: Integration.ExplosionSeismogram
+54/62 Test #54: Integration.ExplosionSeismogram .....   Passed    1.67 sec
+      Start 55: Integration.PrescribedSlip
+55/62 Test #55: Integration.PrescribedSlip ..........   Passed    0.39 sec
+      Start 56: Integration.OutputFile
+56/62 Test #56: Integration.OutputFile ..............   Passed    3.32 sec
+      Start 57: Integration.GmshImport
+57/62 Test #57: Integration.GmshImport ..............   Passed    0.67 sec
+      Start 58: Integration.DerivedFields
+58/62 Test #58: Integration.DerivedFields ...........***Failed    0.61 sec
+Note: Google Test filter = DerivedFieldTest.*
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from DerivedFieldTest
+[ RUN      ] DerivedFieldTest.StressMatchesUniaxialCompression
+Loading configuration from: test_derived_fields.ini
+Configuration:
+  Start time: 0.
+  End time: 1.
+  Initial dt: 1.
+  Fluid model: 0
+  Solid model: 0
+Configuration loaded successfully
+GPU execution: DISABLED (CPU-only mode)
+Labeling boundary faces...
+  Bounding box: [0.000, 10.000] x [0.000, 10.000] x [0.000, 10.000]
+  boundary_x_min: 8 faces
+  boundary_x_max: 8 faces
+  boundary_y_min: 8 faces
+  boundary_y_max: 8 faces
+  boundary_z_min: 4 faces
+  boundary_z_max: 4 faces
+Setting up boundary conditions...
+  Applied BC: fixed bottom (z_min), field 0, all components = 0
+  Applied BC: compression top (z_max), field 0, u_z = -0.001
+  Number of boundaries registered: 2
+  Solution norm after BC insertion: 0.000000e+00
+Step 0, Time = 0.
+HDF5 output written at step 0 to output/solution.h5
+Cell 0: Jm diag=2.5000,2.5000,1.2500 det=7.812500e+00 coordSize=24 dofSize=24
+  invJm diag=0.4000,0.4000,0.8000
+Cell 12: Jm diag=2.5000,2.5000,1.2500 det=7.812500e+00 coordSize=24 dofSize=24
+  invJm diag=0.4000,0.4000,0.8000
+Stress field written to output/stress.h5 (16 cells, 6 components)
+CFS field written to output/cfs.h5 (16 cells)
+/workspace/tests/integration/test_derived_fields.cpp:135: Failure
+The difference between avg_sigma_zz and expected_sigma_zz is 6699763.7455897909, which exceeds 0.2 * std::abs(expected_sigma_zz), where
+avg_sigma_zz evaluates to 699763.74558979087,
+expected_sigma_zz evaluates to -6000000, and
+0.2 * std::abs(expected_sigma_zz) evaluates to 1200000.
+Average sigma_zz should be approximately -6 MPa for uniaxial compression
+/workspace/tests/integration/test_derived_fields.cpp:148: Failure
+The difference between avg_eps_zz and expected_eps_zz is 9.9999999999999991e-05, which exceeds 0.2 * std::abs(expected_eps_zz), where
+avg_eps_zz evaluates to -2.0328790734103208e-20,
+expected_eps_zz evaluates to -0.0001, and
+0.2 * std::abs(expected_eps_zz) evaluates to 2.0000000000000002e-05.
+Average eps_zz should be approximately -1e-4
+[  FAILED  ] DerivedFieldTest.StressMatchesUniaxialCompression (268 ms)
+[----------] 1 test from DerivedFieldTest (268 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (268 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] DerivedFieldTest.StressMatchesUniaxialCompression
+
+ 1 FAILED TEST
+WARNING! There are options you set that were not used!
+WARNING! could be spelling mistake, etc!
+There is one unused database option. It is:
+Option left: name:--gtest_filter=DerivedFieldTest.* (no value) source: command line
+
+      Start 59: Performance.Benchmarks
+59/62 Test #59: Performance.Benchmarks ..............   Passed    0.38 sec
+      Start 60: Performance.Scaling
+60/62 Test #60: Performance.Scaling .................   Passed    1.05 sec
+      Start 61: Performance.Memory
+61/62 Test #61: Performance.Memory ..................   Passed    0.35 sec
+      Start 62: Experimental.NeuralStubs
+62/62 Test #62: Experimental.NeuralStubs ............   Passed    0.37 sec
+
+98% tests passed, 1 tests failed out of 62
+
+Label Time Summary:
+experimental          =   0.37 sec*proc (1 test)
+functional            =   1.48 sec*proc (4 tests)
+integration           =   8.93 sec*proc (11 tests)
+performance           =   1.79 sec*proc (3 tests)
+physics_validation    =  17.05 sec*proc (13 tests)
+unit                  =  13.01 sec*proc (30 tests)
+
+Total Test time (real) =  42.67 sec
+
+The following tests FAILED:
+	 58 - Integration.DerivedFields (Failed)
+Errors while running CTest

@@ -72,6 +72,10 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_lithostatic_stress.cpp
     physics_validation/test_lambs_problem.cpp
     physics_validation/test_garvins_problem.cpp
+    physics_validation/test_mueller_murphy.cpp
+    physics_validation/test_atmospheric_explosion.cpp
+    physics_validation/test_near_field_explosion.cpp
+    physics_validation/test_drucker_prager.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -85,6 +89,8 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_prescribed_slip.cpp
     integration/test_output_file.cpp
     integration/test_gmsh_import.cpp
+    integration/test_derived_fields.cpp
+    integration/test_dprk_2017_comparison.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -193,6 +199,10 @@ if(GTest_FOUND)
     add_test(NAME Physics.LithostaticStress        COMMAND run_physics_tests --gtest_filter=LithostaticStressTest.*)
     add_test(NAME Physics.LambsProblem             COMMAND run_physics_tests --gtest_filter=LambsProblemTest.*)
     add_test(NAME Physics.GarvinsProblem           COMMAND run_physics_tests --gtest_filter=GarvinsProblemTest.*)
+    add_test(NAME Physics.MuellerMurphy            COMMAND run_physics_tests --gtest_filter=MuellerMurphyValidationTest.*)
+    add_test(NAME Physics.AtmosphericExplosion     COMMAND run_physics_tests --gtest_filter=AtmosphericExplosionValidationTest.*)
+    add_test(NAME Physics.NearFieldExplosion        COMMAND run_physics_tests --gtest_filter=NearFieldExplosionValidationTest.*)
+    add_test(NAME Physics.DruckerPrager              COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -205,6 +215,8 @@ if(GTest_FOUND)
     add_test(NAME Integration.PrescribedSlip  COMMAND run_integration_tests --gtest_filter=PrescribedSlipTest.*)
     add_test(NAME Integration.OutputFile       COMMAND run_integration_tests --gtest_filter=OutputFileTest.*)
     add_test(NAME Integration.GmshImport      COMMAND run_integration_tests --gtest_filter=GmshImportTest.*)
+    add_test(NAME Integration.DerivedFields    COMMAND run_integration_tests --gtest_filter=DerivedFieldTest.*)
+    add_test(NAME Integration.DPRK2017Comparison COMMAND run_integration_tests --gtest_filter=DPRK2017ComparisonTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -250,6 +262,10 @@ if(GTest_FOUND)
         Physics.AbsorbingBC Physics.GravityLithostatic
         Physics.LithostaticStress
         Physics.LambsProblem Physics.GarvinsProblem
+        Physics.MuellerMurphy
+        Physics.AtmosphericExplosion
+        Physics.NearFieldExplosion
+        Physics.DruckerPrager
         PROPERTIES TIMEOUT 300 LABELS "physics_validation"
     )
 
@@ -261,6 +277,8 @@ if(GTest_FOUND)
         Integration.ExplosionSeismogram Integration.PrescribedSlip
         Integration.OutputFile
         Integration.GmshImport
+        Integration.DerivedFields
+        Integration.DPRK2017Comparison
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

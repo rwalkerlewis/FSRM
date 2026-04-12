@@ -111,39 +111,44 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 | Example configs | config/examples/ | -- |
 | Aspirational configs | config/aspirational/ | DO NOT USE |
 
-## What Works (Verified, All 50 Tests Pass)
+## What Works (Verified, All 67 Tests Pass)
 
 1. **Elastostatics**: PetscFEElasticity f0/f1/g3 callbacks. Uniaxial compression converges with nonzero FNORM in 1 iteration. Unit tested.
-2. **Poroelasticity callbacks**: PetscFEPoroelasticity f0/f1 for pressure+displacement, all 4 Jacobian blocks. Unit tested, NOT verified end-to-end.
-3. **Fluid flow callbacks**: PetscFEFluidFlow single-phase and black-oil. Unit tested.
+2. **Poroelasticity callbacks**: PetscFEPoroelasticity f0/f1 for pressure+displacement, all 4 Jacobian blocks. Unit tested. Terzaghi consolidation passes with analytical comparison.
+3. **Fluid flow callbacks**: PetscFEFluidFlow single-phase and black-oil. Unit tested. NOT verified end-to-end.
 4. **Cohesive fault mesh splitting**: PyLith workflow (DMPlexCreateSubmesh -> subpoint map -> DMPlexLabelCohesiveComplete -> DMPlexConstructCohesiveCells). 32 cohesive cells, 96 fault vertices on 4x4x4 simplex mesh. All fault tests pass.
 5. **Friction laws**: Slip-weakening and rate-state (aging). Tested.
 6. **CoulombStressTransfer**: Hooke stress, fault projection, delta_CFS. Tested.
 7. **Boundary conditions**: labelBoundaries() labels 6 box faces, setupBoundaryConditions() registers via DMAddBoundary, section rebuilt. Elastostatics BCs verified.
-8. **Mueller-Murphy source**: Corner frequency, mb relation, scalar moment from cavity mechanics.
-9. **Explosion source injection**: Moment tensor via DMPlexVecGetClosure/SetClosure. Coded, unverified.
-10. **Injection source**: Volumetric source term on pressure DOFs. Coded, unverified.
-11. **Hydraulic fracture**: PKN/KGD model. Coded, unverified.
-12. **CohesiveFaultKernel tensile mode**: COHESIVE_CONST_TENSILE_STRENGTH at slot 27. Coded, unverified.
-13. **Seismometer network**: DMInterpolation, SAC output, velocity/acceleration. Coded, wired to MonitorFunction.
+8. **Mueller-Murphy source**: Corner frequency, mb-yield scaling, RDP spectrum, cavity radius scaling, moment rate function. 6 physics tests pass.
+9. **Absorbing BCs**: Clayton-Engquist first-order. Energy absorption >99% at normal incidence. Tested.
+10. **Elastodynamics**: Lamb's problem and Garvin's problem pass with quantitative error norms.
+11. **Explosion seismogram pipeline**: Source injection -> elastodynamic solve -> seismometer sampling -> SAC output. Integration-tested.
+12. **DPRK 2017 synthetic mb**: Synthetic body-wave magnitude vs observed for 250 kt. 4 tests pass.
+13. **Atmospheric explosion effects**: Sedov-Taylor blast, Brode fireball, EMP E1, overpressure. 6 tests pass.
+14. **Near-field explosion phenomenology**: Cavity radius, damage zones, spall velocity/thickness. 6 tests pass.
+15. **SCEC TPV5 infrastructure**: Parameters, CohesiveFaultKernel construction, FaultMeshManager. Verified. Full benchmark solve is WIP.
+16. **Derived fields**: Cell-centered stress, strain, CFS from FEM solution. Integration-tested.
+17. **Plasticity yield evaluation**: Drucker-Prager, von Mises yield surface detection works. Return mapping is broken (see gap #1).
 
 ## What Does NOT Work (Known Gaps)
 
-1. **Homogeneous material only**: Single constants array for the entire mesh. No per-cell material properties.
-2. **No absorbing boundary conditions**: Seismic waves reflect off box faces. Seismograms are garbage after one transit time.
-3. **Unverified end-to-end integration**: Terzaghi, injection, explosion, hydraulic fracture, seismometer SAC output have never been run to completion.
-4. **No Gmsh mesh import tested**: DMPlexCreateGmsh exists in PETSc, config parsing stubs exist, but material region assignment from physical groups is untested.
-5. **No gravity / lithostatic pre-stress**: Solver starts from zero stress state.
+1. **Plasticity return mapping broken**: DruckerPragerModel returnMapping does not produce nonzero plastic strain. Not wired into PETSc FEM pipeline. See tests/physics_validation/test_drucker_prager.cpp.
+2. **Homogeneous material only**: Single constants array for the entire mesh. No per-cell material properties.
+3. **No gravity / lithostatic pre-stress**: Solver starts from zero stress state.
+4. **Unverified end-to-end**: Injection, hydraulic fracture, seismometer SAC output format have not been run to completion.
+5. **No Gmsh mesh import tested**: DMPlexCreateGmsh exists, config stubs exist, but material region assignment from physical groups is untested.
+6. **Stubs only**: DG/ADER, GPU (CUDA/HIP), FNO/ML solvers, volcano, tsunami, ocean, infrasound, radiation transport, hypervelocity impacts, ResFrac-equivalent fracturing. Headers/docs exist but no functional implementation.
 
 ## Rules
 
 1. Build and test in Docker. Always.
 2. Check PETSc 3.22.2 API signatures before calling any PETSc function.
-3. All existing 50 tests must continue to pass after every change.
+3. All existing 67 tests must continue to pass after every change.
 4. NEVER change the DS/BC ordering in setupFields().
 5. Do NOT modify callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp. New callbacks for auxiliary fields go in new files.
 6. Do NOT modify FaultMeshManager::splitMeshAlongFault or CohesiveFaultKernel::registerWithDS.
-7. Do NOT use DG, ADER, GPU, or plasticity features. They are stubs.
+7. Do NOT use DG, ADER, GPU, or plasticity features. They are stubs. Plasticity note: DruckerPragerModel, VonMisesModel, MohrCoulombModel exist in PlasticityModel.hpp with yield function evaluation (works) and return mapping algorithms (broken -- does not produce nonzero plastic strain). Not wired into the PETSc FEM pipeline. See tests/physics_validation/test_drucker_prager.cpp for details.
 8. No Python. Everything in C++ within the Simulator.
 9. Ignore everything in config/aspirational/. Those configs reference features that do not exist.
 10. Working examples are in config/examples/ with `.config` extension (INI-style format with `[SECTION]\nkey = value`): uniaxial_compression, terzaghi_consolidation, injection_pressure_buildup, hydraulic_fracture_pkn, cohesive_hydraulic_fracture, explosion_seismogram, dprk_2017_quick, underground_explosion_template.
