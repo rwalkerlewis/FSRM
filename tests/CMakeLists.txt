@@ -78,6 +78,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_near_field_explosion.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
+    physics_validation/test_pressurized_fracture.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -95,6 +96,15 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_derived_fields.cpp
     integration/test_dprk_2017_comparison.cpp
     integration/test_dynamic_rupture_basic.cpp
+    integration/test_fault_absorbing_coexist.cpp
+    integration/test_fracture_flow.cpp
+    integration/test_coupled_hydrofrac.cpp
+    integration/test_fracture_propagation.cpp
+    integration/test_stress_shadowing.cpp
+    integration/test_induced_seismicity.cpp
+    integration/test_proppant_transport.cpp
+    integration/test_leakoff_coupling.cpp
+    integration/test_production_forecast.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -209,6 +219,7 @@ if(GTest_FOUND)
     add_test(NAME Physics.DruckerPrager              COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
     add_test(NAME Physics.Elastoplasticity           COMMAND run_physics_tests --gtest_filter=ElastoplasticityTest.*)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
+    add_test(NAME Physics.PressurizedFracture         COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -227,7 +238,16 @@ if(GTest_FOUND)
     add_test(NAME Integration.DynamicRuptureBasic.MeshSplitting COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.MeshSplittingWithCohesiveCells)
     add_test(NAME Integration.DynamicRuptureBasic.LockedFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.LockedFaultSetupCompletes)
     add_test(NAME Integration.DynamicRuptureBasic.SlippingFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.SlippingFaultSetupCompletes)
-    add_test(NAME Integration.DynamicRuptureBasic.AbsorbingConflict COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultsWithAbsorbingBCAreRejected)
+    add_test(NAME Integration.DynamicRuptureBasic.AbsorbingCoexist COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultsWithAbsorbingBCCoexist)
+    add_test(NAME Integration.FaultAbsorbingCoexist COMMAND run_integration_tests --gtest_filter=FaultAbsorbingCoexistTest.*)
+    add_test(NAME Integration.FractureFlow COMMAND run_integration_tests --gtest_filter=FractureFlowTest.*)
+    add_test(NAME Integration.CoupledHydrofrac COMMAND run_integration_tests --gtest_filter=CoupledHydrofracTest.*)
+    add_test(NAME Integration.FracturePropagation COMMAND run_integration_tests --gtest_filter=FracturePropagationTest.*)
+    add_test(NAME Integration.StressShadowing COMMAND run_integration_tests --gtest_filter=StressShadowingTest.*)
+    add_test(NAME Integration.InducedSeismicity COMMAND run_integration_tests --gtest_filter=InducedSeismicityTest.*)
+    add_test(NAME Integration.ProppantTransport COMMAND run_integration_tests --gtest_filter=ProppantTransportTest.*)
+    add_test(NAME Integration.LeakoffCoupling COMMAND run_integration_tests --gtest_filter=LeakoffCouplingTest.*)
+    add_test(NAME Integration.ProductionForecast COMMAND run_integration_tests --gtest_filter=ProductionForecastTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -279,6 +299,7 @@ if(GTest_FOUND)
         Physics.DruckerPrager
         Physics.Elastoplasticity
         Physics.MomentTensorSource
+        Physics.PressurizedFracture
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
@@ -295,7 +316,16 @@ if(GTest_FOUND)
         Integration.DynamicRuptureBasic.MeshSplitting
         Integration.DynamicRuptureBasic.LockedFault
         Integration.DynamicRuptureBasic.SlippingFault
-        Integration.DynamicRuptureBasic.AbsorbingConflict
+        Integration.DynamicRuptureBasic.AbsorbingCoexist
+        Integration.FaultAbsorbingCoexist
+        Integration.FractureFlow
+        Integration.CoupledHydrofrac
+        Integration.FracturePropagation
+        Integration.StressShadowing
+        Integration.InducedSeismicity
+        Integration.ProppantTransport
+        Integration.LeakoffCoupling
+        Integration.ProductionForecast
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

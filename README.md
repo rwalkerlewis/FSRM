@@ -48,7 +48,19 @@ The following features have automated tests with quantitative pass/fail criteria
 - **Cohesive cell mesh splitting**: PyLith workflow (DMPlexCreateSubmesh, subpoint map, DMPlexLabelCohesiveComplete, DMPlexConstructCohesiveCells). 32 cohesive cells on 4x4x4 simplex mesh. All tests pass.
 - **Friction laws**: Slip-weakening and rate-state (aging law). Unit tested.
 - **Coulomb stress transfer**: Hooke stress computation, fault projection, delta-CFS calculation. Unit tested.
+- **Fault plus absorbing BC coexistence**: Region-specific PetscDS assignment via `DMSetRegionDS` prevents BdResidual overwrite and allows both callback families in one setup. Integration tested.
 - **SCEC TPV5**: Infrastructure verified (parameters, CohesiveFaultKernel construction, FaultMeshManager). Full benchmark solve is a work in progress.
+
+### Hydraulic Fracturing (FEM-Coupled Foundations)
+- **Pressurized cohesive fracture callbacks**: Traction balance `lambda + p_f * n = 0` and Sneddon aperture validation. Physics tested.
+- **Lubrication callback layer**: Fracture pressure source and Poiseuille flux callbacks with aperture-cubed scaling checks. Integration tested.
+- **Coupled hydrofrac utilities**: PKN quarter-power width scaling validated for coupled flow-deformation.
+- **Fracture propagation criterion**: LEFM cohesive strength mapping from K_Ic and opening threshold. Integration tested.
+- **Multi-cluster stress shadowing**: Sneddon normal-stress perturbation, shadow factor decay with fracture spacing, cluster efficiency allocation. Edge clusters receive disproportionate fluid under stress shadow. 6 tests pass.
+- **Induced seismicity**: Scalar moment (M0 = mu * slip * area), Hanks-Kanamori moment magnitude, microseismic range validation (-3 < Mw < 1). 6 tests pass.
+- **Proppant transport utilities**: Stokes settling velocity, bridging criterion (w/d ratio), pack minimum aperture, mass conservation balance. 8 tests pass.
+- **Carter leak-off coupling**: Carter leak-off rate (C_L/sqrt(t)) and cumulative volume (2*C_L*sqrt(t)), delayed opening support, area scaling. 7 tests pass.
+- **Production forecasting**: Arps hyperbolic/exponential/harmonic decline curves, cumulative production, fracture productivity index. 9 tests pass.
 
 ### Plasticity (Partial)
 - **Yield function evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection works correctly. Hydrostatic stress confirmed inside all surfaces.
@@ -70,7 +82,7 @@ The following features exist as code stubs, partial implementations, or configur
 | Off-fault plasticity (return mapping) | Broken | Yield detection works; return mapping does not produce plastic strain. |
 | GPU acceleration (CUDA/HIP) | Stub | Build flags exist. No working GPU kernels. |
 | Fourier Neural Operator (FNO) solver | Stub | Headers exist. Not functional. |
-| Hydraulic fracturing (prototype) | Coded, unverified | Config exists. No end-to-end test. |
+| Hydraulic fracturing (prototype) | Partially verified | Phase 1 and Phase 2 callback tests pass. Full monolithic end-to-end coupling is in progress. |
 | Multi-phase fluid flow (end-to-end) | Coded, unverified | Callbacks unit-tested. No simulation test. |
 | Injection source term | Coded, unverified | Config exists (injection_pressure_buildup.config). |
 | Gmsh mesh import | Coded, unverified | Config stubs exist. Material region assignment untested. |

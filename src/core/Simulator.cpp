@@ -4,6 +4,7 @@
 #include "numerics/PetscFEElasticity.hpp"
 #include "numerics/PetscFEElasticityAux.hpp"
 #include "numerics/PetscFEPoroelasticity.hpp"
+#include "numerics/PetscFEHydrofrac.hpp"
 #include "numerics/AbsorbingBC.hpp"
 #include "io/Visualization.hpp"
 #include "core/ConfigReader.hpp"
@@ -549,9 +550,19 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         if (model == "KGD") hydrofrac_->setModel("KGD");
         else if (model == "P3D") hydrofrac_->setModel("P3D");
         else hydrofrac_->setModel("PKN");
+
+        hydrofrac_fem_pressurized_mode_ =
+            reader.getBool("HYDRAULIC_FRACTURE", "enable_fem_pressurized", false);
+        hydrofrac_uniform_pressure_pa_ =
+            reader.getDouble("HYDRAULIC_FRACTURE", "uniform_pressure_pa", 0.0);
+
         if (rank == 0) {
             PetscPrintf(comm, "Hydraulic fracture model: %s, K_Ic=%.2e\n",
                         model.c_str(), hydrofrac_->getFractureToughness());
+            if (hydrofrac_fem_pressurized_mode_) {
+                PetscPrintf(comm, "Hydrofrac FEM pressurized mode enabled, p_f=%.3e Pa\n",
+                            hydrofrac_uniform_pressure_pa_);
+            }
         }
     }
 
@@ -1643,7 +1654,7 @@ PetscErrorCode Simulator::setupPhysics() {
     //   [22] = biot_coefficient (alpha)
     //   [23] = biot_modulus_inv (1/M)
     //   [24] = rho_fluid
-    PetscScalar unified_constants[27] = {0};  // [0-24]=fluid/elasticity/poroelasticity, [25-26]=cohesive fault
+    PetscScalar unified_constants[PetscFEHydrofrac::HYDROFRAC_CONST_COUNT] = {0};
 
     // Always set material properties if geomechanics is enabled
     if (config.enable_geomechanics || config.enable_elastodynamics) {
@@ -1720,9 +1731,16 @@ PetscErrorCode Simulator::setupPhysics() {
         unified_constants[2] = 0.0;
     }
 
-    // Set constants ONCE for all physics (eliminates collision bug)
-    // [0-24]=fluid/elasticity/poroelasticity, [25-26]=cohesive fault (if enabled)
-    ierr = PetscDSSetConstants(prob, 27, unified_constants); CHKERRQ(ierr);
+    if (hydrofrac_fem_pressurized_mode_) {
+        unified_constants[PetscFEHydrofrac::HYDROFRAC_CONST_PRESSURE] = hydrofrac_uniform_pressure_pa_;
+    }
+
+    // Set constants once for all physics (eliminates collision bug)
+    // [0-24]=fluid/elasticity/poroelasticity, [25-30]=cohesive fault, [31]=hydrofrac pressure
+    PetscInt nconst_unified = hydrofrac_fem_pressurized_mode_
+                              ? PetscFEHydrofrac::HYDROFRAC_CONST_COUNT
+                              : 27;
+    ierr = PetscDSSetConstants(prob, nconst_unified, unified_constants); CHKERRQ(ierr);
 
     // Register PetscFEPoroelasticity callbacks for fully coupled Biot poroelasticity
     if (config.solid_model == SolidModelType::POROELASTIC &&
@@ -1846,26 +1864,56 @@ PetscErrorCode Simulator::setupPhysics() {
         use_fem_time_residual_ = true;
     }
 
-    // Register cohesive fault callbacks if enabled
-    if (config.enable_faults && cohesive_kernel_) {
+    // Determine field indices used by cohesive and absorbing boundary callbacks.
+    PetscInt cohesive_disp_field = -1;
+    PetscInt cohesive_lagrange_field = -1;
+    PetscInt absorbing_disp_field = -1;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        cohesive_disp_field = 1;
+        absorbing_disp_field = 1;
+    } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+        cohesive_disp_field = 3;
+        absorbing_disp_field = 3;
+    } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+        cohesive_disp_field = 4;
+        absorbing_disp_field = 4;
+    } else {
+        cohesive_disp_field = 0;
+        absorbing_disp_field = 0;
+    }
+    cohesive_lagrange_field = cohesive_disp_field + 1;
+
+    const bool use_region_ds_split =
+        config.enable_faults && cohesive_kernel_ && config.absorbing_bc_enabled &&
+        (config.enable_geomechanics || config.enable_elastodynamics);
+
+    // Register cohesive fault callbacks if enabled and region split is not needed.
+    if (config.enable_faults && cohesive_kernel_ && !use_region_ds_split) {
         // Determine field indices
         // Field ordering: [fluid fields...] [displacement] [lagrange] [thermal] [...]
-        PetscInt disp_field = 0;
-        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
-            disp_field = 1;
-        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
-            disp_field = 3;
-        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
-            disp_field = 4;  // P + 3 compositions
-        }
-        // else NONE: disp_field = 0
+        PetscInt disp_field = cohesive_disp_field;
+        PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Lagrange multiplier field is next after displacement
-        PetscInt lagrange_field = disp_field + 1;
+        // Register cohesive callbacks.
+        // Phase 1 hydrofrac mode uses lambda + p_f*n = 0 on the Lagrange equation.
+        if (hydrofrac_fem_pressurized_mode_) {
+            ierr = PetscDSSetBdResidual(prob, disp_field,
+                                        CohesiveFaultKernel::f0_displacement_cohesive,
+                                        nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdResidual(prob, lagrange_field,
+                                        PetscFEHydrofrac::f0_lagrange_pressure_balance,
+                                        nullptr); CHKERRQ(ierr);
 
-        // Register cohesive callbacks via CohesiveFaultKernel
-        // This expands the constants array and registers PetscDSSetBdResidual/BdJacobian
-        if (cohesive_kernel_->isPrescribedSlip()) {
+            ierr = PetscDSSetBdJacobian(prob, disp_field, lagrange_field,
+                                        CohesiveFaultKernel::g0_displacement_lagrange, nullptr,
+                                        nullptr, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdJacobian(prob, lagrange_field, disp_field,
+                                        CohesiveFaultKernel::g0_lagrange_displacement, nullptr,
+                                        nullptr, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdJacobian(prob, lagrange_field, lagrange_field,
+                                        CohesiveFaultKernel::g0_lagrange_lagrange, nullptr,
+                                        nullptr, nullptr); CHKERRQ(ierr);
+        } else if (cohesive_kernel_->isPrescribedSlip()) {
             ierr = cohesive_kernel_->registerPrescribedSlipWithDS(prob, disp_field, lagrange_field);
         } else {
             ierr = cohesive_kernel_->registerWithDS(prob, disp_field, lagrange_field);
@@ -1873,33 +1921,120 @@ PetscErrorCode Simulator::setupPhysics() {
         CHKERRQ(ierr);
 
         if (rank == 0) {
-            PetscPrintf(comm, "Registered cohesive fault callbacks on fields %d (disp), %d (lagrange)\n",
-                        disp_field, lagrange_field);
+            if (hydrofrac_fem_pressurized_mode_) {
+                PetscPrintf(comm,
+                            "Registered pressurized cohesive callbacks on fields %d (disp), %d (lagrange)\n",
+                            disp_field, lagrange_field);
+            } else {
+                PetscPrintf(comm, "Registered cohesive fault callbacks on fields %d (disp), %d (lagrange)\n",
+                            disp_field, lagrange_field);
+            }
         }
     }
 
-    // Register absorbing boundary condition callbacks
-    // NOTE: PetscDS stores one BdResidual per field. Cohesive faults and
-    // absorbing BC both register displacement-field BdResidual callbacks,
-    // so enabling both simultaneously overwrites one callback and makes the
-    // boundary system inconsistent. This explicit guard documents and prevents
-    // that unsupported combination (Option C from session prompt).
-    if (config.enable_faults && config.absorbing_bc_enabled) {
-        SETERRQ(comm, PETSC_ERR_SUP,
-            "Unsupported configuration: enable_faults=true with absorbing_bc_enabled=true. "
-            "Cohesive and absorbing BdResidual callbacks conflict on displacement field.");
+    // Region-specific DS fix for cohesive + absorbing coexistence.
+    if (use_region_ds_split) {
+        DMLabel fault_label = nullptr;
+        ierr = DMGetLabel(dm, "fault", &fault_label); CHKERRQ(ierr);
+        if (!fault_label) {
+            ierr = DMGetLabel(dm, "Fault", &fault_label); CHKERRQ(ierr);
+        }
+        PetscCheck(fault_label, comm, PETSC_ERR_USER,
+                   "Fault + absorbing coexistence requested but fault label was not found on DM");
+
+        DMLabel absorbing_label = nullptr;
+        ierr = DMCreateLabel(dm, "absorbing_boundary"); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, "absorbing_boundary", &absorbing_label); CHKERRQ(ierr);
+        PetscCheck(absorbing_label, comm, PETSC_ERR_USER,
+                   "Failed to create absorbing boundary label");
+
+        auto addBoundaryLabelPoints = [&](const char *label_name, bool enabled) -> PetscErrorCode {
+            if (!enabled) {
+                return PETSC_SUCCESS;
+            }
+            DMLabel src = nullptr;
+            PetscErrorCode ierr_local = DMGetLabel(dm, label_name, &src);CHKERRQ(ierr_local);
+            if (!src) {
+                return PETSC_SUCCESS;
+            }
+            IS stratum = nullptr;
+            ierr_local = DMLabelGetStratumIS(src, 1, &stratum);CHKERRQ(ierr_local);
+            if (!stratum) {
+                return PETSC_SUCCESS;
+            }
+            const PetscInt *pts = nullptr;
+            PetscInt npts = 0;
+            ierr_local = ISGetLocalSize(stratum, &npts);CHKERRQ(ierr_local);
+            ierr_local = ISGetIndices(stratum, &pts);CHKERRQ(ierr_local);
+            for (PetscInt i = 0; i < npts; ++i) {
+                ierr_local = DMLabelSetValue(absorbing_label, pts[i], 1);CHKERRQ(ierr_local);
+            }
+            ierr_local = ISRestoreIndices(stratum, &pts);CHKERRQ(ierr_local);
+            ierr_local = ISDestroy(&stratum);CHKERRQ(ierr_local);
+            return PETSC_SUCCESS;
+        };
+
+        ierr = addBoundaryLabelPoints("boundary_x_min", config.absorbing_bc_x_min); CHKERRQ(ierr);
+        ierr = addBoundaryLabelPoints("boundary_x_max", config.absorbing_bc_x_max); CHKERRQ(ierr);
+        ierr = addBoundaryLabelPoints("boundary_y_min", config.absorbing_bc_y_min); CHKERRQ(ierr);
+        ierr = addBoundaryLabelPoints("boundary_y_max", config.absorbing_bc_y_max); CHKERRQ(ierr);
+        ierr = addBoundaryLabelPoints("boundary_z_min", config.absorbing_bc_z_min); CHKERRQ(ierr);
+        ierr = addBoundaryLabelPoints("boundary_z_max", config.absorbing_bc_z_max); CHKERRQ(ierr);
+
+        PetscInt nfields = 0;
+        ierr = PetscDSGetNumFields(prob, &nfields); CHKERRQ(ierr);
+
+        PetscDS fault_ds = nullptr;
+        PetscDS absorbing_ds = nullptr;
+        ierr = PetscDSCreate(comm, &fault_ds); CHKERRQ(ierr);
+        ierr = PetscDSCreate(comm, &absorbing_ds); CHKERRQ(ierr);
+        ierr = PetscDSCopy(prob, 0, nfields, dm, fault_ds); CHKERRQ(ierr);
+        ierr = PetscDSCopy(prob, 0, nfields, dm, absorbing_ds); CHKERRQ(ierr);
+
+        if (hydrofrac_fem_pressurized_mode_) {
+            ierr = PetscDSSetBdResidual(fault_ds, cohesive_disp_field,
+                                        CohesiveFaultKernel::f0_displacement_cohesive,
+                                        nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdResidual(fault_ds, cohesive_lagrange_field,
+                                        PetscFEHydrofrac::f0_lagrange_pressure_balance,
+                                        nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdJacobian(fault_ds, cohesive_disp_field, cohesive_lagrange_field,
+                                        CohesiveFaultKernel::g0_displacement_lagrange, nullptr,
+                                        nullptr, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdJacobian(fault_ds, cohesive_lagrange_field, cohesive_disp_field,
+                                        CohesiveFaultKernel::g0_lagrange_displacement, nullptr,
+                                        nullptr, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdJacobian(fault_ds, cohesive_lagrange_field, cohesive_lagrange_field,
+                                        CohesiveFaultKernel::g0_lagrange_lagrange, nullptr,
+                                        nullptr, nullptr); CHKERRQ(ierr);
+        } else if (cohesive_kernel_->isPrescribedSlip()) {
+            ierr = cohesive_kernel_->registerPrescribedSlipWithDS(
+                fault_ds, cohesive_disp_field, cohesive_lagrange_field); CHKERRQ(ierr);
+        } else {
+            ierr = cohesive_kernel_->registerWithDS(
+                fault_ds, cohesive_disp_field, cohesive_lagrange_field); CHKERRQ(ierr);
+        }
+
+        ierr = PetscDSSetBdResidual(absorbing_ds, absorbing_disp_field,
+                                    AbsorbingBC::f0_absorbing, nullptr); CHKERRQ(ierr);
+        ierr = PetscDSSetBdJacobian(absorbing_ds, absorbing_disp_field, absorbing_disp_field,
+                                    AbsorbingBC::g0_absorbing, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+
+        ierr = DMSetRegionDS(dm, fault_label, nullptr, fault_ds, nullptr); CHKERRQ(ierr);
+        ierr = DMSetRegionDS(dm, absorbing_label, nullptr, absorbing_ds, nullptr); CHKERRQ(ierr);
+
+        ierr = PetscDSDestroy(&fault_ds); CHKERRQ(ierr);
+        ierr = PetscDSDestroy(&absorbing_ds); CHKERRQ(ierr);
+
+        if (rank == 0) {
+            PetscPrintf(comm,
+                        "Registered region DS split: cohesive callbacks on fault label, absorbing callbacks on external boundaries\n");
+        }
     }
 
     if (config.absorbing_bc_enabled &&
-        (config.enable_geomechanics || config.enable_elastodynamics)) {
-        PetscInt displacement_field_idx = 0;
-        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
-            displacement_field_idx = 1;
-        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
-            displacement_field_idx = 3;
-        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
-            displacement_field_idx = 4;
-        }
+        (config.enable_geomechanics || config.enable_elastodynamics) && !use_region_ds_split) {
+        PetscInt displacement_field_idx = absorbing_disp_field;
 
         ierr = PetscDSSetBdResidual(prob, displacement_field_idx,
             AbsorbingBC::f0_absorbing, NULL); CHKERRQ(ierr);

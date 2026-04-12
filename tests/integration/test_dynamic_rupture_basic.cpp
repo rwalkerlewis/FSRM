@@ -8,8 +8,8 @@
  *   3. Registers cohesive callbacks on PetscDS
  *   4. Initializes the time stepper and solver
  *
- * Absorbing BCs are intentionally disabled to avoid the known
- * BdResidual overwrite issue (see CLAUDE.md: Architecture Bug).
+ * Absorbing BC coexistence with cohesive callbacks is supported through
+ * region-specific PetscDS registration.
  *
  * Known limitation: SNES may diverge at the first time step because
  * the cohesive Jacobian blocks (g0_displacement_lagrange, etc.) may not
@@ -303,7 +303,7 @@ TEST_F(DynamicRuptureBasicTest, SlippingFaultSetupCompletes)
   }
 }
 
-TEST_F(DynamicRuptureBasicTest, FaultsWithAbsorbingBCAreRejected)
+TEST_F(DynamicRuptureBasicTest, FaultsWithAbsorbingBCCoexist)
 {
   std::string config_path = "test_dynamic_rupture_absorb_conflict.config";
 
@@ -372,9 +372,12 @@ TEST_F(DynamicRuptureBasicTest, FaultsWithAbsorbingBCAreRejected)
   ierr = sim.setupFields();
   ASSERT_EQ(ierr, 0);
 
-  // Phase 5 guard: this combination is explicitly unsupported.
   ierr = sim.setupPhysics();
-  EXPECT_NE(ierr, 0) << "setupPhysics should reject faults + absorbing BC together";
+  EXPECT_EQ(ierr, 0) << "setupPhysics should support faults + absorbing BC together";
+  if (!ierr) {
+    ierr = sim.setupTimeStepper();
+    EXPECT_EQ(ierr, 0) << "setupTimeStepper should succeed with coexistence setup";
+  }
 
   if (rank_ == 0)
   {
