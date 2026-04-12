@@ -259,6 +259,7 @@ TEST_F(MuellerMurphyValidationTest, MomentRateFunction)
 
   // Moment rate at t=0 should be at or near peak (explosion onset)
   double mr_0 = source.momentRate(0.0);
+  EXPECT_GT(mr_0, 0.0) << "Moment rate at t=0 must be nonzero";
   EXPECT_TRUE(std::isfinite(mr_0)) << "Moment rate at t=0 must be finite";
 
   // Moment rate should decay with time (for an impulsive source)
@@ -267,10 +268,66 @@ TEST_F(MuellerMurphyValidationTest, MomentRateFunction)
   EXPECT_LT(std::abs(mr_1), std::abs(mr_0) + 1.0e-20)
       << "Moment rate should not grow with time";
 
-  // Moment rate at very late time should be significantly less than peak.
-  // The Mueller-Murphy source may have a long-period overshoot tail,
-  // so allow up to 50% of peak at t=100s.
-  double mr_late = source.momentRate(100.0);
-  EXPECT_LT(std::abs(mr_late), std::abs(mr_0) * 0.50 + 1.0e-20)
-      << "Moment rate at late time should be less than half the peak";
+  // Moment rate at t = 10 * rise_time should be < 1% of peak
+  double rise_time = 0.55 / source.getCornerFrequency();
+  double mr_10tau = source.momentRate(10.0 * rise_time);
+  EXPECT_LT(std::abs(mr_10tau), 0.01 * std::abs(mr_0))
+      << "Moment rate at 10*rise_time should be < 1% of peak";
+}
+
+// Test 7: Corner frequency for 250 kt
+TEST_F(MuellerMurphyValidationTest, CornerFrequency250ktGranite)
+{
+  NuclearSourceParameters params;
+  params.yield_kt = 250.0;
+  params.depth_of_burial = 800.0;
+
+  MuellerMurphySource source;
+  source.setParameters(params);
+  source.setMediumProperties(RHO_GRANITE, VP_GRANITE, VS_GRANITE);
+
+  double fc = source.getCornerFrequency();
+  EXPECT_GT(fc, 0.01) << "Corner frequency for 250 kt too low";
+  EXPECT_LT(fc, 1.0) << "Corner frequency for 250 kt too high";
+}
+
+// Test 8: Scalar moment ranges
+TEST_F(MuellerMurphyValidationTest, ScalarMomentRanges)
+{
+  // 1 kt: M0 should be in 1e13 to 1e16 N*m
+  NuclearSourceParameters p1;
+  p1.yield_kt = 1.0;
+  double M0_1kt = p1.scalar_moment();
+  EXPECT_GT(M0_1kt, 1.0e13) << "M0 for 1 kt too small";
+  EXPECT_LT(M0_1kt, 1.0e16) << "M0 for 1 kt too large";
+
+  // 250 kt: M0 should be in 1e15 to 1e18 N*m
+  NuclearSourceParameters p250;
+  p250.yield_kt = 250.0;
+  double M0_250kt = p250.scalar_moment();
+  EXPECT_GT(M0_250kt, 1.0e15) << "M0 for 250 kt too small";
+  EXPECT_LT(M0_250kt, 1.0e18) << "M0 for 250 kt too large";
+}
+
+// Test 9: RDP low-frequency plateau equals M0
+TEST_F(MuellerMurphyValidationTest, RDPLowFrequencyPlateauEqualsM0)
+{
+  NuclearSourceParameters params;
+  params.yield_kt = 10.0;
+  params.depth_of_burial = 500.0;
+
+  MuellerMurphySource source;
+  source.setParameters(params);
+  source.setMediumProperties(RHO_GRANITE, VP_GRANITE, VS_GRANITE);
+
+  double M0 = params.scalar_moment();
+  double fc = source.getCornerFrequency();
+  ASSERT_GT(fc, 0.0);
+  ASSERT_GT(M0, 0.0);
+
+  // At very low frequency (0.001 * fc), RDP amplitude should equal M0
+  double omega_low = 2.0 * M_PI * fc * 0.001;
+  double amp_low = std::abs(source.rdp(omega_low));
+  EXPECT_NEAR(amp_low, M0, 0.01 * M0)
+      << "RDP at omega << omega_c should equal M0 (flat low-frequency plateau)";
 }

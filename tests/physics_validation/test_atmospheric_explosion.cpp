@@ -278,3 +278,52 @@ TEST_F(AtmosphericExplosionValidationTest, FireballEvolution)
       << "Late fireball should not exceed max: R_late = " << R_late
       << " m, R_max = " << R_max << " m";
 }
+
+// ---------------------------------------------------------------------------
+// Test 7: Fireball max radius specific ranges
+//
+// 1 kt: 50 < R < 200 m
+// 1000 kt: 500 < R < 3000 m
+// ---------------------------------------------------------------------------
+TEST_F(AtmosphericExplosionValidationTest, FireballMaxRadiusRanges)
+{
+  // 1 kt check
+  {
+    AirburstParameters p;
+    p.yield_kt = 1.0;
+    p.burst_height_m = 50.0;
+    NuclearAirburstEffects calc(p);
+    double R = calc.fireballMaxRadius();
+    EXPECT_GT(R, 50.0) << "Fireball for 1 kt too small: " << R << " m";
+    EXPECT_LT(R, 200.0) << "Fireball for 1 kt too large: " << R << " m";
+  }
+
+  // 1000 kt check
+  {
+    AirburstParameters p;
+    p.yield_kt = 1000.0;
+    p.burst_height_m = 50.0;
+    NuclearAirburstEffects calc(p);
+    double R = calc.fireballMaxRadius();
+    EXPECT_GT(R, 500.0) << "Fireball for 1000 kt too small: " << R << " m";
+    EXPECT_LT(R, 3000.0) << "Fireball for 1000 kt too large: " << R << " m";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: Seismic magnitude from airburst is nonzero
+// ---------------------------------------------------------------------------
+TEST_F(AtmosphericExplosionValidationTest, SeismicMagnitudeNonzero)
+{
+  AirburstParameters params;
+  params.yield_kt = 20.0;
+  params.burst_height_m = 50.0;
+
+  NuclearAirburstEffects calc(params);
+  double mb = calc.seismicMagnitude();
+
+  EXPECT_GT(mb, 0.0)
+      << "Seismic magnitude from airburst must be nonzero";
+  EXPECT_LT(mb, 7.0)
+      << "Seismic magnitude for 20 kt airburst unreasonably high: " << mb;
+}

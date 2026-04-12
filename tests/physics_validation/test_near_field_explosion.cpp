@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "domain/explosion/NearFieldExplosion.hpp"
+#include "domain/explosion/ExplosionImpactPhysics.hpp"
 
 using namespace FSRM;
 
@@ -235,4 +236,175 @@ TEST_F(NearFieldExplosionValidationTest, DynamicTensileStrength)
       << "Quasi-static strength too low";
   EXPECT_LT(Yt_low, spall.static_tensile_strength * 5.0)
       << "Quasi-static strength too high";
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: Cavity radius for 250 kt granite
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, CavityRadius250ktGranite)
+{
+  UndergroundExplosionSource source;
+  source.yield_kt = 250.0;
+  source.depth = 800.0;
+  source.host_density = RHO_GRANITE;
+  source.host_vp = VP_GRANITE;
+  source.host_vs = VS_GRANITE;
+
+  double Rc = source.cavityRadius();
+  EXPECT_GT(Rc, 50.0) << "Cavity radius for 250 kt too small: " << Rc << " m";
+  EXPECT_LT(Rc, 500.0) << "Cavity radius for 250 kt too large: " << Rc << " m";
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: SphericalCavitySource displacement at r=100m is nonzero
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, CavitySourceDisplacementNonzero)
+{
+  SphericalCavitySource cavity;
+  cavity.setCavityRadius(15.0);
+  cavity.setMediumProperties(RHO_GRANITE,
+    RHO_GRANITE * VP_GRANITE * VP_GRANITE - 2.0 * RHO_GRANITE * VS_GRANITE * VS_GRANITE,
+    RHO_GRANITE * VS_GRANITE * VS_GRANITE);
+  cavity.setOverpressure(1.0e9);
+  cavity.setRiseTime(0.01);
+
+  double u_100 = cavity.displacement(100.0, 0.1);
+  EXPECT_GT(u_100, 0.0)
+      << "Displacement at r=100m must be nonzero and positive (outward)";
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: SphericalCavitySource displacement decays with distance
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, CavitySourceDisplacementDecay)
+{
+  SphericalCavitySource cavity;
+  cavity.setCavityRadius(15.0);
+  cavity.setMediumProperties(RHO_GRANITE,
+    RHO_GRANITE * VP_GRANITE * VP_GRANITE - 2.0 * RHO_GRANITE * VS_GRANITE * VS_GRANITE,
+    RHO_GRANITE * VS_GRANITE * VS_GRANITE);
+  cavity.setOverpressure(1.0e9);
+  cavity.setRiseTime(0.01);
+
+  double u_100 = cavity.displacement(100.0, 0.1);
+  double u_200 = cavity.displacement(200.0, 0.1);
+  EXPECT_GT(u_100, u_200)
+      << "Displacement should decay with distance: u(100)=" << u_100
+      << " u(200)=" << u_200;
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: SphericalCavitySource equivalent moment is nonzero
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, CavitySourceEquivalentMoment)
+{
+  SphericalCavitySource cavity;
+  cavity.setCavityRadius(15.0);
+  cavity.setMediumProperties(RHO_GRANITE,
+    RHO_GRANITE * VP_GRANITE * VP_GRANITE - 2.0 * RHO_GRANITE * VS_GRANITE * VS_GRANITE,
+    RHO_GRANITE * VS_GRANITE * VS_GRANITE);
+  cavity.setOverpressure(1.0e9);
+  cavity.setRiseTime(0.01);
+
+  double M0 = cavity.equivalentMoment();
+  EXPECT_GT(M0, 0.0)
+      << "Equivalent moment must be nonzero and positive";
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: SphericalCavitySource stress: sigma_rr < 0, sigma_tt > 0
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, CavitySourceStressSigns)
+{
+  SphericalCavitySource cavity;
+  cavity.setCavityRadius(15.0);
+  cavity.setMediumProperties(RHO_GRANITE,
+    RHO_GRANITE * VP_GRANITE * VP_GRANITE - 2.0 * RHO_GRANITE * VS_GRANITE * VS_GRANITE,
+    RHO_GRANITE * VS_GRANITE * VS_GRANITE);
+  cavity.setOverpressure(1.0e9);
+  cavity.setRiseTime(0.01);
+
+  double sigma_rr = 0.0, sigma_tt = 0.0;
+  cavity.stress(50.0, 0.1, sigma_rr, sigma_tt);
+
+  // Radial stress should be compressive (negative) outside the cavity
+  EXPECT_LT(sigma_rr, 0.0)
+      << "Radial stress should be compressive: sigma_rr=" << sigma_rr;
+  // Tangential stress should be tensile (positive)
+  EXPECT_GT(sigma_tt, 0.0)
+      << "Tangential stress should be tensile: sigma_tt=" << sigma_tt;
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: NearFieldExplosionSolver initializes without error
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, SolverInitializes)
+{
+  NearFieldExplosionSolver solver;
+
+  UndergroundExplosionSource src;
+  src.yield_kt = 1.0;
+  src.depth = 300.0;
+  src.host_density = RHO_GRANITE;
+  src.host_vp = VP_GRANITE;
+  src.host_vs = VS_GRANITE;
+  solver.setSource(src);
+
+  MieGruneisenEOS eos;
+  solver.setEOS(eos);
+
+  PressureDependentStrength strength;
+  solver.setStrengthModel(strength);
+
+  DamageEvolutionModel damage;
+  solver.setDamageModel(damage);
+
+  solver.initialize();
+
+  // After initialization, cavity radius should be set
+  double Rc = solver.getCavityRadius(0.0);
+  EXPECT_GT(Rc, 0.0) << "Cavity radius after init must be positive";
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: NearFieldExplosionSolver step produces nonzero state
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, SolverStepProducesNonzeroState)
+{
+  NearFieldExplosionSolver solver;
+
+  UndergroundExplosionSource src;
+  src.yield_kt = 1.0;
+  src.depth = 300.0;
+  src.host_density = RHO_GRANITE;
+  src.host_vp = VP_GRANITE;
+  src.host_vs = VS_GRANITE;
+  solver.setSource(src);
+
+  MieGruneisenEOS eos;
+  solver.setEOS(eos);
+
+  PressureDependentStrength strength;
+  solver.setStrengthModel(strength);
+
+  DamageEvolutionModel damage;
+  solver.setDamageModel(damage);
+
+  solver.initialize();
+
+  double dt = 1.0e-5;
+  solver.prestep(0.0, dt);
+  solver.step(dt);
+  solver.poststep(0.0, dt);
+
+  // After stepping, query a point near the source for nonzero state
+  std::array<double, 6> M;
+  double mr = 0.0;
+  solver.computeSourceFunction(dt, M, mr);
+
+  // Moment tensor should be nonzero for an isotropic explosion
+  double M_norm = 0.0;
+  for (int i = 0; i < 6; i++) M_norm += M[i] * M[i];
+  EXPECT_GT(M_norm, 0.0)
+      << "Moment tensor should be nonzero after a time step";
 }
