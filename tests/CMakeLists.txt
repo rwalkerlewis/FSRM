@@ -66,6 +66,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_thermoporoelastic.cpp
     physics_validation/test_scec_tpv5.cpp
     physics_validation/test_elastostatics_patch.cpp
+    physics_validation/test_elastoplasticity.cpp
     physics_validation/test_terzaghi.cpp
     physics_validation/test_absorbing_bc.cpp
     physics_validation/test_gravity_lithostatic.cpp
@@ -83,6 +84,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_full_simulation.cpp
     integration/test_restart.cpp
     integration/test_coupled_physics.cpp
+    integration/test_injection_pressure.cpp
     integration/test_injection_rupture_chain.cpp
     integration/test_locked_fault.cpp
     integration/test_layered_elastostatics.cpp
@@ -92,6 +94,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_gmsh_import.cpp
     integration/test_derived_fields.cpp
     integration/test_dprk_2017_comparison.cpp
+    integration/test_dynamic_rupture_basic.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -204,12 +207,14 @@ if(GTest_FOUND)
     add_test(NAME Physics.AtmosphericExplosion     COMMAND run_physics_tests --gtest_filter=AtmosphericExplosionValidationTest.*)
     add_test(NAME Physics.NearFieldExplosion        COMMAND run_physics_tests --gtest_filter=NearFieldExplosionValidationTest.*)
     add_test(NAME Physics.DruckerPrager              COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
+    add_test(NAME Physics.Elastoplasticity           COMMAND run_physics_tests --gtest_filter=ElastoplasticityTest.*)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
     add_test(NAME Integration.Restart         COMMAND run_integration_tests --gtest_filter=RestartTest.*)
     add_test(NAME Integration.CoupledPhysics  COMMAND run_integration_tests --gtest_filter=CoupledPhysicsTest.*)
+    add_test(NAME Integration.InjectionPressure COMMAND run_integration_tests --gtest_filter=InjectionPressureTest.*)
     add_test(NAME Integration.InjectionRuptureChain COMMAND run_integration_tests --gtest_filter=InjectionRuptureChainTest.*)
     add_test(NAME Integration.LockedFault     COMMAND run_integration_tests --gtest_filter=LockedFaultTest.*)
     add_test(NAME Integration.LayeredElastostatics COMMAND run_integration_tests --gtest_filter=LayeredElastostaticsTest.*)
@@ -219,6 +224,10 @@ if(GTest_FOUND)
     add_test(NAME Integration.GmshImport      COMMAND run_integration_tests --gtest_filter=GmshImportTest.*)
     add_test(NAME Integration.DerivedFields    COMMAND run_integration_tests --gtest_filter=DerivedFieldTest.*)
     add_test(NAME Integration.DPRK2017Comparison COMMAND run_integration_tests --gtest_filter=DPRK2017ComparisonTest.*)
+    add_test(NAME Integration.DynamicRuptureBasic.MeshSplitting COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.MeshSplittingWithCohesiveCells)
+    add_test(NAME Integration.DynamicRuptureBasic.LockedFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.LockedFaultSetupCompletes)
+    add_test(NAME Integration.DynamicRuptureBasic.SlippingFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.SlippingFaultSetupCompletes)
+    add_test(NAME Integration.DynamicRuptureBasic.AbsorbingConflict COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultsWithAbsorbingBCAreRejected)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -268,6 +277,7 @@ if(GTest_FOUND)
         Physics.AtmosphericExplosion
         Physics.NearFieldExplosion
         Physics.DruckerPrager
+        Physics.Elastoplasticity
         Physics.MomentTensorSource
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
@@ -275,13 +285,17 @@ if(GTest_FOUND)
     # Integration tests
     set_tests_properties(
         Integration.FullSimulation Integration.Restart
-        Integration.CoupledPhysics Integration.InjectionRuptureChain
+        Integration.CoupledPhysics Integration.InjectionPressure Integration.InjectionRuptureChain
         Integration.LockedFault Integration.LayeredElastostatics
         Integration.ExplosionSeismogram Integration.PrescribedSlip
         Integration.OutputFile
         Integration.GmshImport
         Integration.DerivedFields
         Integration.DPRK2017Comparison
+        Integration.DynamicRuptureBasic.MeshSplitting
+        Integration.DynamicRuptureBasic.LockedFault
+        Integration.DynamicRuptureBasic.SlippingFault
+        Integration.DynamicRuptureBasic.AbsorbingConflict
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

@@ -117,16 +117,13 @@ TEST_F(PrescribedSlipTest, KernelRegistrationSetsConstants) {
     PetscErrorCode ierr;
 
     ierr = PetscDSCreate(PETSC_COMM_WORLD, &prob);
-    if (ierr) { GTEST_SKIP() << "PetscDSCreate failed"; }
+    ASSERT_EQ(ierr, 0) << "PetscDSCreate must succeed";
 
     // Set initial constants (simulating the unified constants array)
     PetscScalar init_c[27];
     for (int i = 0; i < 27; ++i) init_c[i] = static_cast<PetscScalar>(i);
     ierr = PetscDSSetConstants(prob, 27, init_c);
-    if (ierr) {
-        PetscDSDestroy(&prob);
-        GTEST_SKIP() << "PetscDSSetConstants failed";
-    }
+    ASSERT_EQ(ierr, 0) << "PetscDSSetConstants must succeed";
 
     // Configure kernel with prescribed slip
     CohesiveFaultKernel kernel;
@@ -181,38 +178,28 @@ TEST_F(PrescribedSlipTest, MeshSplitWithPrescribedSlipKernel) {
     DM dm = nullptr;
     PetscInt faces[3] = {4, 4, 4};
     PetscReal lower[3] = {0.0, 0.0, 0.0};
-    PetscReal upper[3] = {10.0, 10.0, 100.0};
+    PetscReal upper[3] = {1.0, 1.0, 1.0};
     PetscErrorCode ierr = DMPlexCreateBoxMesh(
         PETSC_COMM_WORLD, 3, PETSC_TRUE, faces, lower, upper,
         nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm);
-    if (ierr != 0 || !dm) {
-        GTEST_SKIP() << "DMPlexCreateBoxMesh failed";
-    }
+    ASSERT_EQ(ierr, 0) << "DMPlexCreateBoxMesh must succeed in Docker CI";
+    ASSERT_NE(dm, nullptr);
 
-    // Insert a vertical fault at x=5
+    // Insert a vertical fault at center of unit cube
     FaultMeshManager mgr(PETSC_COMM_WORLD);
     DMLabel fault_label = nullptr;
-    const double center[3] = {5.0, 5.0, 50.0};
+    const double center[3] = {0.5, 0.5, 0.5};
     ierr = mgr.createPlanarFaultLabel(dm, &fault_label, 0.0, 0.5 * M_PI,
-                                       center, 200.0, 200.0, 0.5);
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "createPlanarFaultLabel failed";
-    }
+                                       center, 2.0, 2.0, 0.05);
+    ASSERT_EQ(ierr, 0) << "createPlanarFaultLabel must succeed";
 
     ierr = mgr.splitMeshAlongFault(&dm, "fault");
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "splitMeshAlongFault failed";
-    }
+    ASSERT_EQ(ierr, 0) << "splitMeshAlongFault must succeed";
 
     // Extract cohesive topology
     FaultCohesiveDyn fault;
     ierr = mgr.extractCohesiveTopology(dm, &fault);
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "extractCohesiveTopology failed";
-    }
+    ASSERT_EQ(ierr, 0) << "extractCohesiveTopology must succeed";
 
     fault.setFrictionModel(std::make_unique<SlipWeakeningFriction>());
     fault.initialize();
@@ -227,7 +214,7 @@ TEST_F(PrescribedSlipTest, MeshSplitWithPrescribedSlipKernel) {
     PetscInt num_cells;
     ierr = DMPlexGetHeightStratum(dm, 0, nullptr, &num_cells);
     ASSERT_EQ(ierr, 0);
-    EXPECT_GT(num_cells, 64) << "Mesh should have more cells after cohesive insertion";
+    EXPECT_GT(num_cells, 384) << "Mesh should have more cells after cohesive insertion";
     EXPECT_GE(fault.numVertices(), 0u);
 
     DMDestroy(&dm);

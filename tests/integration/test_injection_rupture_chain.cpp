@@ -64,9 +64,8 @@ TEST_F(InjectionRuptureChainTest, FaultMeshManagerWithFaultCohesiveDynBasicSetup
     PetscErrorCode ierr =
         DMPlexCreateBoxMesh(PETSC_COMM_WORLD, 3, PETSC_TRUE, faces, lower, upper, nullptr,
                             PETSC_TRUE, 0, PETSC_FALSE, &dm);
-    if (ierr != 0 || !dm) {
-        GTEST_SKIP() << "DMPlexCreateBoxMesh failed; skip mesh-chain setup";
-    }
+    ASSERT_EQ(ierr, 0) << "DMPlexCreateBoxMesh must succeed in Docker CI";
+    ASSERT_NE(dm, nullptr);
 
     FaultMeshManager mgr(PETSC_COMM_WORLD);
     FaultCohesiveDyn fault;
@@ -75,16 +74,10 @@ TEST_F(InjectionRuptureChainTest, FaultMeshManagerWithFaultCohesiveDynBasicSetup
     // Simplex mesh face centroids are not at exact grid coords, use smaller tolerance
     ierr = mgr.createPlanarFaultLabel(dm, &fault_label, 0.0, 0.5 * M_PI, center, 2.0, 2.0,
                                       0.05);
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "createPlanarFaultLabel failed for injection-rupture chain test";
-    }
+    ASSERT_EQ(ierr, 0) << "createPlanarFaultLabel must succeed";
 
     ierr = mgr.splitMeshAlongFault(&dm, "fault");
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "splitMeshAlongFault failed; cohesive workflow not available";
-    }
+    ASSERT_EQ(ierr, 0) << "splitMeshAlongFault must succeed";
 
     ierr = mgr.extractCohesiveTopology(dm, &fault);
     ASSERT_EQ(ierr, 0);

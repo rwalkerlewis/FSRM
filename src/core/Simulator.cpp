@@ -1879,6 +1879,17 @@ PetscErrorCode Simulator::setupPhysics() {
     }
 
     // Register absorbing boundary condition callbacks
+    // NOTE: PetscDS stores one BdResidual per field. Cohesive faults and
+    // absorbing BC both register displacement-field BdResidual callbacks,
+    // so enabling both simultaneously overwrites one callback and makes the
+    // boundary system inconsistent. This explicit guard documents and prevents
+    // that unsupported combination (Option C from session prompt).
+    if (config.enable_faults && config.absorbing_bc_enabled) {
+        SETERRQ(comm, PETSC_ERR_SUP,
+            "Unsupported configuration: enable_faults=true with absorbing_bc_enabled=true. "
+            "Cohesive and absorbing BdResidual callbacks conflict on displacement field.");
+    }
+
     if (config.absorbing_bc_enabled &&
         (config.enable_geomechanics || config.enable_elastodynamics)) {
         PetscInt displacement_field_idx = 0;

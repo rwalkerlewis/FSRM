@@ -79,10 +79,8 @@ TEST_F(FaultMeshManagerTest, SplitMeshAlongFaultRequiresDMPlex) {
     // Use simplex mesh (PETSC_TRUE) - cohesive cells work reliably on simplex in PETSc 3.22
     PetscErrorCode ierr = DMPlexCreateBoxMesh(PETSC_COMM_WORLD, 3, PETSC_TRUE, faces, lower,
                                               upper, nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm);
-    if (ierr != 0 || !dm) {
-        GTEST_SKIP() << "DMPlexCreateBoxMesh unavailable or failed (PETSc build without "
-                        "full DMPlex support)";
-    }
+    ASSERT_EQ(ierr, 0) << "DMPlexCreateBoxMesh must succeed in Docker CI";
+    ASSERT_NE(dm, nullptr);
 
     FaultMeshManager mgr(PETSC_COMM_WORLD);
     DMLabel fault_label = nullptr;
@@ -90,18 +88,10 @@ TEST_F(FaultMeshManagerTest, SplitMeshAlongFaultRequiresDMPlex) {
     // Simplex mesh face centroids are not at exact grid coords, use smaller tolerance
     ierr = mgr.createPlanarFaultLabel(dm, &fault_label, 0.0, 0.5 * M_PI, center, 2.0, 2.0,
                                       0.05);
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "createPlanarFaultLabel failed on box mesh; geometry labeling not "
-                        "applicable to this mesh";
-    }
+    ASSERT_EQ(ierr, 0) << "createPlanarFaultLabel must succeed";
 
     ierr = mgr.splitMeshAlongFault(&dm, "fault");
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "DMPlexConstructCohesiveCells not available or split failed for this "
-                        "PETSc / mesh combination";
-    }
+    ASSERT_EQ(ierr, 0) << "splitMeshAlongFault must succeed";
 
     FaultCohesiveDyn dyn;
     ierr = mgr.extractCohesiveTopology(dm, &dyn);

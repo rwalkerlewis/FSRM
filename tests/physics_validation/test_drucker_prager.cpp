@@ -6,15 +6,11 @@
  *   1. Yield function evaluation is correct
  *   2. von Mises: hydrostatic stress does not yield
  *   3. Elastic loading below yield: no plastic strain
+ *   4. Return mapping produces nonzero plastic strain under pure shear
  *
- * KNOWN LIMITATION: The Drucker-Prager return mapping algorithm
- * (returnMapping) does not correctly produce nonzero plastic strain
- * when stress exceeds yield. The yield function evaluation itself
- * works (test 1), but the return mapping does not update the plastic
- * strain or set plastic_loading = true. This is a bug in the
- * PlasticityModel implementation. The plasticity models are NOT
- * wired into the main PETSc FEM simulator pipeline, so this does
- * not affect any other tests.
+ * The plasticity models are NOT wired into the main PETSc FEM
+ * simulator pipeline, so these tests exercise standalone material
+ * point integration only.
  *
  * References:
  *   Simo & Hughes (1998), "Computational Inelasticity"
@@ -165,22 +161,27 @@ TEST_F(DruckerPragerValidationTest, VonMisesHydrostaticNoYield)
 }
 
 // ---------------------------------------------------------------------------
-// Test 4: Return mapping known limitation
+// Test 4: Return mapping with yielding
 //
-// DOCUMENTS A KNOWN BUG: The returnMapping algorithm does not produce
-// nonzero plastic strain even when the elastic predictor exceeds the
-// yield surface. This test verifies the bug exists and records the
-// expected behavior for future fixing.
+// Pure shear loading (I1=0) exceeds the Drucker-Prager yield surface.
+// The return mapping must produce nonzero plastic strain and return
+// the stress to the yield surface.
 //
-// When this is fixed, change the expectations to check for actual yielding.
+// Previous test used uniaxial compression, which stays inside the DP
+// yield surface because confining pressure expands the cone (inner-cone
+// alpha = 0.6928 with phi=30 deg).
+//
+// Pure shear: eps = {0.01, -0.01, 0, 0, 0, 0} gives I1=0, sqrtJ2=80 MPa,
+// which exceeds kappa=1.2 MPa for c=1 MPa, phi=30 deg.
 // ---------------------------------------------------------------------------
-TEST_F(DruckerPragerValidationTest, ReturnMappingKnownLimitation)
+TEST_F(DruckerPragerValidationTest, ReturnMappingProducesPlasticStrain)
 {
   PlasticityModel model(YieldCriterion::DRUCKER_PRAGER);
 
   DruckerPragerModel::Parameters params;
   params.friction_angle = 30.0 * M_PI / 180.0;
   params.cohesion = 1.0e6;
+  params.dilation_angle = 0.0;
   params.hardening_modulus = 0.0;
   model.setDruckerPragerParameters(params);
 
@@ -190,20 +191,26 @@ TEST_F(DruckerPragerValidationTest, ReturnMappingKnownLimitation)
 
   PlasticityState state;
 
-  // Large compressive strain that should exceed yield
+  // Pure shear strain: I1 = 0, large deviatoric stress
   std::array<double, 6> stress = {0, 0, 0, 0, 0, 0};
-  std::array<double, 6> strain_inc = {0, 0, -0.01, 0, 0, 0};
+  std::array<double, 6> strain_inc = {0.01, -0.01, 0, 0, 0, 0};
 
   model.integrateStress(stress, strain_inc, C, state);
 
-  // KNOWN BUG: return mapping does not set is_plastic = true
-  // When this is fixed, change EXPECT_FALSE to EXPECT_TRUE
-  // and uncomment the plastic strain check below.
-  EXPECT_FALSE(state.is_plastic)
-      << "Known limitation: return mapping does not detect yielding. "
-         "If this fails, the bug may have been fixed -- update the test.";
+  // Must detect yielding
+  EXPECT_TRUE(state.is_plastic)
+      << "Pure shear loading should exceed DP yield surface";
 
-  // The stress should at least be nonzero (elastic predictor was computed)
+  // Accumulated plastic strain must be nonzero
+  EXPECT_GT(state.accumulated_plastic_strain, 0.0)
+      << "Plastic strain must accumulate when yielding occurs";
+
+  // Returned stress should be on (or very near) the yield surface
+  // F = sqrt(J2) + alpha*I1 - kappa = 0
+  EXPECT_NEAR(state.yield_function_value, 0.0, 1.0e-6)
+      << "Returned stress must lie on the yield surface (F=0)";
+
+  // Stress must be nonzero
   double stress_norm = 0.0;
   for (int i = 0; i < 6; i++)
   {

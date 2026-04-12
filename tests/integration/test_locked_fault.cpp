@@ -36,9 +36,8 @@ TEST_F(LockedFaultTest, LockedFaultPreservesElastostatics) {
     PetscErrorCode ierr = DMPlexCreateBoxMesh(
         PETSC_COMM_WORLD, 3, PETSC_TRUE, faces, lower, upper,
         nullptr, PETSC_TRUE, 0, PETSC_FALSE, &dm);
-    if (ierr != 0 || !dm) {
-        GTEST_SKIP() << "DMPlexCreateBoxMesh failed";
-    }
+    ASSERT_EQ(ierr, 0) << "DMPlexCreateBoxMesh must succeed in Docker CI";
+    ASSERT_NE(dm, nullptr);
 
     // Insert a horizontal fault at z=0.5
     FaultMeshManager mgr(PETSC_COMM_WORLD);
@@ -47,24 +46,15 @@ TEST_F(LockedFaultTest, LockedFaultPreservesElastostatics) {
     // Simplex mesh face centroids are not at exact grid coords, use smaller tolerance
     ierr = mgr.createPlanarFaultLabel(dm, &fault_label, 0.0, 0.5*M_PI,
                                        center, 2.0, 2.0, 0.05);
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "createPlanarFaultLabel failed";
-    }
+    ASSERT_EQ(ierr, 0) << "createPlanarFaultLabel must succeed";
 
     ierr = mgr.splitMeshAlongFault(&dm, "fault");
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "splitMeshAlongFault failed";
-    }
+    ASSERT_EQ(ierr, 0) << "splitMeshAlongFault must succeed";
 
     // Extract cohesive topology
     FaultCohesiveDyn fault;
     ierr = mgr.extractCohesiveTopology(dm, &fault);
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "extractCohesiveTopology failed";
-    }
+    ASSERT_EQ(ierr, 0) << "extractCohesiveTopology must succeed";
 
     fault.setFrictionModel(std::make_unique<SlipWeakeningFriction>());
     fault.initialize();
@@ -77,10 +67,7 @@ TEST_F(LockedFaultTest, LockedFaultPreservesElastostatics) {
     // Verify mesh was modified
     PetscInt num_cells;
     ierr = DMPlexGetHeightStratum(dm, 0, nullptr, &num_cells);
-    if (ierr != 0) {
-        DMDestroy(&dm);
-        GTEST_SKIP() << "DMPlexGetHeightStratum failed";
-    }
+    ASSERT_EQ(ierr, 0) << "DMPlexGetHeightStratum must succeed";
     EXPECT_GT(num_cells, 64) << "Mesh should have more cells after cohesive insertion";
 
     // If we got here, the mesh splitting and cohesive topology extraction worked
