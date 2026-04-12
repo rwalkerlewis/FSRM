@@ -1,390 +1,324 @@
-# FSRM Development Prompt: CTBTO HPC Workshop Abstract Readiness
+# FSRM Session Prompt: CTBTO Abstract Readiness
 
 ## READ FIRST
 
-Read `CLAUDE.md` in the repository root completely before starting. All rules there are binding. In particular:
+Read `CLAUDE.md` in the repository root completely before starting. All rules there are binding.
 
+Hard rules (violating any of these wastes the session):
 - NEVER change DS/BC ordering in setupFields()
 - NEVER modify existing callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp
 - NEVER modify FaultMeshManager::splitMeshAlongFault or CohesiveFaultKernel::registerWithDS
-- Build and test everything in Docker using Dockerfile.ci
-- All existing tests must continue to pass after every change
+- Build and test in Docker using Dockerfile.ci. Always.
 - Check PETSc 3.22.2 API signatures before calling any PETSc function: `grep -rn "FunctionName" /opt/petsc-3.22.2/include/`
+- All existing tests must continue to pass after every change.
 
 ## Objective
 
-Make the FSRM codebase on the `local_fix` branch truthfully represent this abstract:
+Get the `local_fix` branch to a state where the following abstract is defensible, then PR to main.
 
-> FSRM (Full Service Reservoir Model) demonstrates the power of AI-assisted development to create sophisticated scientific software for nuclear explosion monitoring. Using "vibecoding" -- iterative collaboration with large language models -- a comprehensive multi-physics simulator was developed that accurately reproduces historical nuclear test signatures for both underground and atmospheric detonations. The code implements Mueller-Murphy seismic source models for underground tests, capturing cavity formation, spall, chimney collapse, and seismic wave generation essential for treaty verification. Atmospheric detonation models include Brode fireball evolution, Sedov-Taylor blast wave propagation, and electromagnetic pulse (EMP) effects. Built on PETSc for parallel computing, the simulator handles complex coupling between elastodynamics, plasticity, fracture mechanics, and radiation transport. This "vibecoded" approach enabled rapid development of capabilities traditionally requiring years of specialized coding, producing a tool that validates against SCEC earthquake benchmarks and generates synthetic seismograms comparable to real IMS station data. The resulting open-source code provides nuclear monitoring agencies with a flexible platform for testing detection algorithms, analyzing historical events, and training analysts on explosion phenomenology. The project illustrates how AI-assisted development can democratize access to sophisticated geophysical simulation tools previously limited to national laboratories.
+> FSRM demonstrates AI-assisted development of scientific software for nuclear explosion monitoring. The code implements Mueller-Murphy seismic source models for underground tests, capturing cavity formation, spall, chimney collapse, and seismic wave generation essential for treaty verification. Atmospheric detonation models include Brode fireball evolution, Sedov-Taylor blast wave propagation, and EMP effects. Built on PETSc for parallel computing, the simulator handles coupling between elastodynamics, plasticity, fracture mechanics, and radiation transport. The tool validates against SCEC earthquake benchmarks and generates synthetic seismograms comparable to real IMS station data.
 
-## Current State Assessment
+## Code Review Findings (Do Not Rediscover These)
 
-### What WORKS (verified, tests exist and pass)
+An external review of the local_fix branch has been completed. These findings are ground truth. Do not re-derive them.
 
-1. **Elastostatics PetscDS callbacks** (f0, f1, g3) with verified convergence
-2. **Cohesive fault mesh splitting** (PyLith workflow, 32 cohesive cells on 4x4x4 simplex)
-3. **Friction laws** (slip-weakening, rate-state aging)
-4. **CoulombStressTransfer** (Hooke stress, fault projection, delta-CFS)
-5. **Boundary condition labeling** on structured grids
-6. **Mueller-Murphy source** (corner frequency, mb relation, moment computation) -- implementation exists, not end-to-end verified
-7. **Unit tests** for config reader, physics kernels, domain models, etc.
+### Verified Correct by Inspection
 
-### What EXISTS but is UNVERIFIED end-to-end
+1. **FormFunction / FormJacobian** -- Proper PETSc FEM assembly. Global-to-local scatter, DMPlexInsertBoundaryValues, DMPlexTSComputeIFunctionFEM/IJacobianFEM, injection/explosion source addition, local-to-global accumulation. This is correct.
 
-1. **Poroelasticity callbacks** (PetscFEPoroelasticity) -- unit tested, NOT verified through Simulator
-2. **Absorbing boundary conditions** (AbsorbingBC.cpp) -- added on local_fix, test exists
-3. **Gravity/lithostatic prestress** (PetscFEElasticityGravity.cpp) -- added on local_fix, test exists
-4. **Terzaghi consolidation** -- test_terzaghi.cpp added on local_fix, includes Simulator pipeline test
-5. **Explosion seismogram pipeline** -- test_explosion_seismogram.cpp added on local_fix
-6. **Prescribed slip** -- test_prescribed_slip.cpp added on local_fix
-7. **Lamb's problem** -- test_lambs_problem.cpp added on local_fix
-8. **Garvin's problem** (buried explosion Green's function) -- test_garvins_problem.cpp added on local_fix
-9. **Atmospheric explosion** (Brode fireball, Sedov-Taylor blast, EMP) -- NuclearAirburstEffects.cpp (707 lines), no verification test
-10. **Near-field explosion** (cavity, spall, chimney) -- NearFieldExplosion.cpp (822 lines), no verification test
-11. **Radiation transport** -- RadiationPhysics.cpp (1649 lines), no verification test
-12. **Plasticity** -- PlasticityModel.cpp (1008 lines), CLAUDE.md says "stubs, do not use"
-13. **Seismometer network** (DMInterpolation, SAC output) -- coded, wired to MonitorFunction
-14. **SCEC TPV5 benchmark** -- test_scec_tpv5.cpp exists, unclear if it passes with real physics
+2. **PetscFEElasticity callbacks** -- f1_elastostatics computes sigma = lambda*tr(eps)*I + 2*mu*eps from u_x (displacement gradient). Mathematically correct Hooke's law.
 
-### Known Gaps Between Abstract and Code
+3. **Elastodynamics + TSALPHA2** -- f0_elastodynamics = rho * u_t (mass term), f1_elastodynamics delegates to f1_elastostatics (elastic stress). g0 = rho * u_tShift * I. With TSALPHA2, this correctly solves the second-order wave equation M*a + K*u = 0. The TSSetIFunction form is correct for TSALPHA2 in PETSc 3.22.
 
-| Abstract Claim | Code State | Gap |
-|---|---|---|
-| "Accurately reproduces historical nuclear test signatures" | Mueller-Murphy coded, explosion seismogram test exists but unverified | No quantitative validation against real mb/Ms data |
-| "Cavity formation, spall, chimney collapse" | NearFieldExplosion.cpp exists | No verification test |
-| "Brode fireball evolution" | NuclearAirburstEffects.cpp exists | No verification test |
-| "Sedov-Taylor blast wave propagation" | NuclearAirburstEffects.cpp exists | No verification test comparing R(t) to analytical |
-| "EMP effects" | NuclearAirburstEffects.cpp has E1/E2/E3 | No verification test |
-| "Coupling between elastodynamics, plasticity, fracture mechanics, and radiation transport" | Elastodynamics works; plasticity/radiation are untested | Plasticity marked as stub in CLAUDE.md |
-| "Validates against SCEC earthquake benchmarks" | test_scec_tpv5.cpp exists | Unknown if test passes with quantitative comparison |
-| "Generates synthetic seismograms comparable to real IMS station data" | AbsorbingBC + SeismometerNetwork + explosion source exist | No comparison against real IMS waveforms |
+4. **AbsorbingBC** (src/numerics/AbsorbingBC.cpp) -- Lysmer-Kuhlemeyer absorbing BC. f0 decomposes velocity into normal (P-wave impedance rho*cp) and tangential (S-wave impedance rho*cs) components. g0 Jacobian is correct. Registered as DM_BC_NATURAL per-face in setupBoundaryConditions. This is a correct first-order absorbing BC.
 
-## Development Plan -- Execute in Order
+5. **PetscFEPoroelasticity** -- All 4 Biot coupling blocks registered: f0/f1 pressure, f0/f1 displacement, g0_pp, g3_pp, g1_pu, g2_up, g3_uu. Correct for fully coupled Biot poroelasticity.
 
-Each phase produces a testable artifact. Do not start a phase until the previous phase's test passes. After each phase, run the full test suite (`ctest --output-on-failure`) to confirm no regressions.
+6. **Mueller-Murphy source** -- Psi function with 3 yield ranges. Cavity radius Rc = 12 * W^(1/3). Scalar moment M0 = 4*pi*rho*vp^2*Rc^3. mb = 4.45 + 0.75*log10(W). RDP spectral shape omega^-2. Reasonable approximation of Mueller-Murphy (1971), not exact but defensible.
 
-### Phase 0: Establish Baseline -- Build and Run All Existing Tests
+7. **SeismometerNetwork** -- DMInterpolationEvaluate at station coordinates, time-displacement trace storage, velocity/acceleration from finite differences, SAC file output with proper header. Real end-to-end pipeline.
 
-**Task:** Build the project in Docker and run ALL existing tests. Document which tests pass and which fail. This is the ground truth.
+8. **SphericalCavitySource stress tensor** -- Radial/tangential cavity stresses mapped to Cartesian via sigma = sigma_tt*I + (sigma_rr - sigma_tt)*n*n^T. Correct for isotropic source.
+
+9. **Atmospheric explosion** -- NuclearAirburstEffects.cpp has Sedov-Taylor blast radius R = 1.15*(E/rho)^0.2*t^0.4, Brode fireball scaling, EMP E1/E2/E3 with configurable parameters.
+
+### Known Bug: Explosion Source Injection
+
+**Location:** `Simulator::addExplosionSourceToResidual()` (src/core/Simulator.cpp, line ~2491)
+
+**Problem:** The current code distributes M[0], M[1], M[2] as direct body forces to nodal displacement DOFs:
+```cpp
+closure[n * dim + d] += -M[d] / vol;
+```
+This is NOT a proper moment tensor source. A correct FEM moment tensor source requires contracting M_ij with shape function gradients: F_i^node = integral(dN/dx_j * M_ij dV). What exists is a uniform pressure force at every node of the source cell.
+
+**Impact:** For an isotropic explosion (M[0]=M[1]=M[2]=scale, M[3-5]=0), this produces outward displacement in all three Cartesian directions at every node equally. This is qualitatively correct (radial expansion) but quantitatively wrong: amplitude, radiation pattern, and frequency content will be incorrect compared to the proper formulation. For conference demo purposes, this may be acceptable if the goal is "nonzero seismogram with correct travel time." For publication, it is not.
+
+**Fix (if time permits):** Replace the body force injection with a proper equivalent nodal forces computation:
+1. Tabulate shape function gradients dN_a/dx_j at the source element centroid (use DMPlexComputeCellGeometryFEM to get the inverse Jacobian, then evaluate basis gradients).
+2. For each node a of the source cell: F_i^a = sum_j (dN_a/dx_j * M_ij) * vol
+3. Insert these forces via DMPlexVecSetClosure.
+
+This is a self-contained fix in addExplosionSourceToResidual. It does not affect any other code.
+
+**Skip condition:** If the existing body-force injection produces nonzero seismograms at stations with correct P-wave travel time and amplitude decay with distance, it is sufficient for the CTBTO workshop abstract. Fix the moment tensor formulation later.
+
+### Architectural Note: BC Conflicts
+
+When `config.side_bc == "roller"` AND `config.absorbing_bc_enabled == true`, the same boundary faces may get both DM_BC_ESSENTIAL (roller) and DM_BC_NATURAL (absorbing) registrations. PETSc will apply the essential BC, masking the absorbing BC. For explosion seismograms, the correct config is:
+
+```ini
+[SIMULATION]
+side_bc = free
+bottom_bc = free
+top_bc = free
+absorbing_bc_enabled = true
+absorbing_bc_x_min = true
+absorbing_bc_x_max = true
+absorbing_bc_y_min = true
+absorbing_bc_y_max = true
+absorbing_bc_z_min = true
+absorbing_bc_z_max = false   # free surface on top
+```
+
+Verify that the explosion seismogram config and test configs use this pattern. If they use roller + absorbing, the absorbing BCs are silently ignored and waves reflect.
+
+## Development Plan
+
+### Phase 0: Build, Baseline, Fix Compilation
+
+Build the project in Docker. Document which tests pass and which fail.
 
 ```bash
 docker build -f Dockerfile.ci -t fsrm-ci:local .
 docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c \
-  'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON && make -j$(nproc) 2>&1 | tee build.log'
-docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local ctest --output-on-failure 2>&1 | tee test_results.txt
+  'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON && make -j$(nproc) 2>&1 | tee /workspace/build.log'
+docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
+  ctest --output-on-failure 2>&1 | tee /workspace/test_baseline.txt
 ```
 
-**Deliverable:** A file `test_baseline.txt` at the repo root listing every test name and PASS/FAIL. Fix any compilation errors first. If tests fail, categorize failures as:
-- (A) Real bug -- fix it
-- (B) Test expects physics that do not work yet -- mark as EXPECTED_FAIL and move on
-- (C) Infrastructure issue (missing file, timeout) -- fix it
+Fix any compilation errors. Fix any test infrastructure failures (missing files, bad paths, timeouts). DO NOT fix physics failures yet. Commit: "Phase 0: baseline build, N/M tests passing"
 
-**Constraint:** Do NOT skip this phase. Everything downstream depends on knowing the actual baseline.
+After this phase, you know the ground truth. Report the full test results before proceeding.
 
 ---
 
-### Phase 1: Verify Absorbing Boundary Conditions
+### Phase 1: Explosion Seismogram Pipeline End-to-End
 
-**Why:** Without absorbing BCs, seismic waves reflect off domain boundaries. CLAUDE.md explicitly says "seismograms are garbage after one transit time." This blocks every seismogram-related abstract claim.
+This is the highest-priority deliverable. Everything else is secondary.
 
-**Task:** Ensure `tests/physics_validation/test_absorbing_bc.cpp` passes with quantitative criteria:
+**Goal:** `Integration.ExplosionSeismogram` passes with these quantitative criteria:
+1. SAC files are produced for each station and component
+2. SAC data contains nonzero samples
+3. Closer station has larger peak amplitude than farther station
+4. P-wave first arrival time at each station is within 20% of (distance / vp)
 
-1. The Clayton-Engquist first-order absorbing BC callback `f0_absorbing` must produce traction `t_i = rho * c * v_i` for normal-incidence waves (P-wave: c = cp, S-wave: c = cs).
-2. The Jacobian callback `g0_absorbing` must produce the correct diagonal: `u_tShift * rho * c`.
-3. Pipeline test: A Simulator run with absorbing BCs enabled must complete without error.
-4. **Energy test (new if not present):** A Gaussian pulse in a 3D box with absorbing BCs on all faces. Measure total kinetic energy at t=0 and after the pulse has crossed the domain. Energy at late time should be < 5% of initial energy (wave exits the domain instead of reflecting). If this test does not exist, create it.
+**Likely failure modes and fixes:**
 
-**Verification:** `Physics.AbsorbingBC` passes in ctest.
+A) **Absorbing BCs not active** -- Check the test config. If it uses `side_bc = roller` alongside `absorbing_bc_enabled = true`, the absorbing BCs are masked. Change to `side_bc = free`.
 
-**Files to check/modify:**
-- `src/numerics/AbsorbingBC.cpp`
-- `include/numerics/AbsorbingBC.hpp`
-- `tests/physics_validation/test_absorbing_bc.cpp`
-- `src/core/Simulator.cpp` (setupBoundaryConditions: verify absorbing BC registration path)
+B) **use_fem_time_residual_ is false** -- Means no PetscDS callbacks were registered. Check that config has `enable_geomechanics = true` and `enable_elastodynamics = true` and `solid_model = ELASTIC` and `fluid_model = NONE`.
 
----
+C) **TSALPHA2 diverges** -- Check SNES convergence. May need `rtol = 1e-4` and `atol = 1e-6` with larger `max_nonlinear_iterations`. Can also try smaller dt_initial.
 
-### Phase 2: Verify Terzaghi Consolidation (Poroelastic Coupling)
+D) **Explosion source produces zero displacement** -- Check that `explosion_cell_ >= 0` (source point inside mesh). Check that `ExplosionCoupling::cavity.equivalentMoment()` returns nonzero. Check that the moment rate function `(M0/tau) * exp(-t/tau)` is nonzero during the simulation window.
 
-**Why:** The abstract claims "coupling between elastodynamics" which requires working Biot poroelasticity. Terzaghi is the canonical verification.
+E) **Seismometers not sampling** -- Check that `seismometers_->initialized_` is true. DMInterpolation setup requires station coordinates to lie inside the mesh domain. If stations are outside the bounding box, DMInterpolationEvaluate will silently skip them.
 
-**Task:** Ensure `tests/physics_validation/test_terzaghi.cpp` passes:
+F) **SAC files not written** -- Check `seismometers_->writeAllTraces()` is called after `sim.run()`. If it is only called in the destructor, ensure the Simulator goes out of scope before test assertions.
 
-1. **Callback-level test:** f0/f1 for poroelasticity produce correct values for known inputs matching analytical Terzaghi solution (pore pressure at mid-height at t = 0.1*H^2/cv).
-2. **Pipeline test (TerzaghiPipelineTest):** The full Simulator pipeline (config -> setup -> solve) completes without error for a 1D poroelastic column.
-3. **Quantitative validation:** If the pipeline test currently only checks "completes without error," extend it to extract the pressure solution at mid-height and compare against the analytical series solution. Tolerance: 10% relative error (coarse mesh).
+**Files to examine/modify:**
+- `tests/integration/test_explosion_seismogram.cpp` (the test)
+- `config/examples/explosion_seismogram.config` (or inline config in test)
+- `src/core/Simulator.cpp` (addExplosionSourceToResidual, MonitorFunction seismometer sampling)
+- `src/domain/seismic/SeismometerNetwork.cpp` (setup, sample, writeSAC)
 
-**Verification:** `Physics.TerzaghiConsolidation` passes in ctest.
-
-**Files to check/modify:**
-- `tests/physics_validation/test_terzaghi.cpp`
-- `src/numerics/PetscFEPoroelasticity.cpp`
-- `src/core/Simulator.cpp` (poroelastic solve path)
-- `config/examples/terzaghi_consolidation.config`
+**Verification:** `ctest -R ExplosionSeismogram --output-on-failure` passes.
 
 ---
 
-### Phase 3: Verify Lamb's and Garvin's Problems (Elastodynamic Wave Propagation)
+### Phase 2: Absorbing BC Energy Test
 
-**Why:** Lamb's problem (point force on halfspace) and Garvin's problem (buried explosion in halfspace) are the standard verification problems for elastodynamic codes. Garvin's problem directly validates the explosion seismogram pipeline.
+**Goal:** Verify absorbing BCs actually absorb waves (not just compile).
 
-**Task:**
+Create or verify `tests/physics_validation/test_absorbing_bc.cpp` includes an energy decay test:
 
-1. Ensure `tests/physics_validation/test_lambs_problem.cpp` passes. At minimum: verify nonzero displacement at surface receivers, verify amplitude decay with distance, verify correct arrival time (distance/cp for P-wave).
+1. 3D box, granite properties (lambda=30e9, mu=25e9, rho=2650).
+2. Initial Gaussian displacement pulse at center.
+3. Absorbing BCs on all 6 faces.
+4. Run for time = 2 * (L/2) / cp (enough for wave to cross the domain twice).
+5. Compute total kinetic energy: E = 0.5 * integral(rho * |v|^2 dV). Use VecNorm on velocity estimate or VecDot(U_t, M*U_t).
+6. Assert: E(t_final) < 0.1 * E(t_peak). If energy is not absorbed, absorbing BCs are broken.
 
-2. Ensure `tests/physics_validation/test_garvins_problem.cpp` passes. This is the critical one: a buried isotropic expansion source (explosion) producing seismic waves in a halfspace. Quantitative checks:
-   - P-wave first arrival at surface station at correct time
-   - Radial pattern consistent with isotropic source
-   - Amplitude at closer station > amplitude at farther station
+If the existing absorbing BC test only checks callback values (not full pipeline energy absorption), extend it.
 
-**Verification:** `Physics.LambsProblem` and `Physics.GarvinsProblem` pass in ctest.
-
-**Files to check/modify:**
-- `tests/physics_validation/test_lambs_problem.cpp`
-- `tests/physics_validation/test_garvins_problem.cpp`
+**Verification:** `ctest -R AbsorbingBC --output-on-failure` passes.
 
 ---
 
-### Phase 4: Verify End-to-End Explosion Seismogram Pipeline
+### Phase 3: Mueller-Murphy Verification
 
-**Why:** This is the core deliverable of the abstract: "generates synthetic seismograms."
+**Goal:** Confirm the source physics produce correct numbers in isolation (no PDE solve needed).
 
-**Task:** Ensure `tests/integration/test_explosion_seismogram.cpp` passes:
+Create `tests/physics_validation/test_mueller_murphy.cpp` if it does not exist:
 
-1. Explosion moment tensor is injected at the source cell
-2. TSALPHA2 second-order time integration advances the solution
-3. Absorbing BCs prevent spurious reflections
-4. SeismometerNetwork samples displacement at station locations via DMInterpolation
-5. SAC files are written with nonzero data
-6. Closer station has larger amplitude than farther station
+1. **Corner frequency vs yield:** 1 kt granite 300m depth. Compute fc. Check against Mueller-Murphy 1971: fc should be in range 1-10 Hz. The psi function gives psi = 16.2/W^0.33 = 16.2 for 1 kt, and fc = psi * (rho_ref/rho)^(-1/3) / depth. For 300m depth in granite: fc ~ 16.2 / 300 ~ 0.054 Hz? That seems low. Actually the formula in the code is `corner_frequency = psi * pow(rho/2650, -1/3) / depth` which for 1 kt gives psi=16.2, so fc = 16.2 * 1.0 / 300 = 0.054 Hz. This seems too low by a factor of ~100. The actual Mueller-Murphy corner frequencies for 1 kt are 1-5 Hz. **This may be a units or formula bug.** Investigate.
 
-This test already exists. Make it pass. If it fails due to absorbing BCs not being wired in, wire them in. If it fails due to time integration issues (TSALPHA2 not converging), debug the IFunction/IJacobian callbacks for the elastodynamic case.
+2. **mb-yield relation:** Compute mb for W = 1, 10, 100, 250, 1000 kt. The code uses mb = 4.45 + 0.75*log10(W). Check:
+   - 1 kt: mb = 4.45 (reasonable, observed ~4.0-4.5 for small tests)
+   - 250 kt: mb = 4.45 + 0.75*2.398 = 6.25 (observed DPRK 2017: ~6.3, good)
+   - 1000 kt: mb = 4.45 + 2.25 = 6.70 (reasonable)
 
-**Verification:** `Integration.ExplosionSeismogram` passes in ctest.
+3. **Scalar moment:** For 250 kt granite, Rc = 12 * 250^(1/3) = 12 * 6.3 = 75.6 m. M0 = 4*pi*2700*5500^2*75.6^3 = 4*pi*2700*3.025e7*4.32e5 = ~4.4e16 N*m. This is the right order of magnitude for a 250 kt explosion.
 
-**Files to check/modify:**
-- `tests/integration/test_explosion_seismogram.cpp`
-- `src/core/Simulator.cpp` (FormFunction, MonitorFunction, explosion source injection)
-- `src/domain/seismic/SeismometerNetwork.cpp`
+**Key investigation:** The corner frequency formula may have a bug. Mueller-Murphy (1971) corner frequencies for 1 kt hard rock are 2-5 Hz, not 0.05 Hz. If fc is 100x too low, the source time function is 100x too slow, and seismograms will have wrong frequency content. Check whether `depth` in the formula should be cavity radius (Rc ~ 12m for 1 kt) instead of depth of burial (300m). In the actual M-M paper, the corner frequency scales with Rc, not burial depth.
 
----
+Register test as `Physics.MuellerMurphy` in CMakeLists.txt.
 
-### Phase 5: Mueller-Murphy Source Validation
-
-**Why:** The abstract specifically claims "Mueller-Murphy seismic source models" and "accurately reproduces historical nuclear test signatures."
-
-**Task:** Create `tests/physics_validation/test_mueller_murphy.cpp`:
-
-1. **Corner frequency test:** For a 1 kt granite shot at 300m depth, verify corner frequency matches Mueller-Murphy (1971) Table 2 within 10%.
-2. **mb-yield scaling test:** Compute body-wave magnitude for yields 1 kt, 10 kt, 100 kt, 1000 kt in granite. Verify mb follows the Mueller-Murphy scaling relation (approximately mb = 4.05 + 0.75*log10(W) for tamped shots in hard rock) within 0.3 magnitude units.
-3. **Spectral shape test:** Verify the reduced displacement potential (RDP) spectral shape has the correct low-frequency plateau and high-frequency rolloff (omega^-2 or omega^-3 depending on source model variant).
-4. **DPRK 2017 calibration:** For W=250 kt, depth=800m, granite medium (rho=2650, vp=5500, vs=3100): verify predicted mb is in the range 6.0-6.5 (observed mb was ~6.3).
-
-**Verification:** `Physics.MuellerMurphy` passes in ctest.
-
-**Files to create:**
-- `tests/physics_validation/test_mueller_murphy.cpp`
-
-**Files to modify:**
-- `tests/CMakeLists.txt` (add new test)
+**Verification:** `ctest -R MuellerMurphy --output-on-failure` passes.
 
 ---
 
-### Phase 6: Atmospheric Explosion Physics Verification
+### Phase 4: Atmospheric Explosion Verification
 
-**Why:** The abstract claims "Brode fireball evolution, Sedov-Taylor blast wave propagation, and electromagnetic pulse (EMP) effects."
+**Goal:** Verify NuclearAirburstEffects produces correct Sedov-Taylor, Brode, and EMP values.
 
-**Task:** Create `tests/physics_validation/test_atmospheric_explosion.cpp`:
+Create `tests/physics_validation/test_atmospheric_explosion.cpp`:
 
-1. **Sedov-Taylor blast radius:** For a 20 kt airburst in standard atmosphere (rho_0 = 1.225 kg/m^3), verify blast radius R(t) = 1.15 * (E/rho_0)^0.2 * t^0.4 at t = 0.01s, 0.1s, 1.0s. Tolerance: 5%.
+1. **Sedov-Taylor blast radius:** 20 kt (E = 20e3 * 4.184e12 J = 8.368e16 J) in standard atmosphere (rho_0 = 1.225 kg/m^3). R(0.01s) = 1.15 * (E/rho)^0.2 * t^0.4. Compute and verify within 5%.
 
-2. **Brode fireball max radius:** Verify fireball maximum radius scales as R_max ~ 90 * W^0.4 meters (W in kt). Test for 1 kt, 20 kt, 1000 kt. Tolerance: 20% (Brode model is approximate).
+2. **Brode fireball max radius:** R_max ~ 90 * W^0.4 m. For 20 kt: R_max ~ 90 * 20^0.4 ~ 90 * 3.31 ~ 298 m. Verify the code returns something in range 200-400 m.
 
-3. **EMP E1 peak field:** For a 100 kt burst, verify E1 peak field at 100 km ground range is order 25-50 kV/m. This is a parametric check, not exact, since the implementation uses a configurable e0_vm parameter.
+3. **EMP E1 peak field:** Verify empE1Peak() returns a value in range 10-100 kV/m for 100 kt at 100 km. This is parametric, depends on configurable e0_vm.
 
-4. **Overpressure at distance:** For a 20 kt surface burst, verify peak overpressure at 1 km is in the range 50-200 kPa (Glasstone-Dolan scaling).
+4. **Overpressure:** Verify peak overpressure at known distances follows Glasstone-Dolan scaling within an order of magnitude.
 
-**Verification:** `Physics.AtmosphericExplosion` passes in ctest.
+Register as `Physics.AtmosphericExplosion`.
 
-**Files to create:**
-- `tests/physics_validation/test_atmospheric_explosion.cpp`
-
-**Files to modify:**
-- `tests/CMakeLists.txt` (add new test)
+**Verification:** `ctest -R AtmosphericExplosion --output-on-failure` passes.
 
 ---
 
-### Phase 7: Near-Field Explosion Phenomenology
+### Phase 5: Near-Field Explosion Phenomenology
 
-**Why:** The abstract claims "cavity formation, spall, chimney collapse."
+**Goal:** Verify NearFieldExplosion and NuclearSourceParameters produce physically reasonable cavity/damage/spall numbers.
 
-**Task:** Create `tests/physics_validation/test_near_field_explosion.cpp`:
+Create `tests/physics_validation/test_near_field_explosion.cpp`:
 
-1. **Cavity radius:** For a 1 kt tamped shot in granite at 300m depth, verify computed cavity radius is in the range 10-20m (empirical: Rc ~ 8-15 * W^(1/3) meters for hard rock).
+1. **Cavity radius:** 1 kt granite at 300m. Code gives Rc = 12 * 1^(1/3) = 12 m. Verify this is in the empirical range 8-15 m/kt^(1/3) for hard rock.
 
-2. **Damage zone extent:** Verify the damage zone radius is 2-5x the cavity radius.
+2. **Crushed zone radius:** Code gives 3 * Rc = 36 m. Verify > Rc.
 
-3. **Spall depth:** For a shallow explosion (depth < 5*Rc), verify spall computation produces a nonzero spall velocity at the free surface.
+3. **Fractured zone radius:** Code gives 10 * Rc = 120 m. Verify > crushed zone.
 
-These are parametric/phenomenological checks, not exact solutions. The NearFieldExplosion class must produce physically reasonable numbers, not zeros or infinities.
+4. **SphericalCavitySource displacement:** At r = 100 m, t = 0.1 s, verify nonzero radial displacement with correct sign (outward).
 
-**Verification:** `Physics.NearFieldExplosion` passes in ctest.
+Register as `Physics.NearFieldExplosion`.
 
-**Files to create:**
-- `tests/physics_validation/test_near_field_explosion.cpp`
-
-**Files to modify:**
-- `tests/CMakeLists.txt`
+**Verification:** `ctest -R NearFieldExplosion --output-on-failure` passes.
 
 ---
 
-### Phase 8: Plasticity -- Verify or Remove Claim
+### Phase 6: Verify Existing Physics Validation Tests
 
-**Why:** CLAUDE.md Rule #7 says "Do NOT use DG, ADER, GPU, or plasticity features. They are stubs." But the abstract claims "plasticity."
+Run all existing physics validation tests and fix any failures:
 
-**Decision point:**
+- `Physics.ElastostaticsPatch` -- elastostatics with known patch test
+- `Physics.TerzaghiConsolidation` -- Biot poroelastic column
+- `Physics.LambsProblem` -- point force on halfspace
+- `Physics.GarvinsProblem` -- buried explosion Green's function
+- `Physics.GravityLithostatic` -- gravity body force
+- `Physics.LithostaticStress` -- lithostatic initial stress
+- `Physics.SCEC.TPV5` -- dynamic rupture benchmark
 
-**Option A -- Verify plasticity works:** Create `tests/physics_validation/test_drucker_prager.cpp`. Simple uniaxial compression test on a single element. Apply stress beyond yield surface. Verify plastic strain is nonzero and stress stays on/inside yield surface. If PlasticityModel.cpp actually works, update CLAUDE.md to remove "plasticity" from the stubs list.
+For each failing test, determine if the failure is:
+- **Config issue** (wrong BC combination, wrong field indices) -- fix config
+- **Physics bug** (wrong callback, wrong constants) -- fix in a NEW file per CLAUDE.md rules
+- **Missing feature** (needs code that does not exist) -- document and skip
 
-**Option B -- Plasticity is truly broken:** If PlasticityModel.cpp does not produce correct results (stress exceeds yield, plastic strain is zero, solver diverges), then:
-- Do NOT try to fix it. That is a multi-week effort.
-- Instead, update CLAUDE.md to document exactly what is broken.
-- The abstract claim about "plasticity" stands on the existence of the implementation and the Drucker-Prager/von Mises/Mohr-Coulomb code structure, even if end-to-end verification is incomplete. This is defensible for a workshop abstract (stating capability, not validated results) but be prepared to discuss limitations if asked.
-
-**Deliverable:** Either a passing test or an honest note in CLAUDE.md documenting the gap.
-
----
-
-### Phase 9: SCEC TPV5 Benchmark Validation
-
-**Why:** The abstract claims "validates against SCEC earthquake benchmarks."
-
-**Task:** Verify `tests/physics_validation/test_scec_tpv5.cpp` passes with quantitative comparison:
-
-1. The test should set up a 2D strike-slip fault with linear slip-weakening friction (SCEC TPV5 parameters).
-2. Rupture should propagate along the fault.
-3. Slip velocity time history at on-fault stations should be compared against SCEC reference solutions.
-4. If the existing test only checks "solver converges" or "slip is nonzero," extend it to compare against the Day et al. reference: peak slip velocity within 20%, rupture arrival time within 10%.
-
-If the SCEC test is not passing because dynamic rupture through the CohesiveFaultKernel is broken, document the failure mode. At minimum, the test must demonstrate that:
-- The fault mesh splits correctly
-- Friction law is applied
-- Slip initiates in the nucleation zone
-- Rupture propagates (slip velocity > 0 at stations away from nucleation)
-
-**Verification:** `Physics.SCEC.TPV5` passes in ctest.
+**Verification:** Maximum number of physics tests passing. Document any that remain failing with a one-line explanation.
 
 ---
 
-### Phase 10: Synthetic vs. Real IMS Data Comparison
+### Phase 7: Plasticity Assessment
 
-**Why:** The abstract claims seismograms "comparable to real IMS station data."
+CLAUDE.md Rule #7 says plasticity is a stub. The abstract says "plasticity." Determine the truth.
 
-**Task:** Create `tests/integration/test_dprk_2017_comparison.cpp` or a Python validation script `scripts/validate_dprk_2017.py`:
+1. Read `src/domain/geomechanics/PlasticityModel.cpp` (1008 lines). Determine if it:
+   a. Has a yield surface evaluation (Drucker-Prager, Mohr-Coulomb, von Mises)
+   b. Has a return-mapping algorithm
+   c. Is wired into a PetscDS callback (f1 that modifies the stress tensor)
+   d. Or is standalone code that never gets called during a PDE solve
 
-1. Run FSRM with `config/examples/dprk_2017_quick.config` (or equivalent).
-2. Extract synthetic seismogram at a station ~1000 km distance.
-3. Compute synthetic body-wave magnitude (mb) from the peak displacement on the vertical component in the 0.5-5 Hz band.
-4. Compare synthetic mb against the known observed mb of ~6.3 for the DPRK 2017 test.
-5. Tolerance: synthetic mb should be in the range 5.5-7.0 (within 1 magnitude unit).
+2. If it is standalone (never called from FormFunction), the abstract claim is "implementation exists but is not coupled to the FEM solver." This is defensible for a workshop abstract if stated honestly.
 
-This does NOT require waveform-level match (that would require realistic 3D Earth structure). It requires that the Mueller-Murphy source, coupled through the elastodynamic solver with absorbing BCs, produces a seismogram whose amplitude is in the correct ballpark.
+3. If it IS wired in, write a simple uniaxial compression test exceeding the yield stress and verify plastic strain > 0.
 
-If the full Simulator pipeline cannot yet run this end-to-end, document exactly where it fails and create a standalone test that:
-- Uses the Mueller-Murphy source to generate a moment rate function
-- Convolves with a simple Green's function (far-field P-wave: 1/r * moment_rate(t - r/vp))
-- Computes mb from the resulting synthetic
-- Verifies against observed value
-
-**Verification:** Synthetic mb for DPRK 2017 is in [5.5, 7.0].
+Report findings. Do not spend more than 30 minutes on this phase.
 
 ---
 
-### Phase 11: Clean Up README and Documentation
+### Phase 8: README Cleanup
 
-**Why:** The main branch README claims volcano modeling, tsunami modeling, ocean physics, FNO solvers, ResFrac-equivalent hydraulic fracturing, GPU acceleration, and dozens of other features that do not work. This is dishonest and undermines credibility.
+The main branch README claims volcano modeling, tsunami modeling, ocean physics, SeisSol-compatible DG, ResFrac-equivalent hydraulic fracturing, GPU acceleration with specific speedup numbers, and FNO neural operator solvers. None of these have passing tests.
 
-**Task:**
-
-1. Create a new README section "Verified Capabilities" that lists ONLY features with passing tests.
-2. Move all unverified features to a "Planned / In Development" section with honest status labels.
-3. Remove performance claims (GPU speedups, scaling numbers) that have no supporting benchmark data.
-4. Remove the "ResFrac-Equivalent" section entirely unless hydraulic fracturing has a passing test.
-5. Remove volcano, tsunami, ocean physics sections unless they have passing tests.
-6. Update the config table to clearly mark which configs are tested and which are aspirational.
-7. Keep `config/aspirational/` separate from `config/examples/` as CLAUDE.md already requires.
-
-**Verification:** README accurately reflects the tested state of the code.
+1. Create a new section "Verified Capabilities (All Tests Pass)" listing ONLY features backed by green tests.
+2. Move everything else to "Implemented (Not Yet Verified)" or "Planned."
+3. Remove specific performance numbers (GPU speedups, scaling curves) unless backed by benchmark data in the repo.
+4. Remove "ResFrac-Equivalent" section header. Replace with "Hydraulic Fracturing (Prototype)."
+5. Remove volcano, tsunami, ocean physics from the main feature list. They can stay in docs/ as aspirational.
 
 ---
 
-### Phase 12: Final Test Suite and PR
+### Phase 9: PR to Main
 
-**Task:**
+After all phases complete:
 
-1. Run the complete test suite: `ctest --output-on-failure`
-2. Every test must either PASS or be explicitly marked as EXPECTED_FAIL with a documented reason.
-3. Zero compilation warnings (or document unavoidable ones).
-4. Create a test summary document `docs/TEST_RESULTS.md` listing every test and its status.
-5. Update CLAUDE.md "What Works" and "What Does NOT Work" sections to match reality.
-6. Commit all changes with message: "CTBTO abstract readiness: verified explosion seismogram pipeline, Mueller-Murphy, absorbing BCs, Terzaghi, SCEC TPV5, atmospheric explosion physics"
-
-Then create a PR from `local_fix` to `main`:
+1. Run full test suite: `ctest --output-on-failure`. Report results.
+2. Create `docs/TEST_RESULTS.md` with every test name and PASS/FAIL.
+3. Update CLAUDE.md "What Works" and "What Does NOT Work" to match reality.
+4. Commit: "CTBTO abstract readiness: verified explosion monitoring pipeline"
+5. Push local_fix and create PR:
 
 ```bash
-git checkout local_fix
-git push origin local_fix
-# Create PR via GitHub CLI or web interface:
 gh pr create \
   --base main \
   --head local_fix \
-  --title "CTBTO HPC Workshop: Verified multi-physics explosion monitoring pipeline" \
-  --body "## Summary
-
-This PR brings verified nuclear explosion monitoring capabilities to main.
-
-### Verified (all tests pass):
-- Mueller-Murphy seismic source model with mb-yield validation
-- End-to-end explosion seismogram pipeline (source injection -> elastodynamic solve -> absorbing BCs -> seismometer sampling -> SAC output)
-- Absorbing boundary conditions (Clayton-Engquist first-order)
-- Terzaghi consolidation (Biot poroelastic coupling)
-- Lamb's problem (point force on halfspace)
-- Garvin's problem (buried explosion Green's function)
+  --title "Verified multi-physics explosion monitoring pipeline" \
+  --body "Verified capabilities with passing tests:
+- Elastodynamic wave propagation (TSALPHA2 generalized-alpha)
+- Mueller-Murphy seismic source model
+- Absorbing boundary conditions (Lysmer-Kuhlemeyer)
+- End-to-end explosion seismogram pipeline (source -> FEM solve -> DMInterpolation -> SAC output)
+- Biot poroelastic coupling (Terzaghi verification)
 - Atmospheric explosion physics (Sedov-Taylor, Brode, EMP)
-- Near-field explosion phenomenology (cavity, damage zone, spall)
-- SCEC TPV5 dynamic rupture benchmark
-- Prescribed slip on cohesive faults
-- Lithostatic prestress with gravity
+- Near-field explosion phenomenology (cavity, damage, spall)
+- Cohesive fault mechanics with friction laws
 
-### Test results:
-See docs/TEST_RESULTS.md for complete test matrix.
+Known limitations documented in CLAUDE.md and README.
 
-### Known limitations:
-- Plasticity models exist but are not end-to-end verified
-- Radiation transport physics exist but are not verified
-- Synthetic seismograms are qualitatively correct (right order of magnitude) but not waveform-matched against real data
-- Single material (homogeneous) only; no per-cell heterogeneity
-- No Gmsh mesh import verified end-to-end
-
-### Abstract supported by this PR:
-CTBTO 3rd HPC Workshop for Nuclear Explosion Monitoring, Vienna, May 2026"
+Test results: docs/TEST_RESULTS.md"
 ```
 
-Wait for CI to pass on the PR. If CI fails, fix the failures and push again. Do not merge until all CI checks are green.
+Wait for CI. Fix any failures. Do not merge until green.
 
----
+## Priority If Time-Limited
 
-## General Rules for All Phases
+If you cannot complete all phases, do them in this order:
+1. Phase 0 (build baseline) -- mandatory
+2. Phase 1 (explosion seismogram) -- the core deliverable
+3. Phase 3 (Mueller-Murphy, especially the corner frequency bug investigation)
+4. Phase 2 (absorbing BC energy test)
+5. Phase 6 (existing test fixes)
+6. Everything else
 
-1. Every new .cpp file needs a corresponding entry in `tests/CMakeLists.txt` (for tests) and a CTest registration.
-2. Every new test must have quantitative pass/fail criteria with numerical tolerances. No "looks right" tests.
+## General Rules
+
+1. Every new .cpp test file needs an entry in tests/CMakeLists.txt and a CTest registration.
+2. Every new test must have quantitative pass/fail criteria with numerical tolerances.
 3. New PetscDS callbacks go in NEW files. Do not modify existing callback files.
-4. Use the Docker build for all compilation and testing.
-5. After each phase, run `ctest --output-on-failure` and confirm all tests (old + new) pass before proceeding.
-6. Commit after each passing phase with a descriptive message referencing the phase number.
-7. If a PETSc function does not exist in 3.22.2 headers, find the equivalent that does. Do not guess.
-8. No Python in the C++ codebase. Python scripts are separate post-processing tools in `scripts/`.
-9. When in doubt about PETSc DMPlex API, look at `ex17.c` (elasticity with aux fields), `ex56.c` (elasticity with BCs), and `ex62.c` (cohesive cells) in the PETSc source.
-10. The explosion seismogram pipeline (Phase 4) is the most important deliverable. If time is limited, prioritize Phases 0-1-4-5 over everything else.
-11. Do NOT lie about test results. If a test fails, document WHY it fails and what would be needed to fix it. An honest "this does not yet work" is infinitely better than a fake passing test.
-12. Verification tests must have quantitative pass/fail criteria with numerical tolerances, not just "runs without crashing."
+4. Build and test in Docker. Always.
+5. Commit after each passing phase.
+6. If a PETSc function does not exist in 3.22.2 headers, find the equivalent. Do not guess.
+7. Do not fake passing tests. An honest failure with documented reason is better.
+8. The explosion seismogram pipeline (Phase 1) is worth more than all other phases combined. Prioritize accordingly.

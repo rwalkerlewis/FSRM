@@ -51,12 +51,11 @@ TEST_F(MuellerMurphyValidationTest, CornerFrequency1ktGranite)
   // Corner frequency should be positive and in physically reasonable range
   EXPECT_GT(fc, 0.0) << "Corner frequency must be positive";
 
-  // For 1 kt in granite, Mueller-Murphy corner frequency depends on the
-  // specific model variant and how the psi function is parameterized.
-  // The FSRM implementation uses a depth/yield/density dependent formula
-  // that can produce values spanning 0.01-20 Hz.
-  EXPECT_GT(fc, 0.001) << "Corner frequency too low for 1 kt shot";
-  EXPECT_LT(fc, 50.0) << "Corner frequency too high for 1 kt shot";
+  // Patton (1988): fc = 3.0 * W^(-1/3) Hz for hard rock.
+  // For 1 kt in granite: fc = 3.0 Hz.
+  // Allow 1-10 Hz range for model variants.
+  EXPECT_GT(fc, 1.0) << "Corner frequency too low for 1 kt shot";
+  EXPECT_LT(fc, 10.0) << "Corner frequency too high for 1 kt shot";
 
   // Verify corner frequency decreases with yield (larger explosions have
   // lower corner frequencies). Compare 1 kt vs 100 kt.

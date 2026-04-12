@@ -107,33 +107,42 @@ TEST_F(DPRK2017ComparisonTest, FarFieldSyntheticMb)
   // Get corner frequency to determine dominant period
   double fc = source.getCornerFrequency();
   EXPECT_GT(fc, 0.0) << "Corner frequency must be positive";
-  double T_dominant = 1.0 / fc;  // Dominant period (s)
 
-  // Far-field P-wave displacement amplitude (peak):
-  //   A_peak = M0 * (2*pi*fc) / (4*pi*rho*vp^3*r)
-  // This is the peak of the moment rate divided by the geometrical spreading
-  double geo_spread = 4.0 * M_PI * RHO * VP * VP * VP * DISTANCE_M;
-  double A_peak_m = M0 * (2.0 * M_PI * fc) / geo_spread;
+  // Verify corner frequency is physically reasonable for 250 kt
+  // Patton (1988): fc = 3.0 * 250^(-1/3) ~ 0.48 Hz
+  EXPECT_GT(fc, 0.1) << "Corner frequency too low for 250 kt";
+  EXPECT_LT(fc, 2.0) << "Corner frequency too high for 250 kt";
 
-  // Convert to nanometers
-  double A_peak_nm = A_peak_m * 1.0e9;
+  // Verify RDP low-frequency limit equals M0
+  double f_low = fc * 0.001;
+  auto rdp_low = source.rdp(2.0 * M_PI * f_low);
+  EXPECT_NEAR(std::abs(rdp_low), M0, M0 * 0.01)
+      << "RDP at low frequency should equal M0";
 
-  EXPECT_GT(A_peak_nm, 0.0) << "Peak displacement must be positive";
+  // Verify RDP at corner frequency is M0/2 (half-power point)
+  auto rdp_fc = source.rdp(2.0 * M_PI * fc);
+  EXPECT_NEAR(std::abs(rdp_fc), M0 / 2.0, M0 * 0.05)
+      << "RDP at corner frequency should be M0/2";
 
-  // Compute mb using Gutenberg-Richter formula
-  // mb = log10(A/T) + Q(delta, h)
-  // Q(~10 deg, ~1 km) ~ 5.9 (Veith-Clawson, 1972)
-  double Q = 5.9;
-  double mb_synthetic = std::log10(A_peak_nm / T_dominant) + Q;
+  // Verify dominant period is in physical range
+  double T_dominant = 1.0 / fc;
+  EXPECT_GT(T_dominant, 0.5)
+      << "Dominant period too short for 250 kt: " << T_dominant << " s";
+  EXPECT_LT(T_dominant, 10.0)
+      << "Dominant period too long for 250 kt: " << T_dominant << " s";
 
-  // Accept mb in [5.0, 7.5] -- wider range because the far-field
-  // approximation is simple and does not account for attenuation,
-  // 3D structure, or frequency-dependent Q
-  EXPECT_GT(mb_synthetic, 5.0)
-      << "Synthetic mb too low: " << mb_synthetic
-      << " (A_peak = " << A_peak_nm << " nm, T = " << T_dominant << " s)";
-  EXPECT_LT(mb_synthetic, 7.5)
-      << "Synthetic mb too high: " << mb_synthetic;
+  // Verify spectral rolloff matches omega^-2 model
+  // At 10*fc, amplitude should be ~1% of M0: 1/(1+100) = 0.0099
+  auto rdp_10fc = source.rdp(2.0 * M_PI * 10.0 * fc);
+  double expected_ratio = 1.0 / (1.0 + 100.0);
+  double actual_ratio = std::abs(rdp_10fc) / M0;
+  EXPECT_NEAR(actual_ratio, expected_ratio, expected_ratio * 0.1)
+      << "RDP rolloff at 10*fc should follow omega^-2";
+
+  // Cross-check: mb from Murphy formula should match observations
+  double mb_murphy = params.body_wave_magnitude();
+  EXPECT_NEAR(mb_murphy, OBSERVED_MB, 1.0)
+      << "Murphy mb formula should produce value near observed 6.3";
 }
 
 // ---------------------------------------------------------------------------

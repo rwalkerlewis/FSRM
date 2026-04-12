@@ -178,18 +178,11 @@ void MuellerMurphySource::setMediumProperties(double rho, double vp, double vs) 
 
 void MuellerMurphySource::computeDerivedQuantities() {
     scalar_moment = source_params.scalar_moment();
-    const double depth = std::max(1.0, std::abs(source_params.depth_of_burial));
-    // Mueller-Murphy (1971) psi function for corner frequency
+    // Patton (1988) corner frequency: fc = 3.0 * W^(-1/3) Hz for hard rock
+    // with density correction for non-granite media (baseline rho = 2650 kg/m^3)
     const double W = std::max(1e-6, source_params.yield_kt);
-    double psi;
-    if (W <= 10.0) {
-        psi = 16.2 / std::pow(W, 0.33);
-    } else if (W <= 1000.0) {
-        psi = 10.4 / std::pow(W, 0.25);
-    } else {
-        psi = 5.85 / std::pow(W, 0.17);
-    }
-    corner_frequency = psi * std::pow(density / 2650.0, -1.0 / 3.0) / depth;
+    corner_frequency = 3.0 * std::pow(W, -1.0 / 3.0) *
+                       std::pow(density / 2650.0, -1.0 / 3.0);
     rise_time = 0.55 / corner_frequency;
     overshoot = 1.0;
 }
@@ -204,8 +197,8 @@ double MuellerMurphySource::momentRate(double t) const {
 
 std::complex<double> MuellerMurphySource::rdp(double omega) const {
     const double w = std::max(1e-12, std::abs(omega));
-    const double den = 1.0 + (w / std::max(1e-12, corner_frequency)) *
-                                  (w / std::max(1e-12, corner_frequency));
+    const double omega_c = 2.0 * M_PI * std::max(1e-12, corner_frequency);
+    const double den = 1.0 + (w / omega_c) * (w / omega_c);
     return std::complex<double>(scalar_moment / den, 0.0);
 }
 
