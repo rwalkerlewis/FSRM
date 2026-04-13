@@ -18,7 +18,11 @@ echo "Config: ${CONFIG}"
 echo ""
 
 cd "${BUILD_DIR}"
-./fsrm -c "${CONFIG}"
+./fsrm -c "${CONFIG}" \
+    -ts_max_snes_failures -1 \
+    -pc_type lu \
+    -ksp_type preonly \
+    -snes_linesearch_type basic
 
 echo ""
 echo "=== Output Files ==="

@@ -6,7 +6,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="${REPO_DIR}/build"
-CONFIG="${REPO_DIR}/config/examples/explosion_seismogram.config"
+# Use the quick version (4x4x4 mesh, 0.5s) for fast demonstration.
+# For full resolution, use explosion_seismogram.config (10x10x10, 2.0s).
+CONFIG="${REPO_DIR}/config/examples/explosion_seismogram_quick.config"
 
 if [ ! -f "${BUILD_DIR}/fsrm" ]; then
     echo "Error: Build FSRM first. Run from repository root:"

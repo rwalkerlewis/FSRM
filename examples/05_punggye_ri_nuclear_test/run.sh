@@ -6,7 +6,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="${REPO_DIR}/build"
-CONFIG="${REPO_DIR}/config/examples/punggye_ri_layered.config"
+# Use the quick version (8x8x6 mesh, 1.0s) for fast demonstration.
+# For full resolution, use punggye_ri_layered.config (15x15x10, 5.0s).
+CONFIG="${REPO_DIR}/config/examples/punggye_ri_layered_quick.config"
 
 if [ ! -f "${BUILD_DIR}/fsrm" ]; then
     echo "Error: Build FSRM first."
