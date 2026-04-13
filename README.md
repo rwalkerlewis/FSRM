@@ -90,11 +90,12 @@ These features exist as code but are NOT functional end-to-end:
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Hydraulic fracturing (full coupled) | Partial | PressurizedFractureFEM passes; lubrication+deformation coupled solve is callback-tested only |
-| Dynamic rupture TSSolve | Diverges | Setup completes, TSSolve diverges (ierr=91) due to PetscDSSetBdResidual on cohesive cells in PETSc 3.22. Tests use GTEST_SKIP. Pending upstream PETSc fix |
+| Dynamic rupture TSSolve | Works for locked and prescribed-slip solves | Manual cohesive assembly bypasses PetscDSSetBdResidual. Locked and prescribed-slip cases use an analytical interface Jacobian and are registered as isolated CTest entries |
+| Explosion source + fault coexistence | Residual path verified | Explosion moment-tensor residual and manual cohesive assembly can be evaluated together. Full explosion-plus-fault TSSolve is not claimed as verified |
 | Fault + absorbing coexistence solve | Setup only | Setup succeeds; TSSolve never called |
 | End-to-end multiphase flow | Not tested | Callbacks unit-tested; no simulation test |
 | DG/ADER-DG spatial discretization | Stub | Source files exist. Not functional |
-| GPU acceleration (CUDA/HIP) | Stub | Build flags exist. No working GPU kernels |
+| GPU acceleration (CUDA/HIP) | PETSc-native | PETSc CUDA backend via -vec_type cuda -mat_type aijcusparse. Custom GPU kernels (src/gpu/*.cu) are dead code |
 | Fourier Neural Operator (FNO) | Stub | Headers exist. Not functional |
 | Adaptive Mesh Refinement (AMR) | Stub | Not functional |
 | Volcano modeling | Dead code | ~4,200 lines. Never referenced. Never tested |
@@ -115,8 +116,9 @@ Approximately 44,000 lines (~53% of source .cpp files) compile into the library 
 - **Parallel Computing**: PETSc 3.22.2, MPI
 - **FEM**: PETSc DMPlex unstructured finite elements with PetscDS pointwise callbacks
 - **I/O**: HDF5
-- **Testing**: Google Test, CTest (95 tests across 6 executables)
+- **Testing**: Google Test, CTest (97 tests across 6 executables)
 - **Containers**: Docker (Dockerfile.ci for reproducible builds)
+- **GPU**: PETSc CUDA backend (optional, requires `--with-cuda` PETSc build and NVIDIA GPU)
 
 ## Building
 
@@ -137,6 +139,24 @@ docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
 
 # Interactive shell
 docker run --rm -it -v $(pwd):/workspace -w /workspace fsrm-ci:local bash
+```
+
+### GPU Build (Optional)
+
+For GPU acceleration, use the CUDA Dockerfile:
+
+```bash
+docker build -f Dockerfile.cuda -t fsrm-cuda:local .
+docker run --gpus all --rm -v $(pwd):/workspace -w /workspace fsrm-cuda:local bash -c \
+  'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)'
+```
+
+Run with GPU flags:
+
+```bash
+docker run --gpus all --rm -v $(pwd):/workspace -w /workspace/build fsrm-cuda:local \
+  ./fsrm ../config/examples/explosion_seismogram.config \
+  -vec_type cuda -mat_type aijcusparse
 ```
 
 ### Native Build
@@ -282,7 +302,7 @@ Fine-tune solvers via command line:
 
 Contributions welcome. Areas of interest:
 - End-to-end verification of fluid flow callbacks (simulation test for single-phase/multiphase)
-- Dynamic rupture TSSolve convergence (PetscDSSetBdResidual on cohesive cells in PETSc 3.22)
+- Full explosion-plus-fault TSSolve stabilization beyond the verified residual coexistence path
 - Additional analytical benchmarks
 - Absorbing boundary improvements (PML)
 

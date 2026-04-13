@@ -81,6 +81,7 @@ public:
 
     // Accessors for testing
     DM getDM() const { return dm; }
+    TS getTS() const { return ts; }
     Vec getSolution() const { return solution; }
     DM getAuxDM() const { return auxDM_; }
     Vec getAuxVector() const { return auxVec_; }
@@ -202,6 +203,8 @@ private:
     PetscErrorCode locateInjectionCell();
     PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
     PetscErrorCode addFaultPressureToResidual(PetscReal t, Vec locF);
+    PetscErrorCode addCohesiveConstraintToResidual(PetscReal t, Vec locU, Vec locF);
+    PetscErrorCode addCohesivePenaltyToJacobian(Mat J);
 
     // Hydraulic fracture model (Phase 3)
     std::unique_ptr<HydraulicFractureModel> hydrofrac_;
