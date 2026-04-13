@@ -113,7 +113,7 @@ When auxiliary fields are used (Phase 2+), callbacks read material properties fr
 
 ## What Works
 
-### Verified End-to-End Through TSSolve (84 Tests Pass)
+### Verified End-to-End Through TSSolve (91 Tests Pass)
 
 These features are run through the Simulator with TSSolve and produce verified results:
 
@@ -131,6 +131,14 @@ These features are run through the Simulator with TSSolve and produce verified r
 12. **DPRK 2017 synthetic mb**: Synthetic body-wave magnitude vs observed for 250 kt. 4 tests pass.
 13. **Seismometer network SAC output**: Coupled to explosion seismogram pipeline. Integration-tested.
 14. **Boundary conditions**: labelBoundaries() labels 6 box faces, setupBoundaryConditions() registers via DMAddBoundary. 5 unit tests pass.
+
+Additional verified coverage in the current Docker test suite:
+
+- **Gmsh label-based material assignment**: `populateAuxFieldsByMaterialLabel()` maps Gmsh physical-group labels to per-cell auxiliary `lambda`, `mu`, and `rho` values. Verified by `Integration.GmshMultiMaterial` and `Integration.GasbuggyMesh`.
+- **Historical Gasbuggy mesh**: `meshes/historical/gasbuggy_layered_3d.msh` loads through PETSc DMPlex with three validated material regions.
+- **Gmsh nuclear twin workflow**: A compact mapped Gmsh multi-material mesh with underground source and HDF5 output is verified by `Integration.NuclearTwinGmsh`.
+- **Explosion damage-zone aux degradation**: `applyExplosionDamageToAuxFields()` degrades auxiliary properties near the source and changes the dynamic response. Verified by `Physics.ExplosionDamageZone`.
+- **Punggye-ri layered workflow**: A compact three-layer underground nuclear test case with absorbing boundaries, HDF5 output, and SAC seismograms is verified by `Integration.PunggyeRiLayered`.
 
 ### Callback-Verified Only (Not Run Through TSSolve)
 
@@ -160,13 +168,11 @@ These are standalone analytical formulas, correct but not FEM-integrated:
 ## What Does NOT Work (Known Gaps)
 
 1. **Elastoplasticity not wired into Simulator**: f1_elastoplastic_aux callback exists and works in isolation. PlasticityModel::integrateStress works. Neither is wired into setupPhysics(). No config flag to enable.
-2. **No per-cell material by Gmsh label**: setupAuxiliaryDM and populateAuxFieldsByDepth work for depth-based layering. populateAuxFieldsByLabel does not exist. Gmsh physical group to material mapping is unimplemented.
-3. **Hydrofrac never solved through TSSolve**: All hydrofrac PetscDS callbacks are registered but never assembled and solved. Pressurized fracture, lubrication flow, coupled flow-deformation are all callback-tested only.
-4. **Dynamic rupture never solved**: Cohesive cells inserted into mesh, callbacks registered, but TSSolve never called. Reason: "SNES may diverge at the first time step because the cohesive Jacobian blocks may not be fully consistent."
-5. **Fault + absorbing coexistence never solved**: DMSetRegionDS wired, setup succeeds, TSSolve never called.
-6. **No Gmsh mesh import with material regions tested**: DMPlexCreateGmsh exists, but material region assignment from physical groups is untested.
-7. **Stubs only**: DG/ADER, GPU (CUDA/HIP), FNO/ML solvers, volcano, tsunami, ocean, infrasound, radiation transport, hypervelocity impacts. Headers/docs exist but no functional implementation.
-8. **Dead hydrofrac code in MonitorFunction**: The hydrofrac_ member uses a standalone analytical Thiem equation estimate disconnected from the FEM solution. Redundant with PetscFEHydrofrac callbacks.
+2. **Hydrofrac never solved through TSSolve**: All hydrofrac PetscDS callbacks are registered but never assembled and solved. Pressurized fracture, lubrication flow, coupled flow-deformation are all callback-tested only.
+3. **Dynamic rupture never solved**: Cohesive cells inserted into mesh, callbacks registered, but TSSolve never called. Reason: "SNES may diverge at the first time step because the cohesive Jacobian blocks may not be fully consistent."
+4. **Fault + absorbing coexistence never solved**: DMSetRegionDS wired, setup succeeds, TSSolve never called.
+5. **Stubs only**: DG/ADER, GPU (CUDA/HIP), FNO/ML solvers, volcano, tsunami, ocean, infrasound, radiation transport, hypervelocity impacts. Headers/docs exist but no functional implementation.
+6. **Dead hydrofrac code in MonitorFunction**: The hydrofrac_ member uses a standalone analytical Thiem equation estimate disconnected from the FEM solution. Redundant with PetscFEHydrofrac callbacks.
 
 ## Rules
 
@@ -183,6 +189,7 @@ These are standalone analytical formulas, correct but not FEM-integrated:
 13. The executable is `fsrm`, not `fsrm_simulator`. Run as `./fsrm ../config/examples/example.config`.
 11. No em dashes or contractions in code comments or documentation.
 12. Verification tests must have quantitative pass/fail criteria with numerical tolerances.
+13. At the end of each prompt run review the current state of the code and update CLAUDE.md as well as README.md to reflect the current state of the code and what works and is verified.
 
 ## Reference Implementations
 

@@ -22,8 +22,10 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cctype>
 #include <cmath>
 #include <algorithm>
+#include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
 #include <limits>
@@ -32,6 +34,21 @@
 #include <petscfe.h>
 
 namespace {
+
+PetscErrorCode ensureDirectoryExists(MPI_Comm comm, int rank, const std::string& path) {
+    PetscFunctionBeginUser;
+
+    if (rank == 0 && !path.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(path, ec);
+        PetscCheck(!ec, comm, PETSC_ERR_FILE_OPEN,
+                   "Failed to create output directory %s: %s",
+                   path.c_str(), ec.message().c_str());
+    }
+    MPI_Barrier(comm);
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 struct GmshPhysicalName {
     int dim = -1;
@@ -624,6 +641,10 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     // Parse heterogeneous material configuration (optional)
     if (reader.hasSection("MATERIAL")) {
         config.use_heterogeneous_material = reader.getBool("MATERIAL", "heterogeneous", false);
+        config.material_assignment = reader.getString("MATERIAL", "assignment", "depth");
+        std::transform(config.material_assignment.begin(), config.material_assignment.end(),
+                       config.material_assignment.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         config.gravity = reader.getDouble("MATERIAL", "gravity", 0.0);
     }
     // Also accept gravity from [SIMULATION] section
@@ -651,6 +672,34 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         if (rank == 0) {
             PetscPrintf(comm, "Heterogeneous material: %d layers defined\n",
                         (int)config.material_layers.size());
+        }
+    }
+
+    config.material_regions.clear();
+    for (int i = 1; i <= 100; ++i) {
+        std::string section_name = "MATERIAL_REGION_" + std::to_string(i);
+        if (!reader.hasSection(section_name)) break;
+
+        MaterialRegion region;
+        region.gmsh_label_name = reader.getString(section_name, "gmsh_label", "");
+        if (region.gmsh_label_name.empty()) continue;
+
+        const double youngs_modulus = reader.getDouble(section_name, "youngs_modulus", 30.0e9);
+        const double poissons_ratio = reader.getDouble(section_name, "poissons_ratio", 0.25);
+        region.lambda = youngs_modulus * poissons_ratio /
+                        ((1.0 + poissons_ratio) * (1.0 - 2.0 * poissons_ratio));
+        region.mu = youngs_modulus / (2.0 * (1.0 + poissons_ratio));
+        region.rho = reader.getDouble(section_name, "density", 2650.0);
+        config.material_regions.push_back(region);
+    }
+    if (!config.material_regions.empty()) {
+        config.use_heterogeneous_material = true;
+        if (config.material_assignment.empty() || config.material_assignment == "depth") {
+            config.material_assignment = "gmsh_label";
+        }
+        if (rank == 0) {
+            PetscPrintf(comm, "Material-region mapping: %d gmsh regions defined\n",
+                        (int)config.material_regions.size());
         }
     }
 
@@ -861,6 +910,8 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
 
     // Explosion coupling (integrated into fault updates and IMEX triggering)
     if (reader.hasSection("EXPLOSION_SOURCE")) {
+        config.enable_near_field_damage =
+            config.enable_near_field_damage || reader.getBool("EXPLOSION_SOURCE", "apply_damage_zone", false);
         std::string ex_type = reader.getString("EXPLOSION_SOURCE", "type", "");
         // Currently only support underground nuclear coupling via spherical cavity proxy.
         if (!ex_type.empty() && (ex_type == "NUCLEAR_UNDERGROUND" || ex_type == "UNDERGROUND_NUCLEAR" || ex_type == "UNDERGROUND_CONTAINED")) {
@@ -1178,8 +1229,15 @@ PetscErrorCode Simulator::setupGmshGrid() {
     // Configure domain mappings (materials / faults / boundaries) if provided.
     // We map by *physical group name* using $PhysicalNames (ASCII even for binary meshes),
     // and apply labels onto the PETSc DM based on whatever labels the reader created.
+    std::vector<std::pair<std::string, std::string>> materialMappings = grid_config.gmsh_material_domains;
+    if (materialMappings.empty() && !config.material_regions.empty()) {
+        for (const auto& region : config.material_regions) {
+            materialMappings.emplace_back(region.gmsh_label_name, region.gmsh_label_name);
+        }
+    }
+
     const bool have_mappings =
-        !grid_config.gmsh_material_domains.empty() ||
+        !materialMappings.empty() ||
         !grid_config.gmsh_fault_surfaces.empty() ||
         !grid_config.gmsh_boundaries.empty();
 
@@ -1191,9 +1249,28 @@ PetscErrorCode Simulator::setupGmshGrid() {
                         "Name-based mappings (materials/faults/boundaries) may not be applied.\n",
                         grid_config.mesh_file.c_str());
         } else {
+            std::unordered_map<int, int> physTagToMaterialId;
+            int nextMaterialId = 0;
+            for (const auto& mapping : materialMappings) {
+                auto pit = physicalNames.find(mapping.first);
+                if (pit == physicalNames.end()) continue;
+                if (!physTagToMaterialId.count(pit->second.tag)) {
+                    physTagToMaterialId[pit->second.tag] = nextMaterialId++;
+                }
+            }
+            for (auto& region : config.material_regions) {
+                auto pit = physicalNames.find(region.gmsh_label_name);
+                if (pit == physicalNames.end()) {
+                    region.label_id = -1;
+                    continue;
+                }
+                auto mit = physTagToMaterialId.find(pit->second.tag);
+                region.label_id = (mit != physTagToMaterialId.end()) ? mit->second : -1;
+            }
+
             ierr = applyGmshNameMappingsToDM(
                 comm, dm, physicalNames,
-                grid_config.gmsh_material_domains,
+                materialMappings,
                 grid_config.gmsh_fault_surfaces,
                 grid_config.gmsh_boundaries
             ); CHKERRQ(ierr);
@@ -1732,7 +1809,9 @@ PetscErrorCode Simulator::setupPhysics() {
     // When using heterogeneous material or gravity with homogeneous material,
     // material properties (lambda, mu, rho) come from auxiliary fields instead of
     // constants. Repurpose constants[0] as gravity magnitude.
-    bool use_aux_callbacks = config.use_heterogeneous_material || (config.gravity > 0.0);
+    bool use_aux_callbacks = config.use_heterogeneous_material ||
+                             config.enable_near_field_damage ||
+                             (config.gravity > 0.0);
     if (use_aux_callbacks) {
         // When absorbing BCs are enabled with gravity, the constants[0-2] slots
         // are repurposed for gravity and cannot hold lambda/mu/rho. The AbsorbingBC
@@ -2111,7 +2190,12 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
 
     // Create local vector and populate with material properties
     ierr = DMCreateLocalVector(auxDM_, &auxVec_); CHKERRQ(ierr);
-    ierr = populateAuxFieldsByDepth(); CHKERRQ(ierr);
+    if (config.material_assignment == "gmsh_label") {
+        ierr = populateAuxFieldsByMaterialLabel(); CHKERRQ(ierr);
+    } else {
+        ierr = populateAuxFieldsByDepth(); CHKERRQ(ierr);
+    }
+    ierr = applyExplosionDamageToAuxFields(); CHKERRQ(ierr);
 
     // Attach auxiliary data to primary DM
     ierr = DMSetAuxiliaryVec(dm, NULL, 0, 0, auxVec_); CHKERRQ(ierr);
@@ -2185,6 +2269,131 @@ PetscErrorCode Simulator::populateAuxFieldsByDepth()
 
     ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
 
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::populateAuxFieldsByMaterialLabel()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    DMLabel matLabel = nullptr;
+    ierr = DMGetLabel(dm, "Material", &matLabel); CHKERRQ(ierr);
+    PetscCheck(matLabel, comm, PETSC_ERR_ARG_WRONG,
+        "material assignment=gmsh_label but no Material label exists on the DM");
+
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    PetscSection section;
+    ierr = DMGetLocalSection(auxDM_, &section); CHKERRQ(ierr);
+
+    double default_lambda = 30.0e9, default_mu = 25.0e9, default_rho = 2650.0;
+    if (!material_props.empty()) {
+        const double youngs_modulus = material_props[0].youngs_modulus;
+        const double poissons_ratio = material_props[0].poisson_ratio;
+        default_lambda = youngs_modulus * poissons_ratio /
+                         ((1.0 + poissons_ratio) * (1.0 - 2.0 * poissons_ratio));
+        default_mu = youngs_modulus / (2.0 * (1.0 + poissons_ratio));
+        default_rho = material_props[0].density;
+    }
+
+    PetscScalar* a = nullptr;
+    ierr = VecGetArray(auxVec_, &a); CHKERRQ(ierr);
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        PetscScalar lambda = default_lambda;
+        PetscScalar mu = default_mu;
+        PetscScalar rho = default_rho;
+
+        PetscInt mat_id = -1;
+        ierr = DMLabelGetValue(matLabel, c, &mat_id); CHKERRQ(ierr);
+        if (mat_id >= 0) {
+            for (const auto& region : config.material_regions) {
+                if (region.label_id == mat_id) {
+                    lambda = region.lambda;
+                    mu = region.mu;
+                    rho = region.rho;
+                    break;
+                }
+            }
+        }
+
+        PetscInt offset = 0;
+        ierr = PetscSectionGetOffset(section, c, &offset); CHKERRQ(ierr);
+        a[offset + AUX_LAMBDA] = lambda;
+        a[offset + AUX_MU] = mu;
+        a[offset + AUX_RHO] = rho;
+    }
+
+    ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::applyExplosionDamageToAuxFields()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (!config.enable_near_field_damage || !auxVec_ || !explosion_) {
+        PetscFunctionReturn(0);
+    }
+
+    PetscSection section;
+    ierr = DMGetLocalSection(auxDM_, &section); CHKERRQ(ierr);
+
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    NuclearSourceParameters source_params;
+    source_params.yield_kt = explosion_->yield_kt;
+    source_params.depth_of_burial = explosion_->depth_of_burial;
+    const double cavity_radius = source_params.cavity_radius(explosion_->rho);
+    const double crushed_radius = source_params.crushed_zone_radius();
+    const double fractured_radius = source_params.fractured_zone_radius();
+
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    PetscScalar* a = nullptr;
+    ierr = VecGetArray(auxVec_, &a); CHKERRQ(ierr);
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        PetscReal volume = 0.0, centroid[3] = {0.0, 0.0, 0.0}, normal[3] = {0.0, 0.0, 0.0};
+        ierr = DMPlexComputeCellGeometryFVM(dm, c, &volume, centroid, normal); CHKERRQ(ierr);
+
+        const double dx = centroid[0] - explosion_->sx;
+        const double dy = centroid[1] - explosion_->sy;
+        const double dz = ((dim > 2) ? centroid[2] : 0.0) - explosion_->sz;
+        const double radius = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+        PetscInt offset = 0;
+        ierr = PetscSectionGetOffset(section, c, &offset); CHKERRQ(ierr);
+
+        PetscScalar& lambda = a[offset + AUX_LAMBDA];
+        PetscScalar& mu = a[offset + AUX_MU];
+        PetscScalar& rho = a[offset + AUX_RHO];
+
+        const PetscScalar base_lambda = lambda;
+        const PetscScalar base_mu = mu;
+
+        if (radius < cavity_radius) {
+            lambda = 1.0e6;
+            mu = 1.0e6;
+            rho = 100.0;
+        } else if (radius < crushed_radius) {
+            lambda = 0.1 * base_lambda;
+            mu = 0.1 * base_mu;
+        } else if (radius < fractured_radius) {
+            const double frac = (radius - crushed_radius) /
+                                std::max(1.0e-12, fractured_radius - crushed_radius);
+            const double factor = 0.5 + 0.5 * std::clamp(frac, 0.0, 1.0);
+            lambda = factor * base_lambda;
+            mu = factor * base_mu;
+        }
+    }
+
+    ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
     PetscFunctionReturn(0);
 }
 
@@ -3151,14 +3360,7 @@ PetscErrorCode Simulator::run() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
     
-    // Create output directory if it does not exist
-    if (rank == 0) {
-        struct stat st;
-        if (stat(output_directory_.c_str(), &st) != 0) {
-            mkdir(output_directory_.c_str(), 0755);
-        }
-    }
-    MPI_Barrier(comm);
+    ierr = ensureDirectoryExists(comm, rank, output_directory_); CHKERRQ(ierr);
     
     // Set initial conditions for the time stepper
     if (config.enable_elastodynamics) {
@@ -3521,6 +3723,8 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
 PetscErrorCode Simulator::writeOutput(int step) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
+
+    ierr = ensureDirectoryExists(comm, rank, output_directory_); CHKERRQ(ierr);
 
     // Determine output format: HDF5 (default) or VTK
     std::string fmt = config.output_format;

@@ -8,7 +8,7 @@ A coupled multi-physics simulator for nuclear explosion monitoring, seismic wave
 
 **MIT License** -- free to use, modify, and distribute for any purpose.
 
-## Verified Capabilities (All Tests Pass)
+## Verified Capabilities (91 Docker Tests Pass)
 
 The following features have automated tests with quantitative pass/fail criteria.
 
@@ -30,6 +30,7 @@ The following features have automated tests with quantitative pass/fail criteria
 ### Nuclear Explosion Monitoring
 - **Mueller-Murphy seismic source**: Corner frequency, mb-yield scaling, reduced displacement potential (RDP) spectrum, cavity radius scaling, moment rate function. 9 tests pass.
 - **Explosion seismogram pipeline**: Source injection via moment tensor, elastodynamic wave propagation, seismometer sampling (DMInterpolation), SAC output format. Integration-tested.
+- **Punggye-ri layered workflow**: Three-layer elastic model with absorbing boundaries, damage-zone degradation, HDF5 output, and SAC seismograms. Integration-tested.
 - **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Verified with nonzero displacement norm and correct solution vector size.
 - **DPRK 2017 comparison**: Synthetic body-wave magnitude (mb) vs observed for 250 kt test at Punggye-ri. 4 tests pass.
 
@@ -42,7 +43,14 @@ The following features have automated tests with quantitative pass/fail criteria
 ### Near-field Explosion Phenomenology
 - **Cavity radius**: Yield-dependent (W^0.295 scaling). Tested.
 - **Damage zones**: Crushed/fractured/damaged ordering and extent ratios. Tested.
+- **FEM-coupled damage-zone degradation**: Auxiliary material properties are reduced around the explosion source and the dynamic response changes when damage zones are enabled. Physics validated.
 - **Spall**: Velocity (P/rho*c formula), thickness depth dependence, dynamic tensile strength rate effects. Tested.
+
+### Gmsh Multi-Material Support
+- **Gmsh physical-name import**: PETSc DMPlex loads MSH2 meshes and preserves physical-group labels for materials and boundaries.
+- **Per-cell material assignment by Gmsh label**: Auxiliary `lambda`, `mu`, and `rho` fields are populated from `[MATERIAL_REGION_N]` sections keyed by `gmsh_label`.
+- **Historical mesh validation**: The committed Gasbuggy layered mesh is integration-tested with three distinct material regions.
+- **Gmsh nuclear twin workflow**: A compact Gmsh mesh with mapped material regions, underground source, and HDF5 output is integration-tested.
 
 ### Fault Mechanics
 - **Cohesive cell mesh splitting**: PyLith workflow (DMPlexCreateSubmesh, subpoint map, DMPlexLabelCohesiveComplete, DMPlexConstructCohesiveCells). 32 cohesive cells on 4x4x4 simplex mesh. All tests pass.
@@ -85,7 +93,7 @@ The following features exist as code stubs, partial implementations, or configur
 | Hydraulic fracturing (prototype) | Partially verified | Phase 1 and Phase 2 callback tests pass. Full monolithic end-to-end coupling is in progress. |
 | Multi-phase fluid flow (end-to-end) | Coded, unverified | Callbacks unit-tested. No simulation test. |
 | Injection source term | Coded, unverified | Config exists (injection_pressure_buildup.config). |
-| Gmsh mesh import | Coded, unverified | Config stubs exist. Material region assignment untested. |
+| Gmsh mesh import | Verified | Physical-name labels, per-cell region mapping, and historical Gasbuggy coverage are integration-tested. |
 | Adaptive Mesh Refinement (AMR) | Stub | Config exists in aspirational. Not functional. |
 | Volcano modeling | Stub | Documentation only. No physics implementation. |
 | Tsunami modeling | Stub | Documentation only. No physics implementation. |
@@ -97,7 +105,7 @@ The following features exist as code stubs, partial implementations, or configur
 | Eclipse format I/O | Stub | Not tested. |
 | Compositional EOS fluid | Stub | Not implemented. |
 | Thermal coupling | Stub | Not implemented end-to-end. |
-| Per-cell material properties | Not implemented | Single constants array for entire mesh. |
+| Per-cell material properties | Partially verified | Depth-based and Gmsh-label-based auxiliary material assignment are tested. Broader production examples are still limited. |
 
 ## Technology Stack
 

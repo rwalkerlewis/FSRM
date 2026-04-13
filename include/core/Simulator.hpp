@@ -82,6 +82,8 @@ public:
     // Accessors for testing
     DM getDM() const { return dm; }
     Vec getSolution() const { return solution; }
+    DM getAuxDM() const { return auxDM_; }
+    Vec getAuxVector() const { return auxVec_; }
     const SimulationConfig& getConfig() const { return config; }
     const DerivedFieldComputer& getDerivedFields() const { return derived_fields_; }
     
@@ -177,6 +179,8 @@ private:
     Vec auxVec_ = nullptr;
     PetscErrorCode setupAuxiliaryDM();
     PetscErrorCode populateAuxFieldsByDepth();
+    PetscErrorCode populateAuxFieldsByMaterialLabel();
+    PetscErrorCode applyExplosionDamageToAuxFields();
     
     // Simulation state
     double current_time;
