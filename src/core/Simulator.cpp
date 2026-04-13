@@ -26,6 +26,7 @@
 #include <cctype>
 #include <cmath>
 #include <algorithm>
+#include <vector>
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
@@ -2046,26 +2047,34 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Register cohesive callbacks.
-        // Phase 1 hydrofrac mode: pressure is applied as direct nodal forces
-        // in FormFunction (addFaultPressureToResidual), not via BdResidual.
-        // BdResidual on cohesive cells is broken because support[0] can be
-        // a cohesive prism with different totDim than bulk tets.
+        // Cohesive constraint assembly is performed manually in FormFunction
+        // via addCohesiveConstraintToResidual(). PetscDSSetBdResidual on
+        // cohesive cells crashes in PETSc 3.22 due to totDim mismatch
+        // between hybrid prism cells and bulk tet cells.
+        //
+        // For all fault modes (locked, slipping, prescribed slip, hydrofrac),
+        // we add a volume identity residual for the Lagrange field to keep
+        // the PetscDS system non-singular. The actual constraint is assembled
+        // manually in FormFunction.
         if (hydrofrac_fem_pressurized_mode_) {
-            // Add volume identity residual for the Lagrange field to make the
-            // system non-singular. Without BdResidual coupling, Lagrange DOFs
-            // just stay zero everywhere (which is correct for this mode).
             ierr = PetscDSSetResidual(prob, lagrange_field,
                 PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
             ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
                 PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
                 nullptr, nullptr); CHKERRQ(ierr);
-        } else if (cohesive_kernel_->isPrescribedSlip()) {
-            ierr = cohesive_kernel_->registerPrescribedSlipWithDS(prob, disp_field, lagrange_field);
         } else {
-            ierr = cohesive_kernel_->registerWithDS(prob, disp_field, lagrange_field);
+            // For non-hydrofrac fault modes, register the Lagrange
+            // regularization callback (f = lambda) as a volume residual.
+            // This is required because DMPlexTSComputeIFunctionFEM produces
+            // NaN when a field in the DS has no registered volume callback.
+            // The true cohesive interface residual is assembled manually in
+            // addCohesiveConstraintToResidual() on the hybrid-cell vertex pairs.
+            ierr = PetscDSSetResidual(prob, lagrange_field,
+                PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
+                PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
+                nullptr, nullptr); CHKERRQ(ierr);
         }
-        CHKERRQ(ierr);
 
         if (rank == 0) {
             if (hydrofrac_fem_pressurized_mode_) {
@@ -2073,7 +2082,8 @@ PetscErrorCode Simulator::setupPhysics() {
                             "Registered pressurized cohesive callbacks on fields %d (disp), %d (lagrange)\n",
                             disp_field, lagrange_field);
             } else {
-                PetscPrintf(comm, "Registered cohesive fault callbacks on fields %d (disp), %d (lagrange)\n",
+                PetscPrintf(comm,
+                            "Registered manual cohesive assembly on fields %d (disp), %d (lagrange)\n",
                             disp_field, lagrange_field);
             }
         }
@@ -2139,6 +2149,9 @@ PetscErrorCode Simulator::setupPhysics() {
         ierr = PetscDSCopy(prob, 0, nfields, dm, absorbing_ds); CHKERRQ(ierr);
 
         if (hydrofrac_fem_pressurized_mode_) {
+            // Hydrofrac mode: BdResidual still called on fault_ds because
+            // addFaultPressureToResidual handles the real pressure contribution.
+            // The BdResidual here is for the Lagrange multiplier coupling.
             ierr = PetscDSSetBdResidual(fault_ds, cohesive_disp_field,
                                         CohesiveFaultKernel::f0_displacement_cohesive,
                                         nullptr); CHKERRQ(ierr);
@@ -2154,12 +2167,12 @@ PetscErrorCode Simulator::setupPhysics() {
             ierr = PetscDSSetBdJacobian(fault_ds, cohesive_lagrange_field, cohesive_lagrange_field,
                                         CohesiveFaultKernel::g0_lagrange_lagrange, nullptr,
                                         nullptr, nullptr); CHKERRQ(ierr);
-        } else if (cohesive_kernel_->isPrescribedSlip()) {
-            ierr = cohesive_kernel_->registerPrescribedSlipWithDS(
-                fault_ds, cohesive_disp_field, cohesive_lagrange_field); CHKERRQ(ierr);
         } else {
-            ierr = cohesive_kernel_->registerWithDS(
-                fault_ds, cohesive_disp_field, cohesive_lagrange_field); CHKERRQ(ierr);
+            // Non-hydrofrac fault modes: cohesive constraint assembly is
+            // performed manually in FormFunction via addCohesiveConstraintToResidual().
+            // Do NOT call PetscDSSetBdResidual on the fault DS because it crashes
+            // in PETSc 3.22 on cohesive cells. The fault_ds is still needed for
+            // the region split but has no BdResidual callbacks.
         }
 
         ierr = PetscDSSetBdResidual(absorbing_ds, absorbing_disp_field,
@@ -2524,8 +2537,8 @@ PetscErrorCode Simulator::setupTimeStepper() {
         ierr = TSMonitorSet(ts, MonitorFunction, this, nullptr); CHKERRQ(ierr);
     }
     
-    // Set from options
-    ierr = TSSetFromOptions(ts); CHKERRQ(ierr);
+        // Set from options
+        ierr = TSSetFromOptions(ts); CHKERRQ(ierr);
     
     PetscFunctionReturn(0);
 }
@@ -2788,8 +2801,12 @@ PetscErrorCode Simulator::setupFaultNetwork() {
     
     if (fault_mode_ == "prescribed_slip") {
         // Convert from fault-local (strike, dip, opening) to Cartesian (x, y, z)
-        double fault_strike = fracture_plane_enabled_ ? fracture_plane_strike_ : 0.0;
-        double fault_dip = fracture_plane_enabled_ ? fracture_plane_dip_ : M_PI / 2.0;
+        double fault_strike = fault_geometry_from_config_
+            ? fault_strike_
+            : (fracture_plane_enabled_ ? fracture_plane_strike_ : 0.0);
+        double fault_dip = fault_geometry_from_config_
+            ? fault_dip_
+            : (fracture_plane_enabled_ ? fracture_plane_dip_ : M_PI / 2.0);
         
         double cs = std::cos(fault_strike);
         double ss = std::sin(fault_strike);
@@ -3060,6 +3077,622 @@ PetscErrorCode Simulator::addFaultPressureToResidual(PetscReal t, Vec locF) {
     PetscFunctionReturn(0);
 }
 
+// =============================================================================
+// addCohesiveConstraintToResidual
+//
+// Manual cohesive interface assembly that bypasses PetscDSSetBdResidual,
+// which crashes in PETSc 3.22 on cohesive cells due to the hybrid prism / tet
+// support mismatch. The live section layout on the split mesh places both the
+// displacement and lagrange DOFs on the duplicated fault vertices, so the
+// assembly is performed on paired negative/positive face vertices of each
+// cohesive prism cell.
+// =============================================================================
+PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU, Vec locF)
+{
+    (void)t;
+    PetscFunctionBeginUser;
+    if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscErrorCode ierr;
+    PetscSection section = nullptr;
+    PetscSection coord_section = nullptr;
+    PetscInt dim = 0;
+    Vec coords = nullptr;
+    const PetscScalar *uarray = nullptr;
+    const PetscScalar *coord_array = nullptr;
+    PetscScalar *farray = nullptr;
+
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+    ierr = DMGetCoordinateSection(dm, &coord_section); CHKERRQ(ierr);
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    if (!coords)
+    {
+        ierr = DMGetCoordinates(dm, &coords); CHKERRQ(ierr);
+    }
+    PetscCheck(coords && coord_section, comm, PETSC_ERR_ARG_WRONGSTATE,
+                         "Cohesive assembly requires mesh coordinates");
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT)
+    {
+        disp_field = 1;
+    }
+    else if (config.fluid_model == FluidModelType::BLACK_OIL)
+    {
+        disp_field = 3;
+    }
+    else if (config.fluid_model == FluidModelType::COMPOSITIONAL)
+    {
+        disp_field = 4;
+    }
+    const PetscInt lagrange_field = disp_field + 1;
+    PetscReal youngs_modulus = 10.0e9;
+    if (!material_props.empty())
+    {
+        youngs_modulus = material_props[0].youngs_modulus;
+    }
+
+    ierr = VecGetArrayRead(locU, &uarray); CHKERRQ(ierr);
+    ierr = VecGetArray(locF, &farray); CHKERRQ(ierr);
+    ierr = VecGetArrayRead(coords, &coord_array); CHKERRQ(ierr);
+
+    enum class CohesiveAssemblyMode
+    {
+        Locked,
+        Slipping,
+        PrescribedSlip
+    };
+
+    CohesiveAssemblyMode mode = CohesiveAssemblyMode::Locked;
+    if (fault_mode_ == "slipping")
+    {
+        mode = CohesiveAssemblyMode::Slipping;
+    }
+    else if (fault_mode_ == "prescribed_slip")
+    {
+        mode = CohesiveAssemblyMode::PrescribedSlip;
+    }
+
+    PetscReal prescribed_slip[3] = {0.0, 0.0, 0.0};
+    if (mode == CohesiveAssemblyMode::PrescribedSlip)
+    {
+        const PetscReal strike = fault_geometry_from_config_
+                ? static_cast<PetscReal>(fault_strike_)
+                : (fracture_plane_enabled_ ? static_cast<PetscReal>(fracture_plane_strike_) : 0.0);
+        const PetscReal dip = fault_geometry_from_config_
+                ? static_cast<PetscReal>(fault_dip_)
+                : (fracture_plane_enabled_ ? static_cast<PetscReal>(fracture_plane_dip_) : PetscReal(M_PI / 2.0));
+        const PetscReal cs = PetscCosReal(strike);
+        const PetscReal ss = PetscSinReal(strike);
+        const PetscReal cd = PetscCosReal(dip);
+        const PetscReal sd = PetscSinReal(dip);
+        const PetscReal strike_dir[3] = {cs, ss, 0.0};
+        const PetscReal normal_dir[3] = {-ss * sd, cs * sd, -cd};
+        const PetscReal dip_dir[3] = {
+            normal_dir[1] * strike_dir[2] - normal_dir[2] * strike_dir[1],
+            normal_dir[2] * strike_dir[0] - normal_dir[0] * strike_dir[2],
+            normal_dir[0] * strike_dir[1] - normal_dir[1] * strike_dir[0]
+        };
+
+        prescribed_slip[0] = fault_slip_strike_ * strike_dir[0] +
+                                                 fault_slip_dip_ * dip_dir[0] +
+                                                 fault_slip_opening_ * normal_dir[0];
+        prescribed_slip[1] = fault_slip_strike_ * strike_dir[1] +
+                                                 fault_slip_dip_ * dip_dir[1] +
+                                                 fault_slip_opening_ * normal_dir[1];
+        prescribed_slip[2] = fault_slip_strike_ * strike_dir[2] +
+                                                 fault_slip_dip_ * dip_dir[2] +
+                                                 fault_slip_opening_ * normal_dir[2];
+    }
+
+    struct FaultVertex
+    {
+        PetscInt point = -1;
+        std::array<PetscReal, 3> xyz = {0.0, 0.0, 0.0};
+    };
+
+    auto loadCoordinates = [&](PetscInt point, std::array<PetscReal, 3>& xyz) -> PetscErrorCode
+    {
+        PetscInt dof = 0;
+        PetscInt off = 0;
+        xyz = {0.0, 0.0, 0.0};
+        PetscErrorCode ierr_local = PetscSectionGetDof(coord_section, point, &dof);CHKERRQ(ierr_local);
+        if (dof <= 0)
+        {
+            return PETSC_SUCCESS;
+        }
+        ierr_local = PetscSectionGetOffset(coord_section, point, &off);CHKERRQ(ierr_local);
+        for (PetscInt d = 0; d < PetscMin(dof, 3); ++d)
+        {
+            xyz[static_cast<std::size_t>(d)] = PetscRealPart(coord_array[off + d]);
+        }
+        return PETSC_SUCCESS;
+    };
+
+    DMLabel depth_label = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+
+    auto collectFaceVertices = [&](PetscInt face, std::vector<FaultVertex>& vertices) -> PetscErrorCode
+    {
+        PetscInt closure_size = 0;
+        PetscInt *closure = nullptr;
+        PetscErrorCode ierr_local = DMPlexGetTransitiveClosure(dm, face, PETSC_TRUE,
+                                                                                                                     &closure_size, &closure);CHKERRQ(ierr_local);
+        vertices.clear();
+        for (PetscInt i = 0; i < closure_size; ++i)
+        {
+            const PetscInt point = closure[2 * i];
+            PetscInt depth = -1;
+            ierr_local = DMLabelGetValue(depth_label, point, &depth);CHKERRQ(ierr_local);
+            if (depth != 0)
+            {
+                continue;
+            }
+            FaultVertex vertex;
+            vertex.point = point;
+            ierr_local = loadCoordinates(point, vertex.xyz);CHKERRQ(ierr_local);
+            vertices.push_back(vertex);
+        }
+        ierr_local = DMPlexRestoreTransitiveClosure(dm, face, PETSC_TRUE,
+                                                                                                &closure_size, &closure);CHKERRQ(ierr_local);
+        std::sort(vertices.begin(), vertices.end(),
+                            [](const FaultVertex& lhs, const FaultVertex& rhs)
+                            {
+                                return lhs.xyz < rhs.xyz;
+                            });
+        return PETSC_SUCCESS;
+    };
+
+    auto readFieldVector = [&](PetscInt point, PetscInt field, PetscReal values[3]) -> PetscErrorCode
+    {
+        PetscInt dof = 0;
+        PetscInt off = 0;
+        PetscErrorCode ierr_local = PetscSectionGetFieldDof(section, point, field, &dof);CHKERRQ(ierr_local);
+        for (PetscInt d = 0; d < 3; ++d)
+        {
+            values[d] = 0.0;
+        }
+        if (dof <= 0)
+        {
+            return PETSC_SUCCESS;
+        }
+        ierr_local = PetscSectionGetFieldOffset(section, point, field, &off);CHKERRQ(ierr_local);
+        if (off < 0)
+        {
+            return PETSC_SUCCESS;
+        }
+        for (PetscInt d = 0; d < PetscMin(dof, dim); ++d)
+        {
+            values[d] = PetscRealPart(uarray[off + d]);
+        }
+        return PETSC_SUCCESS;
+    };
+
+    auto addFieldResidual = [&](PetscInt point, PetscInt field, const PetscReal values[3], PetscReal scale) -> PetscErrorCode
+    {
+        PetscInt dof = 0;
+        PetscInt off = 0;
+        PetscErrorCode ierr_local = PetscSectionGetFieldDof(section, point, field, &dof);CHKERRQ(ierr_local);
+        if (dof <= 0)
+        {
+            return PETSC_SUCCESS;
+        }
+        ierr_local = PetscSectionGetFieldOffset(section, point, field, &off);CHKERRQ(ierr_local);
+        if (off < 0)
+        {
+            return PETSC_SUCCESS;
+        }
+        for (PetscInt d = 0; d < PetscMin(dof, dim); ++d)
+        {
+            farray[off + d] += scale * values[d];
+        }
+        return PETSC_SUCCESS;
+    };
+
+    PetscInt cStart = 0;
+    PetscInt cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    for (PetscInt c = cStart; c < cEnd; ++c)
+    {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        const bool is_cohesive = (ct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+                                                            ct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+                                                            ct == DM_POLYTOPE_QUAD_PRISM_TENSOR);
+        if (!is_cohesive)
+        {
+            continue;
+        }
+
+        const PetscInt *cone = nullptr;
+        PetscInt cone_size = 0;
+        ierr = DMPlexGetConeSize(dm, c, &cone_size); CHKERRQ(ierr);
+        if (cone_size < 2)
+        {
+            continue;
+        }
+        ierr = DMPlexGetCone(dm, c, &cone); CHKERRQ(ierr);
+
+        std::vector<FaultVertex> neg_vertices;
+        std::vector<FaultVertex> pos_vertices;
+        ierr = collectFaceVertices(cone[0], neg_vertices); CHKERRQ(ierr);
+        ierr = collectFaceVertices(cone[1], pos_vertices); CHKERRQ(ierr);
+
+        const PetscInt n_pairs = static_cast<PetscInt>(std::min(neg_vertices.size(), pos_vertices.size()));
+        if (n_pairs <= 0)
+        {
+            continue;
+        }
+
+        PetscReal face_area = 0.0;
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        PetscReal normal[3] = {0.0, 0.0, 0.0};
+        ierr = DMPlexComputeCellGeometryFVM(dm, cone[0], &face_area, centroid, normal); CHKERRQ(ierr);
+        if (face_area <= 0.0)
+        {
+            continue;
+        }
+
+        PetscReal normal_mag = 0.0;
+        for (PetscInt d = 0; d < dim; ++d)
+        {
+            normal_mag += normal[d] * normal[d];
+        }
+        normal_mag = PetscSqrtReal(normal_mag);
+        if (normal_mag <= PETSC_SMALL)
+        {
+            continue;
+        }
+        PetscReal unit_normal[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < dim; ++d)
+        {
+            unit_normal[d] = normal[d] / normal_mag;
+        }
+
+        const PetscReal area_per_vertex = face_area / static_cast<PetscReal>(n_pairs);
+        const PetscReal h_char = PetscMax(PetscSqrtReal(face_area), PETSC_SMALL);
+        const PetscReal penalty_stiffness = 10.0 * youngs_modulus / h_char;
+        for (PetscInt i = 0; i < n_pairs; ++i)
+        {
+            const FaultVertex& neg_vertex = neg_vertices[static_cast<std::size_t>(i)];
+            const FaultVertex& pos_vertex = pos_vertices[static_cast<std::size_t>(i)];
+
+            PetscReal pair_distance2 = 0.0;
+            for (PetscInt d = 0; d < dim; ++d)
+            {
+                const PetscReal delta = neg_vertex.xyz[static_cast<std::size_t>(d)] -
+                                                                pos_vertex.xyz[static_cast<std::size_t>(d)];
+                pair_distance2 += delta * delta;
+            }
+            if (pair_distance2 > 1.0e-20)
+            {
+                continue;
+            }
+
+            PetscReal u_neg[3] = {0.0, 0.0, 0.0};
+            PetscReal u_pos[3] = {0.0, 0.0, 0.0};
+            PetscReal lambda_interface[3] = {0.0, 0.0, 0.0};
+            PetscReal slip[3] = {0.0, 0.0, 0.0};
+            PetscReal constraint[3] = {0.0, 0.0, 0.0};
+            PetscReal traction_neg[3] = {0.0, 0.0, 0.0};
+            PetscReal traction_pos[3] = {0.0, 0.0, 0.0};
+
+            ierr = readFieldVector(neg_vertex.point, disp_field, u_neg); CHKERRQ(ierr);
+            ierr = readFieldVector(pos_vertex.point, disp_field, u_pos); CHKERRQ(ierr);
+            ierr = readFieldVector(neg_vertex.point, lagrange_field, lambda_interface); CHKERRQ(ierr);
+
+            for (PetscInt d = 0; d < dim; ++d)
+            {
+                slip[d] = u_pos[d] - u_neg[d];
+            }
+
+            if (mode == CohesiveAssemblyMode::Locked || mode == CohesiveAssemblyMode::PrescribedSlip)
+            {
+                for (PetscInt d = 0; d < dim; ++d)
+                {
+                    constraint[d] = slip[d];
+                    if (mode == CohesiveAssemblyMode::PrescribedSlip)
+                    {
+                        constraint[d] -= prescribed_slip[d];
+                    }
+                }
+            }
+            else
+            {
+                PetscReal slip_n = 0.0;
+                PetscReal lambda_n = 0.0;
+                PetscReal slip_t[3] = {0.0, 0.0, 0.0};
+                PetscReal lambda_t[3] = {0.0, 0.0, 0.0};
+                PetscReal slip_t_mag = 0.0;
+                PetscReal lambda_t_mag = 0.0;
+
+                for (PetscInt d = 0; d < dim; ++d)
+                {
+                    slip_n += slip[d] * unit_normal[d];
+                    lambda_n += lambda_interface[d] * unit_normal[d];
+                }
+                for (PetscInt d = 0; d < dim; ++d)
+                {
+                    slip_t[d] = slip[d] - slip_n * unit_normal[d];
+                    lambda_t[d] = lambda_interface[d] - lambda_n * unit_normal[d];
+                    slip_t_mag += slip_t[d] * slip_t[d];
+                    lambda_t_mag += lambda_t[d] * lambda_t[d];
+                }
+                slip_t_mag = PetscSqrtReal(slip_t_mag);
+                lambda_t_mag = PetscSqrtReal(lambda_t_mag);
+                const PetscReal tau_f = fault_friction_coefficient_ * PetscAbsReal(-lambda_n);
+
+                for (PetscInt d = 0; d < dim; ++d)
+                {
+                    if (slip_t_mag > 1.0e-15)
+                    {
+                        constraint[d] = lambda_t[d] - tau_f * slip_t[d] / slip_t_mag;
+                    }
+                    else if (lambda_t_mag > tau_f + 1.0e-10)
+                    {
+                        constraint[d] = lambda_t[d] * (1.0 - tau_f / lambda_t_mag);
+                    }
+                    else
+                    {
+                        constraint[d] = 0.0;
+                    }
+                    if (slip_n < 0.0)
+                    {
+                        constraint[d] += (-slip_n) * unit_normal[d];
+                    }
+                }
+            }
+
+            for (PetscInt d = 0; d < dim; ++d)
+            {
+                traction_neg[d] = -lambda_interface[d];
+                traction_pos[d] = lambda_interface[d];
+                if (mode != CohesiveAssemblyMode::Slipping)
+                {
+                    traction_neg[d] -= penalty_stiffness * constraint[d];
+                    traction_pos[d] += penalty_stiffness * constraint[d];
+                }
+            }
+
+            ierr = addFieldResidual(neg_vertex.point, disp_field, traction_neg, area_per_vertex); CHKERRQ(ierr);
+            ierr = addFieldResidual(pos_vertex.point, disp_field, traction_pos, area_per_vertex); CHKERRQ(ierr);
+            ierr = addFieldResidual(neg_vertex.point, lagrange_field, constraint, area_per_vertex); CHKERRQ(ierr);
+        }
+    }
+
+    ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
+    ierr = VecRestoreArrayRead(locU, &uarray); CHKERRQ(ierr);
+    ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+// =============================================================================
+// addCohesivePenaltyToJacobian
+//
+// Analytical interface Jacobian for the linear cohesive cases handled by the
+// manual assembly path:
+//   - locked fault
+//   - prescribed slip
+//
+// The slipping mode remains nonlinear and can continue to rely on SNES
+// finite-difference coloring when needed.
+// =============================================================================
+PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
+{
+    PetscFunctionBeginUser;
+    if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
+    if (fault_mode_ == "slipping") PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscErrorCode ierr;
+    PetscSection gsection = nullptr;
+    PetscSection coord_section = nullptr;
+    Vec coords = nullptr;
+    const PetscScalar* coord_array = nullptr;
+    DMLabel depth_label = nullptr;
+    PetscInt dim = 0;
+
+    ierr = DMGetGlobalSection(dm, &gsection); CHKERRQ(ierr);
+    ierr = DMGetCoordinateSection(dm, &coord_section); CHKERRQ(ierr);
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    if (!coords)
+    {
+        ierr = DMGetCoordinates(dm, &coords); CHKERRQ(ierr);
+    }
+    PetscCheck(coords && coord_section, comm, PETSC_ERR_ARG_WRONGSTATE,
+                         "Cohesive Jacobian assembly requires mesh coordinates");
+    ierr = VecGetArrayRead(coords, &coord_array); CHKERRQ(ierr);
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT)
+    {
+        disp_field = 1;
+    }
+    else if (config.fluid_model == FluidModelType::BLACK_OIL)
+    {
+        disp_field = 3;
+    }
+    else if (config.fluid_model == FluidModelType::COMPOSITIONAL)
+    {
+        disp_field = 4;
+    }
+    const PetscInt lagrange_field = disp_field + 1;
+    PetscReal youngs_modulus = 10.0e9;
+    if (!material_props.empty())
+    {
+        youngs_modulus = material_props[0].youngs_modulus;
+    }
+
+    struct FaultVertex
+    {
+        PetscInt point = -1;
+        std::array<PetscReal, 3> xyz = {0.0, 0.0, 0.0};
+    };
+
+    auto loadCoordinates = [&](PetscInt point, std::array<PetscReal, 3>& xyz) -> PetscErrorCode
+    {
+        PetscInt dof = 0;
+        PetscInt off = 0;
+        xyz = {0.0, 0.0, 0.0};
+        PetscErrorCode ierr_local = PetscSectionGetDof(coord_section, point, &dof);CHKERRQ(ierr_local);
+        if (dof <= 0)
+        {
+            return PETSC_SUCCESS;
+        }
+        ierr_local = PetscSectionGetOffset(coord_section, point, &off);CHKERRQ(ierr_local);
+        for (PetscInt d = 0; d < PetscMin(dof, 3); ++d)
+        {
+            xyz[static_cast<std::size_t>(d)] = PetscRealPart(coord_array[off + d]);
+        }
+        return PETSC_SUCCESS;
+    };
+
+    auto collectFaceVertices = [&](PetscInt face, std::vector<FaultVertex>& vertices) -> PetscErrorCode
+    {
+        PetscInt closure_size = 0;
+        PetscInt* closure = nullptr;
+        PetscErrorCode ierr_local = DMPlexGetTransitiveClosure(dm, face, PETSC_TRUE,
+                                                                                                                     &closure_size, &closure);CHKERRQ(ierr_local);
+        vertices.clear();
+        for (PetscInt i = 0; i < closure_size; ++i)
+        {
+            const PetscInt point = closure[2 * i];
+            PetscInt depth = -1;
+            ierr_local = DMLabelGetValue(depth_label, point, &depth);CHKERRQ(ierr_local);
+            if (depth != 0)
+            {
+                continue;
+            }
+            FaultVertex vertex;
+            vertex.point = point;
+            ierr_local = loadCoordinates(point, vertex.xyz);CHKERRQ(ierr_local);
+            vertices.push_back(vertex);
+        }
+        ierr_local = DMPlexRestoreTransitiveClosure(dm, face, PETSC_TRUE,
+                                                                                                &closure_size, &closure);CHKERRQ(ierr_local);
+        std::sort(vertices.begin(), vertices.end(),
+                            [](const FaultVertex& lhs, const FaultVertex& rhs)
+                            {
+                                return lhs.xyz < rhs.xyz;
+                            });
+        return PETSC_SUCCESS;
+    };
+
+    PetscInt cStart = 0;
+    PetscInt cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    for (PetscInt c = cStart; c < cEnd; ++c)
+    {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        const bool is_cohesive = (ct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+                                                            ct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+                                                            ct == DM_POLYTOPE_QUAD_PRISM_TENSOR);
+        if (!is_cohesive)
+        {
+            continue;
+        }
+
+        const PetscInt* cone = nullptr;
+        PetscInt cone_size = 0;
+        ierr = DMPlexGetConeSize(dm, c, &cone_size); CHKERRQ(ierr);
+        if (cone_size < 2)
+        {
+            continue;
+        }
+        ierr = DMPlexGetCone(dm, c, &cone); CHKERRQ(ierr);
+
+        std::vector<FaultVertex> neg_vertices;
+        std::vector<FaultVertex> pos_vertices;
+        ierr = collectFaceVertices(cone[0], neg_vertices); CHKERRQ(ierr);
+        ierr = collectFaceVertices(cone[1], pos_vertices); CHKERRQ(ierr);
+
+        const PetscInt n_pairs = static_cast<PetscInt>(std::min(neg_vertices.size(), pos_vertices.size()));
+        if (n_pairs <= 0)
+        {
+            continue;
+        }
+
+        PetscReal face_area = 0.0;
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        PetscReal normal[3] = {0.0, 0.0, 0.0};
+        ierr = DMPlexComputeCellGeometryFVM(dm, cone[0], &face_area, centroid, normal); CHKERRQ(ierr);
+        if (face_area <= 0.0)
+        {
+            continue;
+        }
+
+        const PetscScalar coeff = static_cast<PetscScalar>(face_area / static_cast<PetscReal>(n_pairs));
+        const PetscScalar penalty = static_cast<PetscScalar>(10.0 * youngs_modulus /
+            PetscMax(PetscSqrtReal(face_area), PETSC_SMALL));
+        for (PetscInt i = 0; i < n_pairs; ++i)
+        {
+            const FaultVertex& neg_vertex = neg_vertices[static_cast<std::size_t>(i)];
+            const FaultVertex& pos_vertex = pos_vertices[static_cast<std::size_t>(i)];
+
+            PetscReal pair_distance2 = 0.0;
+            for (PetscInt d = 0; d < dim; ++d)
+            {
+                const PetscReal delta = neg_vertex.xyz[static_cast<std::size_t>(d)] -
+                                                                pos_vertex.xyz[static_cast<std::size_t>(d)];
+                pair_distance2 += delta * delta;
+            }
+            if (pair_distance2 > 1.0e-20)
+            {
+                continue;
+            }
+
+            PetscInt neg_disp_dof = 0;
+            PetscInt pos_disp_dof = 0;
+            PetscInt neg_lag_dof = 0;
+            PetscInt neg_disp_off = 0;
+            PetscInt pos_disp_off = 0;
+            PetscInt neg_lag_off = 0;
+            ierr = PetscSectionGetFieldDof(gsection, neg_vertex.point, disp_field, &neg_disp_dof); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldDof(gsection, pos_vertex.point, disp_field, &pos_disp_dof); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldDof(gsection, neg_vertex.point, lagrange_field, &neg_lag_dof); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldOffset(gsection, neg_vertex.point, disp_field, &neg_disp_off); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldOffset(gsection, pos_vertex.point, disp_field, &pos_disp_off); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldOffset(gsection, neg_vertex.point, lagrange_field, &neg_lag_off); CHKERRQ(ierr);
+
+            if (neg_disp_dof <= 0 || pos_disp_dof <= 0 || neg_lag_dof <= 0)
+            {
+                continue;
+            }
+            if (neg_disp_off < 0 || pos_disp_off < 0 || neg_lag_off < 0)
+            {
+                continue;
+            }
+
+            for (PetscInt d = 0; d < PetscMin(PetscMin(neg_disp_dof, pos_disp_dof), PetscMin(neg_lag_dof, dim)); ++d)
+            {
+                const PetscInt row_neg_disp = neg_disp_off + d;
+                const PetscInt row_pos_disp = pos_disp_off + d;
+                const PetscInt row_lag = neg_lag_off + d;
+                const PetscInt col_neg_disp = neg_disp_off + d;
+                const PetscInt col_pos_disp = pos_disp_off + d;
+                const PetscInt col_lag = neg_lag_off + d;
+
+                ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
+                ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
+                ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+            }
+        }
+    }
+
+    ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
+    ierr = MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+    ierr = MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode Simulator::locateExplosionCell() {
     PetscFunctionBeginUser;
     if (!explosion_) PetscFunctionReturn(0);
@@ -3117,11 +3750,6 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
     M[0] = M[1] = M[2] = scale;
     M[3] = M[4] = M[5] = 0.0;
 
-    // Compute cell volume
-    PetscReal vol;
-    ierr = DMPlexComputeCellGeometryFVM(dm, explosion_cell_, &vol, nullptr, nullptr);
-    CHKERRQ(ierr);
-
     // Get displacement field index (0 for elastostatics, 1 for poroelastic)
     PetscInt disp_field = 0;
     if (config.solid_model == SolidModelType::POROELASTIC &&
@@ -3131,17 +3759,10 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
 
     PetscSection section;
     ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
-
-    // Get the closure of DOFs for this cell (includes DOFs from all vertices)
-    PetscScalar *closure = nullptr;
-    PetscInt closureSize;
-    ierr = DMPlexVecGetClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
-    CHKERRQ(ierr);
-    if (closureSize <= 0) {
-        ierr = DMPlexVecRestoreClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
-        CHKERRQ(ierr);
-        PetscFunctionReturn(0);
-    }
+    DMLabel depth_label = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+    PetscScalar *farray = nullptr;
+    ierr = VecGetArray(locF, &farray); CHKERRQ(ierr);
 
     // Proper moment tensor equivalent nodal forces (BUG 5 fix)
     // For a point moment tensor M_ij * delta(x - x_s):
@@ -3192,7 +3813,30 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
     // Using k=0, c=0: dPhi_a/dxi_d = T->T[1][a * dim^3 + d]
     // Physical gradient: dPhi_a/dx_j = sum_d dPhi_a/dxi_d * invJ[d*dim+j]
 
-    PetscInt dofs_per_node = (disp_field == 0) ? dim : (1 + dim);
+    PetscInt closureSize = 0;
+    PetscInt *cellClosure = nullptr;
+    ierr = DMPlexGetTransitiveClosure(dm, explosion_cell_, PETSC_TRUE, &closureSize, &cellClosure);
+    CHKERRQ(ierr);
+
+    std::vector<PetscInt> cell_vertices;
+    cell_vertices.reserve(static_cast<std::size_t>(nNodes));
+    for (PetscInt c = 0; c < closureSize; ++c) {
+        const PetscInt point = cellClosure[2 * c];
+        PetscInt depth = -1;
+        PetscInt disp_dof = 0;
+        ierr = DMLabelGetValue(depth_label, point, &depth); CHKERRQ(ierr);
+        if (depth != 0) {
+            continue;
+        }
+        ierr = PetscSectionGetFieldDof(section, point, disp_field, &disp_dof); CHKERRQ(ierr);
+        if (disp_dof >= dim) {
+            cell_vertices.push_back(point);
+        }
+    }
+
+    PetscCheck(static_cast<PetscInt>(cell_vertices.size()) >= nNodes, comm, PETSC_ERR_PLIB,
+               "Explosion source cell %d has %d displacement vertices, expected at least %d",
+               static_cast<int>(explosion_cell_), static_cast<int>(cell_vertices.size()), static_cast<int>(nNodes));
 
     for (PetscInt a = 0; a < nNodes; ++a) {
         // Compute physical gradient of scalar basis function Phi_a
@@ -3205,29 +3849,25 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
         }
 
         // F_i^a = -(sum_j dPhi_a/dx_j * M_ij)
+        PetscInt field_off = 0;
+        ierr = PetscSectionGetFieldOffset(section, cell_vertices[static_cast<std::size_t>(a)],
+                                          disp_field, &field_off); CHKERRQ(ierr);
+        if (field_off < 0) {
+            continue;
+        }
         for (PetscInt i = 0; i < dim; ++i) {
             double force = 0.0;
             for (PetscInt j = 0; j < dim; ++j) {
                 force += dPhi_dx[j] * Mmat[i][j];
             }
-            PetscInt closure_idx;
-            if (disp_field == 0) {
-                closure_idx = a * dim + i;
-            } else {
-                closure_idx = a * dofs_per_node + 1 + i;
-            }
-            if (closure_idx < closureSize) {
-                closure[closure_idx] += -force;
-            }
+            farray[field_off + i] += -force;
         }
     }
 
+    ierr = DMPlexRestoreTransitiveClosure(dm, explosion_cell_, PETSC_TRUE, &closureSize, &cellClosure);
+    CHKERRQ(ierr);
     ierr = PetscTabulationDestroy(&T); CHKERRQ(ierr);
-
-    ierr = DMPlexVecSetClosure(dm, section, locF, explosion_cell_, closure, INSERT_VALUES);
-    CHKERRQ(ierr);
-    ierr = DMPlexVecRestoreClosure(dm, section, locF, explosion_cell_, &closureSize, &closure);
-    CHKERRQ(ierr);
+    ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -3308,7 +3948,7 @@ PetscErrorCode Simulator::setInitialConditions() {
     // Ensure DM section is created (required for DMPlexInsertBoundaryValues to work)
     ierr = DMSetUp(dm); CHKERRQ(ierr);
 
-    // Debug: Check if we have boundary IDs registered
+    // Check how many boundaries are registered on the DS
     PetscDS ds;
     PetscInt numBd;
     ierr = DMGetDS(dm, &ds); CHKERRQ(ierr);
@@ -3530,7 +4170,7 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
         }
 
         // Compute FEM residual on local vectors
-        ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
+                ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
 
         // Add injection source to the local residual (modifies pressure DOFs)
         if (sim->injection_enabled_ && sim->injection_cell_ >= 0) {
@@ -3548,6 +4188,13 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
         // Apply uniform pressurized-fracture traction on cohesive faces.
         if (sim->hydrofrac_fem_pressurized_mode_ && sim->config.enable_faults) {
             ierr = sim->addFaultPressureToResidual(t, locF); CHKERRQ(ierr);
+        }
+
+        // Apply cohesive constraint (locked/slipping) via manual assembly.
+        // This bypasses PetscDSSetBdResidual which crashes on cohesive cells
+        // in PETSc 3.22 due to totDim mismatch between prism and tet cells.
+        if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
+            ierr = sim->addCohesiveConstraintToResidual(t, locU, locF); CHKERRQ(ierr);
         }
 
         // Scatter local residual back to global (ADD_VALUES to accumulate)
@@ -3592,7 +4239,22 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
             ierr = DMGlobalToLocal(dm, U_t, INSERT_VALUES, locU_t); CHKERRQ(ierr);
         }
 
-        ierr = DMPlexTSComputeIJacobianFEM(dm, t, locU, locU_t, a, J, P, ctx); CHKERRQ(ierr);
+        ierr = DMPlexTSComputeIJacobianFEM(dm, t, locU, locU_t, a, J, P, ctx);
+        CHKERRQ(ierr);
+
+        // The cohesive interface currently relies on finite-difference
+        // coloring for the hybrid-cell coupling terms. Keep the placeholder
+        // hook so the explicit interface Jacobian can be added later without
+        // changing the call pattern here.
+        if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
+            ierr = MatSetOption(P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
+            ierr = sim->addCohesivePenaltyToJacobian(P);
+            CHKERRQ(ierr);
+            if (J != P) {
+                ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
+                ierr = sim->addCohesivePenaltyToJacobian(J); CHKERRQ(ierr);
+            }
+        }
 
         if (U_t) {
             ierr = DMRestoreLocalVector(dm, &locU_t); CHKERRQ(ierr);

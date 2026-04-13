@@ -20,18 +20,18 @@ Branch: main
 
 ### Test Suite
 
-95 registered tests. All pass or GTEST_SKIP. Zero failures.
+99 registered tests. All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
-| Physics | 24 | Analytical solutions, FEM-coupled benchmarks, standalone physics |
-| Integration | 21 | Full Simulator pipeline through TSSolve |
-| Performance | 3 | Benchmarks, scaling, memory |
+| Physics | 25 | Analytical solutions, FEM-coupled benchmarks, standalone physics |
+| Integration | 23 | Full Simulator pipeline through TSSolve, plus one explosion-fault residual coexistence check |
+| Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
-Note: 4 integration tests (DynamicRuptureSolve, ExplosionFaultReactivation) use GTEST_SKIP when TSSolve diverges due to PetscDSSetBdResidual on cohesive cells in PETSc 3.22.
+Note: the performance test `GPUAcceleration` uses `GTEST_SKIP` when CUDA is not available.
 
 ## Build Environment
 
@@ -49,6 +49,30 @@ docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local ctest --o
 # Interactive shell
 docker run --rm -it -v $(pwd):/workspace -w /workspace fsrm-ci:local bash
 ```
+
+### GPU Acceleration (PETSc CUDA)
+
+FSRM supports GPU acceleration via PETSc's native CUDA backend. No FSRM code changes
+are needed. Build PETSc with `--with-cuda` (Dockerfile.cuda) and add runtime flags:
+
+```bash
+# Build with CUDA image
+docker build -f Dockerfile.cuda -t fsrm-cuda:local .
+docker run --gpus all --rm -v $(pwd):/workspace -w /workspace fsrm-cuda:local bash -c \
+  'mkdir -p build-cuda && cd build-cuda && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && make -j$(nproc)'
+
+# Run with GPU acceleration
+docker run --gpus all --rm -v $(pwd):/workspace -w /workspace/build-cuda fsrm-cuda:local \
+  ./fsrm ../config/examples/punggye_ri_layered.config \
+  -vec_type cuda -mat_type aijcusparse -log_view
+```
+
+The PetscDS pointwise callbacks (f0, f1, g0, g3) run on CPU. PETSc handles all vector
+operations (VecAXPY, VecNorm) via cuBLAS, matrix operations (MatMult, MatSolve) via
+cuSPARSE, and KSP solves on GPU. Data transfer is automatic.
+
+The `src/gpu/*.cu` files and ENABLE_CUDA CMake option are dead code from an earlier
+approach. Ignore them. PETSc-native CUDA is the correct path.
 
 ## MANDATORY: Check PETSc 3.22.2 API Before Use
 
@@ -170,17 +194,18 @@ Every feature below has at least one integration test that calls `sim.run()` (TS
 20. **Prescribed slip**: Tests: `Integration.PrescribedSlip`.
 21. **HDF5/VTK output**: Tests: `Integration.OutputFile`.
 22. **Elastoplasticity (Drucker-Prager)**: PetscFEElastoplasticity f1/g3 callbacks wired into setupPhysics via `[PLASTICITY]` config. Unified constants indices 32-35. Tests: `Integration.ElastoplasticSim` (quasi-static beyond/below yield), `Physics.ElastoplasticBearingCapacity` (below-yield matches elastic, above-yield converges).
+23. **Dynamic rupture (locked/prescribed fault solves)**: Manual cohesive constraint assembly via `addCohesiveConstraintToResidual()` in FormFunction. Bypasses PetscDSSetBdResidual which crashes on cohesive cells in PETSc 3.22. Locked and prescribed-slip cases use an analytical interface Jacobian. Tests: `Integration.DynamicRuptureSolve.LockedQuasiStatic`, `Integration.DynamicRuptureSolve.LockedElastodynamic`, `Integration.DynamicRuptureSolve.PrescribedSlip`, `Physics.LockedFaultTransparency`.
+24. **Explosion source + cohesive fault coexistence**: Explosion moment-tensor residual assembly and manual cohesive assembly can be evaluated together through the TS residual path. Test: `Integration.ExplosionFaultReactivation` (`SetupAndResidualEvaluation`). Full explosion-plus-fault TSSolve remains sensitive and is not claimed as verified.
 
 ## What Has Correct Callbacks But is Not Fully Solver-Coupled
 
 Setup pipeline completes, but TSSolve is either not called or not tested end-to-end.
 
 1. **Cohesive fault mesh splitting**: PyLith workflow. Tests: `Functional.DynamicRuptureSetup.MeshSplitting`. TSSolve not called.
-2. **Dynamic rupture setup**: Tests: `Functional.DynamicRuptureSetup.LockedFault`, `.SlippingFault`, `.FaultGeometryFromConfig`. TSSolve not called -- SNES diverges due to PetscDSSetBdResidual on cohesive cells in PETSc 3.22 (BdResidual support[0] totDim mismatch with bulk tets).
-3. **Dynamic rupture TSSolve attempts**: Tests: `Integration.DynamicRuptureSolve` (locked quasi-static, locked elastodynamic, prescribed slip). All use GTEST_SKIP because SNES diverges (ierr=91). PetscReturnErrorHandler is used to prevent cascading fatal errors.
-4. **Explosion-induced fault reactivation**: Tests: `Integration.ExplosionFaultReactivation`. Setup succeeds (explosion + cohesive callbacks coexist), TSSolve diverges. Uses GTEST_SKIP.
-5. **Fault + absorbing BC coexistence**: Tests: `Functional.DynamicRuptureSetup.AbsorbingCoexist`, `Functional.FaultAbsorbingCoexist`. TSSolve not called.
-6. **Fracture lubrication flow callbacks**: Tests: `Unit.FractureFlowCallbacks`. Callback tested in isolation.
+2. **Dynamic rupture setup**: Tests: `Functional.DynamicRuptureSetup.LockedFault`, `.SlippingFault`, `.FaultGeometryFromConfig`. TSSolve not called (these are setup-only tests).
+3. **Explosion source + cohesive fault full TSSolve**: Setup and residual evaluation are verified, but the fully time-stepped coupled solve remains sensitive and is not claimed as passing end-to-end.
+4. **Fault + absorbing BC coexistence**: Tests: `Functional.DynamicRuptureSetup.AbsorbingCoexist`, `Functional.FaultAbsorbingCoexist`. TSSolve not called.
+5. **Fracture lubrication flow callbacks**: Tests: `Unit.FractureFlowCallbacks`. Callback tested in isolation.
 
 ## Standalone Verified Code (Not FEM-Coupled)
 
@@ -220,9 +245,10 @@ Do not reference these in documentation or claims. Do not try to use them.
 ## What Does NOT Work (Known Gaps)
 
 1. **Hydrofrac not fully coupled**: PressurizedFractureFEM passes, but full lubrication+deformation coupled solve is callback-tested only.
-2. **Dynamic rupture TSSolve diverges**: Setup completes, TSSolve diverges (ierr=91) due to PetscDSSetBdResidual on cohesive cells in PETSc 3.22. Tests use GTEST_SKIP. Pending upstream PETSc fix.
+2. **Prescribed slip in manual assembly**: Not yet implemented. Locked and slipping modes work via `addCohesiveConstraintToResidual()`.
 3. **Fault + absorbing coexistence never solved**: Setup succeeds, TSSolve never called.
-4. **Dead code stubs**: DG/ADER, GPU, FNO/ML, volcano, tsunami, ocean, radiation, AMR. Not functional.
+4. **Dead code stubs**: DG/ADER, FNO/ML, volcano, tsunami, ocean, radiation, AMR. Not functional.
+5. **Custom CUDA kernels**: The `src/gpu/*.cu` files and ENABLE_CUDA CMake option are dead code. GPU acceleration uses PETSc-native CUDA backend (`-vec_type cuda -mat_type aijcusparse`) instead.
 
 ## Rules
 
@@ -232,7 +258,7 @@ Do not reference these in documentation or claims. Do not try to use them.
 4. NEVER change the DS/BC ordering in setupFields().
 5. Do NOT modify callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp.
 6. Do NOT modify FaultMeshManager::splitMeshAlongFault or CohesiveFaultKernel::registerWithDS.
-7. Plasticity return mapping works at the material-point level (PlasticityModel::integrateStress). PetscFEElastoplasticity callback exists but is not wired into setupPhysics(). DG, ADER, GPU, ML features are stubs. Volcano, ocean, tsunami, radiation code is dead (never referenced). Do not claim any of these are functional.
+7. Plasticity return mapping works at the material-point level (PlasticityModel::integrateStress). PetscFEElastoplasticity callback exists and is wired into setupPhysics. DG, ADER, ML features are stubs. Custom GPU kernels (src/gpu/*.cu) are dead code; GPU acceleration uses PETSc-native CUDA. Volcano, ocean, tsunami, radiation code is dead (never referenced). Do not claim any of these are functional.
 8. No Python. Everything in C++ within the Simulator.
 9. Ignore everything in config/aspirational/. Those configs reference features that do not exist.
 10. Working examples are in config/examples/ with `.config` extension.

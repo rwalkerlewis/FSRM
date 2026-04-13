@@ -81,6 +81,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_explosion_damage_zone.cpp
     physics_validation/test_pressurized_fracture.cpp
     physics_validation/test_elastoplastic_strip.cpp
+    physics_validation/test_locked_fault_transparency.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -121,6 +122,7 @@ set(PERFORMANCE_TEST_SOURCES
     performance/test_benchmarks.cpp
     performance/test_scaling.cpp
     performance/test_memory.cpp
+    performance/test_gpu_acceleration.cpp
 )
 
 set(EXPERIMENTAL_TEST_SOURCES
@@ -232,6 +234,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.DruckerPragerStandalone        COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
     add_test(NAME Unit.Elastoplasticity               COMMAND run_physics_tests --gtest_filter=ElastoplasticityTest.*)
     add_test(NAME Physics.ElastoplasticBearingCapacity COMMAND run_physics_tests --gtest_filter=ElastoplasticBearingCapacityTest.*)
+    add_test(NAME Physics.LockedFaultTransparency COMMAND run_physics_tests --gtest_filter=LockedFaultTransparencyTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -269,13 +272,16 @@ if(GTest_FOUND)
     add_test(NAME Physics.ProductionForecast COMMAND run_integration_tests --gtest_filter=ProductionForecastTest.*)
     add_test(NAME Integration.PressurizedFractureFEM COMMAND run_integration_tests --gtest_filter=PressurizedFractureFEMTest.*)
     add_test(NAME Integration.ElastoplasticSim COMMAND run_integration_tests --gtest_filter=ElastoplasticSimTest.*)
-    add_test(NAME Integration.DynamicRuptureSolve COMMAND run_integration_tests --gtest_filter=DynamicRuptureSolveTest.*)
+    add_test(NAME Integration.DynamicRuptureSolve.LockedQuasiStatic COMMAND run_integration_tests --gtest_filter=DynamicRuptureSolveTest.LockedFaultQuasiStatic)
+    add_test(NAME Integration.DynamicRuptureSolve.LockedElastodynamic COMMAND run_integration_tests --gtest_filter=DynamicRuptureSolveTest.LockedFaultElastodynamic)
+    add_test(NAME Integration.DynamicRuptureSolve.PrescribedSlip COMMAND run_integration_tests --gtest_filter=DynamicRuptureSolveTest.PrescribedSlipQuasiStatic)
     add_test(NAME Integration.ExplosionFaultReactivation COMMAND run_integration_tests --gtest_filter=ExplosionFaultReactivationTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
     add_test(NAME Performance.Scaling         COMMAND run_performance_tests --gtest_filter=ScalingTest.*)
     add_test(NAME Performance.Memory          COMMAND run_performance_tests --gtest_filter=MemoryStabilityTest.*)
+    add_test(NAME Performance.GPUAcceleration COMMAND run_performance_tests --gtest_filter=GPUAccelerationTest.*)
 
     # --- Experimental tests ---
     add_test(NAME Experimental.NeuralStubs    COMMAND run_experimental_tests --gtest_filter=ExperimentalNeuralTest.*)
@@ -340,6 +346,7 @@ if(GTest_FOUND)
         Physics.LeakoffCoupling
         Physics.ProductionForecast
         Physics.ElastoplasticBearingCapacity
+        Physics.LockedFaultTransparency
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
@@ -359,7 +366,9 @@ if(GTest_FOUND)
         Integration.DPRK2017Comparison
         Integration.PressurizedFractureFEM
         Integration.ElastoplasticSim
-        Integration.DynamicRuptureSolve
+        Integration.DynamicRuptureSolve.LockedQuasiStatic
+        Integration.DynamicRuptureSolve.LockedElastodynamic
+        Integration.DynamicRuptureSolve.PrescribedSlip
         Integration.ExplosionFaultReactivation
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
@@ -368,6 +377,11 @@ if(GTest_FOUND)
     set_tests_properties(
         Performance.Benchmarks Performance.Scaling Performance.Memory
         PROPERTIES TIMEOUT 900 LABELS "performance"
+    )
+
+    set_tests_properties(
+        Performance.GPUAcceleration
+        PROPERTIES TIMEOUT 900 LABELS "performance;gpu"
     )
 
     # Experimental tests
