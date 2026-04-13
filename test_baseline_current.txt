@@ -1,0 +1,181 @@
+Test project /workspace/build
+      Start  1: Unit.ConfigReader
+ 1/84 Test  #1: Unit.ConfigReader ..................................   Passed    2.15 sec
+      Start  2: Unit.PhysicsModuleRegistry
+ 2/84 Test  #2: Unit.PhysicsModuleRegistry .........................   Passed    0.39 sec
+      Start  3: Unit.SimulationConfig
+ 3/84 Test  #3: Unit.SimulationConfig ..............................   Passed    0.37 sec
+      Start  4: Unit.PhysicsKernelBase
+ 4/84 Test  #4: Unit.PhysicsKernelBase .............................   Passed    0.39 sec
+      Start  5: Unit.SinglePhaseFlow
+ 5/84 Test  #5: Unit.SinglePhaseFlow ...............................   Passed    0.40 sec
+      Start  6: Unit.Geomechanics
+ 6/84 Test  #6: Unit.Geomechanics ..................................   Passed    0.39 sec
+      Start  7: Unit.Thermal
+ 7/84 Test  #7: Unit.Thermal .......................................   Passed    0.38 sec
+      Start  8: Unit.Elastodynamics
+ 8/84 Test  #8: Unit.Elastodynamics ................................   Passed    0.38 sec
+      Start  9: Unit.Poroelastodynamics
+ 9/84 Test  #9: Unit.Poroelastodynamics ............................   Passed    0.41 sec
+      Start 10: Unit.BoundaryConditions
+10/84 Test #10: Unit.BoundaryConditions ............................   Passed    0.38 sec
+      Start 11: Unit.WellModel
+11/84 Test #11: Unit.WellModel .....................................   Passed    0.39 sec
+      Start 12: Unit.FractureModel
+12/84 Test #12: Unit.FractureModel .................................   Passed    0.35 sec
+      Start 13: Unit.MaterialModel
+13/84 Test #13: Unit.MaterialModel .................................   Passed    0.39 sec
+      Start 14: Unit.SeismicSource
+14/84 Test #14: Unit.SeismicSource .................................   Passed    0.40 sec
+      Start 15: Unit.ExplosionSource
+15/84 Test #15: Unit.ExplosionSource ...............................   Passed    0.37 sec
+      Start 16: Unit.EclipseIO
+16/84 Test #16: Unit.EclipseIO .....................................   Passed    0.38 sec
+      Start 17: Unit.MLRegistry
+17/84 Test #17: Unit.MLRegistry ....................................   Passed    0.39 sec
+      Start 18: Unit.UnitSystem
+18/84 Test #18: Unit.UnitSystem ....................................   Passed    0.35 sec
+      Start 19: Unit.CoordinateSystem
+19/84 Test #19: Unit.CoordinateSystem ..............................   Passed    0.35 sec
+      Start 20: Unit.CO2Properties
+20/84 Test #20: Unit.CO2Properties .................................   Passed    0.39 sec
+      Start 21: Unit.FlashCalculation
+21/84 Test #21: Unit.FlashCalculation ..............................   Passed    0.40 sec
+      Start 22: Unit.ResidualTrapping
+22/84 Test #22: Unit.ResidualTrapping ..............................   Passed    0.41 sec
+      Start 23: Unit.CaprockIntegrity
+23/84 Test #23: Unit.CaprockIntegrity ..............................   Passed    0.37 sec
+      Start 24: Unit.MultiphaseFlow
+24/84 Test #24: Unit.MultiphaseFlow ................................   Passed    0.36 sec
+      Start 25: Unit.FaultMechanics
+25/84 Test #25: Unit.FaultMechanics ................................   Passed    0.39 sec
+      Start 26: Unit.FaultCohesiveDyn
+26/84 Test #26: Unit.FaultCohesiveDyn ..............................   Passed    0.39 sec
+      Start 27: Unit.CoulombStressTransfer
+27/84 Test #27: Unit.CoulombStressTransfer .........................   Passed    0.37 sec
+      Start 28: Unit.FaultMeshManager
+28/84 Test #28: Unit.FaultMeshManager ..............................   Passed    0.41 sec
+      Start 29: Unit.CohesiveFaultKernel
+29/84 Test #29: Unit.CohesiveFaultKernel ...........................   Passed    0.41 sec
+      Start 30: Unit.ElasticityAux
+30/84 Test #30: Unit.ElasticityAux .................................   Passed    0.41 sec
+      Start 31: Functional.SimulatorInit
+31/84 Test #31: Functional.SimulatorInit ...........................   Passed    0.38 sec
+      Start 32: Functional.ModuleLifecycle
+32/84 Test #32: Functional.ModuleLifecycle .........................   Passed    0.38 sec
+      Start 33: Functional.SolverConvergence
+33/84 Test #33: Functional.SolverConvergence .......................   Passed    0.40 sec
+      Start 34: Functional.WellOperations
+34/84 Test #34: Functional.WellOperations ..........................   Passed    0.35 sec
+      Start 35: Physics.MMS.Diffusion
+35/84 Test #35: Physics.MMS.Diffusion ..............................   Passed    0.36 sec
+      Start 36: Physics.MMS.Elasticity
+36/84 Test #36: Physics.MMS.Elasticity .............................   Passed    0.40 sec
+      Start 37: Physics.MMS.WavePropagation
+37/84 Test #37: Physics.MMS.WavePropagation ........................   Passed    0.39 sec
+      Start 38: Physics.AnalyticalSolutions
+38/84 Test #38: Physics.AnalyticalSolutions ........................   Passed    0.38 sec
+      Start 39: Physics.Thermoporoelastic
+39/84 Test #39: Physics.Thermoporoelastic ..........................   Passed    0.38 sec
+      Start 40: Physics.SCEC.TPV5
+40/84 Test #40: Physics.SCEC.TPV5 ..................................   Passed    0.42 sec
+      Start 41: Physics.ElastostaticsPatch
+41/84 Test #41: Physics.ElastostaticsPatch .........................   Passed    3.06 sec
+      Start 42: Physics.TerzaghiConsolidation
+42/84 Test #42: Physics.TerzaghiConsolidation ......................   Passed    1.89 sec
+      Start 43: Physics.AbsorbingBC
+43/84 Test #43: Physics.AbsorbingBC ................................   Passed    5.60 sec
+      Start 44: Physics.GravityLithostatic
+44/84 Test #44: Physics.GravityLithostatic .........................   Passed    0.54 sec
+      Start 45: Physics.LithostaticStress
+45/84 Test #45: Physics.LithostaticStress ..........................   Passed    0.94 sec
+      Start 46: Physics.LambsProblem
+46/84 Test #46: Physics.LambsProblem ...............................   Passed    1.55 sec
+      Start 47: Physics.GarvinsProblem
+47/84 Test #47: Physics.GarvinsProblem .............................   Passed    1.51 sec
+      Start 48: Physics.MuellerMurphy
+48/84 Test #48: Physics.MuellerMurphy ..............................   Passed    0.38 sec
+      Start 49: Physics.AtmosphericExplosion
+49/84 Test #49: Physics.AtmosphericExplosion .......................   Passed    0.37 sec
+      Start 50: Physics.NearFieldExplosion
+50/84 Test #50: Physics.NearFieldExplosion .........................   Passed    0.39 sec
+      Start 51: Physics.DruckerPrager
+51/84 Test #51: Physics.DruckerPrager ..............................   Passed    0.38 sec
+      Start 52: Physics.Elastoplasticity
+52/84 Test #52: Physics.Elastoplasticity ...........................   Passed    0.37 sec
+      Start 53: Physics.MomentTensorSource
+53/84 Test #53: Physics.MomentTensorSource .........................   Passed    2.09 sec
+      Start 54: Physics.PressurizedFracture
+54/84 Test #54: Physics.PressurizedFracture ........................   Passed    0.39 sec
+      Start 55: Integration.FullSimulation
+55/84 Test #55: Integration.FullSimulation .........................   Passed    3.07 sec
+      Start 56: Integration.Restart
+56/84 Test #56: Integration.Restart ................................   Passed    0.39 sec
+      Start 57: Integration.CoupledPhysics
+57/84 Test #57: Integration.CoupledPhysics .........................   Passed    0.38 sec
+      Start 58: Integration.InjectionPressure
+58/84 Test #58: Integration.InjectionPressure ......................   Passed    0.77 sec
+      Start 59: Integration.InjectionRuptureChain
+59/84 Test #59: Integration.InjectionRuptureChain ..................   Passed    0.40 sec
+      Start 60: Integration.LockedFault
+60/84 Test #60: Integration.LockedFault ............................   Passed    0.39 sec
+      Start 61: Integration.LayeredElastostatics
+61/84 Test #61: Integration.LayeredElastostatics ...................   Passed    0.40 sec
+      Start 62: Integration.ExplosionSeismogram
+62/84 Test #62: Integration.ExplosionSeismogram ....................   Passed    8.83 sec
+      Start 63: Integration.PrescribedSlip
+63/84 Test #63: Integration.PrescribedSlip .........................   Passed    0.41 sec
+      Start 64: Integration.OutputFile
+64/84 Test #64: Integration.OutputFile .............................   Passed    0.64 sec
+      Start 65: Integration.GmshImport
+65/84 Test #65: Integration.GmshImport .............................   Passed    0.63 sec
+      Start 66: Integration.DerivedFields
+66/84 Test #66: Integration.DerivedFields ..........................   Passed    0.64 sec
+      Start 67: Integration.DPRK2017Comparison
+67/84 Test #67: Integration.DPRK2017Comparison .....................   Passed    0.39 sec
+      Start 68: Integration.DynamicRuptureBasic.MeshSplitting
+68/84 Test #68: Integration.DynamicRuptureBasic.MeshSplitting ......   Passed    0.39 sec
+      Start 69: Integration.DynamicRuptureBasic.LockedFault
+69/84 Test #69: Integration.DynamicRuptureBasic.LockedFault ........   Passed    0.42 sec
+      Start 70: Integration.DynamicRuptureBasic.SlippingFault
+70/84 Test #70: Integration.DynamicRuptureBasic.SlippingFault ......   Passed    3.07 sec
+      Start 71: Integration.DynamicRuptureBasic.AbsorbingCoexist
+71/84 Test #71: Integration.DynamicRuptureBasic.AbsorbingCoexist ...   Passed    0.43 sec
+      Start 72: Integration.FaultAbsorbingCoexist
+72/84 Test #72: Integration.FaultAbsorbingCoexist ..................   Passed    0.41 sec
+      Start 73: Integration.FractureFlow
+73/84 Test #73: Integration.FractureFlow ...........................   Passed    0.38 sec
+      Start 74: Integration.CoupledHydrofrac
+74/84 Test #74: Integration.CoupledHydrofrac .......................   Passed    0.38 sec
+      Start 75: Integration.FracturePropagation
+75/84 Test #75: Integration.FracturePropagation ....................   Passed    0.35 sec
+      Start 76: Integration.StressShadowing
+76/84 Test #76: Integration.StressShadowing ........................   Passed    0.41 sec
+      Start 77: Integration.InducedSeismicity
+77/84 Test #77: Integration.InducedSeismicity ......................   Passed    0.36 sec
+      Start 78: Integration.ProppantTransport
+78/84 Test #78: Integration.ProppantTransport ......................   Passed    0.35 sec
+      Start 79: Integration.LeakoffCoupling
+79/84 Test #79: Integration.LeakoffCoupling ........................   Passed    0.37 sec
+      Start 80: Integration.ProductionForecast
+80/84 Test #80: Integration.ProductionForecast .....................   Passed    0.37 sec
+      Start 81: Performance.Benchmarks
+81/84 Test #81: Performance.Benchmarks .............................   Passed    0.39 sec
+      Start 82: Performance.Scaling
+82/84 Test #82: Performance.Scaling ................................   Passed    1.06 sec
+      Start 83: Performance.Memory
+83/84 Test #83: Performance.Memory .................................   Passed    0.37 sec
+      Start 84: Experimental.NeuralStubs
+84/84 Test #84: Experimental.NeuralStubs ...........................   Passed    0.39 sec
+
+100% tests passed, 0 tests failed out of 84
+
+Label Time Summary:
+experimental          =   0.39 sec*proc (1 test)
+functional            =   1.52 sec*proc (4 tests)
+integration           =  25.03 sec*proc (26 tests)
+performance           =   1.82 sec*proc (3 tests)
+physics_validation    =  21.80 sec*proc (20 tests)
+unit                  =  13.29 sec*proc (30 tests)
+
+Total Test time (real) =  63.91 sec
