@@ -270,10 +270,8 @@ if(ENABLE_TESTING)
     add_subdirectory(tests)
 endif()
 
-# Examples
-if(BUILD_EXAMPLES)
-    add_subdirectory(examples)
-endif()
+# Examples are config-driven: run ./fsrm -c config/examples/<name>.config
+# See examples/ directory for runnable example descriptions and scripts.
 
 # Install
 install(TARGETS fsrm fsrmlib
