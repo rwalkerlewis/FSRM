@@ -369,6 +369,15 @@ struct SimulationConfig {
     bool absorbing_bc_z_max = false;               // Apply absorbing BC on z_max face (usually free surface)
     
     // =========================================================================
+    // Elastoplasticity (Drucker-Prager)
+    // =========================================================================
+    bool enable_elastoplasticity = false;          // Enable Drucker-Prager plasticity
+    double ep_cohesion = 1.0e6;                    // Cohesion (Pa)
+    double ep_friction_angle = 0.5236;             // Friction angle (rad, default 30 deg)
+    double ep_dilation_angle = 0.0;                // Dilation angle (rad)
+    double ep_hardening_modulus = 0.0;             // Isotropic hardening modulus (Pa)
+
+    // =========================================================================
     // HIGH-FIDELITY OPTIONS (Optional Advanced Features)
     // =========================================================================
     // These are optional extensions that provide higher physical fidelity

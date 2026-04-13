@@ -229,6 +229,7 @@ private:
     double fault_slip_strike_ = 0.0;
     double fault_slip_dip_ = 0.0;
     double fault_slip_opening_ = 0.0;
+    double fault_friction_coefficient_ = 0.6;
 
     // Output directory and format for HDF5/VTK output
     std::string output_directory_ = "output";
