@@ -11,12 +11,12 @@ Branch: main
 
 ### Codebase Size
 
-- 100 source files (.cpp): 86,658 lines
-- 117 header files (.hpp): 53,174 lines
-- Total: ~140,000 lines
-- **Live code** (referenced by Simulator and tested): ~35,000 lines in ~32 source files
-- **Tested standalone** (not Simulator-integrated): ~8,000 lines in ~8 source files
-- **Dead code** (never referenced, never tested): ~44,000 lines in ~60 source files
+After cleanup, the live codebase is:
+- 58 source files (.cpp): ~50,000 lines
+- 69 header files (.hpp): ~32,000 lines
+- Total live: ~82,000 lines
+
+Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and `archive/include/`.
 
 ### Test Suite
 
@@ -41,7 +41,7 @@ Docker-based. PETSc 3.22.2 with ctetgen.
 # Build
 docker build -f Dockerfile.ci -t fsrm-ci:local .
 docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c \
-  'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON && make -j$(nproc)'
+  'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF && make -j$(nproc)'
 
 # Test
 docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local ctest --output-on-failure
@@ -52,27 +52,16 @@ docker run --rm -it -v $(pwd):/workspace -w /workspace fsrm-ci:local bash
 
 ### GPU Acceleration (PETSc CUDA)
 
-FSRM supports GPU acceleration via PETSc's native CUDA backend. No FSRM code changes
-are needed. Build PETSc with `--with-cuda` (Dockerfile.cuda) and add runtime flags:
+FSRM supports GPU acceleration via PETSc native CUDA backend. No FSRM code changes needed. Build PETSc with `--with-cuda` (Dockerfile.cuda) and add runtime flags:
 
 ```bash
-# Build with CUDA image
 docker build -f Dockerfile.cuda -t fsrm-cuda:local .
-docker run --gpus all --rm -v $(pwd):/workspace -w /workspace fsrm-cuda:local bash -c \
-  'mkdir -p build-cuda && cd build-cuda && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && make -j$(nproc)'
-
-# Run with GPU acceleration
 docker run --gpus all --rm -v $(pwd):/workspace -w /workspace/build-cuda fsrm-cuda:local \
-  ./fsrm ../config/examples/punggye_ri_layered.config \
+  ./fsrm -c ../config/examples/punggye_ri_layered.config \
   -vec_type cuda -mat_type aijcusparse -log_view
 ```
 
-The PetscDS pointwise callbacks (f0, f1, g0, g3) run on CPU. PETSc handles all vector
-operations (VecAXPY, VecNorm) via cuBLAS, matrix operations (MatMult, MatSolve) via
-cuSPARSE, and KSP solves on GPU. Data transfer is automatic.
-
-The `src/gpu/*.cu` files and ENABLE_CUDA CMake option are dead code from an earlier
-approach. Ignore them. PETSc-native CUDA is the correct path.
+The PetscDS pointwise callbacks (f0, f1, g0, g3) run on CPU. PETSc handles all vector operations via cuBLAS, matrix operations via cuSPARSE, and KSP solves on GPU. Data transfer is automatic.
 
 ## MANDATORY: Check PETSc 3.22.2 API Before Use
 
@@ -89,16 +78,16 @@ Do not assume PETSc API signatures from memory. They change between versions.
 ### Pipeline (main.cpp -> Simulator)
 
 ```
-initializeFromConfigFile()  -> parse config, materials, fluids, explosion, injection, hydrofrac
-setupDM()                   -> create mesh (simplex if faults enabled)
-setupFaultNetwork()         -> PyLith workflow: submesh + DMPlexConstructCohesiveCells
-labelBoundaries()           -> label 6 faces of bounding box by coordinate
-setupFields()               -> create PetscFE, DMCreateDS, setupBoundaryConditions, rebuild section
-setupPhysics()              -> register PetscDS callbacks + unified constants
-setupTimeStepper()          -> create TS with IFunction/IJacobian
-setupSolvers()              -> configure SNES/KSP
-setInitialConditions()      -> zero solution, locate injection/explosion cells
-run()                       -> TSSolve
+initializeFromConfigFile() -> parse config, materials, fluids, explosion, injection, hydrofrac
+setupDM() -> create mesh (simplex if faults enabled)
+setupFaultNetwork() -> PyLith workflow: submesh + DMPlexConstructCohesiveCells
+labelBoundaries() -> label 6 faces of bounding box by coordinate
+setupFields() -> create PetscFE, DMCreateDS, setupBoundaryConditions, rebuild section
+setupPhysics() -> register PetscDS callbacks + unified constants
+setupTimeStepper() -> create TS with IFunction/IJacobian
+setupSolvers() -> configure SNES/KSP
+setInitialConditions() -> zero solution, locate injection/explosion cells
+run() -> TSSolve
 ```
 
 FormFunction uses DMPlexTSComputeIFunctionFEM for volume residual, plus addExplosionSourceToResidual (displacement DOFs via moment tensor equivalent nodal forces) and addInjectionToResidual (pressure DOFs) for point sources, plus addFaultPressureToResidual for pressurized fractures.
@@ -106,11 +95,11 @@ FormFunction uses DMPlexTSComputeIFunctionFEM for volume residual, plus addExplo
 ### CRITICAL: DS/BC Ordering in setupFields()
 
 ```cpp
-DMCreateDS(dm);                          // 1. PETSc 3.22 requires DS before DMAddBoundary
-setupBoundaryConditions();               // 2. DMAddBoundary calls (needs DS)
-DMSetLocalSection(dm, nullptr);          // 3. Clear cached section
-DMSetUp(dm);                             // 4. Rebuild section WITH BC constraints
-DMGetDS(dm, &prob);                      // 5. Get DS for later use
+DMCreateDS(dm); // 1. PETSc 3.22 requires DS before DMAddBoundary
+setupBoundaryConditions(); // 2. DMAddBoundary calls (needs DS)
+DMSetLocalSection(dm, nullptr); // 3. Clear cached section
+DMSetUp(dm); // 4. Rebuild section WITH BC constraints
+DMGetDS(dm, &prob); // 5. Get DS for later use
 ```
 
 **NEVER change this ordering. It was debugged over multiple sessions.**
@@ -124,20 +113,92 @@ PETSc DMPlex unstructured FEM with PetscDS pointwise callbacks (f0, f1, g0, g3).
 Set once in `setupPhysics()`:
 
 ```
-[0]  lambda           [1]  mu              [2]  rho_s
-[3]  phi              [4]  kx              [5]  ky             [6]  kz
-[7]  cw               [8]  co              [9]  cg
-[10] mu_w             [11] mu_o            [12] mu_g
-[13] Swr              [14] Sor             [15] Sgr
-[16] nw               [17] no              [18] ng
-[19] krw0             [20] kro0            [21] krg0
-[22] biot_alpha        [23] 1/M             [24] rho_f
-[25] cohesive_mode    [26] cohesive_mu_f   [27-31] reserved
-[32] ep_cohesion      [33] ep_friction_angle
+[0] lambda [1] mu [2] rho_s
+[3] phi [4] kx [5] ky [6] kz
+[7] cw [8] co [9] cg
+[10] mu_w [11] mu_o [12] mu_g
+[13] Swr [14] Sor [15] Sgr
+[16] nw [17] no [18] ng
+[19] krw0 [20] kro0 [21] krg0
+[22] biot_alpha [23] 1/M [24] rho_f
+[25] cohesive_mode [26] cohesive_mu_f [27-31] reserved
+[32] ep_cohesion [33] ep_friction_angle
 [34] ep_dilation_angle [35] ep_hardening_modulus
 ```
 
 When auxiliary fields are used, callbacks read material properties from `a[]`/`a_x[]` via `aOff[]` instead of from `constants[]`. The constants array remains for non-material parameters.
+
+## Feature Inventory
+
+### WORKS: Integration-tested through TSSolve (23+ tests)
+
+| Feature | Test Name | What It Proves |
+|---------|-----------|----------------|
+| Elastostatics | Physics.ElastostaticsPatch, Physics.LithostaticStress | Hooke stress, patch test, K0 ratio |
+| Elastodynamics | Physics.LambsProblem, Physics.GarvinsProblem | Wave propagation, analytical error norms |
+| Poroelasticity | Physics.TerzaghiConsolidation | Biot coupling, analytical consolidation |
+| Absorbing BCs | Physics.AbsorbingBC | Clayton-Engquist, >99% energy absorption |
+| Gravity body force | Physics.GravityLithostatic | Lithostatic column, K0 within 5% |
+| Moment tensor source | Physics.MomentTensorSource | FEM equivalent nodal forces |
+| Explosion seismograms | Integration.ExplosionSeismogram | Source -> waves -> SAC output |
+| Injection pressure | Integration.InjectionPressure | Poroelastic injection end-to-end |
+| Depth-layered material | Integration.LayeredElastostatics | Aux field material assignment |
+| Gmsh mesh import | Integration.GmshImport | MSH2 physical names, tet cells |
+| Gmsh multi-material | Integration.GmshMultiMaterial, Integration.GasbuggyMesh | Per-label lambda/mu/rho |
+| Gmsh nuclear twin | Integration.NuclearTwinGmsh | Mapped materials + explosion + HDF5 |
+| Explosion damage zones | Physics.ExplosionDamageZone | Degraded aux near cavity |
+| Punggye-ri layered | Integration.PunggyeRiLayered | 3-layer + absorbing + SAC + HDF5 |
+| Pressurized fracture | Integration.PressurizedFractureFEM | Cohesive traction through TSSolve |
+| Elastoplasticity | Integration.ElastoplasticSim | Drucker-Prager through TSSolve |
+| Locked fault (quasi-static) | Integration.DynamicRuptureSolve.LockedQuasiStatic | Manual cohesive assembly |
+| Locked fault (elastodynamic) | Integration.DynamicRuptureSolve.LockedElastodynamic | Cohesive + TSALPHA2 |
+| Prescribed slip | Integration.DynamicRuptureSolve.PrescribedSlip | Imposed displacement jump |
+| Locked fault transparency | Physics.LockedFaultTransparency | Fault slip < 5e-4 |
+| Derived fields | Integration.DerivedFields | Stress/strain/CFS from solution |
+| HDF5/VTK output | Integration.OutputFile | PetscViewerHDF5, VTK |
+| Restart | Integration.Restart | Checkpoint/restore lifecycle |
+| DPRK 2017 mb | Integration.DPRK2017Comparison | Synthetic vs observed body-wave magnitude |
+| Explosion+fault residual | Integration.ExplosionFaultReactivation | Coexistence of moment-tensor and cohesive residual |
+
+### WORKS: Standalone (correct, tested, not FEM-coupled)
+
+| Feature | Test Name |
+|---------|-----------|
+| Mueller-Murphy source | Physics.MuellerMurphy |
+| Near-field explosion (1D) | Physics.NearFieldExplosion |
+| Atmospheric explosion | Physics.AtmosphericExplosion |
+| Plasticity return mapping | Unit.DruckerPragerStandalone |
+| Friction laws | Unit.FaultMechanics |
+| Coulomb stress transfer | Unit.CoulombStressTransfer |
+| Hydrofrac formulas | Unit.HydrofracFormulas + 8 Physics tests |
+| Fluid flow callbacks | Unit.SinglePhaseFlow, Unit.MultiphaseFlow |
+
+### DOES NOT WORK: Code Exists but No TSSolve Test
+
+| Feature | What is Missing |
+|---------|-----------------|
+| Multiphase flow end-to-end | Buckley-Leverett or waterflood through TSSolve |
+| Hydraulic fracture coupled solve | Full lubrication + deformation coupling |
+| Slipping fault (Coulomb friction) | TSSolve test with shear loading |
+| Explosion + fault full TSSolve | Diverges; residual coexistence verified only |
+
+### DEAD CODE (Archived to archive/src/)
+
+~45,000 lines across ~60 files. Categories:
+
+| Category | Examples |
+|----------|---------|
+| Volcano modeling | VolcanoModel.cpp, VolcanoModule.cpp |
+| Ocean/tsunami | HydrodynamicModel, OceanPhysics, TsunamiModel |
+| DG/ADER | DiscontinuousGalerkin.cpp |
+| High-fidelity stubs | HighFidelityNumerics, AdvancedCoupledPhysics |
+| Material library | MaterialLibrary.cpp |
+| Radiation | RadiationPhysics.cpp |
+| AMR | AdaptiveMeshRefinement.cpp (header kept for test dep) |
+| Reservoir stubs | TracerModel, AquiferModel, TwoPhaseFlow |
+| Other | Module stubs, VFPTables, GnuplotViz |
+
+Do not reference these in documentation or claims. Do not try to use them.
 
 ## File Locations
 
@@ -166,89 +227,38 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | Integration tests | tests/integration/ | -- |
 | Physics validation | tests/physics_validation/ | -- |
 | Example configs | config/examples/ | -- |
-| Aspirational configs | config/aspirational/ | DO NOT USE |
+| Runnable examples | examples/ | -- |
+| Visualization scripts | scripts/plot_seismograms.py, scripts/plot_wavefield.py | -- |
 
-## What Runs Through TSSolve (Integration-Tested)
+## Runnable Examples
 
-Every feature below has at least one integration test that calls `sim.run()` (TSSolve) and checks quantitative results.
+Six examples in `examples/`, each with README.md and run.sh:
 
-1. **Elastostatics**: PetscFEElasticity f0/f1/g3 callbacks. Uniaxial compression, patch test, lithostatic stress. Tests: `Physics.ElastostaticsPatch`, `Physics.LithostaticStress`, `Integration.FullSimulation`.
-2. **Poroelasticity**: PetscFEPoroelasticity f0/f1 for pressure+displacement, all 4 Jacobian blocks. Tests: `Physics.TerzaghiConsolidation` (analytical comparison).
-3. **Elastodynamics**: Implicit time stepping with TSALPHA2. Tests: `Physics.LambsProblem` (point force on halfspace), `Physics.GarvinsProblem` (buried explosion Green function).
-4. **Explosion seismogram pipeline**: Moment tensor source injection -> elastodynamic solve -> seismometer sampling -> SAC output. Tests: `Integration.ExplosionSeismogram`.
-5. **Absorbing BCs**: Clayton-Engquist first-order Lysmer-Kuhlmeyer. Energy absorption >99% at normal incidence. Tests: `Physics.AbsorbingBC`.
-6. **Gravity body force**: Density-scaled gravity callback. Lithostatic stress column with K0 ratio within 5% tolerance. Tests: `Physics.GravityLithostatic`.
-7. **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Tests: `Physics.MomentTensorSource`.
-8. **Injection pressure buildup**: Poroelastic Simulator with point injection. Two-simulation comparison. Tests: `Integration.InjectionPressure`.
-9. **Derived fields**: Cell-centered stress, strain, CFS from FEM solution. Tests: `Integration.DerivedFields`.
-10. **Layered elastostatics**: Depth-based material layering via auxiliary fields. Tests: `Integration.LayeredElastostatics`.
-11. **Simulation lifecycle and restart**: Tests: `Integration.FullSimulation`, `Integration.Restart`.
-12. **DPRK 2017 synthetic mb**: Synthetic vs observed body-wave magnitude. Tests: `Integration.DPRK2017Comparison`.
-13. **Boundary conditions**: 6-face labeling, DMAddBoundary registration. Tests: `Unit.BoundaryConditions`.
-14. **Gmsh label-based material assignment**: Tests: `Integration.GmshMultiMaterial`, `Integration.GasbuggyMesh`.
-15. **Gmsh mesh import**: Tests: `Integration.GmshImport`.
-16. **Gmsh nuclear twin workflow**: Tests: `Integration.NuclearTwinGmsh`.
-17. **Explosion damage-zone degradation**: Tests: `Physics.ExplosionDamageZone`.
-18. **Punggye-ri layered model**: Tests: `Integration.PunggyeRiLayered`.
-19. **Pressurized fracture FEM**: Tests: `Integration.PressurizedFractureFEM`.
-20. **Prescribed slip**: Tests: `Integration.PrescribedSlip`.
-21. **HDF5/VTK output**: Tests: `Integration.OutputFile`.
-22. **Elastoplasticity (Drucker-Prager)**: PetscFEElastoplasticity f1/g3 callbacks wired into setupPhysics via `[PLASTICITY]` config. Unified constants indices 32-35. Tests: `Integration.ElastoplasticSim` (quasi-static beyond/below yield), `Physics.ElastoplasticBearingCapacity` (below-yield matches elastic, above-yield converges).
-23. **Dynamic rupture (locked/prescribed fault solves)**: Manual cohesive constraint assembly via `addCohesiveConstraintToResidual()` in FormFunction. Bypasses PetscDSSetBdResidual which crashes on cohesive cells in PETSc 3.22. Locked and prescribed-slip cases use an analytical interface Jacobian. Tests: `Integration.DynamicRuptureSolve.LockedQuasiStatic`, `Integration.DynamicRuptureSolve.LockedElastodynamic`, `Integration.DynamicRuptureSolve.PrescribedSlip`, `Physics.LockedFaultTransparency`.
-24. **Explosion source + cohesive fault coexistence**: Explosion moment-tensor residual assembly and manual cohesive assembly can be evaluated together through the TS residual path. Test: `Integration.ExplosionFaultReactivation` (`SetupAndResidualEvaluation`). Full explosion-plus-fault TSSolve remains sensitive and is not claimed as verified.
+| # | Directory | Config | Physics |
+|---|-----------|--------|---------|
+| 01 | examples/01_uniaxial_compression | uniaxial_compression.config | Elastostatics, BCs |
+| 02 | examples/02_explosion_seismogram | explosion_seismogram_quick.config | Elastodynamics, SAC |
+| 03 | examples/03_elastoplastic_compression | elastoplastic_compression.config | Drucker-Prager |
+| 04 | examples/04_locked_fault | locked_fault_compression.config | Cohesive cells |
+| 05 | examples/05_punggye_ri_nuclear_test | punggye_ri_layered_quick.config | Layered, SAC, HDF5 |
+| 06 | examples/06_gmsh_multimaterial | nuclear_twin_gmsh.config | Gmsh, per-region |
 
-## What Has Correct Callbacks But is Not Fully Solver-Coupled
+## Roadmap: Features to Implement
 
-Setup pipeline completes, but TSSolve is either not called or not tested end-to-end.
+Each item requires: PetscDS callbacks integrated into setupPhysics(), integration tests
+through TSSolve, example config, and visualization. Source code in archive/src/ may provide
+a starting point but must be rewritten to use the PetscDS callback pattern.
 
-1. **Cohesive fault mesh splitting**: PyLith workflow. Tests: `Functional.DynamicRuptureSetup.MeshSplitting`. TSSolve not called.
-2. **Dynamic rupture setup**: Tests: `Functional.DynamicRuptureSetup.LockedFault`, `.SlippingFault`, `.FaultGeometryFromConfig`. TSSolve not called (these are setup-only tests).
-3. **Explosion source + cohesive fault full TSSolve**: Setup and residual evaluation are verified, but the fully time-stepped coupled solve remains sensitive and is not claimed as passing end-to-end.
-4. **Fault + absorbing BC coexistence**: Tests: `Functional.DynamicRuptureSetup.AbsorbingCoexist`, `Functional.FaultAbsorbingCoexist`. TSSolve not called.
-5. **Fracture lubrication flow callbacks**: Tests: `Unit.FractureFlowCallbacks`. Callback tested in isolation.
-
-## Standalone Verified Code (Not FEM-Coupled)
-
-Standalone analytical formulas and solvers. Correct and tested, but not coupled to PETSc FEM.
-
-1. **PlasticityModel return mapping**: integrateStress works and produces nonzero plastic strain. Tests: `Unit.DruckerPragerStandalone`. Also wired into PetscDS callbacks via PetscFEElastoplasticity (see item 22 above).
-2. **NearFieldExplosionSolver**: 1D Lagrangian with Mie-Gruneisen EOS, damage, spall. Tests: `Physics.NearFieldExplosion`.
-3. **NuclearAirburstEffects**: Sedov-Taylor, Brode, EMP. Tests: `Physics.AtmosphericExplosion`.
-4. **Mueller-Murphy source**: Corner frequency, mb, RDP, moment rate. Tests: `Physics.MuellerMurphy`.
-5. **Hydrofrac utilities**: Sneddon, PKN, Carter, stress shadowing, induced seismicity, proppant, Arps. Tests: `Unit.HydrofracFormulas`, `Unit.FracturePropagation`, `Unit.PressurizedFractureCallbacks`, `Physics.StressShadowing`, `Physics.InducedSeismicity`, `Physics.ProppantTransport`, `Physics.LeakoffCoupling`, `Physics.ProductionForecast`.
-6. **Friction laws**: Tests: `Unit.FaultMechanics`.
-7. **CoulombStressTransfer**: Tests: `Unit.CoulombStressTransfer`.
-8. **SeismicSource**: Tests: `Unit.SeismicSource`.
-9. **MaterialModel**: Tests: `Unit.MaterialModel`.
-10. **SCEC TPV5 infrastructure**: Tests: `Physics.SCEC.TPV5`. Full solve not implemented.
-11. **Fluid flow callbacks**: Tests: `Unit.SinglePhaseFlow`, `Unit.MultiphaseFlow`. NOT end-to-end verified.
-
-## Dead Code (Never Referenced, Never Tested)
-
-~44,000 lines across ~51 source files compile into libfsrmlib.so but are never called. Categories:
-
-| Category | Lines | Examples |
-|----------|------:|---------|
-| Volcano modeling | ~4,200 | VolcanoModel.cpp, VolcanoModule.cpp |
-| Ocean/tsunami | ~5,000 | HydrodynamicModel, OceanPhysics, TsunamiModel |
-| ML/neural operators | ~9,200 | FNO, NeuralSurrogates, GraphNeuralOperator |
-| DG/ADER | ~1,900 | DiscontinuousGalerkin.cpp |
-| High-fidelity stubs | ~4,000 | HighFidelityNumerics, AdvancedCoupledPhysics |
-| Material library | ~7,700 | MaterialLibrary.cpp |
-| Radiation | ~1,650 | RadiationTransport.cpp |
-| AMR | ~1,470 | AdaptiveMeshRefinement.cpp |
-| Reservoir stubs | ~3,300 | Tracer, Aquifer, RelativePermeability |
-| Other | ~5,200 | Module stubs, VFP, GnuplotViz, standalone solvers |
-
-Do not reference these in documentation or claims. Do not try to use them.
-
-## What Does NOT Work (Known Gaps)
-
-1. **Hydrofrac not fully coupled**: PressurizedFractureFEM passes, but full lubrication+deformation coupled solve is callback-tested only.
-2. **Prescribed slip in manual assembly**: Not yet implemented. Locked and slipping modes work via `addCohesiveConstraintToResidual()`.
-3. **Fault + absorbing coexistence never solved**: Setup succeeds, TSSolve never called.
-4. **Dead code stubs**: DG/ADER, FNO/ML, volcano, tsunami, ocean, radiation, AMR. Not functional.
-5. **Custom CUDA kernels**: The `src/gpu/*.cu` files and ENABLE_CUDA CMake option are dead code. GPU acceleration uses PETSc-native CUDA backend (`-vec_type cuda -mat_type aijcusparse`) instead.
+1. Slipping fault TSSolve (Coulomb friction through manual assembly)
+2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
+3. Full coupled hydraulic fracturing (lubrication + deformation)
+4. Viscoelastic attenuation (Q-factor memory variables)
+5. Thermal coupling (heat equation + THM Biot)
+6. Radiation transport (advection-diffusion for fallout)
+7. Per-cell material from velocity model files
+8. SCEC TPV5 dynamic rupture benchmark
+9. Multi-stage hydraulic fracturing with stress shadowing
+10. Production forecasting through propped fracture
 
 ## Rules
 
@@ -258,11 +268,11 @@ Do not reference these in documentation or claims. Do not try to use them.
 4. NEVER change the DS/BC ordering in setupFields().
 5. Do NOT modify callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp.
 6. Do NOT modify FaultMeshManager::splitMeshAlongFault or CohesiveFaultKernel::registerWithDS.
-7. Plasticity return mapping works at the material-point level (PlasticityModel::integrateStress). PetscFEElastoplasticity callback exists and is wired into setupPhysics. DG, ADER, ML features are stubs. Custom GPU kernels (src/gpu/*.cu) are dead code; GPU acceleration uses PETSc-native CUDA. Volcano, ocean, tsunami, radiation code is dead (never referenced). Do not claim any of these are functional.
-8. No Python. Everything in C++ within the Simulator.
-9. Ignore everything in config/aspirational/. Those configs reference features that do not exist.
+7. Dead code has been moved to archive/. Do not reference it in documentation or claims.
+8. No Python. Everything in C++ within the Simulator. Python is ONLY for post-processing visualization.
+9. Ignore everything in config/aspirational/ (archived). Those configs reference features that do not exist.
 10. Working examples are in config/examples/ with `.config` extension.
-11. The executable is `fsrm`, not `fsrm_simulator`. Run as `./fsrm ../config/examples/example.config`.
+11. The executable is `fsrm`, not `fsrm_simulator`. Run as `./fsrm -c ../config/examples/example.config`.
 12. No em dashes or contractions in code comments or documentation.
 13. Verification tests must have quantitative pass/fail criteria with numerical tolerances.
 14. Update CLAUDE.md and README.md after every session to reflect actual code state. Every claim must be backed by a specific test name or code reference.
@@ -283,14 +293,9 @@ ctest -j$(nproc) --output-on-failure
 
 Or by category:
 ```bash
-ctest -j$(nproc) -L "unit" --output-on-failure &
-ctest -j$(nproc) -L "functional" --output-on-failure &
-ctest -j$(nproc) -L "physics_validation" --output-on-failure &
-ctest -j$(nproc) -L "integration" --output-on-failure &
-wait
+ctest -j$(nproc) -L "unit" --output-on-failure
+ctest -j$(nproc) -L "integration" --output-on-failure
 ```
-
-Tests within the same executable share a process and run sequentially. Parallelism is across executables and CTest registrations.
 
 ### Build + Test in One Docker Command
 
