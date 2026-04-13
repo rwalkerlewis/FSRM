@@ -80,6 +80,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
     physics_validation/test_pressurized_fracture.cpp
+    physics_validation/test_elastoplastic_strip.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -111,6 +112,9 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_leakoff_coupling.cpp
     integration/test_production_forecast.cpp
     integration/test_pressurized_fracture_fem.cpp
+    integration/test_elastoplastic_sim.cpp
+    integration/test_dynamic_rupture_solve.cpp
+    integration/test_explosion_fault_reactivation.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -227,6 +231,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
     add_test(NAME Unit.DruckerPragerStandalone        COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
     add_test(NAME Unit.Elastoplasticity               COMMAND run_physics_tests --gtest_filter=ElastoplasticityTest.*)
+    add_test(NAME Physics.ElastoplasticBearingCapacity COMMAND run_physics_tests --gtest_filter=ElastoplasticBearingCapacityTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -263,6 +268,9 @@ if(GTest_FOUND)
     add_test(NAME Physics.LeakoffCoupling COMMAND run_integration_tests --gtest_filter=LeakoffCouplingTest.*)
     add_test(NAME Physics.ProductionForecast COMMAND run_integration_tests --gtest_filter=ProductionForecastTest.*)
     add_test(NAME Integration.PressurizedFractureFEM COMMAND run_integration_tests --gtest_filter=PressurizedFractureFEMTest.*)
+    add_test(NAME Integration.ElastoplasticSim COMMAND run_integration_tests --gtest_filter=ElastoplasticSimTest.*)
+    add_test(NAME Integration.DynamicRuptureSolve COMMAND run_integration_tests --gtest_filter=DynamicRuptureSolveTest.*)
+    add_test(NAME Integration.ExplosionFaultReactivation COMMAND run_integration_tests --gtest_filter=ExplosionFaultReactivationTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -331,6 +339,7 @@ if(GTest_FOUND)
         Physics.ProppantTransport
         Physics.LeakoffCoupling
         Physics.ProductionForecast
+        Physics.ElastoplasticBearingCapacity
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
@@ -349,6 +358,9 @@ if(GTest_FOUND)
         Integration.DerivedFields
         Integration.DPRK2017Comparison
         Integration.PressurizedFractureFEM
+        Integration.ElastoplasticSim
+        Integration.DynamicRuptureSolve
+        Integration.ExplosionFaultReactivation
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

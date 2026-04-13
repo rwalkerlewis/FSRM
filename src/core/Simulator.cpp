@@ -3,6 +3,7 @@
 #include "numerics/PetscFEFluidFlow.hpp"
 #include "numerics/PetscFEElasticity.hpp"
 #include "numerics/PetscFEElasticityAux.hpp"
+#include "numerics/PetscFEElastoplasticity.hpp"
 #include "numerics/PetscFEPoroelasticity.hpp"
 #include "numerics/PetscFEHydrofrac.hpp"
 #include "numerics/AbsorbingBC.hpp"
@@ -618,6 +619,7 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         fault_slip_strike_ = reader.getDouble("FAULT", "slip_strike", 0.0);
         fault_slip_dip_ = reader.getDouble("FAULT", "slip_dip", 0.0);
         fault_slip_opening_ = reader.getDouble("FAULT", "slip_opening", 0.0);
+        fault_friction_coefficient_ = reader.getDouble("FAULT", "friction_coefficient", 0.6);
         // Read optional fault geometry (center, orientation, dimensions)
         if (reader.hasKey("FAULT", "center_x") || reader.hasKey("FAULT", "center_y") ||
             reader.hasKey("FAULT", "center_z") || reader.hasKey("FAULT", "strike") ||
@@ -636,6 +638,17 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
             fault_width_ = reader.getDouble("FAULT", "width", -1.0);
         }
         config.enable_faults = true;
+    }
+
+    // Parse elastoplasticity configuration (optional)
+    if (reader.hasSection("PLASTICITY")) {
+        config.enable_elastoplasticity = reader.getBool("PLASTICITY", "enabled", false);
+        config.ep_cohesion = reader.getDouble("PLASTICITY", "cohesion", 1.0e6);
+        double friction_deg = reader.getDouble("PLASTICITY", "friction_angle", 30.0);
+        double dilation_deg = reader.getDouble("PLASTICITY", "dilation_angle", 0.0);
+        config.ep_friction_angle = friction_deg * M_PI / 180.0;
+        config.ep_dilation_angle = dilation_deg * M_PI / 180.0;
+        config.ep_hardening_modulus = reader.getDouble("PLASTICITY", "hardening_modulus", 0.0);
     }
 
     // Parse heterogeneous material configuration (optional)
@@ -1748,7 +1761,8 @@ PetscErrorCode Simulator::setupPhysics() {
     //   [22] = biot_coefficient (alpha)
     //   [23] = biot_modulus_inv (1/M)
     //   [24] = rho_fluid
-    PetscScalar unified_constants[PetscFEHydrofrac::HYDROFRAC_CONST_COUNT] = {0};
+    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = PetscFEElastoplasticity::EP_CONST_COUNT;
+    PetscScalar unified_constants[MAX_UNIFIED_CONSTANTS] = {0};
 
     // Always set material properties if geomechanics is enabled
     if (config.enable_geomechanics || config.enable_elastodynamics) {
@@ -1811,6 +1825,7 @@ PetscErrorCode Simulator::setupPhysics() {
     // constants. Repurpose constants[0] as gravity magnitude.
     bool use_aux_callbacks = config.use_heterogeneous_material ||
                              config.enable_near_field_damage ||
+                             config.enable_elastoplasticity ||
                              (config.gravity > 0.0);
     if (use_aux_callbacks) {
         // When absorbing BCs are enabled with gravity, the constants[0-2] slots
@@ -1831,11 +1846,38 @@ PetscErrorCode Simulator::setupPhysics() {
         unified_constants[PetscFEHydrofrac::HYDROFRAC_CONST_PRESSURE] = hydrofrac_uniform_pressure_pa_;
     }
 
+    // Set elastoplasticity constants if enabled
+    if (config.enable_elastoplasticity) {
+        unified_constants[PetscFEElastoplasticity::EP_CONST_COHESION] = config.ep_cohesion;
+        unified_constants[PetscFEElastoplasticity::EP_CONST_FRICTION_ANGLE] = config.ep_friction_angle;
+        unified_constants[PetscFEElastoplasticity::EP_CONST_DILATION_ANGLE] = config.ep_dilation_angle;
+        unified_constants[PetscFEElastoplasticity::EP_CONST_HARDENING_MODULUS] = config.ep_hardening_modulus;
+    }
+
+    // Set cohesive fault constants if enabled
+    if (config.enable_faults && cohesive_kernel_) {
+        double fault_mode_val = 0.0;  // locked
+        if (fault_mode_ == "slipping" || fault_mode_ == "dynamic") {
+            fault_mode_val = 1.0;
+        }
+        unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MODE] = fault_mode_val;
+        unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_F] = fault_friction_coefficient_;
+    }
+
     // Set constants once for all physics (eliminates collision bug)
-    // [0-24]=fluid/elasticity/poroelasticity, [25-30]=cohesive fault, [31]=hydrofrac pressure
+    // [0-24]=fluid/elasticity/poroelasticity, [25-30]=cohesive fault, [31]=hydrofrac pressure,
+    // [32-35]=elastoplasticity
     PetscInt nconst_unified = hydrofrac_fem_pressurized_mode_
                               ? PetscFEHydrofrac::HYDROFRAC_CONST_COUNT
                               : 27;
+    if (config.enable_faults && cohesive_kernel_) {
+        nconst_unified = std::max(nconst_unified,
+            static_cast<PetscInt>(CohesiveFaultKernel::COHESIVE_CONST_COUNT));
+    }
+    if (config.enable_elastoplasticity) {
+        nconst_unified = std::max(nconst_unified,
+            static_cast<PetscInt>(PetscFEElastoplasticity::EP_CONST_COUNT));
+    }
     ierr = PetscDSSetConstants(prob, nconst_unified, unified_constants); CHKERRQ(ierr);
 
     // Register PetscFEPoroelasticity callbacks for fully coupled Biot poroelasticity
@@ -1923,12 +1965,19 @@ PetscErrorCode Simulator::setupPhysics() {
             // The time stepper handles the second-order time integration internally
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material)
+                // f1: elastoplastic if enabled, otherwise elastic
+                auto f1_cb = config.enable_elastoplasticity
+                    ? PetscFEElastoplasticity::f1_elastoplastic_aux
+                    : PetscFEElasticityAux::f1_elastostatics_aux;
+                auto g3_cb = config.enable_elastoplasticity
+                    ? PetscFEElastoplasticity::g3_elastoplastic_aux
+                    : PetscFEElasticityAux::g3_elastostatics_aux;
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastodynamics_aux,
-                                          PetscFEElasticityAux::f1_elastostatics_aux); CHKERRQ(ierr);
+                                          f1_cb); CHKERRQ(ierr);
                 ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
                                           PetscFEElasticityAux::g0_elastodynamics_aux, nullptr, nullptr,
-                                          PetscFEElasticityAux::g3_elastostatics_aux); CHKERRQ(ierr);
+                                          g3_cb); CHKERRQ(ierr);
             } else {
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticity::f0_elastodynamics,
@@ -1941,12 +1990,19 @@ PetscErrorCode Simulator::setupPhysics() {
             // Quasi-static elasticity (no inertia)
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material or gravity)
+                // f1: elastoplastic if enabled, otherwise elastic
+                auto f1_cb = config.enable_elastoplasticity
+                    ? PetscFEElastoplasticity::f1_elastoplastic_aux
+                    : PetscFEElasticityAux::f1_elastostatics_aux;
+                auto g3_cb = config.enable_elastoplasticity
+                    ? PetscFEElastoplasticity::g3_elastoplastic_aux
+                    : PetscFEElasticityAux::g3_elastostatics_aux;
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastostatics_aux,
-                                          PetscFEElasticityAux::f1_elastostatics_aux); CHKERRQ(ierr);
+                                          f1_cb); CHKERRQ(ierr);
                 ierr = PetscDSSetJacobian(prob, displacement_field_idx, displacement_field_idx,
                                           nullptr, nullptr, nullptr,
-                                          PetscFEElasticityAux::g3_elastostatics_aux); CHKERRQ(ierr);
+                                          g3_cb); CHKERRQ(ierr);
             } else {
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticity::f0_elastostatics,
@@ -2766,10 +2822,10 @@ PetscErrorCode Simulator::setupFaultNetwork() {
         }
     } else if (fault_mode_ == "slipping") {
         cohesive_kernel_->setMode(false);
-        cohesive_kernel_->setFrictionCoefficient(0.6);
+        cohesive_kernel_->setFrictionCoefficient(fault_friction_coefficient_);
     } else {
         cohesive_kernel_->setMode(true);  // locked
-        cohesive_kernel_->setFrictionCoefficient(0.6);
+        cohesive_kernel_->setFrictionCoefficient(fault_friction_coefficient_);
     }
     
     if (fracture_plane_enabled_) {

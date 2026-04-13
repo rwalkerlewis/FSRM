@@ -8,7 +8,7 @@ A coupled multi-physics simulator for nuclear explosion monitoring, seismic wave
 
 **MIT License** -- free to use, modify, and distribute for any purpose.
 
-## Verified Capabilities (91 Docker Tests Pass)
+## Verified Capabilities (95 Docker Tests Pass)
 
 The following features have automated tests with quantitative pass/fail criteria. Every claim below is backed by a specific test name. Run `ctest --output-on-failure` to verify.
 
@@ -19,6 +19,7 @@ The following features have automated tests with quantitative pass/fail criteria
 - **Boundary conditions**: 6-face bounding box labeling, Dirichlet via DMAddBoundary, section rebuild. Tests: `Unit.BoundaryConditions`.
 - **Derived fields**: Cell-centered stress, strain, and Coulomb failure stress from FEM solution. Tests: `Integration.DerivedFields`.
 - **Layered elastostatics**: Depth-based material layering via auxiliary fields. Tests: `Integration.LayeredElastostatics`.
+- **Elastoplasticity (Drucker-Prager)**: PetscFEElastoplasticity f1/g3 callbacks wired into setupPhysics via `[PLASTICITY]` config. Unified constants indices 32-35. Tests: `Integration.ElastoplasticSim` (quasi-static beyond/below yield), `Physics.ElastoplasticBearingCapacity` (below-yield matches elastic, above-yield converges).
 
 ### Wave Propagation
 - **Elastodynamics**: Implicit time stepping with TSALPHA2. Tests: `Physics.LambsProblem` (point force on halfspace), `Physics.GarvinsProblem` (buried explosion Green function).
@@ -71,10 +72,9 @@ The following features have automated tests with quantitative pass/fail criteria
 - **Carter leak-off coupling**: Carter leak-off rate, cumulative volume, delayed opening, area scaling. Tests: `Physics.LeakoffCoupling` (7 assertions).
 - **Production forecasting**: Arps hyperbolic/exponential/harmonic decline curves, cumulative production, fracture productivity index. Tests: `Physics.ProductionForecast` (9 assertions).
 
-### Plasticity (Material-Point Level)
-- **Drucker-Prager return mapping**: PlasticityModel::integrateStress produces nonzero plastic strain for deviatoric loading. Tests: `Unit.DruckerPragerStandalone`.
+### Plasticity
+- **Drucker-Prager return mapping**: PlasticityModel::integrateStress produces nonzero plastic strain for deviatoric loading. Tests: `Unit.DruckerPragerStandalone`. Also wired into PetscDS callbacks via PetscFEElastoplasticity (see Solid Mechanics above).
 - **Yield function evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection. Tests: `Unit.Elastoplasticity`.
-- **Known limitation**: Return mapping works at the material-point level only. Not wired into PETSc FEM pipeline (no config flag to enable).
 
 ### Fluid Flow Callbacks
 - **Single-phase and black oil**: PetscFE pointwise callbacks. Tests: `Unit.SinglePhaseFlow`, `Unit.MultiphaseFlow`. NOT verified end-to-end in a simulation.
@@ -89,9 +89,8 @@ These features exist as code but are NOT functional end-to-end:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Elastoplasticity FEM coupling | Not wired | Return mapping works standalone; no config flag to enable in Simulator |
 | Hydraulic fracturing (full coupled) | Partial | PressurizedFractureFEM passes; lubrication+deformation coupled solve is callback-tested only |
-| Dynamic rupture TSSolve | Setup only | Pipeline setup completes; TSSolve never called. SNES may diverge |
+| Dynamic rupture TSSolve | Diverges | Setup completes, TSSolve diverges (ierr=91) due to PetscDSSetBdResidual on cohesive cells in PETSc 3.22. Tests use GTEST_SKIP. Pending upstream PETSc fix |
 | Fault + absorbing coexistence solve | Setup only | Setup succeeds; TSSolve never called |
 | End-to-end multiphase flow | Not tested | Callbacks unit-tested; no simulation test |
 | DG/ADER-DG spatial discretization | Stub | Source files exist. Not functional |
@@ -116,7 +115,7 @@ Approximately 44,000 lines (~53% of source .cpp files) compile into the library 
 - **Parallel Computing**: PETSc 3.22.2, MPI
 - **FEM**: PETSc DMPlex unstructured finite elements with PetscDS pointwise callbacks
 - **I/O**: HDF5
-- **Testing**: Google Test, CTest (91 tests across 6 executables)
+- **Testing**: Google Test, CTest (95 tests across 6 executables)
 - **Containers**: Docker (Dockerfile.ci for reproducible builds)
 
 ## Building
@@ -180,6 +179,9 @@ These configs are in `config/examples/` and correspond to features with passing 
 | `lithostatic_column.config` | Lithostatic stress column |
 | `underground_explosion_template.config` | Underground explosion template |
 | `minimal_explosion.config` | Minimal explosion test case |
+| `elastoplastic_compression.config` | Drucker-Prager elastoplastic compression |
+| `locked_fault_compression.config` | Locked fault under compression |
+| `slipping_fault_shear.config` | Slipping fault with pre-stress |
 
 ### Aspirational Configuration Files
 
@@ -224,8 +226,8 @@ ctest -j$(nproc) --output-on-failure
 # Run by label
 ctest -L "unit"                 # 36 unit tests
 ctest -L "functional"           # 10 functional tests
-ctest -L "physics_validation"   # 23 physics validation tests
-ctest -L "integration"          # 18 integration tests
+ctest -L "physics_validation"   # 24 physics validation tests
+ctest -L "integration"          # 21 integration tests
 ctest -L "performance"          # 3 performance tests
 
 # Run specific test
@@ -235,8 +237,8 @@ ctest -R Physics.TerzaghiConsolidation -V
 ### Test Labels
 - `unit`: Standalone formula, callback, and component tests (36 tests)
 - `functional`: Setup pipeline verification, no TSSolve (10 tests)
-- `physics_validation`: Analytical solutions, FEM-coupled benchmarks (23 tests)
-- `integration`: Full Simulator pipeline through TSSolve (18 tests)
+- `physics_validation`: Analytical solutions, FEM-coupled benchmarks (24 tests)
+- `integration`: Full Simulator pipeline through TSSolve (21 tests)
 - `performance`: Performance benchmarks (3 tests)
 - `experimental`: Neural operator stubs (1 test)
 
@@ -280,8 +282,7 @@ Fine-tune solvers via command line:
 
 Contributions welcome. Areas of interest:
 - End-to-end verification of fluid flow callbacks (simulation test for single-phase/multiphase)
-- Wiring elastoplasticity into Simulator (PetscDS callback registration + config flag)
-- Dynamic rupture TSSolve convergence (cohesive Jacobian debugging)
+- Dynamic rupture TSSolve convergence (PetscDSSetBdResidual on cohesive cells in PETSc 3.22)
 - Additional analytical benchmarks
 - Absorbing boundary improvements (PML)
 

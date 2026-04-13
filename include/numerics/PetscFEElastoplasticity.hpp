@@ -27,13 +27,14 @@ class PetscFEElastoplasticity
 {
 public:
   // Constants array indices for elastoplasticity parameters
+  // Placed after cohesive fault (25-30) and hydrofrac (31) constants
   enum
   {
-    EP_CONST_COHESION          = 0,
-    EP_CONST_FRICTION_ANGLE    = 1,
-    EP_CONST_DILATION_ANGLE    = 2,
-    EP_CONST_HARDENING_MODULUS = 3,
-    EP_CONST_COUNT             = 4
+    EP_CONST_COHESION          = 32,
+    EP_CONST_FRICTION_ANGLE    = 33,
+    EP_CONST_DILATION_ANGLE    = 34,
+    EP_CONST_HARDENING_MODULUS = 35,
+    EP_CONST_COUNT             = 36
   };
 
   // Aux field indices (extends PetscFEElasticityAux)
