@@ -139,6 +139,14 @@ struct MaterialLayer {
     double rho = 2650.0;      // Density (kg/m^3)
 };
 
+struct MaterialRegion {
+    std::string gmsh_label_name;
+    int label_id = -1;
+    double lambda = 30.0e9;
+    double mu = 25.0e9;
+    double rho = 2650.0;
+};
+
 struct SimulationConfig {
     std::string input_file;
     std::string output_file;
@@ -328,10 +336,12 @@ struct SimulationConfig {
     // Heterogeneous Material Properties
     // =========================================================================
     bool use_heterogeneous_material = false;       // Use auxiliary fields for per-cell properties
+    std::string material_assignment = "depth";     // depth or gmsh_label
     double gravity = 0.0;                          // Gravity magnitude (m/s^2), 0 = disabled
     bool enable_gravity = false;                   // Explicit gravity enable flag
     double K0 = 0.5;                               // Lateral earth pressure coefficient
     std::vector<MaterialLayer> material_layers;    // Layer definitions (sorted by z)
+    std::vector<MaterialRegion> material_regions;  // Region definitions for gmsh_label assignment
 
     // =========================================================================
     // Boundary Condition Configuration

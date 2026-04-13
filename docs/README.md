@@ -28,6 +28,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [RESFRAC_EQUIVALENT_CAPABILITIES.md](RESFRAC_EQUIVALENT_CAPABILITIES.md) | Hydraulic fracturing capabilities |
 | [SEISSOL_COMPARISON.md](SEISSOL_COMPARISON.md) | Comparison with SeisSol earthquake simulator |
 | [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) | **Nuclear tests, impacts, EMP, radiation** |
+| [NUCLEAR_TEST_DIGITAL_TWIN.md](NUCLEAR_TEST_DIGITAL_TWIN.md) | Verified underground nuclear digital twin workflow |
 | [VOLCANO_MODELING.md](VOLCANO_MODELING.md) | **Comprehensive volcanic system simulation** |
 | [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md) | **Earthquake-tsunami coupling and inundation** |
 
@@ -59,6 +60,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 - **Hydraulic Fracturing**: [RESFRAC_EQUIVALENT_CAPABILITIES.md](RESFRAC_EQUIVALENT_CAPABILITIES.md)
 - **Eclipse Compatibility**: [ECLIPSE_FEATURES.md](ECLIPSE_FEATURES.md)
 - **Explosions & Impacts**: [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) ⭐
+- **Nuclear Twin Workflow**: [NUCLEAR_TEST_DIGITAL_TWIN.md](NUCLEAR_TEST_DIGITAL_TWIN.md)
 - **Volcanoes**: [VOLCANO_MODELING.md](VOLCANO_MODELING.md) ⭐
 - **Tsunamis**: [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md) ⭐
 

@@ -78,6 +78,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_near_field_explosion.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
+    physics_validation/test_explosion_damage_zone.cpp
     physics_validation/test_pressurized_fracture.cpp
 )
 
@@ -93,6 +94,10 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_prescribed_slip.cpp
     integration/test_output_file.cpp
     integration/test_gmsh_import.cpp
+    integration/test_gmsh_multimaterial.cpp
+    integration/test_gasbuggy_mesh.cpp
+    integration/test_nuclear_twin_gmsh.cpp
+    integration/test_punggye_ri_layered.cpp
     integration/test_derived_fields.cpp
     integration/test_dprk_2017_comparison.cpp
     integration/test_dynamic_rupture_basic.cpp
@@ -220,6 +225,7 @@ if(GTest_FOUND)
     add_test(NAME Physics.DruckerPrager              COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
     add_test(NAME Physics.Elastoplasticity           COMMAND run_physics_tests --gtest_filter=ElastoplasticityTest.*)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
+    add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Physics.PressurizedFracture         COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
 
     # --- Integration tests ---
@@ -234,6 +240,10 @@ if(GTest_FOUND)
     add_test(NAME Integration.PrescribedSlip  COMMAND run_integration_tests --gtest_filter=PrescribedSlipTest.*)
     add_test(NAME Integration.OutputFile       COMMAND run_integration_tests --gtest_filter=OutputFileTest.*)
     add_test(NAME Integration.GmshImport      COMMAND run_integration_tests --gtest_filter=GmshImportTest.*)
+    add_test(NAME Integration.GmshMultiMaterial COMMAND run_integration_tests --gtest_filter=GmshMultiMaterialTest.*)
+    add_test(NAME Integration.GasbuggyMesh COMMAND run_integration_tests --gtest_filter=GasbuggyMeshTest.*)
+    add_test(NAME Integration.NuclearTwinGmsh COMMAND run_integration_tests --gtest_filter=NuclearTwinGmshTest.*)
+    add_test(NAME Integration.PunggyeRiLayered COMMAND run_integration_tests --gtest_filter=PunggyeRiLayeredTest.*)
     add_test(NAME Integration.DerivedFields    COMMAND run_integration_tests --gtest_filter=DerivedFieldTest.*)
     add_test(NAME Integration.DPRK2017Comparison COMMAND run_integration_tests --gtest_filter=DPRK2017ComparisonTest.*)
     add_test(NAME Integration.DynamicRuptureBasic.MeshSplitting COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.MeshSplittingWithCohesiveCells)

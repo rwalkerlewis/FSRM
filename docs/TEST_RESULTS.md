@@ -1,62 +1,76 @@
 # FSRM Test Results
 
-Generated from `ctest --output-on-failure` on the `main` branch.
+Generated from `ctest --output-on-failure` in Docker on April 12, 2026.
 
-**84/84 tests pass. 0 failures. 0 skips.**
+**91/91 tests pass. 0 failures. 0 skips.**
 
-## Test Classification
+## Environment
 
-### Tests That Run Simulator End-to-End (TSSolve)
+- Docker image: `fsrm-ci:local` from `Dockerfile.ci`
+- PETSc: 3.22.2
+- Build: `CMAKE_BUILD_TYPE=Release`, `ENABLE_TESTING=ON`, `ENABLE_CUDA=OFF`, `BUILD_EXAMPLES=ON`
+- Command:
 
-These tests create a Simulator, call `run()` or equivalent, and verify physical results:
+```bash
+docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
+  ctest --output-on-failure
+```
 
-- `Physics.ElastostaticsPatch` -- uniaxial compression patch test
-- `Physics.TerzaghiConsolidation` -- Biot poroelasticity vs analytical
-- `Physics.AbsorbingBC` -- Clayton-Engquist energy absorption
-- `Physics.GravityLithostatic` -- lithostatic stress column
-- `Physics.LithostaticStress` -- stress verification
-- `Physics.LambsProblem` -- elastodynamic point force on halfspace
-- `Physics.GarvinsProblem` -- buried explosion elastodynamics
-- `Physics.MomentTensorSource` -- FEM source injection, nonzero displacement
-- `Integration.FullSimulation` -- simulation lifecycle
-- `Integration.Restart` -- checkpoint/restart round-trip
-- `Integration.InjectionPressure` -- poroelastic injection pressure buildup
-- `Integration.ExplosionSeismogram` -- source to seismogram pipeline
-- `Integration.LayeredElastostatics` -- depth-based material layering
-- `Integration.DerivedFields` -- stress/strain/CFS from FEM solution
-- `Integration.OutputFile` -- HDF5/VTK output generation
-- `Integration.DynamicRuptureBasic.SlippingFault` -- cohesive fault with slip
+## Category Summary
 
-### Tests That Run Simulator Setup Only (No TSSolve)
+| Category | Count | Notes |
+|---|---:|---|
+| Unit | 30 | Core, numerics, material, fault, and utility coverage |
+| Functional | 4 | Simulator lifecycle and solver orchestration |
+| Physics validation | 20 | Analytical and benchmark verification |
+| Integration | 28 | End-to-end simulator and workflow coverage |
+| Performance | 3 | Benchmark, scaling, and memory checks |
+| Experimental | 1 | Stub coverage |
 
-These tests create a Simulator and verify the setup pipeline completes, but do NOT call `run()`:
+## Newly Verified in This Run
 
-- `Integration.DynamicRuptureBasic.LockedFault` -- setup only
-- `Integration.DynamicRuptureBasic.AbsorbingCoexist` -- setup only
-- `Integration.FaultAbsorbingCoexist` -- DMSetRegionDS setup only
+- `Physics.ExplosionDamageZone`
+  Verifies FEM-coupled aux-field degradation near an underground nuclear source and confirms the dynamic response changes when damage zones are enabled.
 
-### Callback/Utility Tests (No Simulator)
+- `Integration.GmshMultiMaterial`
+  Verifies Gmsh physical-group labels drive per-cell auxiliary material properties on a committed two-material MSH2 mesh.
 
-These tests call PetscDS callbacks directly or test standalone utility functions:
+- `Integration.GasbuggyMesh`
+  Verifies the historical Gasbuggy layered MSH2 mesh loads through PETSc DMPlex and maps three distinct material regions into auxiliary fields.
 
-- `Physics.PressurizedFracture` -- Sneddon aperture + callback unit test
-- `Physics.Elastoplasticity` -- f1_elastoplastic_aux callback + return mapping
-- `Integration.FractureFlow` -- f0/f1_fracture_pressure callback evaluation
-- `Integration.CoupledHydrofrac` -- PKN width scaling utility
-- `Integration.FracturePropagation` -- cohesive strength + opening criterion
-- `Integration.StressShadowing` -- Sneddon stress perturbation utilities
-- `Integration.InducedSeismicity` -- M0/Mw conversion utilities
-- `Integration.ProppantTransport` -- Stokes settling utilities
-- `Integration.LeakoffCoupling` -- Carter leak-off utilities
-- `Integration.ProductionForecast` -- Arps decline curve utilities
+- `Integration.PunggyeRiLayered`
+  Verifies a compact three-layer Punggye-ri-style workflow with absorbing boundaries, damage-zone degradation, HDF5 output, and SAC seismograms.
 
-## Test Summary by Label
+- `Integration.NuclearTwinGmsh`
+  Verifies a compact Gmsh-based nuclear twin workflow with mapped material regions, underground source, and HDF5 output.
 
-| Label | Tests | Time |
-|-------|-------|------|
-| unit | 30 | ~14 sec |
-| physics_validation | 20 | ~22 sec |
-| integration | 26 | ~25 sec |
+## Notable End-to-End Coverage
+
+- `Physics.MomentTensorSource`
+  Explosion source injection produces nonzero displacement in the elastodynamic solve.
+
+- `Integration.ExplosionSeismogram`
+  Validates the full source-to-seismogram pipeline, including SAC output.
+
+- `Integration.PunggyeRiLayered`
+  Validates a layered underground nuclear test workflow with damage-zone activation and both HDF5 and SAC outputs.
+
+- `Integration.DPRK2017Comparison`
+  Validates synthetic mb behavior against the DPRK 2017 reference case.
+
+- `Integration.GmshImport`
+  Confirms Gmsh mesh import, label creation, and elastostatic solve setup.
+
+## Current Status
+
+The repository is verified in Docker with all 91 registered tests passing. The validated state now includes:
+
+- per-cell material assignment from Gmsh physical labels
+- historical Gasbuggy multi-region mesh coverage
+- compact Gmsh nuclear twin pipeline coverage
+- FEM-coupled explosion damage-zone degradation
+- a compact Punggye-ri layered workflow integration test
+- explicit HDF5 and absorbing-boundary settings in the main explosion example configs
 | functional | 4 | ~1.6 sec |
 | performance | 3 | ~1.9 sec |
 | experimental | 1 | ~0.4 sec |
