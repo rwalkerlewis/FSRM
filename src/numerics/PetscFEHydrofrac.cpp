@@ -479,4 +479,54 @@ PetscReal PetscFEHydrofrac::fractureProductivityIndex(
          (fluid_viscosity * PetscLogReal(drainage_radius / wellbore_radius));
 }
 
+void PetscFEHydrofrac::f0_lagrange_regularize(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar f[])
+{
+  (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
+  (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+  (void)t; (void)x; (void)numConstants; (void)constants;
+
+  // Identity: F_lambda = lambda (makes system non-singular away from fault)
+  // Lagrange field is always the last solution field before thermal
+  const PetscInt lagr_off = uOff[Nf - 1];
+  for (PetscInt d = 0; d < dim; ++d)
+  {
+    f[d] = u[lagr_off + d];
+  }
+}
+
+void PetscFEHydrofrac::g0_lagrange_regularize(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift, const PetscReal x[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar g0[])
+{
+  (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
+  (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+  (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
+
+  // Identity Jacobian for the (Lagrange, Lagrange) block
+  for (PetscInt d = 0; d < dim; ++d)
+  {
+    g0[d * dim + d] = 1.0;
+  }
+}
+
 } // namespace FSRM

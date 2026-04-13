@@ -266,6 +266,43 @@ public:
       PetscReal fluid_viscosity,
       PetscReal drainage_radius,
       PetscReal wellbore_radius);
+
+  /**
+   * @brief Volume residual for Lagrange field regularization (identity).
+   *
+   * Returns f[d] = lambda[d] to ensure non-singular system matrix
+   * for Lagrange DOFs that are not on the fault surface.
+   */
+  static void f0_lagrange_regularize(
+      PetscInt dim, PetscInt Nf, PetscInt NfAux,
+      const PetscInt uOff[], const PetscInt uOff_x[],
+      const PetscScalar u[], const PetscScalar u_t[],
+      const PetscScalar u_x[],
+      const PetscInt aOff[], const PetscInt aOff_x[],
+      const PetscScalar a[], const PetscScalar a_t[],
+      const PetscScalar a_x[],
+      PetscReal t, const PetscReal x[],
+      PetscInt numConstants,
+      const PetscScalar constants[],
+      PetscScalar f[]);
+
+  /**
+   * @brief Jacobian for Lagrange-Lagrange block (identity).
+   *
+   * Returns g0[d*dim+d] = 1 (identity matrix) for the Lagrange self-coupling.
+   */
+  static void g0_lagrange_regularize(
+      PetscInt dim, PetscInt Nf, PetscInt NfAux,
+      const PetscInt uOff[], const PetscInt uOff_x[],
+      const PetscScalar u[], const PetscScalar u_t[],
+      const PetscScalar u_x[],
+      const PetscInt aOff[], const PetscInt aOff_x[],
+      const PetscScalar a[], const PetscScalar a_t[],
+      const PetscScalar a_x[],
+      PetscReal t, PetscReal u_tShift, const PetscReal x[],
+      PetscInt numConstants,
+      const PetscScalar constants[],
+      PetscScalar g0[]);
 };
 
 } // namespace FSRM

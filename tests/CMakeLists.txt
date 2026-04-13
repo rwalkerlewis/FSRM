@@ -105,6 +105,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_proppant_transport.cpp
     integration/test_leakoff_coupling.cpp
     integration/test_production_forecast.cpp
+    integration/test_pressurized_fracture_fem.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -237,6 +238,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.DPRK2017Comparison COMMAND run_integration_tests --gtest_filter=DPRK2017ComparisonTest.*)
     add_test(NAME Integration.DynamicRuptureBasic.MeshSplitting COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.MeshSplittingWithCohesiveCells)
     add_test(NAME Integration.DynamicRuptureBasic.LockedFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.LockedFaultSetupCompletes)
+    add_test(NAME Integration.DynamicRuptureBasic.FaultGeometryFromConfig COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultGeometryFromConfigSetupCompletes)
     add_test(NAME Integration.DynamicRuptureBasic.SlippingFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.SlippingFaultSetupCompletes)
     add_test(NAME Integration.DynamicRuptureBasic.AbsorbingCoexist COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultsWithAbsorbingBCCoexist)
     add_test(NAME Integration.FaultAbsorbingCoexist COMMAND run_integration_tests --gtest_filter=FaultAbsorbingCoexistTest.*)
@@ -248,6 +250,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.ProppantTransport COMMAND run_integration_tests --gtest_filter=ProppantTransportTest.*)
     add_test(NAME Integration.LeakoffCoupling COMMAND run_integration_tests --gtest_filter=LeakoffCouplingTest.*)
     add_test(NAME Integration.ProductionForecast COMMAND run_integration_tests --gtest_filter=ProductionForecastTest.*)
+    add_test(NAME Integration.PressurizedFractureFEM COMMAND run_integration_tests --gtest_filter=PressurizedFractureFEMTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -315,6 +318,7 @@ if(GTest_FOUND)
         Integration.DPRK2017Comparison
         Integration.DynamicRuptureBasic.MeshSplitting
         Integration.DynamicRuptureBasic.LockedFault
+        Integration.DynamicRuptureBasic.FaultGeometryFromConfig
         Integration.DynamicRuptureBasic.SlippingFault
         Integration.DynamicRuptureBasic.AbsorbingCoexist
         Integration.FaultAbsorbingCoexist
@@ -326,6 +330,7 @@ if(GTest_FOUND)
         Integration.ProppantTransport
         Integration.LeakoffCoupling
         Integration.ProductionForecast
+        Integration.PressurizedFractureFEM
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

@@ -197,6 +197,7 @@ private:
     PetscInt injection_cell_ = -1;
     PetscErrorCode locateInjectionCell();
     PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
+    PetscErrorCode addFaultPressureToResidual(PetscReal t, Vec locF);
 
     // Hydraulic fracture model (Phase 3)
     std::unique_ptr<HydraulicFractureModel> hydrofrac_;
@@ -213,8 +214,14 @@ private:
     double fracture_plane_width_ = 100.0;
     double fracture_plane_tensile_strength_ = 5.0e6;  // Pa
 
-    // Fault mode and prescribed slip
+    // Fault mode, geometry, and prescribed slip
     std::string fault_mode_ = "locked";
+    double fault_center_[3] = {-1.0, -1.0, -1.0};  // negative = use grid center default
+    double fault_strike_ = 0.0;    // radians; negative = use default (0)
+    double fault_dip_ = -1.0;      // radians; negative = use default (pi/2)
+    double fault_length_ = -1.0;   // m; negative = use 2*max(Lx,Ly,Lz)
+    double fault_width_ = -1.0;    // m; negative = use 2*max(Lx,Ly,Lz)
+    bool fault_geometry_from_config_ = false;
     double fault_slip_strike_ = 0.0;
     double fault_slip_dip_ = 0.0;
     double fault_slip_opening_ = 0.0;
