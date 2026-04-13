@@ -222,11 +222,11 @@ if(GTest_FOUND)
     add_test(NAME Physics.MuellerMurphy            COMMAND run_physics_tests --gtest_filter=MuellerMurphyValidationTest.*)
     add_test(NAME Physics.AtmosphericExplosion     COMMAND run_physics_tests --gtest_filter=AtmosphericExplosionValidationTest.*)
     add_test(NAME Physics.NearFieldExplosion        COMMAND run_physics_tests --gtest_filter=NearFieldExplosionValidationTest.*)
-    add_test(NAME Physics.DruckerPrager              COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
-    add_test(NAME Physics.Elastoplasticity           COMMAND run_physics_tests --gtest_filter=ElastoplasticityTest.*)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
-    add_test(NAME Physics.PressurizedFracture         COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
+    add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
+    add_test(NAME Unit.DruckerPragerStandalone        COMMAND run_physics_tests --gtest_filter=DruckerPragerValidationTest.*)
+    add_test(NAME Unit.Elastoplasticity               COMMAND run_physics_tests --gtest_filter=ElastoplasticityTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -246,20 +246,22 @@ if(GTest_FOUND)
     add_test(NAME Integration.PunggyeRiLayered COMMAND run_integration_tests --gtest_filter=PunggyeRiLayeredTest.*)
     add_test(NAME Integration.DerivedFields    COMMAND run_integration_tests --gtest_filter=DerivedFieldTest.*)
     add_test(NAME Integration.DPRK2017Comparison COMMAND run_integration_tests --gtest_filter=DPRK2017ComparisonTest.*)
-    add_test(NAME Integration.DynamicRuptureBasic.MeshSplitting COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.MeshSplittingWithCohesiveCells)
-    add_test(NAME Integration.DynamicRuptureBasic.LockedFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.LockedFaultSetupCompletes)
-    add_test(NAME Integration.DynamicRuptureBasic.FaultGeometryFromConfig COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultGeometryFromConfigSetupCompletes)
-    add_test(NAME Integration.DynamicRuptureBasic.SlippingFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.SlippingFaultSetupCompletes)
-    add_test(NAME Integration.DynamicRuptureBasic.AbsorbingCoexist COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultsWithAbsorbingBCCoexist)
-    add_test(NAME Integration.FaultAbsorbingCoexist COMMAND run_integration_tests --gtest_filter=FaultAbsorbingCoexistTest.*)
-    add_test(NAME Integration.FractureFlow COMMAND run_integration_tests --gtest_filter=FractureFlowTest.*)
-    add_test(NAME Integration.CoupledHydrofrac COMMAND run_integration_tests --gtest_filter=CoupledHydrofracTest.*)
-    add_test(NAME Integration.FracturePropagation COMMAND run_integration_tests --gtest_filter=FracturePropagationTest.*)
-    add_test(NAME Integration.StressShadowing COMMAND run_integration_tests --gtest_filter=StressShadowingTest.*)
-    add_test(NAME Integration.InducedSeismicity COMMAND run_integration_tests --gtest_filter=InducedSeismicityTest.*)
-    add_test(NAME Integration.ProppantTransport COMMAND run_integration_tests --gtest_filter=ProppantTransportTest.*)
-    add_test(NAME Integration.LeakoffCoupling COMMAND run_integration_tests --gtest_filter=LeakoffCouplingTest.*)
-    add_test(NAME Integration.ProductionForecast COMMAND run_integration_tests --gtest_filter=ProductionForecastTest.*)
+    # --- Setup-only tests (pipeline setup, no TSSolve) ---
+    add_test(NAME Functional.DynamicRuptureSetup.MeshSplitting COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.MeshSplittingWithCohesiveCells)
+    add_test(NAME Functional.DynamicRuptureSetup.LockedFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.LockedFaultSetupCompletes)
+    add_test(NAME Functional.DynamicRuptureSetup.FaultGeometryFromConfig COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultGeometryFromConfigSetupCompletes)
+    add_test(NAME Functional.DynamicRuptureSetup.SlippingFault COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.SlippingFaultSetupCompletes)
+    add_test(NAME Functional.DynamicRuptureSetup.AbsorbingCoexist COMMAND run_integration_tests --gtest_filter=DynamicRuptureBasicTest.FaultsWithAbsorbingBCCoexist)
+    add_test(NAME Functional.FaultAbsorbingCoexist COMMAND run_integration_tests --gtest_filter=FaultAbsorbingCoexistTest.*)
+    # --- Standalone formula/callback tests (no FEM solve) ---
+    add_test(NAME Unit.FractureFlowCallbacks COMMAND run_integration_tests --gtest_filter=FractureFlowTest.*)
+    add_test(NAME Unit.HydrofracFormulas COMMAND run_integration_tests --gtest_filter=CoupledHydrofracTest.*)
+    add_test(NAME Unit.FracturePropagation COMMAND run_integration_tests --gtest_filter=FracturePropagationTest.*)
+    add_test(NAME Physics.StressShadowing COMMAND run_integration_tests --gtest_filter=StressShadowingTest.*)
+    add_test(NAME Physics.InducedSeismicity COMMAND run_integration_tests --gtest_filter=InducedSeismicityTest.*)
+    add_test(NAME Physics.ProppantTransport COMMAND run_integration_tests --gtest_filter=ProppantTransportTest.*)
+    add_test(NAME Physics.LeakoffCoupling COMMAND run_integration_tests --gtest_filter=LeakoffCouplingTest.*)
+    add_test(NAME Physics.ProductionForecast COMMAND run_integration_tests --gtest_filter=ProductionForecastTest.*)
     add_test(NAME Integration.PressurizedFractureFEM COMMAND run_integration_tests --gtest_filter=PressurizedFractureFEMTest.*)
 
     # --- Performance tests ---
@@ -275,6 +277,7 @@ if(GTest_FOUND)
     # =========================================================================
 
     # Unit tests — fast
+    # Unit tests -- fast, standalone formula/callback tests
     set_tests_properties(
         Unit.ConfigReader Unit.PhysicsModuleRegistry Unit.SimulationConfig
         Unit.PhysicsKernelBase Unit.SinglePhaseFlow Unit.Geomechanics
@@ -287,17 +290,29 @@ if(GTest_FOUND)
         Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
         Unit.FaultMeshManager Unit.CohesiveFaultKernel
         Unit.ElasticityAux
+        Unit.DruckerPragerStandalone
+        Unit.Elastoplasticity
+        Unit.PressurizedFractureCallbacks
+        Unit.FractureFlowCallbacks
+        Unit.HydrofracFormulas
+        Unit.FracturePropagation
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
-    # Functional tests
+    # Functional tests -- setup pipeline verification, no TSSolve
     set_tests_properties(
         Functional.SimulatorInit Functional.ModuleLifecycle
         Functional.SolverConvergence Functional.WellOperations
+        Functional.DynamicRuptureSetup.MeshSplitting
+        Functional.DynamicRuptureSetup.LockedFault
+        Functional.DynamicRuptureSetup.FaultGeometryFromConfig
+        Functional.DynamicRuptureSetup.SlippingFault
+        Functional.DynamicRuptureSetup.AbsorbingCoexist
+        Functional.FaultAbsorbingCoexist
         PROPERTIES TIMEOUT 180 LABELS "functional"
     )
 
-    # Physics validation tests
+    # Physics validation tests -- analytical solutions and FEM-coupled physics
     set_tests_properties(
         Physics.MMS.Diffusion Physics.MMS.Elasticity
         Physics.MMS.WavePropagation Physics.AnalyticalSolutions
@@ -309,14 +324,17 @@ if(GTest_FOUND)
         Physics.MuellerMurphy
         Physics.AtmosphericExplosion
         Physics.NearFieldExplosion
-        Physics.DruckerPrager
-        Physics.Elastoplasticity
         Physics.MomentTensorSource
-        Physics.PressurizedFracture
+        Physics.ExplosionDamageZone
+        Physics.StressShadowing
+        Physics.InducedSeismicity
+        Physics.ProppantTransport
+        Physics.LeakoffCoupling
+        Physics.ProductionForecast
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
-    # Integration tests
+    # Integration tests -- full Simulator pipeline through TSSolve
     set_tests_properties(
         Integration.FullSimulation Integration.Restart
         Integration.CoupledPhysics Integration.InjectionPressure Integration.InjectionRuptureChain
@@ -324,22 +342,12 @@ if(GTest_FOUND)
         Integration.ExplosionSeismogram Integration.PrescribedSlip
         Integration.OutputFile
         Integration.GmshImport
+        Integration.GmshMultiMaterial
+        Integration.GasbuggyMesh
+        Integration.NuclearTwinGmsh
+        Integration.PunggyeRiLayered
         Integration.DerivedFields
         Integration.DPRK2017Comparison
-        Integration.DynamicRuptureBasic.MeshSplitting
-        Integration.DynamicRuptureBasic.LockedFault
-        Integration.DynamicRuptureBasic.FaultGeometryFromConfig
-        Integration.DynamicRuptureBasic.SlippingFault
-        Integration.DynamicRuptureBasic.AbsorbingCoexist
-        Integration.FaultAbsorbingCoexist
-        Integration.FractureFlow
-        Integration.CoupledHydrofrac
-        Integration.FracturePropagation
-        Integration.StressShadowing
-        Integration.InducedSeismicity
-        Integration.ProppantTransport
-        Integration.LeakoffCoupling
-        Integration.ProductionForecast
         Integration.PressurizedFractureFEM
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
