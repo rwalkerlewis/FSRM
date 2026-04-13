@@ -198,6 +198,118 @@ TEST_F(DynamicRuptureBasicTest, LockedFaultSetupCompletes)
 }
 
 /**
+ * Test that fault geometry (center, strike, dip, length, width) read from [FAULT] config
+ * section is correctly applied to createPlanarFaultLabel so cohesive cells are inserted
+ * at the specified location. For a 4x4x4 simplex on [0,1]^3, a vertical fault centered
+ * at (0.5, 0.5, 0.5) should produce exactly 32 cohesive cells.
+ *
+ * Note: TSSolve with cohesive cells is documented as a known gap in CLAUDE.md
+ * ("cohesive Jacobian blocks may not be fully consistent"). This test validates
+ * the setup pipeline and geometry routing only.
+ */
+TEST_F(DynamicRuptureBasicTest, FaultGeometryFromConfigSetupCompletes)
+{
+  std::string config_path = "test_dynamic_rupture_locked_run.config";
+
+  if (rank_ == 0)
+  {
+    std::ofstream cfg(config_path);
+    cfg << "[SIMULATION]\n";
+    cfg << "name = test_dynamic_rupture_locked_run\n";
+    cfg << "start_time = 0.0\n";
+    cfg << "end_time = 0.0005\n";
+    cfg << "dt_initial = 0.0001\n";
+    cfg << "dt_min = 0.00001\n";
+    cfg << "dt_max = 0.0001\n";
+    cfg << "max_timesteps = 6\n";
+    cfg << "output_frequency = 100\n";
+    cfg << "fluid_model = NONE\n";
+    cfg << "solid_model = ELASTIC\n";
+    cfg << "enable_geomechanics = true\n";
+    cfg << "enable_elastodynamics = true\n";
+    cfg << "enable_faults = true\n";
+    cfg << "rtol = 1.0e-4\n";
+    cfg << "atol = 1.0e-6\n";
+    cfg << "max_nonlinear_iterations = 50\n";
+    cfg << "\n[GRID]\n";
+    cfg << "nx = 4\n";
+    cfg << "ny = 4\n";
+    cfg << "nz = 4\n";
+    cfg << "Lx = 1.0\n";
+    cfg << "Ly = 1.0\n";
+    cfg << "Lz = 1.0\n";
+    cfg << "\n[ROCK]\n";
+    cfg << "density = 2650.0\n";
+    cfg << "youngs_modulus = 10.0e9\n";
+    cfg << "poissons_ratio = 0.25\n";
+    cfg << "\n[FAULT]\n";
+    cfg << "strike = 90.0\n";
+    cfg << "dip = 90.0\n";
+    cfg << "center_x = 0.5\n";
+    cfg << "center_y = 0.5\n";
+    cfg << "center_z = 0.5\n";
+    cfg << "length = 2.0\n";
+    cfg << "width = 2.0\n";
+    cfg << "mode = locked\n";
+    cfg << "friction_coefficient = 0.6\n";
+    cfg << "\n[BOUNDARY_CONDITIONS]\n";
+    cfg << "bottom = fixed\n";
+    cfg << "sides = roller\n";
+    cfg << "top = compression\n";
+    cfg << "\n[ABSORBING_BC]\n";
+    cfg << "enabled = false\n";
+    cfg.close();
+  }
+  MPI_Barrier(PETSC_COMM_WORLD);
+
+  Simulator sim(PETSC_COMM_WORLD);
+  PetscErrorCode ierr;
+
+  ierr = sim.initializeFromConfigFile(config_path);
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupDM();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupFaultNetwork();
+  ASSERT_EQ(ierr, 0) << "fault network setup with config center must succeed";
+
+  // Verify that the fault was correctly placed: a vertical YZ-plane fault at x=0.5
+  // on a 4x4x4 simplex should produce exactly 32 cohesive cells (416 total - 384 original).
+  FaultMeshManager mgr(PETSC_COMM_WORLD);
+  FaultCohesiveDyn fault_topo;
+  ierr = mgr.extractCohesiveTopology(sim.getDM(), &fault_topo);
+  ASSERT_EQ(ierr, 0);
+
+  PetscInt cStart = 0, cEnd = 0;
+  ierr = DMPlexGetHeightStratum(sim.getDM(), 0, &cStart, &cEnd);
+  ASSERT_EQ(ierr, 0);
+  EXPECT_EQ(cEnd - cStart, 416)
+      << "centered fault in 4x4x4 simplex must produce 416 total cells (384 + 32 cohesive)";
+  EXPECT_GT(fault_topo.numVertices(), 0u)
+      << "must extract fault vertices from cohesive topology";
+
+  ierr = sim.labelBoundaries();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupFields();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupPhysics();
+  ASSERT_EQ(ierr, 0) << "cohesive fault callbacks must register on the DS";
+  ierr = sim.setupTimeStepper();
+  ASSERT_EQ(ierr, 0) << "TSALPHA2 must initialize with cohesive fault";
+  ierr = sim.setupSolvers();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setInitialConditions();
+  ASSERT_EQ(ierr, 0);
+
+  // Full setup pipeline complete. TSSolve is not attempted here: the cohesive
+  // Jacobian is not yet fully consistent (documented known gap in CLAUDE.md).
+
+  if (rank_ == 0)
+  {
+    std::remove(config_path.c_str());
+  }
+}
+
+/**
  * Test that setup pipeline completes for a slipping-fault configuration.
  * Validates that the cohesive kernel in slipping mode can be registered
  * and the solver infrastructure accepts the fault configuration.

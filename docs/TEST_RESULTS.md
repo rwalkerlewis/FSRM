@@ -1,21 +1,54 @@
 # FSRM Test Results
 
-Generated from `ctest --output-on-failure` on the `feature/hydrofrac-fem` branch.
+Generated from `ctest --output-on-failure` on the `main` branch.
 
 **84/84 tests pass. 0 failures. 0 skips.**
 
-Recent additions in this session:
-- `Physics.PressurizedFracture` (Phase 1 hydrofracture validation)
-- `Integration.DynamicRuptureBasic.AbsorbingCoexist` (fault + absorbing callback coexistence)
-- `Integration.FaultAbsorbingCoexist` (region-specific PetscDS setup)
-- `Integration.FractureFlow` (Phase 2 lubrication callback validation)
-- `Integration.CoupledHydrofrac` (Phase 3 coupling utility checks)
-- `Integration.FracturePropagation` (Phase 4 propagation criterion checks)
-- `Integration.StressShadowing` (Phase 5 multi-cluster stress shadow)
-- `Integration.InducedSeismicity` (Phase 7 moment tensor and Mw)
-- `Integration.ProppantTransport` (Phase 6 settling, bridging, mass balance)
-- `Integration.LeakoffCoupling` (Phase 8 Carter leak-off)
-- `Integration.ProductionForecast` (Phase 9 Arps decline curves)
+## Test Classification
+
+### Tests That Run Simulator End-to-End (TSSolve)
+
+These tests create a Simulator, call `run()` or equivalent, and verify physical results:
+
+- `Physics.ElastostaticsPatch` -- uniaxial compression patch test
+- `Physics.TerzaghiConsolidation` -- Biot poroelasticity vs analytical
+- `Physics.AbsorbingBC` -- Clayton-Engquist energy absorption
+- `Physics.GravityLithostatic` -- lithostatic stress column
+- `Physics.LithostaticStress` -- stress verification
+- `Physics.LambsProblem` -- elastodynamic point force on halfspace
+- `Physics.GarvinsProblem` -- buried explosion elastodynamics
+- `Physics.MomentTensorSource` -- FEM source injection, nonzero displacement
+- `Integration.FullSimulation` -- simulation lifecycle
+- `Integration.Restart` -- checkpoint/restart round-trip
+- `Integration.InjectionPressure` -- poroelastic injection pressure buildup
+- `Integration.ExplosionSeismogram` -- source to seismogram pipeline
+- `Integration.LayeredElastostatics` -- depth-based material layering
+- `Integration.DerivedFields` -- stress/strain/CFS from FEM solution
+- `Integration.OutputFile` -- HDF5/VTK output generation
+- `Integration.DynamicRuptureBasic.SlippingFault` -- cohesive fault with slip
+
+### Tests That Run Simulator Setup Only (No TSSolve)
+
+These tests create a Simulator and verify the setup pipeline completes, but do NOT call `run()`:
+
+- `Integration.DynamicRuptureBasic.LockedFault` -- setup only
+- `Integration.DynamicRuptureBasic.AbsorbingCoexist` -- setup only
+- `Integration.FaultAbsorbingCoexist` -- DMSetRegionDS setup only
+
+### Callback/Utility Tests (No Simulator)
+
+These tests call PetscDS callbacks directly or test standalone utility functions:
+
+- `Physics.PressurizedFracture` -- Sneddon aperture + callback unit test
+- `Physics.Elastoplasticity` -- f1_elastoplastic_aux callback + return mapping
+- `Integration.FractureFlow` -- f0/f1_fracture_pressure callback evaluation
+- `Integration.CoupledHydrofrac` -- PKN width scaling utility
+- `Integration.FracturePropagation` -- cohesive strength + opening criterion
+- `Integration.StressShadowing` -- Sneddon stress perturbation utilities
+- `Integration.InducedSeismicity` -- M0/Mw conversion utilities
+- `Integration.ProppantTransport` -- Stokes settling utilities
+- `Integration.LeakoffCoupling` -- Carter leak-off utilities
+- `Integration.ProductionForecast` -- Arps decline curve utilities
 
 ## Test Summary by Label
 
@@ -158,4 +191,4 @@ Recent additions in this session:
 - **PETSc**: 3.22.2 with --with-debugging=0
 - **Compiler**: g++ (C++17)
 - **Build**: CMake Release, ENABLE_TESTING=ON, ENABLE_CUDA=OFF, BUILD_EXAMPLES=ON
-- **Branch**: feature/hydrofrac-fem
+- **Branch**: main

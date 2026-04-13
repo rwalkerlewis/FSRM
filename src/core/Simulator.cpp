@@ -601,6 +601,23 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         fault_slip_strike_ = reader.getDouble("FAULT", "slip_strike", 0.0);
         fault_slip_dip_ = reader.getDouble("FAULT", "slip_dip", 0.0);
         fault_slip_opening_ = reader.getDouble("FAULT", "slip_opening", 0.0);
+        // Read optional fault geometry (center, orientation, dimensions)
+        if (reader.hasKey("FAULT", "center_x") || reader.hasKey("FAULT", "center_y") ||
+            reader.hasKey("FAULT", "center_z") || reader.hasKey("FAULT", "strike") ||
+            reader.hasKey("FAULT", "dip") || reader.hasKey("FAULT", "length") ||
+            reader.hasKey("FAULT", "width")) {
+            fault_geometry_from_config_ = true;
+            double strike_deg = reader.getDouble("FAULT", "strike", 0.0);
+            double dip_deg = reader.getDouble("FAULT", "dip", 90.0);
+            fault_strike_ = strike_deg * M_PI / 180.0;
+            fault_dip_ = dip_deg * M_PI / 180.0;
+            // Use -1 sentinel to indicate "read from config" vs "use default"
+            fault_center_[0] = reader.getDouble("FAULT", "center_x", -1.0);
+            fault_center_[1] = reader.getDouble("FAULT", "center_y", -1.0);
+            fault_center_[2] = reader.getDouble("FAULT", "center_z", -1.0);
+            fault_length_ = reader.getDouble("FAULT", "length", -1.0);
+            fault_width_ = reader.getDouble("FAULT", "width", -1.0);
+        }
         config.enable_faults = true;
     }
 
@@ -1895,24 +1912,19 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt lagrange_field = cohesive_lagrange_field;
 
         // Register cohesive callbacks.
-        // Phase 1 hydrofrac mode uses lambda + p_f*n = 0 on the Lagrange equation.
+        // Phase 1 hydrofrac mode: pressure is applied as direct nodal forces
+        // in FormFunction (addFaultPressureToResidual), not via BdResidual.
+        // BdResidual on cohesive cells is broken because support[0] can be
+        // a cohesive prism with different totDim than bulk tets.
         if (hydrofrac_fem_pressurized_mode_) {
-            ierr = PetscDSSetBdResidual(prob, disp_field,
-                                        CohesiveFaultKernel::f0_displacement_cohesive,
-                                        nullptr); CHKERRQ(ierr);
-            ierr = PetscDSSetBdResidual(prob, lagrange_field,
-                                        PetscFEHydrofrac::f0_lagrange_pressure_balance,
-                                        nullptr); CHKERRQ(ierr);
-
-            ierr = PetscDSSetBdJacobian(prob, disp_field, lagrange_field,
-                                        CohesiveFaultKernel::g0_displacement_lagrange, nullptr,
-                                        nullptr, nullptr); CHKERRQ(ierr);
-            ierr = PetscDSSetBdJacobian(prob, lagrange_field, disp_field,
-                                        CohesiveFaultKernel::g0_lagrange_displacement, nullptr,
-                                        nullptr, nullptr); CHKERRQ(ierr);
-            ierr = PetscDSSetBdJacobian(prob, lagrange_field, lagrange_field,
-                                        CohesiveFaultKernel::g0_lagrange_lagrange, nullptr,
-                                        nullptr, nullptr); CHKERRQ(ierr);
+            // Add volume identity residual for the Lagrange field to make the
+            // system non-singular. Without BdResidual coupling, Lagrange DOFs
+            // just stay zero everywhere (which is correct for this mode).
+            ierr = PetscDSSetResidual(prob, lagrange_field,
+                PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
+                PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
+                nullptr, nullptr); CHKERRQ(ierr);
         } else if (cohesive_kernel_->isPrescribedSlip()) {
             ierr = cohesive_kernel_->registerPrescribedSlipWithDS(prob, disp_field, lagrange_field);
         } else {
@@ -2447,6 +2459,17 @@ PetscErrorCode Simulator::setupFaultNetwork() {
         center[2] = fracture_plane_center_[2];
         length = fracture_plane_length_;
         width = fracture_plane_width_;
+    } else if (fault_geometry_from_config_) {
+        // Use fault geometry from [FAULT] config section
+        strike = fault_strike_;
+        dip    = fault_dip_;
+        // Replace any -1 sentinel with grid-center defaults
+        center[0] = (fault_center_[0] >= 0.0) ? fault_center_[0] : grid_config.Lx / 2.0;
+        center[1] = (fault_center_[1] >= 0.0) ? fault_center_[1] : grid_config.Ly / 2.0;
+        center[2] = (fault_center_[2] >= 0.0) ? fault_center_[2] : grid_config.Lz / 2.0;
+        double max_dim = std::max({grid_config.Lx, grid_config.Ly, grid_config.Lz});
+        length = (fault_length_ > 0.0) ? fault_length_ : 2.0 * max_dim;
+        width  = (fault_width_  > 0.0) ? fault_width_  : 2.0 * max_dim;
     } else {
         // Default: vertical fault at mesh center cutting entire domain
         center[0] = grid_config.Lx / 2.0;
@@ -2630,6 +2653,144 @@ PetscErrorCode Simulator::addInjectionToResidual(PetscReal t, Vec locF) {
     CHKERRQ(ierr);
     ierr = DMPlexVecRestoreClosure(dm, section, locF, injection_cell_, &closureSize, &closure);
     CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::addFaultPressureToResidual(PetscReal t, Vec locF) {
+    (void)t;
+    PetscFunctionBeginUser;
+    if (!hydrofrac_fem_pressurized_mode_ || hydrofrac_uniform_pressure_pa_ <= 0.0 || !config.enable_faults) {
+        PetscFunctionReturn(0);
+    }
+
+    PetscErrorCode ierr;
+    DMLabel fault_label = nullptr;
+    ierr = DMGetLabel(dm, "fault", &fault_label); CHKERRQ(ierr);
+    if (!fault_label) {
+        ierr = DMGetLabel(dm, "Fault", &fault_label); CHKERRQ(ierr);
+    }
+    if (!fault_label) {
+        PetscFunctionReturn(0);
+    }
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        disp_field = 1;
+    } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+        disp_field = 3;
+    } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+        disp_field = 4;
+    }
+
+    PetscSection section;
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+
+    DMLabel depth_label;
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    IS stratum_is = nullptr;
+    ierr = DMLabelGetStratumIS(fault_label, 1, &stratum_is); CHKERRQ(ierr);
+    if (!stratum_is) {
+        PetscFunctionReturn(0);
+    }
+
+    const PetscInt *pts = nullptr;
+    PetscInt npts = 0;
+    ierr = ISGetLocalSize(stratum_is, &npts); CHKERRQ(ierr);
+    ierr = ISGetIndices(stratum_is, &pts); CHKERRQ(ierr);
+
+    PetscScalar *farray = nullptr;
+    ierr = VecGetArray(locF, &farray); CHKERRQ(ierr);
+
+    for (PetscInt i = 0; i < npts; ++i) {
+        const PetscInt face = pts[i];
+        PetscInt depth = -1;
+        ierr = DMLabelGetValue(depth_label, face, &depth); CHKERRQ(ierr);
+        if (depth != dim - 1) {
+            continue;
+        }
+
+        PetscInt support_size = 0;
+        ierr = DMPlexGetSupportSize(dm, face, &support_size); CHKERRQ(ierr);
+        if (support_size < 2) {
+            continue;
+        }
+
+        const PetscInt *support = nullptr;
+        ierr = DMPlexGetSupport(dm, face, &support); CHKERRQ(ierr);
+
+        PetscReal face_measure = 0.0;
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        PetscReal normal[3] = {0.0, 0.0, 0.0};
+        ierr = DMPlexComputeCellGeometryFVM(dm, face, &face_measure, centroid, normal); CHKERRQ(ierr);
+        if (face_measure <= 0.0) {
+            continue;
+        }
+
+        PetscReal nmag = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) {
+            nmag += normal[d] * normal[d];
+        }
+        nmag = PetscSqrtReal(nmag);
+        if (nmag <= PETSC_SMALL) {
+            continue;
+        }
+
+        PetscReal nunit[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < dim; ++d) {
+            nunit[d] = normal[d] / nmag;
+        }
+
+        for (PetscInt side = 0; side < 2; ++side) {
+            const PetscInt cell = support[side];
+            const PetscReal side_sign = (side == 0) ? 1.0 : -1.0;
+
+            PetscInt nclosure = 0;
+            PetscInt *closure = nullptr;
+            ierr = DMPlexGetTransitiveClosure(dm, cell, PETSC_TRUE, &nclosure, &closure); CHKERRQ(ierr);
+
+            PetscInt total_disp_dof = 0;
+            for (PetscInt c = 0; c < 2 * nclosure; c += 2) {
+                PetscInt point = closure[c];
+                PetscInt fdof = 0;
+                ierr = PetscSectionGetFieldDof(section, point, disp_field, &fdof); CHKERRQ(ierr);
+                total_disp_dof += fdof;
+            }
+
+            if (total_disp_dof > 0) {
+                const PetscInt nshape = PetscMax(1, total_disp_dof / dim);
+                for (PetscInt c = 0; c < 2 * nclosure; c += 2) {
+                    PetscInt point = closure[c];
+                    PetscInt field_off = 0;
+                    PetscInt fdof = 0;
+                    ierr = PetscSectionGetFieldDof(section, point, disp_field, &fdof); CHKERRQ(ierr);
+                    if (fdof <= 0) {
+                        continue;
+                    }
+                    ierr = PetscSectionGetFieldOffset(section, point, disp_field, &field_off); CHKERRQ(ierr);
+                    if (field_off < 0) {
+                        continue;
+                    }
+
+                    for (PetscInt d = 0; d < fdof; ++d) {
+                        PetscInt comp = d % dim;
+                        farray[field_off + d] +=
+                            side_sign * hydrofrac_uniform_pressure_pa_ * face_measure * nunit[comp] /
+                            static_cast<PetscReal>(nshape);
+                    }
+                }
+            }
+
+            ierr = DMPlexRestoreTransitiveClosure(dm, cell, PETSC_TRUE, &nclosure, &closure); CHKERRQ(ierr);
+        }
+    }
+
+    ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
+    ierr = ISRestoreIndices(stratum_is, &pts); CHKERRQ(ierr);
+    ierr = ISDestroy(&stratum_is); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -3124,6 +3285,11 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
         // Add explosion moment tensor source to displacement DOFs
         if (sim->explosion_ && sim->explosion_cell_ >= 0 && sim->use_fem_time_residual_) {
             ierr = sim->addExplosionSourceToResidual(t, locF); CHKERRQ(ierr);
+        }
+
+        // Apply uniform pressurized-fracture traction on cohesive faces.
+        if (sim->hydrofrac_fem_pressurized_mode_ && sim->config.enable_faults) {
+            ierr = sim->addFaultPressureToResidual(t, locF); CHKERRQ(ierr);
         }
 
         // Scatter local residual back to global (ADD_VALUES to accumulate)
@@ -3910,6 +4076,133 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                 if (rank == 0) {
                     PetscPrintf(comm, "  Applied BC: roller y_max, field %d, u_y = 0\n", field);
                 }
+            }
+        }
+
+        // Side BCs: fixed constrains all displacement components to zero
+        if (config.side_bc == "fixed") {
+            if (label_xmin) {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_xmin", label_xmin, 1, &label_value,
+                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: fixed x_min, field %d, all components = 0\n", field);
+                }
+            }
+            if (label_xmax) {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_xmax", label_xmax, 1, &label_value,
+                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: fixed x_max, field %d, all components = 0\n", field);
+                }
+            }
+            if (label_ymin) {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_ymin", label_ymin, 1, &label_value,
+                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: fixed y_min, field %d, all components = 0\n", field);
+                }
+            }
+            if (label_ymax) {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_ymax", label_ymax, 1, &label_value,
+                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: fixed y_max, field %d, all components = 0\n", field);
+                }
+            }
+        }
+
+        // Top BC: fixed constrains all displacement components to zero
+        if (config.top_bc == "fixed") {
+            if (label_zmax) {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_top", label_zmax, 1, &label_value,
+                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: fixed top (z_max), field %d, all components = 0\n", field);
+                }
+            }
+        }
+    }
+
+    // Register natural (Neumann) BCs on fault faces for cohesive traction assembly
+    if (config.enable_faults && displacement_field >= 0) {
+        DMLabel fault_label = nullptr;
+        ierr = DMGetLabel(dm, "fault", &fault_label); CHKERRQ(ierr);
+        if (fault_label) {
+            PetscInt label_value = 1;
+            PetscInt lagrange_field_idx = displacement_field + 1;
+
+            ierr = DMAddBoundary(dm, DM_BC_NATURAL, "fault_traction",
+                fault_label, 1, &label_value, displacement_field, 0, NULL,
+                NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+
+            ierr = DMAddBoundary(dm, DM_BC_NATURAL, "fault_constraint",
+                fault_label, 1, &label_value, lagrange_field_idx, 0, NULL,
+                NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+
+            if (rank == 0) {
+                // Diagnostic: dump the fault label stratification
+                IS       stratum_is;
+                PetscInt stratum_size;
+                PetscInt depth_val;
+                DMLabel  depth_label;
+                ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+                ierr = DMLabelGetStratumIS(fault_label, label_value, &stratum_is); CHKERRQ(ierr);
+                if (stratum_is) {
+                    ierr = ISGetSize(stratum_is, &stratum_size); CHKERRQ(ierr);
+                    PetscPrintf(comm, "  Fault label (value=%d): %d points total\n",
+                        (int)label_value, (int)stratum_size);
+
+                    const PetscInt *indices;
+                    ierr = ISGetIndices(stratum_is, &indices); CHKERRQ(ierr);
+                    PetscInt n_cells = 0, n_faces = 0, n_edges = 0, n_vertices = 0;
+                    PetscInt dim_mesh;
+                    ierr = DMGetDimension(dm, &dim_mesh); CHKERRQ(ierr);
+                    for (PetscInt i = 0; i < stratum_size; ++i)
+                    {
+                        PetscInt pt_depth;
+                        ierr = DMLabelGetValue(depth_label, indices[i], &pt_depth); CHKERRQ(ierr);
+                        if (pt_depth == dim_mesh) n_cells++;
+                        else if (pt_depth == dim_mesh - 1) n_faces++;
+                        else if (pt_depth == 1) n_edges++;
+                        else if (pt_depth == 0) n_vertices++;
+                    }
+                    PetscPrintf(comm, "    cells=%d, faces=%d, edges=%d, vertices=%d\n",
+                        (int)n_cells, (int)n_faces, (int)n_edges, (int)n_vertices);
+                    ierr = ISRestoreIndices(stratum_is, &indices); CHKERRQ(ierr);
+                    ierr = ISDestroy(&stratum_is); CHKERRQ(ierr);
+                } else {
+                    PetscPrintf(comm, "  Fault label (value=%d): no points!\n",
+                        (int)label_value);
+                }
+
+                // Also check other label values
+                PetscInt num_strata;
+                ierr = DMLabelGetNumValues(fault_label, &num_strata); CHKERRQ(ierr);
+                PetscPrintf(comm, "  Fault label has %d strata total\n", (int)num_strata);
+                IS val_is;
+                ierr = DMLabelGetValueIS(fault_label, &val_is); CHKERRQ(ierr);
+                const PetscInt *vals;
+                ierr = ISGetIndices(val_is, &vals); CHKERRQ(ierr);
+                for (PetscInt s = 0; s < num_strata; ++s)
+                {
+                    PetscInt ssize;
+                    ierr = DMLabelGetStratumSize(fault_label, vals[s], &ssize); CHKERRQ(ierr);
+                    PetscPrintf(comm, "    stratum value=%d: %d points\n",
+                        (int)vals[s], (int)ssize);
+                }
+                ierr = ISRestoreIndices(val_is, &vals); CHKERRQ(ierr);
+                ierr = ISDestroy(&val_is); CHKERRQ(ierr);
+            }
+
+            if (rank == 0) {
+                PetscPrintf(comm,
+                    "  Applied BC: fault natural BCs for traction (field %d) and constraint (field %d)\n",
+                    displacement_field, lagrange_field_idx);
             }
         }
     }
