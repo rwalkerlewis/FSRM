@@ -10,102 +10,104 @@ A coupled multi-physics simulator for nuclear explosion monitoring, seismic wave
 
 ## Verified Capabilities (91 Docker Tests Pass)
 
-The following features have automated tests with quantitative pass/fail criteria.
+The following features have automated tests with quantitative pass/fail criteria. Every claim below is backed by a specific test name. Run `ctest --output-on-failure` to verify.
 
 ### Solid Mechanics
-- **Elastostatics**: PetscFE pointwise callbacks (f0, f1, g3). Uniaxial compression converges in 1 SNES iteration. Unit tested.
-- **Gravity body force**: Density-scaled body force callback. Unit tested and setup-verified.
-- **Lithostatic stress**: Full FEM solve of 1D gravitational column. Analytical comparison of vertical and lateral stress profiles (K0 ratio). Passes within 5% tolerance.
-- **Boundary conditions**: 6-face bounding box labeling, Dirichlet via DMAddBoundary, section rebuild. Verified with elastostatics.
-- **Derived fields**: Cell-centered stress, strain, and Coulomb failure stress from FEM solution (DerivedFieldComputer).
+- **Elastostatics**: PetscFE pointwise callbacks (f0, f1, g3). Uniaxial compression converges in 1 SNES iteration. Tests: `Physics.ElastostaticsPatch`, `Physics.LithostaticStress`, `Integration.FullSimulation`.
+- **Gravity body force**: Density-scaled body force callback. Lithostatic stress column with K0 ratio within 5% tolerance. Tests: `Physics.GravityLithostatic`.
+- **Lithostatic stress**: Full FEM solve of 1D gravitational column. Analytical comparison of vertical and lateral stress profiles. Tests: `Physics.LithostaticStress`.
+- **Boundary conditions**: 6-face bounding box labeling, Dirichlet via DMAddBoundary, section rebuild. Tests: `Unit.BoundaryConditions`.
+- **Derived fields**: Cell-centered stress, strain, and Coulomb failure stress from FEM solution. Tests: `Integration.DerivedFields`.
+- **Layered elastostatics**: Depth-based material layering via auxiliary fields. Tests: `Integration.LayeredElastostatics`.
 
 ### Wave Propagation
-- **Elastodynamics**: Implicit time stepping with TS. Lamb's problem (point force on halfspace) and Garvin's problem (buried explosion Green's function) pass with quantitative error norms.
-- **Absorbing boundary conditions**: Clayton-Engquist first-order. Energy absorption efficiency >99% at normal incidence. Unit tested.
+- **Elastodynamics**: Implicit time stepping with TSALPHA2. Tests: `Physics.LambsProblem` (point force on halfspace), `Physics.GarvinsProblem` (buried explosion Green function).
+- **Absorbing boundary conditions**: Clayton-Engquist first-order Lysmer-Kuhlmeyer. Energy absorption >99% at normal incidence. Tests: `Physics.AbsorbingBC`.
 
 ### Poroelasticity
-- **Biot coupling**: Pressure-displacement f0/f1 callbacks and all 4 Jacobian blocks (g0, g1, g2, g3). Unit tested.
-- **Terzaghi consolidation**: 1D consolidation benchmark with analytical solution comparison. Passes with quantitative tolerance.
+- **Biot coupling**: Pressure-displacement f0/f1 callbacks and all 4 Jacobian blocks (g0, g1, g2, g3). Tests: `Physics.TerzaghiConsolidation`.
+- **Injection pressure buildup**: Poroelastic Simulator with point injection source. Two-simulation comparison. Tests: `Integration.InjectionPressure`.
 
 ### Nuclear Explosion Monitoring
-- **Mueller-Murphy seismic source**: Corner frequency, mb-yield scaling, reduced displacement potential (RDP) spectrum, cavity radius scaling, moment rate function. 9 tests pass.
-- **Explosion seismogram pipeline**: Source injection via moment tensor, elastodynamic wave propagation, seismometer sampling (DMInterpolation), SAC output format. Integration-tested.
-- **Punggye-ri layered workflow**: Three-layer elastic model with absorbing boundaries, damage-zone degradation, HDF5 output, and SAC seismograms. Integration-tested.
-- **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Verified with nonzero displacement norm and correct solution vector size.
-- **DPRK 2017 comparison**: Synthetic body-wave magnitude (mb) vs observed for 250 kt test at Punggye-ri. 4 tests pass.
+- **Mueller-Murphy seismic source**: Corner frequency, mb-yield scaling, reduced displacement potential (RDP) spectrum, cavity radius scaling, moment rate function. Tests: `Physics.MuellerMurphy` (9 assertions).
+- **Explosion seismogram pipeline**: Source injection via moment tensor, elastodynamic wave propagation, seismometer sampling (DMInterpolation), SAC output format. Tests: `Integration.ExplosionSeismogram`.
+- **Punggye-ri layered workflow**: Three-layer elastic model with absorbing boundaries, damage-zone degradation, HDF5 output, and SAC seismograms. Tests: `Integration.PunggyeRiLayered`.
+- **Moment tensor source injection**: Proper FEM equivalent nodal forces via PetscFECreateTabulation. Tests: `Physics.MomentTensorSource`.
+- **DPRK 2017 comparison**: Synthetic body-wave magnitude (mb) vs observed for 250 kt test at Punggye-ri. Tests: `Integration.DPRK2017Comparison` (4 assertions).
 
 ### Atmospheric Explosion Effects
-- **Sedov-Taylor blast**: Blast radius scaling (5% tolerance), t^0.4 temporal exponent. Tested.
-- **Brode fireball**: Maximum radius estimation. Tested.
-- **EMP E1 peak field**: 100-60000 V/m range validation. Tested.
-- **Overpressure**: Distance-dependent overpressure (10-1000 kPa range). Tested.
+- **Sedov-Taylor blast**: Blast radius scaling (5% tolerance), t^0.4 temporal exponent. Tests: `Physics.AtmosphericExplosion`.
+- **Brode fireball**: Maximum radius estimation. Tests: `Physics.AtmosphericExplosion`.
+- **EMP E1 peak field**: 100-60000 V/m range validation. Tests: `Physics.AtmosphericExplosion`.
+- **Overpressure**: Distance-dependent (10-1000 kPa range). Tests: `Physics.AtmosphericExplosion`.
 
 ### Near-field Explosion Phenomenology
-- **Cavity radius**: Yield-dependent (W^0.295 scaling). Tested.
-- **Damage zones**: Crushed/fractured/damaged ordering and extent ratios. Tested.
-- **FEM-coupled damage-zone degradation**: Auxiliary material properties are reduced around the explosion source and the dynamic response changes when damage zones are enabled. Physics validated.
-- **Spall**: Velocity (P/rho*c formula), thickness depth dependence, dynamic tensile strength rate effects. Tested.
+- **1D Lagrangian solver**: Mie-Gruneisen EOS, damage, spall. Tests: `Physics.NearFieldExplosion`.
+- **FEM-coupled damage-zone degradation**: Auxiliary material properties reduced around explosion source, dynamic response changes with damage. Tests: `Physics.ExplosionDamageZone`.
 
 ### Gmsh Multi-Material Support
-- **Gmsh physical-name import**: PETSc DMPlex loads MSH2 meshes and preserves physical-group labels for materials and boundaries.
-- **Per-cell material assignment by Gmsh label**: Auxiliary `lambda`, `mu`, and `rho` fields are populated from `[MATERIAL_REGION_N]` sections keyed by `gmsh_label`.
-- **Historical mesh validation**: The committed Gasbuggy layered mesh is integration-tested with three distinct material regions.
-- **Gmsh nuclear twin workflow**: A compact Gmsh mesh with mapped material regions, underground source, and HDF5 output is integration-tested.
+- **Gmsh physical-name import**: PETSc DMPlex loads MSH2 meshes and preserves physical-group labels. Tests: `Integration.GmshImport`.
+- **Per-cell material assignment by Gmsh label**: Auxiliary fields populated from `[MATERIAL_REGION_N]` sections keyed by `gmsh_label`. Tests: `Integration.GmshMultiMaterial`.
+- **Historical mesh validation**: Gasbuggy layered mesh with three distinct material regions. Tests: `Integration.GasbuggyMesh`.
+- **Gmsh nuclear twin workflow**: Compact Gmsh mesh with mapped material regions, underground source, and HDF5 output. Tests: `Integration.NuclearTwinGmsh`.
 
 ### Fault Mechanics
-- **Cohesive cell mesh splitting**: PyLith workflow (DMPlexCreateSubmesh, subpoint map, DMPlexLabelCohesiveComplete, DMPlexConstructCohesiveCells). 32 cohesive cells on 4x4x4 simplex mesh. All tests pass.
-- **Friction laws**: Slip-weakening and rate-state (aging law). Unit tested.
-- **Coulomb stress transfer**: Hooke stress computation, fault projection, delta-CFS calculation. Unit tested.
-- **Fault plus absorbing BC coexistence**: Region-specific PetscDS assignment via `DMSetRegionDS` prevents BdResidual overwrite and allows both callback families in one setup. Integration tested.
-- **SCEC TPV5**: Infrastructure verified (parameters, CohesiveFaultKernel construction, FaultMeshManager). Full benchmark solve is a work in progress.
+- **Cohesive cell mesh splitting**: PyLith workflow (DMPlexCreateSubmesh, subpoint map, DMPlexLabelCohesiveComplete, DMPlexConstructCohesiveCells). Tests: `Functional.DynamicRuptureSetup.MeshSplitting`.
+- **Friction laws**: Slip-weakening and rate-state (aging law). Tests: `Unit.FaultMechanics`.
+- **Coulomb stress transfer**: Hooke stress computation, fault projection, delta-CFS calculation. Tests: `Unit.CoulombStressTransfer`.
+- **Fault plus absorbing BC coexistence**: Region-specific PetscDS assignment via `DMSetRegionDS`. Tests: `Functional.FaultAbsorbingCoexist`, `Functional.DynamicRuptureSetup.AbsorbingCoexist`.
+- **SCEC TPV5 infrastructure**: Parameters, CohesiveFaultKernel construction, FaultMeshManager verified. Full benchmark solve is a work in progress. Tests: `Physics.SCEC.TPV5`.
+- **Prescribed slip**: Cohesive fault with imposed slip. Tests: `Integration.PrescribedSlip`.
+- **Pressurized fracture FEM**: Traction balance with Sneddon aperture validation through TSSolve. Tests: `Integration.PressurizedFractureFEM`.
 
-### Hydraulic Fracturing (FEM-Coupled Foundations)
-- **Pressurized cohesive fracture callbacks**: Traction balance `lambda + p_f * n = 0` and Sneddon aperture validation. Physics tested.
-- **Lubrication callback layer**: Fracture pressure source and Poiseuille flux callbacks with aperture-cubed scaling checks. Integration tested.
-- **Coupled hydrofrac utilities**: PKN quarter-power width scaling validated for coupled flow-deformation.
-- **Fracture propagation criterion**: LEFM cohesive strength mapping from K_Ic and opening threshold. Integration tested.
-- **Multi-cluster stress shadowing**: Sneddon normal-stress perturbation, shadow factor decay with fracture spacing, cluster efficiency allocation. Edge clusters receive disproportionate fluid under stress shadow. 6 tests pass.
-- **Induced seismicity**: Scalar moment (M0 = mu * slip * area), Hanks-Kanamori moment magnitude, microseismic range validation (-3 < Mw < 1). 6 tests pass.
-- **Proppant transport utilities**: Stokes settling velocity, bridging criterion (w/d ratio), pack minimum aperture, mass conservation balance. 8 tests pass.
-- **Carter leak-off coupling**: Carter leak-off rate (C_L/sqrt(t)) and cumulative volume (2*C_L*sqrt(t)), delayed opening support, area scaling. 7 tests pass.
-- **Production forecasting**: Arps hyperbolic/exponential/harmonic decline curves, cumulative production, fracture productivity index. 9 tests pass.
+### Hydraulic Fracturing (Standalone Utilities)
+- **PKN width scaling**: Quarter-power width validated for coupled flow-deformation. Tests: `Unit.HydrofracFormulas`.
+- **Fracture propagation criterion**: LEFM cohesive strength mapping from K_Ic and opening threshold. Tests: `Unit.FracturePropagation`.
+- **Lubrication flow callbacks**: Fracture pressure source and Poiseuille flux with aperture-cubed scaling. Tests: `Unit.FractureFlowCallbacks`.
+- **Pressurized fracture callbacks**: Traction balance and Sneddon validation. Tests: `Unit.PressurizedFractureCallbacks`.
+- **Multi-cluster stress shadowing**: Sneddon normal-stress perturbation, shadow factor decay, cluster efficiency allocation. Tests: `Physics.StressShadowing` (6 assertions).
+- **Induced seismicity**: Scalar moment (M0 = mu * slip * area), Hanks-Kanamori magnitude, microseismic range validation. Tests: `Physics.InducedSeismicity` (6 assertions).
+- **Proppant transport**: Stokes settling, bridging criterion, pack minimum aperture, mass conservation. Tests: `Physics.ProppantTransport` (8 assertions).
+- **Carter leak-off coupling**: Carter leak-off rate, cumulative volume, delayed opening, area scaling. Tests: `Physics.LeakoffCoupling` (7 assertions).
+- **Production forecasting**: Arps hyperbolic/exponential/harmonic decline curves, cumulative production, fracture productivity index. Tests: `Physics.ProductionForecast` (9 assertions).
 
-### Plasticity (Partial)
-- **Yield function evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection works correctly. Hydrostatic stress confirmed inside all surfaces.
-- **Known limitation**: Return mapping algorithms do not produce nonzero plastic strain. Not wired into PETSc FEM pipeline.
+### Plasticity (Material-Point Level)
+- **Drucker-Prager return mapping**: PlasticityModel::integrateStress produces nonzero plastic strain for deviatoric loading. Tests: `Unit.DruckerPragerStandalone`.
+- **Yield function evaluation**: Drucker-Prager, von Mises, Mohr-Coulomb yield surface detection. Tests: `Unit.Elastoplasticity`.
+- **Known limitation**: Return mapping works at the material-point level only. Not wired into PETSc FEM pipeline (no config flag to enable).
 
 ### Fluid Flow Callbacks
-- **Single-phase and black oil**: PetscFE pointwise callbacks. Unit tested. NOT verified end-to-end in a simulation.
+- **Single-phase and black oil**: PetscFE pointwise callbacks. Tests: `Unit.SinglePhaseFlow`, `Unit.MultiphaseFlow`. NOT verified end-to-end in a simulation.
 
-## Planned / In Development
+### Output
+- **HDF5/VTK output**: Solution and derived fields written to HDF5. Tests: `Integration.OutputFile`.
+- **Simulation restart**: Checkpoint and restart lifecycle. Tests: `Integration.Restart`.
 
-The following features exist as code stubs, partial implementations, or configuration templates but do **not** have passing end-to-end tests. Status labels indicate maturity.
+## What Does Not Work (Known Gaps)
+
+These features exist as code but are NOT functional end-to-end:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| DG/ADER-DG spatial discretization | Stub | Header/source files exist. Not functional. |
-| Local time stepping (LTS) | Stub | Not implemented. |
-| PML absorbing boundaries | Stub | Only Clayton-Engquist is tested. |
-| Viscoelastic attenuation | Stub | Not wired into FEM pipeline. |
-| Off-fault plasticity (return mapping) | Broken | Yield detection works; return mapping does not produce plastic strain. |
-| GPU acceleration (CUDA/HIP) | Stub | Build flags exist. No working GPU kernels. |
-| Fourier Neural Operator (FNO) solver | Stub | Headers exist. Not functional. |
-| Hydraulic fracturing (prototype) | Partially verified | Phase 1 and Phase 2 callback tests pass. Full monolithic end-to-end coupling is in progress. |
-| Multi-phase fluid flow (end-to-end) | Coded, unverified | Callbacks unit-tested. No simulation test. |
-| Injection source term | Coded, unverified | Config exists (injection_pressure_buildup.config). |
-| Gmsh mesh import | Verified | Physical-name labels, per-cell region mapping, and historical Gasbuggy coverage are integration-tested. |
-| Adaptive Mesh Refinement (AMR) | Stub | Config exists in aspirational. Not functional. |
-| Volcano modeling | Stub | Documentation only. No physics implementation. |
-| Tsunami modeling | Stub | Documentation only. No physics implementation. |
-| Ocean circulation | Stub | Documentation only. No physics implementation. |
-| Atmospheric infrasound | Stub | Documentation only. No physics implementation. |
-| Radiation transport / fallout | Stub | Documentation only. No physics implementation. |
-| Hypervelocity impacts | Stub | Documentation only. No physics implementation. |
-| Advanced fracturing (multi-stage, proppant) | Stub | Not implemented. |
-| Eclipse format I/O | Stub | Not tested. |
-| Compositional EOS fluid | Stub | Not implemented. |
-| Thermal coupling | Stub | Not implemented end-to-end. |
-| Per-cell material properties | Partially verified | Depth-based and Gmsh-label-based auxiliary material assignment are tested. Broader production examples are still limited. |
+| Elastoplasticity FEM coupling | Not wired | Return mapping works standalone; no config flag to enable in Simulator |
+| Hydraulic fracturing (full coupled) | Partial | PressurizedFractureFEM passes; lubrication+deformation coupled solve is callback-tested only |
+| Dynamic rupture TSSolve | Setup only | Pipeline setup completes; TSSolve never called. SNES may diverge |
+| Fault + absorbing coexistence solve | Setup only | Setup succeeds; TSSolve never called |
+| End-to-end multiphase flow | Not tested | Callbacks unit-tested; no simulation test |
+| DG/ADER-DG spatial discretization | Stub | Source files exist. Not functional |
+| GPU acceleration (CUDA/HIP) | Stub | Build flags exist. No working GPU kernels |
+| Fourier Neural Operator (FNO) | Stub | Headers exist. Not functional |
+| Adaptive Mesh Refinement (AMR) | Stub | Not functional |
+| Volcano modeling | Dead code | ~4,200 lines. Never referenced. Never tested |
+| Tsunami modeling | Dead code | ~5,000 lines. Never referenced. Never tested |
+| Ocean circulation | Dead code | Part of tsunami/ocean module. Never tested |
+| Radiation transport | Dead code | ~1,650 lines. Never referenced. Never tested |
+| ML/neural operators | Dead code | ~9,200 lines. Never referenced. Never tested |
+| Material library | Dead code | ~7,700 lines. Never referenced. Never tested |
+
+### Dead Code Disclosure
+
+Approximately 44,000 lines (~53% of source .cpp files) compile into the library but are never called by the Simulator or any test. This includes stubs for volcano, tsunami, ocean, ML, DG/ADER, radiation, AMR, and an unused material library. See CLAUDE.md for the complete inventory.
 
 ## Technology Stack
 
@@ -114,7 +116,7 @@ The following features exist as code stubs, partial implementations, or configur
 - **Parallel Computing**: PETSc 3.22.2, MPI
 - **FEM**: PETSc DMPlex unstructured finite elements with PetscDS pointwise callbacks
 - **I/O**: HDF5
-- **Testing**: Google Test, CTest
+- **Testing**: Google Test, CTest (91 tests across 6 executables)
 - **Containers**: Docker (Dockerfile.ci for reproducible builds)
 
 ## Building
@@ -130,9 +132,9 @@ docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c \
   'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_TESTING=ON -DENABLE_CUDA=OFF -DBUILD_EXAMPLES=ON && make -j$(nproc)'
 
-# Run tests
+# Run all tests
 docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
-  ctest --output-on-failure
+  ctest -j$(nproc) --output-on-failure
 
 # Interactive shell
 docker run --rm -it -v $(pwd):/workspace -w /workspace fsrm-ci:local bash
@@ -216,24 +218,27 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference.
 ```bash
 cd build
 
-# Run all tests
-ctest --output-on-failure
+# Run all tests in parallel
+ctest -j$(nproc) --output-on-failure
 
 # Run by label
-ctest -L "unit"           # Unit tests
-ctest -L "physics"        # Physics validation tests
-ctest -L "integration"    # Integration tests
+ctest -L "unit"                 # 36 unit tests
+ctest -L "functional"           # 10 functional tests
+ctest -L "physics_validation"   # 23 physics validation tests
+ctest -L "integration"          # 18 integration tests
+ctest -L "performance"          # 3 performance tests
 
 # Run specific test
-ctest -R test_name -V
+ctest -R Physics.TerzaghiConsolidation -V
 ```
 
 ### Test Labels
-- `unit`: Fast unit tests for individual components
-- `functional`: Functional tests
-- `physics`: Physics validation with analytical solutions or known benchmarks
-- `integration`: Multi-component integration tests
-- `performance`: Performance benchmarks
+- `unit`: Standalone formula, callback, and component tests (36 tests)
+- `functional`: Setup pipeline verification, no TSSolve (10 tests)
+- `physics_validation`: Analytical solutions, FEM-coupled benchmarks (23 tests)
+- `integration`: Full Simulator pipeline through TSSolve (18 tests)
+- `performance`: Performance benchmarks (3 tests)
+- `experimental`: Neural operator stubs (1 test)
 
 See [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) for the complete test matrix.
 
@@ -274,12 +279,11 @@ Fine-tune solvers via command line:
 ## Contributing
 
 Contributions welcome. Areas of interest:
-- End-to-end verification of coded-but-unverified features
-- Plasticity return mapping fix
-- Gmsh mesh import testing
+- End-to-end verification of fluid flow callbacks (simulation test for single-phase/multiphase)
+- Wiring elastoplasticity into Simulator (PetscDS callback registration + config flag)
+- Dynamic rupture TSSolve convergence (cohesive Jacobian debugging)
 - Additional analytical benchmarks
-- Per-cell material properties (auxiliary field pattern)
-- Absorbing boundary improvements
+- Absorbing boundary improvements (PML)
 
 ## Citation
 
