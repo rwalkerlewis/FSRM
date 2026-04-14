@@ -2566,8 +2566,10 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
 
     ierr = DMCreateDS(auxDM_); CHKERRQ(ierr);
 
-    // Create local vector and populate with material properties
+    // Create local vector and zero-initialize (important for viscoelastic
+    // memory variable fields that start at relaxed state = zero)
     ierr = DMCreateLocalVector(auxDM_, &auxVec_); CHKERRQ(ierr);
+    ierr = VecZeroEntries(auxVec_); CHKERRQ(ierr);
     if (config.material_assignment == "gmsh_label") {
         ierr = populateAuxFieldsByMaterialLabel(); CHKERRQ(ierr);
     } else {
