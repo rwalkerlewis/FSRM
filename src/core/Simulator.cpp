@@ -4007,11 +4007,12 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
             }
 
-            // Augmented Lagrangian penalty: moderate penalty for slipping mode
-            // (too large causes Newton overshoot), full penalty for locked/prescribed.
+            // No augmented Lagrangian penalty for slipping mode -- the pure
+            // Lagrange multiplier formulation with the tangential identity
+            // Jacobian provides sufficient coupling.
             const PetscReal effective_penalty =
                 (mode == CohesiveAssemblyMode::Slipping)
-                ? 0.1 * penalty_stiffness
+                ? 0.0
                 : penalty_stiffness;
 
             for (PetscInt d = 0; d < dim; ++d)
@@ -4048,9 +4049,11 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
 
-    // Moderate penalty for slipping mode (semi-smooth Newton), full for locked.
+    // No penalty augmentation for slipping mode -- the Jacobian coupling
+    // (traction +/- lambda and constraint identity) is sufficient.
+    // Full penalty for locked/prescribed modes.
     const bool is_slipping = (fault_mode_ == "slipping");
-    const PetscReal penalty_scale = is_slipping ? 0.1 : 1.0;
+    const PetscReal penalty_scale = is_slipping ? 0.0 : 1.0;
 
     PetscErrorCode ierr;
     PetscSection gsection = nullptr;
