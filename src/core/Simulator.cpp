@@ -2216,11 +2216,12 @@ PetscErrorCode Simulator::setupPhysics() {
                     : (config.enable_elastoplasticity
                         ? PetscFEElastoplasticity::f1_elastoplastic_aux
                         : PetscFEElasticityAux::f1_elastostatics_aux);
-                auto g3_cb = config.enable_viscoelastic
-                    ? PetscFEViscoelastic::g3_viscoelastic_aux
-                    : (config.enable_elastoplasticity
+                // Use standard aux g3 for all cases (including viscoelastic).
+                // The viscoelastic g3 uses unrelaxed moduli but for the initial
+                // implementation, the relaxed moduli tangent is sufficient.
+                auto g3_cb = config.enable_elastoplasticity
                         ? PetscFEElastoplasticity::g3_elastoplastic_aux
-                        : PetscFEElasticityAux::g3_elastostatics_aux);
+                        : PetscFEElasticityAux::g3_elastostatics_aux;
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastodynamics_aux,
                                           f1_cb); CHKERRQ(ierr);
@@ -2245,9 +2246,8 @@ PetscErrorCode Simulator::setupPhysics() {
                     : (config.enable_elastoplasticity
                         ? PetscFEElastoplasticity::f1_elastoplastic_aux
                         : PetscFEElasticityAux::f1_elastostatics_aux);
-                auto g3_cb = config.enable_viscoelastic
-                    ? PetscFEViscoelastic::g3_viscoelastic_aux
-                    : (config.enable_elastoplasticity
+                // Use standard aux g3 for all cases (including viscoelastic)
+                auto g3_cb = config.enable_elastoplasticity
                         ? PetscFEElastoplasticity::g3_elastoplastic_aux
                         : PetscFEElasticityAux::g3_elastostatics_aux);
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
