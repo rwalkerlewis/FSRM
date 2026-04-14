@@ -631,6 +631,21 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         fault_slip_dip_ = reader.getDouble("FAULT", "slip_dip", 0.0);
         fault_slip_opening_ = reader.getDouble("FAULT", "slip_opening", 0.0);
         fault_friction_coefficient_ = reader.getDouble("FAULT", "friction_coefficient", 0.6);
+        // Read slip-weakening friction model parameters
+        if (reader.hasKey("FAULT", "friction_model")) {
+            std::string fm = reader.getString("FAULT", "friction_model", "constant");
+            if (fm == "slip_weakening") {
+                use_slip_weakening_ = true;
+                mu_static_ = reader.getDouble("FAULT", "static_friction", 0.677);
+                mu_dynamic_ = reader.getDouble("FAULT", "dynamic_friction", 0.525);
+                critical_slip_distance_ = reader.getDouble("FAULT", "critical_slip_distance", 0.40);
+                if (rank == 0) {
+                    PetscPrintf(comm,
+                        "Slip-weakening friction: mu_s=%.3f, mu_d=%.3f, Dc=%.4f m\n",
+                        mu_static_, mu_dynamic_, critical_slip_distance_);
+                }
+            }
+        }
         // Read optional fault geometry (center, orientation, dimensions)
         if (reader.hasKey("FAULT", "center_x") || reader.hasKey("FAULT", "center_y") ||
             reader.hasKey("FAULT", "center_z") || reader.hasKey("FAULT", "strike") ||
@@ -651,6 +666,24 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         // Time-dependent prescribed slip parameters
         fault_slip_onset_time_ = reader.getDouble("FAULT", "slip_onset_time", 0.0);
         fault_slip_rise_time_ = reader.getDouble("FAULT", "slip_rise_time", 0.0);
+        // Initial fault stress (for SCEC TPV-type benchmarks)
+        if (reader.hasKey("FAULT", "initial_normal_stress")) {
+            fault_has_initial_stress_ = true;
+            fault_initial_normal_stress_ = reader.getDouble("FAULT", "initial_normal_stress", -120.0e6);
+            fault_initial_shear_stress_ = reader.getDouble("FAULT", "initial_shear_stress", 70.0e6);
+            fault_nucleation_center_x_ = reader.getDouble("FAULT", "nucleation_center_x", 0.0);
+            fault_nucleation_center_z_ = reader.getDouble("FAULT", "nucleation_center_z", -7500.0);
+            fault_nucleation_radius_ = reader.getDouble("FAULT", "nucleation_radius", 1500.0);
+            fault_nucleation_shear_stress_ = reader.getDouble("FAULT", "nucleation_shear_stress", 81.6e6);
+            if (rank == 0) {
+                PetscPrintf(comm,
+                    "Initial fault stress: sigma_n=%.3e Pa, tau=%.3e Pa\n"
+                    "  Nucleation patch: center=(%.1f, %.1f), radius=%.1f m, tau=%.3e Pa\n",
+                    fault_initial_normal_stress_, fault_initial_shear_stress_,
+                    fault_nucleation_center_x_, fault_nucleation_center_z_,
+                    fault_nucleation_radius_, fault_nucleation_shear_stress_);
+            }
+        }
         config.enable_faults = true;
     }
 
@@ -1625,7 +1658,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         fe_fields.push_back(fe);
     }
 
-    // Create DS (required before adding boundaries in PETSc 3.22.2)
+    // Create DS (required before adding boundaries in PETSc 3.25)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
 
     // Add boundary conditions to the DS
@@ -2087,6 +2120,12 @@ PetscErrorCode Simulator::setupPhysics() {
         }
         unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MODE] = fault_mode_val;
         unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_F] = fault_friction_coefficient_;
+        if (use_slip_weakening_) {
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_FRICTION_MODEL] = 1.0;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_S] = mu_static_;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_D] = mu_dynamic_;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_DC] = critical_slip_distance_;
+        }
     }
 
     // Set traction BC constants (6 faces x 3 components, starting at slot 36)
@@ -2295,45 +2334,39 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Cohesive constraint assembly is performed manually in FormFunction
-        // via addCohesiveConstraintToResidual(). PetscDSSetBdResidual on
-        // cohesive cells crashes in PETSc 3.22 due to totDim mismatch
-        // between hybrid prism cells and bulk tet cells.
-        //
-        // For all fault modes (locked, slipping, prescribed slip, hydrofrac),
-        // we add a volume identity residual for the Lagrange field to keep
-        // the PetscDS system non-singular. The actual constraint is assembled
-        // manually in FormFunction.
+        // Volume regularization for the Lagrange field: f = lambda, g = I.
+        // This keeps the PetscDS system non-singular on interior (non-cohesive)
+        // cells that have Lagrange DOFs. The actual constraint on cohesive
+        // cells is handled by BdResidual callbacks registered below.
+        // BdJacobian on cohesive cells does NOT work in PETSc 3.25 (commented
+        // out in plexfem.c), so the Jacobian is assembled manually in
+        // addCohesivePenaltyToJacobian.
+        ierr = PetscDSSetResidual(prob, lagrange_field,
+            PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
+            PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
+            nullptr, nullptr); CHKERRQ(ierr);
+
+        // Register BdResidual on cohesive cells. This works in PETSc 3.25+
+        // (verified by Physics.CohesiveBdResidual test). DMPlexTSComputeIFunctionFEM
+        // will evaluate these callbacks on the hybrid prism/tensor cells.
         if (hydrofrac_fem_pressurized_mode_) {
-            ierr = PetscDSSetResidual(prob, lagrange_field,
-                PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
-            ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-                PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
-                nullptr, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdResidual(prob, lagrange_field,
+                PetscFEHydrofrac::f0_lagrange_pressure_balance, nullptr); CHKERRQ(ierr);
+        } else if (fault_mode_ == "prescribed_slip") {
+            ierr = PetscDSSetBdResidual(prob, lagrange_field,
+                CohesiveFaultKernel::f0_prescribed_slip, nullptr); CHKERRQ(ierr);
         } else {
-            // For non-hydrofrac fault modes, register the Lagrange
-            // regularization callback (f = lambda) as a volume residual.
-            // This is required because DMPlexTSComputeIFunctionFEM produces
-            // NaN when a field in the DS has no registered volume callback.
-            // The true cohesive interface residual is assembled manually in
-            // addCohesiveConstraintToResidual() on the hybrid-cell vertex pairs.
-            ierr = PetscDSSetResidual(prob, lagrange_field,
-                PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
-            ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-                PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
-                nullptr, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdResidual(prob, lagrange_field,
+                CohesiveFaultKernel::f0_lagrange_constraint, nullptr); CHKERRQ(ierr);
         }
+        ierr = PetscDSSetBdResidual(prob, disp_field,
+            CohesiveFaultKernel::f0_displacement_cohesive, nullptr); CHKERRQ(ierr);
 
         if (rank == 0) {
-            if (hydrofrac_fem_pressurized_mode_) {
-                PetscPrintf(comm,
-                            "Registered pressurized cohesive callbacks on fields %d (disp), %d (lagrange)\n",
-                            disp_field, lagrange_field);
-            } else {
-                PetscPrintf(comm,
-                            "Registered manual cohesive assembly on fields %d (disp), %d (lagrange)\n",
-                            disp_field, lagrange_field);
-            }
+            PetscPrintf(comm,
+                        "Registered BdResidual cohesive callbacks on fields %d (disp), %d (lagrange)\n",
+                        disp_field, lagrange_field);
         }
     }
 
@@ -2416,11 +2449,20 @@ PetscErrorCode Simulator::setupPhysics() {
                                         CohesiveFaultKernel::g0_lagrange_lagrange, nullptr,
                                         nullptr, nullptr); CHKERRQ(ierr);
         } else {
-            // Non-hydrofrac fault modes: cohesive constraint assembly is
-            // performed manually in FormFunction via addCohesiveConstraintToResidual().
-            // Do NOT call PetscDSSetBdResidual on the fault DS because it crashes
-            // in PETSc 3.22 on cohesive cells. The fault_ds is still needed for
-            // the region split but has no BdResidual callbacks.
+            // Non-hydrofrac fault modes: register BdResidual on fault_ds.
+            // PETSc 3.25 supports BdResidual on cohesive cells.
+            if (fault_mode_ == "prescribed_slip") {
+                ierr = PetscDSSetBdResidual(fault_ds, cohesive_lagrange_field,
+                                            CohesiveFaultKernel::f0_prescribed_slip,
+                                            nullptr); CHKERRQ(ierr);
+            } else {
+                ierr = PetscDSSetBdResidual(fault_ds, cohesive_lagrange_field,
+                                            CohesiveFaultKernel::f0_lagrange_constraint,
+                                            nullptr); CHKERRQ(ierr);
+            }
+            ierr = PetscDSSetBdResidual(fault_ds, cohesive_disp_field,
+                                        CohesiveFaultKernel::f0_displacement_cohesive,
+                                        nullptr); CHKERRQ(ierr);
         }
 
         ierr = PetscDSSetBdResidual(absorbing_ds, absorbing_disp_field,
@@ -3595,9 +3637,10 @@ PetscErrorCode Simulator::addFaultPressureToResidual(PetscReal t, Vec locF) {
 // =============================================================================
 // addCohesiveConstraintToResidual
 //
-// Manual cohesive interface assembly that bypasses PetscDSSetBdResidual,
-// which crashes in PETSc 3.22 on cohesive cells due to the hybrid prism / tet
-// support mismatch. The live section layout on the split mesh places both the
+// Manual cohesive interface assembly (legacy path). PETSc 3.25 supports
+// PetscDSSetBdResidual on cohesive cells, so the primary residual path is
+// now through BdResidual callbacks. This function is retained as a fallback.
+// The live section layout on the split mesh places both the
 // displacement and lagrange DOFs on the duplicated fault vertices, so the
 // assembly is performed on paired negative/positive face vertices of each
 // cohesive prism cell.
@@ -3948,7 +3991,15 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
                 slip_t_mag = PetscSqrtReal(slip_t_mag);
                 lambda_t_mag = PetscSqrtReal(lambda_t_mag);
-                const PetscReal tau_f = fault_friction_coefficient_ * PetscAbsReal(-lambda_n);
+                // Friction coefficient: constant or slip-weakening
+                PetscReal mu_f_resid;
+                if (use_slip_weakening_) {
+                    mu_f_resid = mu_static_ - (mu_static_ - mu_dynamic_) *
+                                 PetscMin(slip_t_mag, critical_slip_distance_) / critical_slip_distance_;
+                } else {
+                    mu_f_resid = fault_friction_coefficient_;
+                }
+                const PetscReal tau_f = mu_f_resid * PetscAbsReal(-lambda_n);
 
                 for (PetscInt d = 0; d < dim; ++d)
                 {
@@ -4000,13 +4051,12 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
 // =============================================================================
 // addCohesivePenaltyToJacobian
 //
-// Analytical interface Jacobian for the linear cohesive cases handled by the
-// manual assembly path:
-//   - locked fault
-//   - prescribed slip
-//
-// The slipping mode remains nonlinear and can continue to rely on SNES
-// finite-difference coloring when needed.
+// Analytical interface Jacobian for all cohesive fault modes:
+//   - locked fault: diagonal identity coupling + penalty
+//   - prescribed slip: same as locked
+//   - slipping (Coulomb friction): full semi-smooth Newton tangent with
+//     off-diagonal slip direction derivatives and friction-normal coupling,
+//     matching CohesiveFaultKernel g0 kernels exactly.
 // =============================================================================
 PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
 {
@@ -4267,7 +4317,14 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                 }
                 PetscReal slip_t_mag = PetscSqrtReal(slip_t_mag2);
 
-                const PetscReal mu_f = fault_friction_coefficient_;
+                // Friction coefficient: constant or slip-weakening
+                PetscReal mu_f;
+                if (use_slip_weakening_) {
+                    mu_f = mu_static_ - (mu_static_ - mu_dynamic_) *
+                           PetscMin(slip_t_mag, critical_slip_distance_) / critical_slip_distance_;
+                } else {
+                    mu_f = fault_friction_coefficient_;
+                }
                 // Friction strength: tau_f = mu_f * |compressive normal traction|
                 // Convention: lam_n > 0 is tensile, compressive = -lam_n
                 const PetscReal sigma_n_comp = PetscMax(0.0, -lam_n);
@@ -4285,61 +4342,88 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                 const PetscReal eff_penalty = 0.1 * 10.0 * youngs_modulus / h_char_jac;
 
                 // ---------------------------------------------------------
-                // Assemble Jacobian blocks for all (d, e) pairs
+                // Assemble full Jacobian blocks for all (d, e) pairs.
+                // The constraint is:
+                //   C_d = lam_t_d - tau_f * s_hat_d  (tangential)
+                //       + max(-slip_n, 0) * n_d      (normal non-penetration)
+                // Derivatives w.r.t. u (via slip) and lambda are assembled
+                // in the (d,e) double loop below, matching the pointwise
+                // kernels g0_lagrange_displacement and g0_lagrange_lagrange
+                // in CohesiveFaultKernel.cpp exactly.
                 // ---------------------------------------------------------
-                // The residual for the Lagrange multiplier equation is:
-                //   R_lag_d = constraint_d * area_per_vertex
-                // where for slipping:
-                //   constraint_d = lam_t_d - tau_f * s_hat_d  (tangential)
-                //                + max(-slip_n, 0) * n_d      (normal non-penetration)
-                //
-                // The residual for displacement equations is:
-                //   R_u_neg_d = (-lambda_d - eff_penalty * constraint_d) * area
-                //   R_u_pos_d = ( lambda_d + eff_penalty * constraint_d) * area
 
-                // Simplified slipping Jacobian: use the locked-mode coupling
-                // structure (diagonal per d) with the friction constraint's
-                // tangential/normal decomposition.
-                //
-                // For the Lagrange multiplier equation:
-                //   Locked constraint: C = u_pos - u_neg (Jacobian: +/-I coupling)
-                //   Slipping constraint: C = lam_t - tau_f * s_hat  (Jacobian: identity on tangential lambda)
-                // The key difference is that the slipping constraint depends on lambda
-                // (not just u), so J_lag_lag is non-zero. We use a tangential identity
-                // for J_lag_lag and keep the displacement coupling as for locked mode.
-                //
-                // This is an inexact Jacobian (it omits slip direction derivatives)
-                // but provides sufficient coupling for SNES convergence when combined
-                // with the augmented Lagrangian penalty.
+                // Full semi-smooth Newton Jacobian for Coulomb friction.
+                // Matches the pointwise kernels in CohesiveFaultKernel.cpp
+                // (g0_lagrange_displacement, g0_lagrange_lagrange,
+                //  g0_displacement_lagrange) exactly, with penalty augmentation.
                 for (PetscInt d = 0; d < ndof; ++d)
                 {
                     const PetscInt row_neg_disp = neg_disp_off + d;
                     const PetscInt row_pos_disp = pos_disp_off + d;
                     const PetscInt row_lag = neg_lag_off + d;
-                    const PetscInt col_neg_disp = neg_disp_off + d;
-                    const PetscInt col_pos_disp = pos_disp_off + d;
-                    const PetscInt col_lag = neg_lag_off + d;
 
-                    // Traction coupling: d(R_u)/d(lambda) = +/- I (same as locked)
-                    ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
-                    ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
+                    for (PetscInt e = 0; e < ndof; ++e)
+                    {
+                        const PetscInt col_neg_disp = neg_disp_off + e;
+                        const PetscInt col_pos_disp = pos_disp_off + e;
+                        const PetscInt col_lag = neg_lag_off + e;
 
-                    // Constraint coupling: d(R_lag)/d(u) = +/- I (from penalty)
-                    ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
-                    ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
+                        const PetscReal P_de = ((d == e) ? 1.0 : 0.0) - normal[d] * normal[e];
 
-                    // Penalty stiffness on displacement (same as locked)
-                    ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                    ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                    ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                    ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                        // --- J_lam_lam: d(C_d)/d(lam_e) ---
+                        // From g0_lagrange_lagrange:
+                        //   d(lam_t_d)/d(lam_e) = P_de
+                        //   d(-tau_f * s_hat_d)/d(lam_e) = mu_f * s_hat_d * n_e
+                        PetscReal J_ll = P_de;
+                        if (sigma_n_comp > 0.0 && slip_t_mag > slip_eps) {
+                            J_ll += mu_f * s_hat[d] * normal[e];
+                        }
+                        ierr = MatSetValue(J, row_lag, col_lag,
+                            static_cast<PetscScalar>(J_ll) * coeff, ADD_VALUES); CHKERRQ(ierr);
 
-                    // Lagrange multiplier self-coupling for slipping constraint:
-                    // d(C_d)/d(lambda_d) = 1 for tangential, 0 for normal
-                    // This drives the tangential traction toward the friction strength.
-                    PetscReal P_dd = 1.0 - normal[d] * normal[d];  // tangential projector diagonal
-                    ierr = MatSetValue(J, row_lag, col_lag,
-                        static_cast<PetscScalar>(P_dd) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                        // --- J_lam_u: d(C_d)/d(u_e) ---
+                        // From g0_lagrange_displacement:
+                        //   d(s_hat_d)/d(u_e) = (P_de - s_hat_d * s_hat_e) / |slip_t|
+                        //   d(max(-slip_n,0)*n_d)/d(u_e) = -H(-slip_n) * n_d * n_e
+                        PetscReal dS_de = 0.0;
+                        if (slip_t_mag > slip_eps) {
+                            dS_de = (P_de - s_hat[d] * s_hat[e]) / slip_t_mag;
+                        }
+                        PetscReal J_lu = -tau_f * dS_de;
+                        // Slip-weakening: d(mu_f)/d(|slip_t|) * sigma_n * s_hat_d * s_hat_e
+                        if (use_slip_weakening_ && slip_t_mag < critical_slip_distance_
+                            && slip_t_mag > slip_eps) {
+                            PetscReal dmu_dslip = -(mu_static_ - mu_dynamic_) / critical_slip_distance_;
+                            J_lu += -dmu_dslip * sigma_n_comp * s_hat[d] * s_hat[e];
+                        }
+                        if (slip_n < 0.0) {
+                            J_lu += -normal[d] * normal[e];
+                        }
+                        // slip = u_pos - u_neg: d(slip)/d(u_pos)=+1, d(slip)/d(u_neg)=-1
+                        ierr = MatSetValue(J, row_lag, col_pos_disp,
+                            static_cast<PetscScalar>(J_lu) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                        ierr = MatSetValue(J, row_lag, col_neg_disp,
+                            static_cast<PetscScalar>(-J_lu) * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // --- J_u_lam: d(R_u)/d(lambda) = +/- delta_de ---
+                        // From g0_displacement_lagrange (identity)
+                        PetscReal J_ul = (d == e) ? 1.0 : 0.0;
+                        ierr = MatSetValue(J, row_neg_disp, col_lag,
+                            static_cast<PetscScalar>(-J_ul) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                        ierr = MatSetValue(J, row_pos_disp, col_lag,
+                            static_cast<PetscScalar>(J_ul) * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // --- J_u_u: penalty augmentation from constraint ---
+                        PetscReal pen_uu = eff_penalty * J_lu;
+                        ierr = MatSetValue(J, row_neg_disp, col_neg_disp,
+                            static_cast<PetscScalar>(pen_uu) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                        ierr = MatSetValue(J, row_neg_disp, col_pos_disp,
+                            static_cast<PetscScalar>(-pen_uu) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                        ierr = MatSetValue(J, row_pos_disp, col_neg_disp,
+                            static_cast<PetscScalar>(-pen_uu) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                        ierr = MatSetValue(J, row_pos_disp, col_pos_disp,
+                            static_cast<PetscScalar>(pen_uu) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    }
                 }
             } else {
                 // =============================================================
@@ -4664,6 +4748,160 @@ PetscErrorCode Simulator::setInitialConditions() {
     PetscFunctionReturn(0);
 }
 
+// =============================================================================
+// applyInitialFaultStress
+//
+// Set Lagrange multiplier DOFs on cohesive cells to prescribed initial traction.
+// Used for SCEC TPV-type benchmarks where the fault starts with known stress
+// state. Walks cohesive cells and sets lambda = tau * strike_dir + sigma_n * normal
+// at each fault vertex, with an optional overstressed nucleation patch.
+// =============================================================================
+PetscErrorCode Simulator::applyInitialFaultStress()
+{
+    PetscFunctionBeginUser;
+    if (!fault_has_initial_stress_ || !config.enable_faults || !cohesive_kernel_)
+        PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscErrorCode ierr;
+    PetscSection section = nullptr;
+    PetscSection coord_section = nullptr;
+    PetscInt dim = 0;
+    Vec coords = nullptr;
+    DMLabel depth_label = nullptr;
+
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+    ierr = DMGetCoordinateSection(dm, &coord_section); CHKERRQ(ierr);
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    if (!coords) { ierr = DMGetCoordinates(dm, &coords); CHKERRQ(ierr); }
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) disp_field = 1;
+    else if (config.fluid_model == FluidModelType::BLACK_OIL) disp_field = 3;
+    else if (config.fluid_model == FluidModelType::COMPOSITIONAL) disp_field = 4;
+    const PetscInt lagrange_field = disp_field + 1;
+
+    // Compute fault-plane directions from strike/dip
+    const PetscReal strike = fault_geometry_from_config_ ? fault_strike_ : 0.0;
+    const PetscReal dip = fault_geometry_from_config_ ? fault_dip_ : (PetscReal)(M_PI / 2.0);
+    const PetscReal cs = PetscCosReal(strike);
+    const PetscReal ss = PetscSinReal(strike);
+    const PetscReal cd = PetscCosReal(dip);
+    const PetscReal sd = PetscSinReal(dip);
+    const PetscReal strike_dir[3] = {cs, ss, 0.0};
+    const PetscReal normal_dir[3] = {-ss * sd, cs * sd, -cd};
+
+    // Work on local vector
+    Vec localVec;
+    ierr = DMGetLocalVector(dm, &localVec); CHKERRQ(ierr);
+    ierr = DMGlobalToLocal(dm, solution, INSERT_VALUES, localVec); CHKERRQ(ierr);
+
+    PetscScalar *larray = nullptr;
+    const PetscScalar *coord_array = nullptr;
+    ierr = VecGetArray(localVec, &larray); CHKERRQ(ierr);
+    ierr = VecGetArrayRead(coords, &coord_array); CHKERRQ(ierr);
+
+    struct FaultVertex {
+        PetscInt point = -1;
+        std::array<PetscReal, 3> xyz = {0.0, 0.0, 0.0};
+    };
+
+    auto loadCoordinates = [&](PetscInt point, std::array<PetscReal,3>& xyz) -> PetscErrorCode {
+        PetscInt dof = 0, off = 0;
+        xyz = {0.0, 0.0, 0.0};
+        PetscErrorCode e = PetscSectionGetDof(coord_section, point, &dof); CHKERRQ(e);
+        if (dof <= 0) return PETSC_SUCCESS;
+        e = PetscSectionGetOffset(coord_section, point, &off); CHKERRQ(e);
+        for (PetscInt d = 0; d < PetscMin(dof, 3); ++d)
+            xyz[static_cast<std::size_t>(d)] = PetscRealPart(coord_array[off + d]);
+        return PETSC_SUCCESS;
+    };
+
+    auto collectFaceVertices = [&](PetscInt face, std::vector<FaultVertex>& vertices) -> PetscErrorCode {
+        PetscInt closure_size = 0;
+        PetscInt* closure = nullptr;
+        PetscErrorCode e = DMPlexGetTransitiveClosure(dm, face, PETSC_TRUE, &closure_size, &closure); CHKERRQ(e);
+        vertices.clear();
+        for (PetscInt i = 0; i < closure_size; ++i) {
+            PetscInt point = closure[2*i];
+            PetscInt depth = -1;
+            e = DMLabelGetValue(depth_label, point, &depth); CHKERRQ(e);
+            if (depth != 0) continue;
+            FaultVertex v;
+            v.point = point;
+            e = loadCoordinates(point, v.xyz); CHKERRQ(e);
+            vertices.push_back(v);
+        }
+        e = DMPlexRestoreTransitiveClosure(dm, face, PETSC_TRUE, &closure_size, &closure); CHKERRQ(e);
+        return PETSC_SUCCESS;
+    };
+
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    PetscInt nset = 0;
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
+            ct != DM_POLYTOPE_TRI_PRISM_TENSOR &&
+            ct != DM_POLYTOPE_QUAD_PRISM_TENSOR)
+            continue;
+
+        const PetscInt* cone = nullptr;
+        PetscInt cone_size = 0;
+        ierr = DMPlexGetConeSize(dm, c, &cone_size); CHKERRQ(ierr);
+        if (cone_size < 2) continue;
+        ierr = DMPlexGetCone(dm, c, &cone); CHKERRQ(ierr);
+
+        std::vector<FaultVertex> neg_vertices;
+        ierr = collectFaceVertices(cone[0], neg_vertices); CHKERRQ(ierr);
+
+        for (const auto& vertex : neg_vertices) {
+            PetscInt lag_dof = 0, lag_off = 0;
+            ierr = PetscSectionGetFieldDof(section, vertex.point, lagrange_field, &lag_dof); CHKERRQ(ierr);
+            if (lag_dof <= 0) continue;
+            ierr = PetscSectionGetFieldOffset(section, vertex.point, lagrange_field, &lag_off); CHKERRQ(ierr);
+
+            // Determine shear stress: background or nucleation patch
+            PetscReal tau = fault_initial_shear_stress_;
+            if (fault_nucleation_radius_ > 0.0) {
+                // Distance from nucleation center in the fault plane
+                // nucleation_center_x is along-strike distance from domain center
+                // nucleation_center_z is depth (vertical)
+                PetscReal dx = vertex.xyz[0] - (fault_center_[0] >= 0 ? fault_center_[0] : 0.0)
+                             - fault_nucleation_center_x_ * strike_dir[0];
+                PetscReal dy = vertex.xyz[1] - (fault_center_[1] >= 0 ? fault_center_[1] : 0.0)
+                             - fault_nucleation_center_x_ * strike_dir[1];
+                PetscReal dz = vertex.xyz[2] - fault_nucleation_center_z_;
+                PetscReal dist = PetscSqrtReal(dx*dx + dy*dy + dz*dz);
+                if (dist <= fault_nucleation_radius_) {
+                    tau = fault_nucleation_shear_stress_;
+                }
+            }
+
+            // Set lambda = tau * strike_dir + sigma_n * normal_dir
+            // sigma_n is compressive negative, lambda convention: compression = negative
+            for (PetscInt d = 0; d < PetscMin(lag_dof, dim); ++d) {
+                larray[lag_off + d] = tau * strike_dir[d] + fault_initial_normal_stress_ * normal_dir[d];
+            }
+            nset++;
+        }
+    }
+
+    ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
+    ierr = VecRestoreArray(localVec, &larray); CHKERRQ(ierr);
+    ierr = DMLocalToGlobal(dm, localVec, INSERT_VALUES, solution); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(dm, &localVec); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Applied initial fault stress to %d Lagrange DOF sets\n", (int)nset);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode Simulator::setMaterialProperties() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
@@ -4887,12 +5125,11 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
             ierr = sim->addFaultPressureToResidual(t, locF); CHKERRQ(ierr);
         }
 
-        // Apply cohesive constraint (locked/slipping) via manual assembly.
-        // This bypasses PetscDSSetBdResidual which crashes on cohesive cells
-        // in PETSc 3.22 due to totDim mismatch between prism and tet cells.
-        if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
-            ierr = sim->addCohesiveConstraintToResidual(t, locU, locF); CHKERRQ(ierr);
-        }
+        // Cohesive fault constraint residual is now handled by PetscDS BdResidual
+        // callbacks registered in setupPhysics(). DMPlexTSComputeIFunctionFEM
+        // evaluates them on cohesive cells automatically (PETSc 3.25+).
+        // The manual Jacobian (addCohesivePenaltyToJacobian) remains in
+        // FormJacobian because BdJacobian is not functional in PETSc 3.25.
 
         // Scatter local residual back to global (ADD_VALUES to accumulate)
         ierr = DMLocalToGlobal(dm, locF, ADD_VALUES, F); CHKERRQ(ierr);

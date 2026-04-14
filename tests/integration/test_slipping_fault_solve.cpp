@@ -119,9 +119,9 @@ protected:
     // Semi-smooth Newton solver for Coulomb friction with augmented Lagrangian.
     // Use basic line search (backtracking can reject good Newton steps for
     // non-smooth problems) and generous tolerances.
-    PetscOptionsSetValue(nullptr, "-snes_max_it", "500");
-    PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-4");
-    PetscOptionsSetValue(nullptr, "-snes_atol", "1e-2");
+    PetscOptionsSetValue(nullptr, "-snes_max_it", "30");
+    PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-8");
+    PetscOptionsSetValue(nullptr, "-snes_atol", "1e-8");
     PetscOptionsSetValue(nullptr, "-snes_stol", "1e-12");
     PetscOptionsSetValue(nullptr, "-ts_type", "beuler");
     PetscOptionsSetValue(nullptr, "-ts_max_snes_failures", "100");
