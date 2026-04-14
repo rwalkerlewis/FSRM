@@ -75,7 +75,7 @@ namespace ExplosionPhysics {
 /**
  * @brief Equation of state type for material under shock
  */
-enum class EOSType {
+enum class ShockEOSType {
     LINEAR_US_UP,         // Linear Us-Up Hugoniot
     MIE_GRUNEISEN,        // Mie-Grüneisen EOS
     TILLOTSON,            // Tillotson (for melting/vaporization)

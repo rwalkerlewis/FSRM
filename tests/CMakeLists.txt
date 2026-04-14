@@ -118,6 +118,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_explosion_fault_reactivation.cpp
     integration/test_traction_bc.cpp
     integration/test_time_dependent_slip.cpp
+    integration/test_nearfield_coupled.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -280,6 +281,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.ExplosionFaultReactivation COMMAND run_integration_tests --gtest_filter=ExplosionFaultReactivationTest.*)
     add_test(NAME Integration.TractionBC COMMAND run_integration_tests --gtest_filter=TractionBCTest.*)
     add_test(NAME Integration.TimeDependentSlip COMMAND run_integration_tests --gtest_filter=TimeDependentSlipTest.*)
+    add_test(NAME Integration.NearFieldCoupled COMMAND run_integration_tests --gtest_filter=NearFieldCoupledTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -376,6 +378,7 @@ if(GTest_FOUND)
         Integration.ExplosionFaultReactivation
         Integration.TractionBC
         Integration.TimeDependentSlip
+        Integration.NearFieldCoupled
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 
