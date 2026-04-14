@@ -6,17 +6,16 @@
  * pipeline including TSSolve. The test applies shear loading that exceeds the
  * Coulomb friction strength (tau_applied > mu_f * sigma_n).
  *
- * Current status: SNES diverges because the approximate Jacobian from the
- * locked-mode linearization does not capture the nonlinear Coulomb friction
- * operator derivatives (d(tau_f*slip_t/|slip_t|)/d(u), d(tau_f)/d(lambda_n)).
- * The augmented Lagrangian regularization prevents a singular matrix but is
- * insufficient for convergence. A proper semi-smooth Newton tangent operator
- * or an active-set solver is needed.
+ * Uses the semi-smooth Newton tangent operator for Coulomb friction in
+ * addCohesivePenaltyToJacobian, which provides the correct derivatives:
+ *   - d(constraint)/d(u): tangential slip direction derivative
+ *   - d(constraint)/d(lambda): friction strength dependency on normal traction
  *
  * The test verifies:
  *   1. Setup pipeline completes (mesh split, cohesive cells, BCs)
- *   2. SNES shows residual reduction before diverging
- *   3. Documents the specific failure mode (DIVERGED_LINE_SEARCH)
+ *   2. TSSolve converges
+ *   3. Tangential slip is nonzero (fault slides under applied shear)
+ *   4. Normal opening is near zero (compressive loading)
  */
 
 #include <gtest/gtest.h>
@@ -331,22 +330,7 @@ TEST_F(SlippingFaultSolveTest, SlippingFaultQuasiStatic)
 
   if (rank_ == 0) std::remove(config_path.c_str());
 
-  if (ierr != 0)
-  {
-    // Document the expected failure mode for future developers.
-    // The approximate Jacobian (locked-mode linearization with 1% augmented
-    // Lagrangian penalty) makes the system non-singular but does not capture
-    // d(tau_f * slip_t / |slip_t|) / d(u) or d(tau_f) / d(lambda_n).
-    // SNES shows initial residual reduction then fails line search.
-    //
-    // To fix: implement semi-smooth Newton tangent operator in
-    // addCohesivePenaltyToJacobian for the Coulomb friction constraint,
-    // including the tangential slip direction derivative and normal
-    // traction dependency of friction strength.
-    GTEST_SKIP() << "Slipping fault TSSolve diverges (SNES error " << ierr << "). "
-                 << "Requires semi-smooth Newton tangent operator for Coulomb friction. "
-                 << "Setup pipeline completed successfully (mesh split, cohesive cells, BCs).";
-  }
+  ASSERT_EQ(ierr, 0) << "Slipping fault TSSolve must converge with semi-smooth Newton Jacobian";
 
   // If the solver converges in the future, verify the solution
   EXPECT_GT(sol_norm, 0.0) << "Solution must be nonzero";

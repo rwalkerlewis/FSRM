@@ -205,7 +205,7 @@ private:
     PetscErrorCode addFaultPressureToResidual(PetscReal t, Vec locF);
     PetscErrorCode addTractionToResidual(PetscReal t, Vec locF);
     PetscErrorCode addCohesiveConstraintToResidual(PetscReal t, Vec locU, Vec locF);
-    PetscErrorCode addCohesivePenaltyToJacobian(Mat J);
+    PetscErrorCode addCohesivePenaltyToJacobian(Mat J, Vec locU = nullptr);
 
     // Hydraulic fracture model (Phase 3)
     std::unique_ptr<HydraulicFractureModel> hydrofrac_;

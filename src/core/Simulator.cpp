@@ -3886,7 +3886,7 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
 // The slipping mode remains nonlinear and can continue to rely on SNES
 // finite-difference coloring when needed.
 // =============================================================================
-PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
+PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
 {
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
@@ -4038,8 +4038,17 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
         }
 
         const PetscScalar coeff = static_cast<PetscScalar>(face_area / static_cast<PetscReal>(n_pairs));
-        const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus /
-            PetscMax(PetscSqrtReal(face_area), PETSC_SMALL));
+        const PetscReal h_char_jac = PetscMax(PetscSqrtReal(face_area), PETSC_SMALL);
+        const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus / h_char_jac);
+
+        // For slipping mode, read solution data to compute friction derivatives
+        PetscSection lsection = nullptr;
+        const PetscScalar *locU_array = nullptr;
+        if (is_slipping && locU) {
+            ierr = DMGetLocalSection(dm, &lsection); CHKERRQ(ierr);
+            ierr = VecGetArrayRead(locU, &locU_array); CHKERRQ(ierr);
+        }
+
         for (PetscInt i = 0; i < n_pairs; ++i)
         {
             const FaultVertex& neg_vertex = neg_vertices[static_cast<std::size_t>(i)];
@@ -4079,24 +4088,213 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
                 continue;
             }
 
-            for (PetscInt d = 0; d < PetscMin(PetscMin(neg_disp_dof, pos_disp_dof), PetscMin(neg_lag_dof, dim)); ++d)
-            {
-                const PetscInt row_neg_disp = neg_disp_off + d;
-                const PetscInt row_pos_disp = pos_disp_off + d;
-                const PetscInt row_lag = neg_lag_off + d;
-                const PetscInt col_neg_disp = neg_disp_off + d;
-                const PetscInt col_pos_disp = pos_disp_off + d;
-                const PetscInt col_lag = neg_lag_off + d;
+            const PetscInt ndof = PetscMin(PetscMin(neg_disp_dof, pos_disp_dof), PetscMin(neg_lag_dof, dim));
 
-                ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+            if (is_slipping && locU_array && lsection) {
+                // =============================================================
+                // Semi-smooth Newton Jacobian for Coulomb friction
+                // =============================================================
+                // Read current displacement and Lagrange multiplier from solution
+                PetscReal u_neg_v[3] = {0,0,0}, u_pos_v[3] = {0,0,0}, lam[3] = {0,0,0};
+                {
+                    PetscInt dof_l = 0, off_l = 0;
+                    ierr = PetscSectionGetFieldDof(lsection, neg_vertex.point, disp_field, &dof_l); CHKERRQ(ierr);
+                    if (dof_l > 0) {
+                        ierr = PetscSectionGetFieldOffset(lsection, neg_vertex.point, disp_field, &off_l); CHKERRQ(ierr);
+                        for (PetscInt d = 0; d < PetscMin(dof_l, dim); ++d)
+                            u_neg_v[d] = PetscRealPart(locU_array[off_l + d]);
+                    }
+                    ierr = PetscSectionGetFieldDof(lsection, pos_vertex.point, disp_field, &dof_l); CHKERRQ(ierr);
+                    if (dof_l > 0) {
+                        ierr = PetscSectionGetFieldOffset(lsection, pos_vertex.point, disp_field, &off_l); CHKERRQ(ierr);
+                        for (PetscInt d = 0; d < PetscMin(dof_l, dim); ++d)
+                            u_pos_v[d] = PetscRealPart(locU_array[off_l + d]);
+                    }
+                    ierr = PetscSectionGetFieldDof(lsection, neg_vertex.point, lagrange_field, &dof_l); CHKERRQ(ierr);
+                    if (dof_l > 0) {
+                        ierr = PetscSectionGetFieldOffset(lsection, neg_vertex.point, lagrange_field, &off_l); CHKERRQ(ierr);
+                        for (PetscInt d = 0; d < PetscMin(dof_l, dim); ++d)
+                            lam[d] = PetscRealPart(locU_array[off_l + d]);
+                    }
+                }
+
+                // Compute slip = u_pos - u_neg
+                PetscReal slip[3] = {0,0,0};
+                for (PetscInt d = 0; d < dim; ++d) slip[d] = u_pos_v[d] - u_neg_v[d];
+
+                // Normal/tangential decomposition
+                PetscReal slip_n = 0.0, lam_n = 0.0;
+                for (PetscInt d = 0; d < dim; ++d) {
+                    slip_n += slip[d] * normal[d];
+                    lam_n += lam[d] * normal[d];
+                }
+
+                PetscReal slip_t[3] = {0,0,0}, lam_t[3] = {0,0,0};
+                PetscReal slip_t_mag2 = 0.0;
+                for (PetscInt d = 0; d < dim; ++d) {
+                    slip_t[d] = slip[d] - slip_n * normal[d];
+                    lam_t[d] = lam[d] - lam_n * normal[d];
+                    slip_t_mag2 += slip_t[d] * slip_t[d];
+                }
+                PetscReal slip_t_mag = PetscSqrtReal(slip_t_mag2);
+
+                const PetscReal mu_f = fault_friction_coefficient_;
+                // Friction strength: tau_f = mu_f * |compressive normal traction|
+                // Convention: lam_n > 0 is tensile, compressive = -lam_n
+                const PetscReal sigma_n_comp = PetscMax(0.0, -lam_n);
+                const PetscReal tau_f = mu_f * sigma_n_comp;
+                const PetscReal slip_eps = 1.0e-14;
+
+                // Compute slip direction (s_hat) if slipping
+                PetscReal s_hat[3] = {0,0,0};
+                if (slip_t_mag > slip_eps) {
+                    for (PetscInt d = 0; d < dim; ++d) s_hat[d] = slip_t[d] / slip_t_mag;
+                }
+
+                // Compute augmented Lagrangian penalty
+                const PetscReal eff_penalty = 0.01 * 10.0 * youngs_modulus / h_char_jac;
+
+                // ---------------------------------------------------------
+                // Assemble Jacobian blocks for all (d, e) pairs
+                // ---------------------------------------------------------
+                // The residual for the Lagrange multiplier equation is:
+                //   R_lag_d = constraint_d * area_per_vertex
+                // where for slipping:
+                //   constraint_d = lam_t_d - tau_f * s_hat_d  (tangential)
+                //                + max(-slip_n, 0) * n_d      (normal non-penetration)
+                //
+                // The residual for displacement equations is:
+                //   R_u_neg_d = (-lambda_d - eff_penalty * constraint_d) * area
+                //   R_u_pos_d = ( lambda_d + eff_penalty * constraint_d) * area
+
+                for (PetscInt d = 0; d < ndof; ++d) {
+                    for (PetscInt e = 0; e < ndof; ++e) {
+                        const PetscInt row_lag_d = neg_lag_off + d;
+                        const PetscInt col_neg_e = neg_disp_off + e;
+                        const PetscInt col_pos_e = pos_disp_off + e;
+                        const PetscInt col_lag_e = neg_lag_off + e;
+                        const PetscInt row_neg_d = neg_disp_off + d;
+                        const PetscInt row_pos_d = pos_disp_off + d;
+
+                        // Tangential projector: P_de = delta_de - n_d * n_e
+                        PetscReal P_de = (d == e ? 1.0 : 0.0) - normal[d] * normal[e];
+
+                        // =====================================================
+                        // d(constraint_d) / d(lambda_e)  -- J_lag_lag
+                        // =====================================================
+                        // Tangential: d(lam_t_d)/d(lam_e) = P_de
+                        // Friction:   d(tau_f)/d(lam_e) = mu_f * d(sigma_n_comp)/d(lam_e)
+                        //             d(sigma_n_comp)/d(lam_e) = -n_e  if -lam_n > 0
+                        // So: d(constraint_d)/d(lam_e) = P_de + mu_f * s_hat_d * n_e  (when compressive)
+                        PetscScalar dC_dlam = static_cast<PetscScalar>(P_de);
+                        if (slip_t_mag > slip_eps && sigma_n_comp > 0.0) {
+                            dC_dlam += static_cast<PetscScalar>(mu_f * s_hat[d] * normal[e]);
+                        }
+
+                        // =====================================================
+                        // d(constraint_d) / d(u_neg_e)  -- J_lag_uneg
+                        // =====================================================
+                        // Tangential friction derivative:
+                        //   d(constraint_d)/d(u_neg_e) = -tau_f * d(s_hat_d)/d(u_neg_e)
+                        //   d(s_hat_d)/d(u_neg_e) = d(s_hat_d)/d(slip_t_k) * d(slip_t_k)/d(u_neg_e)
+                        //   d(slip_t_k)/d(u_neg_e) = -(delta_ke - n_k*n_e) = -P_ke
+                        //   d(s_hat_d)/d(slip_t_k) = (delta_dk - s_hat_d*s_hat_k) / slip_t_mag
+                        // => d(constraint_d)/d(u_neg_e) = tau_f/slip_t_mag * sum_k (delta_dk - s_hat_d*s_hat_k) * P_ke
+                        //
+                        // Normal non-penetration: if slip_n < 0:
+                        //   constraint_d += (-slip_n) * n_d
+                        //   d((-slip_n)*n_d)/d(u_neg_e) = +n_d * n_e  (since d(slip_n)/d(u_neg_e) = -n_e)
+                        PetscScalar dC_duneg = 0.0;
+                        if (slip_t_mag > slip_eps && tau_f > 0.0) {
+                            // Compute sum_k (delta_dk - s_hat_d*s_hat_k) * P_ke
+                            PetscReal sum_val = 0.0;
+                            for (PetscInt k = 0; k < dim; ++k) {
+                                PetscReal A_dk = (d == k ? 1.0 : 0.0) - s_hat[d] * s_hat[k];
+                                PetscReal P_ke = (k == e ? 1.0 : 0.0) - normal[k] * normal[e];
+                                sum_val += A_dk * P_ke;
+                            }
+                            dC_duneg = static_cast<PetscScalar>(tau_f / slip_t_mag * sum_val);
+                        }
+                        // Normal non-penetration
+                        if (slip_n < 0.0) {
+                            dC_duneg += static_cast<PetscScalar>(normal[d] * normal[e]);
+                        }
+
+                        // d(constraint_d)/d(u_pos_e) = -d(constraint_d)/d(u_neg_e)  for the slip-dependent part
+                        PetscScalar dC_dupos = -dC_duneg;
+
+                        // =====================================================
+                        // Full Jacobian assembly with augmented Lagrangian
+                        // =====================================================
+                        // R_lag_d = constraint_d * area
+                        // => d(R_lag_d)/d(lam_e) = dC_dlam * area
+                        ierr = MatSetValue(J, row_lag_d, col_lag_e,
+                            dC_dlam * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // d(R_lag_d)/d(u_neg_e) = dC_duneg * area
+                        ierr = MatSetValue(J, row_lag_d, col_neg_e,
+                            dC_duneg * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // d(R_lag_d)/d(u_pos_e) = dC_dupos * area
+                        ierr = MatSetValue(J, row_lag_d, col_pos_e,
+                            dC_dupos * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // R_u_neg_d = (-lam_d - eff_penalty * constraint_d) * area
+                        // d(R_u_neg_d)/d(lam_e) = (-delta_de - eff_penalty * dC_dlam) * area
+                        PetscScalar dRun_dlam = -(d == e ? 1.0 : 0.0) - eff_penalty * dC_dlam;
+                        ierr = MatSetValue(J, row_neg_d, col_lag_e,
+                            static_cast<PetscScalar>(dRun_dlam) * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // d(R_u_neg_d)/d(u_neg_e) = -eff_penalty * dC_duneg * area
+                        ierr = MatSetValue(J, row_neg_d, col_neg_e,
+                            static_cast<PetscScalar>(-eff_penalty * dC_duneg) * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // d(R_u_neg_d)/d(u_pos_e) = -eff_penalty * dC_dupos * area
+                        ierr = MatSetValue(J, row_neg_d, col_pos_e,
+                            static_cast<PetscScalar>(-eff_penalty * dC_dupos) * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // R_u_pos_d = (lam_d + eff_penalty * constraint_d) * area
+                        // d(R_u_pos_d)/d(lam_e) = (delta_de + eff_penalty * dC_dlam) * area
+                        PetscScalar dRup_dlam = (d == e ? 1.0 : 0.0) + eff_penalty * dC_dlam;
+                        ierr = MatSetValue(J, row_pos_d, col_lag_e,
+                            static_cast<PetscScalar>(dRup_dlam) * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // d(R_u_pos_d)/d(u_neg_e) = eff_penalty * dC_duneg * area
+                        ierr = MatSetValue(J, row_pos_d, col_neg_e,
+                            static_cast<PetscScalar>(eff_penalty * dC_duneg) * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                        // d(R_u_pos_d)/d(u_pos_e) = eff_penalty * dC_dupos * area
+                        ierr = MatSetValue(J, row_pos_d, col_pos_e,
+                            static_cast<PetscScalar>(eff_penalty * dC_dupos) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    }
+                }
+            } else {
+                // =============================================================
+                // Locked / prescribed slip: diagonal coupling + penalty
+                // =============================================================
+                for (PetscInt d = 0; d < ndof; ++d)
+                {
+                    const PetscInt row_neg_disp = neg_disp_off + d;
+                    const PetscInt row_pos_disp = pos_disp_off + d;
+                    const PetscInt row_lag = neg_lag_off + d;
+                    const PetscInt col_neg_disp = neg_disp_off + d;
+                    const PetscInt col_pos_disp = pos_disp_off + d;
+                    const PetscInt col_lag = neg_lag_off + d;
+
+                    ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                }
             }
+        }
+
+        if (is_slipping && locU_array) {
+            ierr = VecRestoreArrayRead(locU, &locU_array); CHKERRQ(ierr);
         }
     }
 
@@ -4674,11 +4872,11 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
         // changing the call pattern here.
         if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
             ierr = MatSetOption(P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-            ierr = sim->addCohesivePenaltyToJacobian(P);
+            ierr = sim->addCohesivePenaltyToJacobian(P, locU);
             CHKERRQ(ierr);
             if (J != P) {
                 ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-                ierr = sim->addCohesivePenaltyToJacobian(J); CHKERRQ(ierr);
+                ierr = sim->addCohesivePenaltyToJacobian(J, locU); CHKERRQ(ierr);
             }
         }
 
