@@ -14,6 +14,7 @@
 #include "domain/explosion/ExplosionImpactPhysics.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
+#include "io/VelocityModelReader.hpp"
 
 // GPU kernel support — conditionally include GPU headers when built with CUDA
 #ifdef USE_CUDA
@@ -723,6 +724,11 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                        config.material_assignment.begin(),
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         config.gravity = reader.getDouble("MATERIAL", "gravity", 0.0);
+        config.velocity_model_file = reader.getString("MATERIAL", "velocity_model_file", "");
+        // Velocity model assignment implies heterogeneous material
+        if (config.material_assignment == "velocity_model") {
+            config.use_heterogeneous_material = true;
+        }
     }
     // Also accept gravity from [SIMULATION] section
     if (reader.hasSection("SIMULATION")) {
@@ -2600,6 +2606,8 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
     ierr = VecZeroEntries(auxVec_); CHKERRQ(ierr);
     if (config.material_assignment == "gmsh_label") {
         ierr = populateAuxFieldsByMaterialLabel(); CHKERRQ(ierr);
+    } else if (config.material_assignment == "velocity_model") {
+        ierr = populateAuxFieldsByVelocityModel(); CHKERRQ(ierr);
     } else {
         ierr = populateAuxFieldsByDepth(); CHKERRQ(ierr);
     }
@@ -2735,6 +2743,60 @@ PetscErrorCode Simulator::populateAuxFieldsByMaterialLabel()
     }
 
     ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::populateAuxFieldsByVelocityModel()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    VelocityModel model;
+    int read_err = readVelocityModel(config.velocity_model_file, model);
+    PetscCheck(read_err == 0, comm, PETSC_ERR_FILE_OPEN,
+        "Failed to read velocity model file: %s (error code %d)",
+        config.velocity_model_file.c_str(), read_err);
+
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    PetscSection section;
+    ierr = DMGetLocalSection(auxDM_, &section); CHKERRQ(ierr);
+
+    PetscScalar *a = nullptr;
+    ierr = VecGetArray(auxVec_, &a); CHKERRQ(ierr);
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        PetscReal vol, centroid[3], normal[3];
+        ierr = DMPlexComputeCellGeometryFVM(dm, c, &vol, centroid, normal); CHKERRQ(ierr);
+
+        double vp_val, vs_val, rho_val;
+        model.interpolate(centroid[0], centroid[1], centroid[2],
+                          vp_val, vs_val, rho_val);
+
+        double mu_val = rho_val * vs_val * vs_val;
+        double lambda_val = rho_val * (vp_val * vp_val - 2.0 * vs_val * vs_val);
+
+        PetscInt offset = 0;
+        ierr = PetscSectionGetOffset(section, c, &offset); CHKERRQ(ierr);
+
+        a[offset + AUX_LAMBDA] = lambda_val;
+        a[offset + AUX_MU]     = mu_val;
+        a[offset + AUX_RHO]    = rho_val;
+    }
+
+    ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Populated auxiliary fields from velocity model: %s "
+                    "(%d x %d x %d grid)\n",
+                    config.velocity_model_file.c_str(),
+                    (int)model.nx, (int)model.ny, (int)model.nz);
+    }
+
     PetscFunctionReturn(0);
 }
 

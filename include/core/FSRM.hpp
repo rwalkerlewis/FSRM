@@ -336,7 +336,8 @@ struct SimulationConfig {
     // Heterogeneous Material Properties
     // =========================================================================
     bool use_heterogeneous_material = false;       // Use auxiliary fields for per-cell properties
-    std::string material_assignment = "depth";     // depth or gmsh_label
+    std::string material_assignment = "depth";     // depth, gmsh_label, or velocity_model
+    std::string velocity_model_file = "";          // Path to binary velocity model file
     double gravity = 0.0;                          // Gravity magnitude (m/s^2), 0 = disabled
     bool enable_gravity = false;                   // Explicit gravity enable flag
     double K0 = 0.5;                               // Lateral earth pressure coefficient

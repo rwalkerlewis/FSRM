@@ -17,6 +17,7 @@
 #include "physics/CohesiveFaultKernel.hpp"
 #include "domain/geomechanics/CoulombStressTransfer.hpp"
 #include "core/DerivedFieldComputer.hpp"
+#include "io/VelocityModelReader.hpp"
 #include <memory>
 #include <vector>
 
@@ -182,6 +183,7 @@ private:
     PetscErrorCode setupAuxiliaryDM();
     PetscErrorCode populateAuxFieldsByDepth();
     PetscErrorCode populateAuxFieldsByMaterialLabel();
+    PetscErrorCode populateAuxFieldsByVelocityModel();
     PetscErrorCode applyExplosionDamageToAuxFields();
     
     // Simulation state
