@@ -260,6 +260,7 @@ private:
                                        PetscReal a, Mat J, Mat P, void *ctx);
     static PetscErrorCode MonitorFunction(TS ts, PetscInt step, PetscReal t,
                                          Vec U, void *ctx);
+    static PetscErrorCode ViscoelasticPostStep(TS ts);
     
     // Helper functions
     PetscErrorCode setupStructuredGrid();

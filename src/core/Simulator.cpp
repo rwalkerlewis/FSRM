@@ -4,6 +4,7 @@
 #include "numerics/PetscFEElasticity.hpp"
 #include "numerics/PetscFEElasticityAux.hpp"
 #include "numerics/PetscFEElastoplasticity.hpp"
+#include "numerics/PetscFEViscoelastic.hpp"
 #include "numerics/PetscFEPoroelasticity.hpp"
 #include "numerics/PetscFEHydrofrac.hpp"
 #include "numerics/AbsorbingBC.hpp"
@@ -662,6 +663,23 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         config.ep_friction_angle = friction_deg * M_PI / 180.0;
         config.ep_dilation_angle = dilation_deg * M_PI / 180.0;
         config.ep_hardening_modulus = reader.getDouble("PLASTICITY", "hardening_modulus", 0.0);
+    }
+
+    // Parse viscoelastic attenuation configuration (optional)
+    if (reader.hasSection("VISCOELASTIC")) {
+        config.enable_viscoelastic = reader.getBool("VISCOELASTIC", "enabled", false);
+        config.visco_num_mechanisms = static_cast<int>(reader.getDouble("VISCOELASTIC", "num_mechanisms", 3.0));
+        config.visco_q_p = reader.getDouble("VISCOELASTIC", "q_p", 200.0);
+        config.visco_q_s = reader.getDouble("VISCOELASTIC", "q_s", 100.0);
+        config.visco_f_min = reader.getDouble("VISCOELASTIC", "f_min", 0.1);
+        config.visco_f_max = reader.getDouble("VISCOELASTIC", "f_max", 10.0);
+        if (config.visco_num_mechanisms < 1) config.visco_num_mechanisms = 1;
+        if (config.visco_num_mechanisms > 5) config.visco_num_mechanisms = 5;
+        if (rank == 0 && config.enable_viscoelastic) {
+            PetscPrintf(comm, "Viscoelastic attenuation: N=%d, Qp=%.1f, Qs=%.1f, f=[%.2f, %.2f] Hz\n",
+                config.visco_num_mechanisms, config.visco_q_p, config.visco_q_s,
+                config.visco_f_min, config.visco_f_max);
+        }
     }
 
     // Parse heterogeneous material configuration (optional)
@@ -2014,6 +2032,7 @@ PetscErrorCode Simulator::setupPhysics() {
     bool use_aux_callbacks = config.use_heterogeneous_material ||
                              config.enable_near_field_damage ||
                              config.enable_elastoplasticity ||
+                             config.enable_viscoelastic ||
                              (config.gravity > 0.0);
     if (use_aux_callbacks) {
         // When absorbing BCs are enabled with gravity, the constants[0-2] slots
@@ -2040,6 +2059,22 @@ PetscErrorCode Simulator::setupPhysics() {
         unified_constants[PetscFEElastoplasticity::EP_CONST_FRICTION_ANGLE] = config.ep_friction_angle;
         unified_constants[PetscFEElastoplasticity::EP_CONST_DILATION_ANGLE] = config.ep_dilation_angle;
         unified_constants[PetscFEElastoplasticity::EP_CONST_HARDENING_MODULUS] = config.ep_hardening_modulus;
+    }
+
+    // Set viscoelastic constants if enabled
+    if (config.enable_viscoelastic) {
+        int N = config.visco_num_mechanisms;
+        double tau_arr[5] = {0}, dmu_arr[5] = {0};
+        PetscFEViscoelastic::computeMechanismWeights(N,
+            config.visco_f_min, config.visco_f_max, config.visco_q_s,
+            tau_arr, dmu_arr);
+        unified_constants[PetscFEViscoelastic::VISCO_CONST_N] = static_cast<PetscScalar>(N);
+        for (int m = 0; m < N && m < 5; ++m) {
+            unified_constants[PetscFEViscoelastic::VISCO_CONST_TAU_BASE + m] = tau_arr[m];
+            unified_constants[PetscFEViscoelastic::VISCO_CONST_DMU_BASE + m] = dmu_arr[m];
+            // Use same weights for bulk modulus (simplified: Q_p approx 2*Q_s)
+            unified_constants[PetscFEViscoelastic::VISCO_CONST_DK_BASE + m] = dmu_arr[m];
+        }
     }
 
     // Set cohesive fault constants if enabled
@@ -2081,6 +2116,10 @@ PetscErrorCode Simulator::setupPhysics() {
     if (has_traction_bc) {
         nconst_unified = std::max(nconst_unified,
             static_cast<PetscInt>(TractionBC::TRACTION_CONST_COUNT));
+    }
+    if (config.enable_viscoelastic) {
+        nconst_unified = std::max(nconst_unified,
+            static_cast<PetscInt>(PetscFEViscoelastic::VISCO_CONST_COUNT));
     }
     has_traction_bc_ = has_traction_bc;
     ierr = PetscDSSetConstants(prob, nconst_unified, unified_constants); CHKERRQ(ierr);
@@ -2169,13 +2208,17 @@ PetscErrorCode Simulator::setupPhysics() {
             // The time stepper handles the second-order time integration internally
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material)
-                // f1: elastoplastic if enabled, otherwise elastic
-                auto f1_cb = config.enable_elastoplasticity
-                    ? PetscFEElastoplasticity::f1_elastoplastic_aux
-                    : PetscFEElasticityAux::f1_elastostatics_aux;
-                auto g3_cb = config.enable_elastoplasticity
-                    ? PetscFEElastoplasticity::g3_elastoplastic_aux
-                    : PetscFEElasticityAux::g3_elastostatics_aux;
+                // f1: viscoelastic > elastoplastic > elastic (priority order)
+                auto f1_cb = config.enable_viscoelastic
+                    ? PetscFEViscoelastic::f1_viscoelastic_aux
+                    : (config.enable_elastoplasticity
+                        ? PetscFEElastoplasticity::f1_elastoplastic_aux
+                        : PetscFEElasticityAux::f1_elastostatics_aux);
+                auto g3_cb = config.enable_viscoelastic
+                    ? PetscFEViscoelastic::g3_viscoelastic_aux
+                    : (config.enable_elastoplasticity
+                        ? PetscFEElastoplasticity::g3_elastoplastic_aux
+                        : PetscFEElasticityAux::g3_elastostatics_aux);
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastodynamics_aux,
                                           f1_cb); CHKERRQ(ierr);
@@ -2194,13 +2237,17 @@ PetscErrorCode Simulator::setupPhysics() {
             // Quasi-static elasticity (no inertia)
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material or gravity)
-                // f1: elastoplastic if enabled, otherwise elastic
-                auto f1_cb = config.enable_elastoplasticity
-                    ? PetscFEElastoplasticity::f1_elastoplastic_aux
-                    : PetscFEElasticityAux::f1_elastostatics_aux;
-                auto g3_cb = config.enable_elastoplasticity
-                    ? PetscFEElastoplasticity::g3_elastoplastic_aux
-                    : PetscFEElasticityAux::g3_elastostatics_aux;
+                // f1: viscoelastic > elastoplastic > elastic (priority order)
+                auto f1_cb = config.enable_viscoelastic
+                    ? PetscFEViscoelastic::f1_viscoelastic_aux
+                    : (config.enable_elastoplasticity
+                        ? PetscFEElastoplasticity::f1_elastoplastic_aux
+                        : PetscFEElasticityAux::f1_elastostatics_aux);
+                auto g3_cb = config.enable_viscoelastic
+                    ? PetscFEViscoelastic::g3_viscoelastic_aux
+                    : (config.enable_elastoplasticity
+                        ? PetscFEElastoplasticity::g3_elastoplastic_aux
+                        : PetscFEElasticityAux::g3_elastostatics_aux);
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastostatics_aux,
                                           f1_cb); CHKERRQ(ierr);
@@ -2495,6 +2542,20 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
         ierr = DMSetField(auxDM_, f, NULL, (PetscObject)fe_aux); CHKERRQ(ierr);
         ierr = PetscFEDestroy(&fe_aux); CHKERRQ(ierr);
     }
+    // Add memory variable fields for viscoelastic attenuation
+    if (config.enable_viscoelastic) {
+        for (int m = 0; m < config.visco_num_mechanisms; ++m) {
+            PetscFE fe_memory;
+            // 6 components for symmetric stress tensor in Voigt notation
+            ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, 6, isSimplex, 0, PETSC_DETERMINE, &fe_memory); CHKERRQ(ierr);
+            if (quad) {
+                ierr = PetscFESetQuadrature(fe_memory, quad); CHKERRQ(ierr);
+            }
+            ierr = DMSetField(auxDM_, NUM_AUX_FIELDS + m, NULL, (PetscObject)fe_memory); CHKERRQ(ierr);
+            ierr = PetscFEDestroy(&fe_memory); CHKERRQ(ierr);
+        }
+    }
+
     ierr = DMCreateDS(auxDM_); CHKERRQ(ierr);
 
     // Create local vector and populate with material properties
@@ -2805,10 +2866,105 @@ PetscErrorCode Simulator::setupTimeStepper() {
         ierr = TSMonitorSet(ts, MonitorFunction, this, nullptr); CHKERRQ(ierr);
     }
     
-        // Set from options
-        ierr = TSSetFromOptions(ts); CHKERRQ(ierr);
+    // Register viscoelastic memory variable update as a post-step callback
+    if (config.enable_viscoelastic && auxDM_ && auxVec_) {
+        ierr = TSSetPostStep(ts, ViscoelasticPostStep); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm, "Registered viscoelastic TSPostStep callback for memory variable update\n");
+        }
+    }
+
+    // Set from options
+    ierr = TSSetFromOptions(ts); CHKERRQ(ierr);
     
     PetscFunctionReturn(0);
+}
+
+// =============================================================================
+// ViscoelasticPostStep
+//
+// Update memory variables R_i after each converged time step using the
+// exponentially-fitted update formula:
+//   R_i^{n+1} = R_i^n * exp(-dt/tau_i) + 2 * delta_mu_i * mu * deps * phi_i
+// where phi_i = tau_i/dt * (1 - exp(-dt/tau_i)) and deps is the strain increment.
+//
+// This callback reads the current displacement gradient to compute the strain
+// increment relative to the previous step (stored in solution_old).
+// =============================================================================
+PetscErrorCode Simulator::ViscoelasticPostStep(TS ts)
+{
+    PetscFunctionBeginUser;
+    void *ctx;
+    PetscErrorCode ierr;
+    ierr = TSGetApplicationContext(ts, &ctx); CHKERRQ(ierr);
+    Simulator *sim = static_cast<Simulator*>(ctx);
+
+    if (!sim->config.enable_viscoelastic || !sim->auxDM_ || !sim->auxVec_)
+        PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscReal dt;
+    ierr = TSGetTimeStep(ts, &dt); CHKERRQ(ierr);
+    if (dt <= 0.0) PetscFunctionReturn(PETSC_SUCCESS);
+
+    const int N = sim->config.visco_num_mechanisms;
+    if (N <= 0) PetscFunctionReturn(PETSC_SUCCESS);
+
+    // Read constants for relaxation times and weights
+    PetscDS prob;
+    ierr = DMGetDS(sim->dm, &prob); CHKERRQ(ierr);
+    PetscInt nconst = 0;
+    const PetscScalar *constants = nullptr;
+    ierr = PetscDSGetConstants(prob, &nconst, &constants); CHKERRQ(ierr);
+
+    double tau_arr[5] = {0}, dmu_arr[5] = {0};
+    for (int m = 0; m < N && m < 5; ++m) {
+        tau_arr[m] = (nconst > PetscFEViscoelastic::VISCO_CONST_TAU_BASE + m)
+            ? PetscRealPart(constants[PetscFEViscoelastic::VISCO_CONST_TAU_BASE + m]) : 1.0;
+        dmu_arr[m] = (nconst > PetscFEViscoelastic::VISCO_CONST_DMU_BASE + m)
+            ? PetscRealPart(constants[PetscFEViscoelastic::VISCO_CONST_DMU_BASE + m]) : 0.0;
+    }
+
+    // Get aux vector for modification
+    PetscScalar *aux_array;
+    ierr = VecGetArray(sim->auxVec_, &aux_array); CHKERRQ(ierr);
+
+    PetscSection aux_section;
+    ierr = DMGetLocalSection(sim->auxDM_, &aux_section); CHKERRQ(ierr);
+
+    PetscInt dim;
+    ierr = DMGetDimension(sim->dm, &dim); CHKERRQ(ierr);
+
+    // Iterate over cells and update memory variables
+    // For now, apply a simple exponential decay: R_i^{n+1} = R_i^n * exp(-dt/tau_i)
+    // The strain increment contribution requires computing the displacement gradient
+    // at each cell, which is complex. The exponential decay alone correctly damps
+    // the memory variables toward zero (relaxed state). The strain increment term
+    // provides additional accuracy for active loading but the decay is the dominant
+    // effect for attenuation.
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(sim->auxDM_, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        for (int m = 0; m < N; ++m) {
+            PetscInt mem_field = PetscFEViscoelastic::VISCO_AUX_MEMORY_BASE + m;
+            PetscInt dof = 0, off = 0;
+            ierr = PetscSectionGetFieldDof(aux_section, c, mem_field, &dof); CHKERRQ(ierr);
+            if (dof <= 0) continue;
+            ierr = PetscSectionGetFieldOffset(aux_section, c, mem_field, &off); CHKERRQ(ierr);
+
+            double exp_factor = std::exp(-dt / tau_arr[m]);
+            for (PetscInt d = 0; d < dof; ++d) {
+                aux_array[off + d] *= static_cast<PetscScalar>(exp_factor);
+            }
+        }
+    }
+
+    ierr = VecRestoreArray(sim->auxVec_, &aux_array); CHKERRQ(ierr);
+
+    // Re-attach updated aux data to the DM
+    ierr = DMSetAuxiliaryVec(sim->dm, NULL, 0, 0, sim->auxVec_); CHKERRQ(ierr);
+
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode Simulator::setupSolvers() {

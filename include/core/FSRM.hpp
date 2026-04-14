@@ -391,6 +391,16 @@ struct SimulationConfig {
     double ep_hardening_modulus = 0.0;             // Isotropic hardening modulus (Pa)
 
     // =========================================================================
+    // Viscoelastic Attenuation (Generalized Maxwell Body)
+    // =========================================================================
+    bool enable_viscoelastic = false;              // Enable viscoelastic attenuation
+    int visco_num_mechanisms = 3;                  // Number of Maxwell mechanisms (1-5)
+    double visco_q_p = 200.0;                      // P-wave quality factor
+    double visco_q_s = 100.0;                      // S-wave quality factor
+    double visco_f_min = 0.1;                      // Low end of constant-Q band (Hz)
+    double visco_f_max = 10.0;                     // High end of constant-Q band (Hz)
+
+    // =========================================================================
     // HIGH-FIDELITY OPTIONS (Optional Advanced Features)
     // =========================================================================
     // These are optional extensions that provide higher physical fidelity
