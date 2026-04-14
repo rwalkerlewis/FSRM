@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![FSRM CI](https://github.com/rwalkerlewis/FSRM/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rwalkerlewis/FSRM/actions/workflows/ci.yml)
 
-FSRM is a coupled multiphysics simulator for nuclear explosion monitoring, seismic wave propagation, dynamic fault rupture, and THM poroelasticity. Built on PETSc 3.22.2 and MPI, it uses unstructured finite elements (DMPlex) with pointwise PetscDS callbacks for all PDE assembly. The simulator is config-driven: a single executable reads `.config` files that specify geometry, materials, physics, sources, and output.
+FSRM is a coupled multiphysics simulator for nuclear explosion monitoring, seismic wave propagation, dynamic fault rupture, and THM poroelasticity. Built on PETSc 3.25.0 and MPI, it uses unstructured finite elements (DMPlex) with pointwise PetscDS callbacks for all PDE assembly. The simulator is config-driven: a single executable reads `.config` files that specify geometry, materials, physics, sources, and output.
 
 **MIT License** -- free to use, modify, and distribute for any purpose.
 

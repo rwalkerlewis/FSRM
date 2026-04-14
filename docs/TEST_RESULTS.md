@@ -1,208 +1,238 @@
-# FSRM Test Results
+Test project /workspace/build
+        Start   1: Unit.ConfigReader
+  1/112 Test   #1: Unit.ConfigReader ........................................   Passed    0.30 sec
+        Start   2: Unit.PhysicsModuleRegistry
+  2/112 Test   #2: Unit.PhysicsModuleRegistry ...............................   Passed    0.30 sec
+        Start   3: Unit.SimulationConfig
+  3/112 Test   #3: Unit.SimulationConfig ....................................   Passed    0.30 sec
+        Start   4: Unit.PhysicsKernelBase
+  4/112 Test   #4: Unit.PhysicsKernelBase ...................................   Passed    0.30 sec
+        Start   5: Unit.SinglePhaseFlow
+  5/112 Test   #5: Unit.SinglePhaseFlow .....................................   Passed    0.30 sec
+        Start   6: Unit.Geomechanics
+  6/112 Test   #6: Unit.Geomechanics ........................................   Passed    0.30 sec
+        Start   7: Unit.Thermal
+  7/112 Test   #7: Unit.Thermal .............................................   Passed    0.29 sec
+        Start   8: Unit.Elastodynamics
+  8/112 Test   #8: Unit.Elastodynamics ......................................   Passed    0.29 sec
+        Start   9: Unit.Poroelastodynamics
+  9/112 Test   #9: Unit.Poroelastodynamics ..................................   Passed    0.29 sec
+        Start  10: Unit.BoundaryConditions
+ 10/112 Test  #10: Unit.BoundaryConditions ..................................   Passed    0.29 sec
+        Start  11: Unit.WellModel
+ 11/112 Test  #11: Unit.WellModel ...........................................   Passed    0.29 sec
+        Start  12: Unit.FractureModel
+ 12/112 Test  #12: Unit.FractureModel .......................................   Passed    0.29 sec
+        Start  13: Unit.MaterialModel
+ 13/112 Test  #13: Unit.MaterialModel .......................................   Passed    0.29 sec
+        Start  14: Unit.SeismicSource
+ 14/112 Test  #14: Unit.SeismicSource .......................................   Passed    0.29 sec
+        Start  15: Unit.ExplosionSource
+ 15/112 Test  #15: Unit.ExplosionSource .....................................   Passed    0.30 sec
+        Start  16: Unit.EclipseIO
+ 16/112 Test  #16: Unit.EclipseIO ...........................................   Passed    0.29 sec
+        Start  17: Unit.MLRegistry
+ 17/112 Test  #17: Unit.MLRegistry ..........................................   Passed    0.29 sec
+        Start  18: Unit.UnitSystem
+ 18/112 Test  #18: Unit.UnitSystem ..........................................   Passed    0.29 sec
+        Start  19: Unit.CoordinateSystem
+ 19/112 Test  #19: Unit.CoordinateSystem ....................................   Passed    0.29 sec
+        Start  20: Unit.CO2Properties
+ 20/112 Test  #20: Unit.CO2Properties .......................................   Passed    0.29 sec
+        Start  21: Unit.FlashCalculation
+ 21/112 Test  #21: Unit.FlashCalculation ....................................   Passed    0.29 sec
+        Start  22: Unit.ResidualTrapping
+ 22/112 Test  #22: Unit.ResidualTrapping ....................................   Passed    0.29 sec
+        Start  23: Unit.CaprockIntegrity
+ 23/112 Test  #23: Unit.CaprockIntegrity ....................................   Passed    0.30 sec
+        Start  24: Unit.MultiphaseFlow
+ 24/112 Test  #24: Unit.MultiphaseFlow ......................................   Passed    0.30 sec
+        Start  25: Unit.FaultMechanics
+ 25/112 Test  #25: Unit.FaultMechanics ......................................   Passed    0.29 sec
+        Start  26: Unit.FaultCohesiveDyn
+ 26/112 Test  #26: Unit.FaultCohesiveDyn ....................................   Passed    0.29 sec
+        Start  27: Unit.CoulombStressTransfer
+ 27/112 Test  #27: Unit.CoulombStressTransfer ...............................   Passed    0.31 sec
+        Start  28: Unit.FaultMeshManager
+ 28/112 Test  #28: Unit.FaultMeshManager ....................................   Passed    0.31 sec
+        Start  29: Unit.CohesiveFaultKernel
+ 29/112 Test  #29: Unit.CohesiveFaultKernel .................................   Passed    0.29 sec
+        Start  30: Unit.ElasticityAux
+ 30/112 Test  #30: Unit.ElasticityAux .......................................   Passed    0.29 sec
+        Start  31: Functional.SimulatorInit
+ 31/112 Test  #31: Functional.SimulatorInit .................................   Passed    0.29 sec
+        Start  32: Functional.ModuleLifecycle
+ 32/112 Test  #32: Functional.ModuleLifecycle ...............................   Passed    0.29 sec
+        Start  33: Functional.SolverConvergence
+ 33/112 Test  #33: Functional.SolverConvergence .............................   Passed    0.30 sec
+        Start  34: Functional.WellOperations
+ 34/112 Test  #34: Functional.WellOperations ................................   Passed    0.30 sec
+        Start  35: Physics.MMS.Diffusion
+ 35/112 Test  #35: Physics.MMS.Diffusion ....................................   Passed    0.29 sec
+        Start  36: Physics.MMS.Elasticity
+ 36/112 Test  #36: Physics.MMS.Elasticity ...................................   Passed    0.29 sec
+        Start  37: Physics.MMS.WavePropagation
+ 37/112 Test  #37: Physics.MMS.WavePropagation ..............................   Passed    0.29 sec
+        Start  38: Physics.AnalyticalSolutions
+ 38/112 Test  #38: Physics.AnalyticalSolutions ..............................   Passed    0.29 sec
+        Start  39: Physics.Thermoporoelastic
+ 39/112 Test  #39: Physics.Thermoporoelastic ................................   Passed    0.29 sec
+        Start  40: Physics.SCEC.TPV5
+ 40/112 Test  #40: Physics.SCEC.TPV5 ........................................   Passed    0.29 sec
+        Start  41: Physics.ElastostaticsPatch
+ 41/112 Test  #41: Physics.ElastostaticsPatch ...............................   Passed    0.29 sec
+        Start  42: Physics.TerzaghiConsolidation
+ 42/112 Test  #42: Physics.TerzaghiConsolidation ............................   Passed    1.08 sec
+        Start  43: Physics.AbsorbingBC
+ 43/112 Test  #43: Physics.AbsorbingBC ......................................   Passed    3.78 sec
+        Start  44: Physics.GravityLithostatic
+ 44/112 Test  #44: Physics.GravityLithostatic ...............................   Passed    0.40 sec
+        Start  45: Physics.LithostaticStress
+ 45/112 Test  #45: Physics.LithostaticStress ................................   Passed    0.45 sec
+        Start  46: Physics.LambsProblem
+ 46/112 Test  #46: Physics.LambsProblem .....................................   Passed    0.86 sec
+        Start  47: Physics.GarvinsProblem
+ 47/112 Test  #47: Physics.GarvinsProblem ...................................   Passed    0.90 sec
+        Start  48: Physics.MuellerMurphy
+ 48/112 Test  #48: Physics.MuellerMurphy ....................................   Passed    0.29 sec
+        Start  49: Physics.AtmosphericExplosion
+ 49/112 Test  #49: Physics.AtmosphericExplosion .............................   Passed    0.29 sec
+        Start  50: Physics.NearFieldExplosion
+ 50/112 Test  #50: Physics.NearFieldExplosion ...............................   Passed    0.29 sec
+        Start  51: Physics.MomentTensorSource
+ 51/112 Test  #51: Physics.MomentTensorSource ...............................   Passed    1.28 sec
+        Start  52: Physics.ExplosionDamageZone
+ 52/112 Test  #52: Physics.ExplosionDamageZone ..............................   Passed    4.91 sec
+        Start  53: Unit.PressurizedFractureCallbacks
+ 53/112 Test  #53: Unit.PressurizedFractureCallbacks ........................   Passed    0.30 sec
+        Start  54: Unit.DruckerPragerStandalone
+ 54/112 Test  #54: Unit.DruckerPragerStandalone .............................   Passed    0.30 sec
+        Start  55: Unit.Elastoplasticity
+ 55/112 Test  #55: Unit.Elastoplasticity ....................................   Passed    0.29 sec
+        Start  56: Physics.ElastoplasticBearingCapacity
+ 56/112 Test  #56: Physics.ElastoplasticBearingCapacity .....................   Passed    0.44 sec
+        Start  57: Physics.LockedFaultTransparency
+ 57/112 Test  #57: Physics.LockedFaultTransparency ..........................   Passed    0.42 sec
+        Start  58: Physics.ViscoelasticRelaxation
+ 58/112 Test  #58: Physics.ViscoelasticRelaxation ...........................   Passed    0.29 sec
+        Start  59: Physics.CohesiveBdResidual
+ 59/112 Test  #59: Physics.CohesiveBdResidual ...............................   Passed    0.33 sec
+        Start  60: Integration.FullSimulation
+ 60/112 Test  #60: Integration.FullSimulation ...............................   Passed    0.30 sec
+        Start  61: Integration.Restart
+ 61/112 Test  #61: Integration.Restart ......................................   Passed    0.29 sec
+        Start  62: Integration.CoupledPhysics
+ 62/112 Test  #62: Integration.CoupledPhysics ...............................   Passed    0.30 sec
+        Start  63: Integration.InjectionPressure
+ 63/112 Test  #63: Integration.InjectionPressure ............................   Passed    0.42 sec
+        Start  64: Integration.InjectionRuptureChain
+ 64/112 Test  #64: Integration.InjectionRuptureChain ........................   Passed    0.30 sec
+        Start  65: Integration.LockedFault
+ 65/112 Test  #65: Integration.LockedFault ..................................   Passed    0.30 sec
+        Start  66: Integration.LayeredElastostatics
+ 66/112 Test  #66: Integration.LayeredElastostatics .........................   Passed    0.30 sec
+        Start  67: Integration.ExplosionSeismogram
+ 67/112 Test  #67: Integration.ExplosionSeismogram ..........................   Passed    5.63 sec
+        Start  68: Integration.PrescribedSlip
+ 68/112 Test  #68: Integration.PrescribedSlip ...............................   Passed    0.31 sec
+        Start  69: Integration.OutputFile
+ 69/112 Test  #69: Integration.OutputFile ...................................   Passed    0.36 sec
+        Start  70: Integration.GmshImport
+ 70/112 Test  #70: Integration.GmshImport ...................................   Passed    0.35 sec
+        Start  71: Integration.GmshMultiMaterial
+ 71/112 Test  #71: Integration.GmshMultiMaterial ............................   Passed    0.33 sec
+        Start  72: Integration.GasbuggyMesh
+ 72/112 Test  #72: Integration.GasbuggyMesh .................................   Passed    0.35 sec
+        Start  73: Integration.NuclearTwinGmsh
+ 73/112 Test  #73: Integration.NuclearTwinGmsh ..............................   Passed    0.35 sec
+        Start  74: Integration.PunggyeRiLayered
+ 74/112 Test  #74: Integration.PunggyeRiLayered .............................   Passed   14.98 sec
+        Start  75: Integration.DerivedFields
+ 75/112 Test  #75: Integration.DerivedFields ................................   Passed    0.35 sec
+        Start  76: Integration.DPRK2017Comparison
+ 76/112 Test  #76: Integration.DPRK2017Comparison ...........................   Passed    0.29 sec
+        Start  77: Functional.DynamicRuptureSetup.MeshSplitting
+ 77/112 Test  #77: Functional.DynamicRuptureSetup.MeshSplitting .............   Passed    0.30 sec
+        Start  78: Functional.DynamicRuptureSetup.LockedFault
+ 78/112 Test  #78: Functional.DynamicRuptureSetup.LockedFault ...............   Passed    0.32 sec
+        Start  79: Functional.DynamicRuptureSetup.FaultGeometryFromConfig
+ 79/112 Test  #79: Functional.DynamicRuptureSetup.FaultGeometryFromConfig ...   Passed    0.32 sec
+        Start  80: Functional.DynamicRuptureSetup.SlippingFault
+ 80/112 Test  #80: Functional.DynamicRuptureSetup.SlippingFault .............   Passed    0.32 sec
+        Start  81: Functional.DynamicRuptureSetup.AbsorbingCoexist
+ 81/112 Test  #81: Functional.DynamicRuptureSetup.AbsorbingCoexist ..........   Passed    0.32 sec
+        Start  82: Functional.FaultAbsorbingCoexist
+ 82/112 Test  #82: Functional.FaultAbsorbingCoexist .........................   Passed    0.32 sec
+        Start  83: Unit.FractureFlowCallbacks
+ 83/112 Test  #83: Unit.FractureFlowCallbacks ...............................   Passed    0.29 sec
+        Start  84: Unit.HydrofracFormulas
+ 84/112 Test  #84: Unit.HydrofracFormulas ...................................   Passed    0.29 sec
+        Start  85: Unit.FracturePropagation
+ 85/112 Test  #85: Unit.FracturePropagation .................................   Passed    0.29 sec
+        Start  86: Physics.StressShadowing
+ 86/112 Test  #86: Physics.StressShadowing ..................................   Passed    0.29 sec
+        Start  87: Physics.InducedSeismicity
+ 87/112 Test  #87: Physics.InducedSeismicity ................................   Passed    0.29 sec
+        Start  88: Physics.ProppantTransport
+ 88/112 Test  #88: Physics.ProppantTransport ................................   Passed    0.29 sec
+        Start  89: Physics.LeakoffCoupling
+ 89/112 Test  #89: Physics.LeakoffCoupling ..................................   Passed    0.29 sec
+        Start  90: Physics.ProductionForecast
+ 90/112 Test  #90: Physics.ProductionForecast ...............................   Passed    0.29 sec
+        Start  91: Integration.PressurizedFractureFEM
+ 91/112 Test  #91: Integration.PressurizedFractureFEM .......................   Passed    0.70 sec
+        Start  92: Integration.ElastoplasticSim
+ 92/112 Test  #92: Integration.ElastoplasticSim .............................   Passed    0.41 sec
+        Start  93: Integration.DynamicRuptureSolve.LockedQuasiStatic
+ 93/112 Test  #93: Integration.DynamicRuptureSolve.LockedQuasiStatic ........   Passed    0.46 sec
+        Start  94: Integration.DynamicRuptureSolve.LockedElastodynamic
+ 94/112 Test  #94: Integration.DynamicRuptureSolve.LockedElastodynamic ......   Passed    0.49 sec
+        Start  95: Integration.DynamicRuptureSolve.PrescribedSlip
+ 95/112 Test  #95: Integration.DynamicRuptureSolve.PrescribedSlip ...........   Passed    0.42 sec
+        Start  96: Integration.ExplosionFaultReactivation
+ 96/112 Test  #96: Integration.ExplosionFaultReactivation ...................   Passed    0.34 sec
+        Start  97: Integration.TractionBC
+ 97/112 Test  #97: Integration.TractionBC ...................................   Passed    0.38 sec
+        Start  98: Integration.TimeDependentSlip
+ 98/112 Test  #98: Integration.TimeDependentSlip ............................   Passed    0.45 sec
+        Start  99: Integration.NearFieldCoupled
+ 99/112 Test  #99: Integration.NearFieldCoupled .............................   Passed    4.08 sec
+        Start 100: Integration.SlippingFaultSolve
+100/112 Test #100: Integration.SlippingFaultSolve ...........................   Passed    0.45 sec
+        Start 101: Integration.SinglePhaseFlow
+101/112 Test #101: Integration.SinglePhaseFlow ..............................   Passed    0.39 sec
+        Start 102: Integration.ViscoelasticWave
+102/112 Test #102: Integration.ViscoelasticWave .............................   Passed    1.61 sec
+        Start 103: Integration.HistoricNuclear.Gasbuggy1967
+103/112 Test #103: Integration.HistoricNuclear.Gasbuggy1967 .................   Passed    1.30 sec
+        Start 104: Integration.HistoricNuclear.Gnome1961
+104/112 Test #104: Integration.HistoricNuclear.Gnome1961 ....................   Passed    2.11 sec
+        Start 105: Integration.HistoricNuclear.Sedan1962
+105/112 Test #105: Integration.HistoricNuclear.Sedan1962 ....................   Passed    2.10 sec
+        Start 106: Integration.HistoricNuclear.DegelenMountain
+106/112 Test #106: Integration.HistoricNuclear.DegelenMountain ..............   Passed    1.28 sec
+        Start 107: Integration.HistoricNuclear.NtsPahuteMesa
+107/112 Test #107: Integration.HistoricNuclear.NtsPahuteMesa ................   Passed    1.30 sec
+        Start 108: Performance.Benchmarks
+108/112 Test #108: Performance.Benchmarks ...................................   Passed    0.31 sec
+        Start 109: Performance.Scaling
+109/112 Test #109: Performance.Scaling ......................................   Passed    0.69 sec
+        Start 110: Performance.Memory
+110/112 Test #110: Performance.Memory .......................................   Passed    0.29 sec
+        Start 111: Performance.GPUAcceleration
+111/112 Test #111: Performance.GPUAcceleration ..............................   Passed    0.29 sec
+        Start 112: Experimental.NeuralStubs
+112/112 Test #112: Experimental.NeuralStubs .................................   Passed    0.29 sec
 
-Generated from `ctest --output-on-failure` in Docker.
+100% tests passed, 0 tests failed out of 112
 
-**108/108 tests pass. 0 failures. 0 skips.**
+Label Time Summary:
+experimental          =   0.29 sec*proc (1 test)
+functional            =   3.09 sec*proc (10 tests)
+gpu                   =   0.29 sec*proc (1 test)
+integration           =  43.79 sec*proc (34 tests)
+performance           =   1.58 sec*proc (4 tests)
+physics_validation    =  19.50 sec*proc (27 tests)
+unit                  =  10.60 sec*proc (36 tests)
 
-## Environment
-
-- Docker image: `fsrm-ci:local` from `Dockerfile.ci`
-- PETSc: 3.22.2 with `--with-debugging=0`
-- Compiler: g++ (C++17)
-- Build: `CMAKE_BUILD_TYPE=Release`, `ENABLE_TESTING=ON`, `ENABLE_CUDA=OFF`, `BUILD_EXAMPLES=ON`
-- Command:
-
-```bash
-docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
-  ctest --output-on-failure
-```
-
-## Category Summary
-
-| Category | Count | Total Time |
-|---|---:|---:|
-| Unit | 36 | ~14s |
-| Functional | 10 | ~4s |
-| Physics validation | 25 | ~31s |
-| Integration | 32 | ~60s |
-| Performance | 4 | ~2s |
-| Experimental | 1 | ~0.3s |
-| **Total** | **108** | **~116s** |
-
-## Label Corrections (This Release)
-
-Several tests were relabeled from incorrect categories:
-
-- `Integration.DynamicRuptureBasic.*` renamed to `Functional.DynamicRuptureSetup.*` (setup-only, no TSSolve)
-- `Integration.FractureFlow` renamed to `Unit.FractureFlowCallbacks` (callback formula test)
-- `Integration.CoupledHydrofrac` renamed to `Unit.HydrofracFormulas` (analytical formula test)
-- `Integration.FracturePropagation` renamed to `Unit.FracturePropagation` (formula test)
-- `Integration.StressShadowing` renamed to `Physics.StressShadowing` (standalone physics)
-- `Integration.InducedSeismicity` renamed to `Physics.InducedSeismicity` (standalone physics)
-- `Integration.ProppantTransport` renamed to `Physics.ProppantTransport` (standalone physics)
-- `Integration.LeakoffCoupling` renamed to `Physics.LeakoffCoupling` (standalone physics)
-- `Integration.ProductionForecast` renamed to `Physics.ProductionForecast` (standalone physics)
-- `Physics.DruckerPrager` renamed to `Unit.DruckerPragerStandalone` (material-point formula)
-- `Physics.Elastoplasticity` renamed to `Unit.Elastoplasticity` (callback isolation test)
-- `Physics.PressurizedFracture` renamed to `Unit.PressurizedFractureCallbacks` (callback isolation)
-- `Integration.FaultAbsorbingCoexist` relabeled to `Functional` (setup-only, no TSSolve)
-
-## Complete Test Matrix
-
-### Unit Tests (36 tests)
-
-| # | Test Name | Status | Time |
-|---|-----------|--------|------|
-| 1 | Unit.ConfigReader | PASS | 2.22s |
-| 2 | Unit.PhysicsModuleRegistry | PASS | 0.38s |
-| 3 | Unit.SimulationConfig | PASS | 0.41s |
-| 4 | Unit.PhysicsKernelBase | PASS | 0.40s |
-| 5 | Unit.SinglePhaseFlow | PASS | 0.41s |
-| 6 | Unit.Geomechanics | PASS | 0.35s |
-| 7 | Unit.Thermal | PASS | 0.35s |
-| 8 | Unit.Elastodynamics | PASS | 0.37s |
-| 9 | Unit.Poroelastodynamics | PASS | 0.37s |
-| 10 | Unit.BoundaryConditions | PASS | 0.37s |
-| 11 | Unit.WellModel | PASS | 0.40s |
-| 12 | Unit.FractureModel | PASS | 0.40s |
-| 13 | Unit.MaterialModel | PASS | 0.38s |
-| 14 | Unit.SeismicSource | PASS | 0.34s |
-| 15 | Unit.ExplosionSource | PASS | 0.38s |
-| 16 | Unit.EclipseIO | PASS | 0.38s |
-| 17 | Unit.MLRegistry | PASS | 0.39s |
-| 18 | Unit.UnitSystem | PASS | 0.40s |
-| 19 | Unit.CoordinateSystem | PASS | 0.38s |
-| 20 | Unit.CO2Properties | PASS | 0.42s |
-| 21 | Unit.FlashCalculation | PASS | 0.38s |
-| 22 | Unit.ResidualTrapping | PASS | 0.42s |
-| 23 | Unit.CaprockIntegrity | PASS | 0.39s |
-| 24 | Unit.MultiphaseFlow | PASS | 0.41s |
-| 25 | Unit.FaultMechanics | PASS | 0.42s |
-| 26 | Unit.FaultCohesiveDyn | PASS | 0.38s |
-| 27 | Unit.CoulombStressTransfer | PASS | 0.44s |
-| 28 | Unit.FaultMeshManager | PASS | 0.41s |
-| 29 | Unit.CohesiveFaultKernel | PASS | 0.36s |
-| 30 | Unit.ElasticityAux | PASS | 0.40s |
-| 53 | Unit.PressurizedFractureCallbacks | PASS | 2.15s |
-| 54 | Unit.DruckerPragerStandalone | PASS | 0.40s |
-| 55 | Unit.Elastoplasticity | PASS | 0.41s |
-| 79 | Unit.FractureFlowCallbacks | PASS | 0.38s |
-| 80 | Unit.HydrofracFormulas | PASS | 0.38s |
-| 81 | Unit.FracturePropagation | PASS | 0.39s |
-
-### Functional Tests (10 tests)
-
-| # | Test Name | Status | Time |
-|---|-----------|--------|------|
-| 31 | Functional.SimulatorInit | PASS | 0.39s |
-| 32 | Functional.ModuleLifecycle | PASS | 0.40s |
-| 33 | Functional.SolverConvergence | PASS | 0.38s |
-| 34 | Functional.WellOperations | PASS | 0.38s |
-| 73 | Functional.DynamicRuptureSetup.MeshSplitting | PASS | 0.43s |
-| 74 | Functional.DynamicRuptureSetup.LockedFault | PASS | 0.45s |
-| 75 | Functional.DynamicRuptureSetup.FaultGeometryFromConfig | PASS | 0.42s |
-| 76 | Functional.DynamicRuptureSetup.SlippingFault | PASS | 0.38s |
-| 77 | Functional.DynamicRuptureSetup.AbsorbingCoexist | PASS | 0.43s |
-| 78 | Functional.FaultAbsorbingCoexist | PASS | 0.42s |
-
-### Physics Validation Tests (25 tests)
-
-| # | Test Name | Status | Time | Description |
-|---|-----------|--------|------|-------------|
-| 35 | Physics.MMS.Diffusion | PASS | 0.39s | Method of manufactured solutions for diffusion |
-| 36 | Physics.MMS.Elasticity | PASS | 0.40s | MMS for elasticity |
-| 37 | Physics.MMS.WavePropagation | PASS | 0.38s | MMS for wave propagation |
-| 38 | Physics.AnalyticalSolutions | PASS | 0.42s | Analytical benchmark comparisons |
-| 39 | Physics.Thermoporoelastic | PASS | 0.40s | Thermoporoelastic coupling |
-| 40 | Physics.SCEC.TPV5 | PASS | 3.09s | SCEC TPV5 fault infrastructure (3 tests, no skips) |
-| 41 | Physics.ElastostaticsPatch | PASS | 0.35s | Elastostatics patch test |
-| 42 | Physics.TerzaghiConsolidation | PASS | 1.77s | Terzaghi 1D consolidation vs analytical |
-| 43 | Physics.AbsorbingBC | PASS | 5.31s | Clayton-Engquist absorbing BCs (>99% energy absorption) |
-| 44 | Physics.GravityLithostatic | PASS | 0.48s | Gravity body force and lithostatic stress |
-| 45 | Physics.LithostaticStress | PASS | 1.01s | Lithostatic stress verification |
-| 46 | Physics.LambsProblem | PASS | 1.65s | Lamb problem (point force on halfspace) |
-| 47 | Physics.GarvinsProblem | PASS | 1.54s | Garvin problem (buried explosion Green function) |
-| 48 | Physics.MuellerMurphy | PASS | 0.36s | Mueller-Murphy seismic source (9 test cases) |
-| 49 | Physics.AtmosphericExplosion | PASS | 0.39s | Sedov-Taylor, Brode, EMP, overpressure (8 test cases) |
-| 50 | Physics.NearFieldExplosion | PASS | 0.37s | Cavity, damage, spall, 1D solver (13 test cases) |
-| 51 | Physics.MomentTensorSource | PASS | 2.16s | FEM source injection via tabulation (3 test cases) |
-| 52 | Physics.ExplosionDamageZone | PASS | 7.12s | FEM-coupled aux-field damage-zone degradation |
-| 82 | Physics.StressShadowing | PASS | 0.41s | Multi-cluster stress shadow (6 tests) |
-| 83 | Physics.InducedSeismicity | PASS | 0.39s | Moment tensor and Mw (6 tests) |
-| 84 | Physics.ProppantTransport | PASS | 0.41s | Stokes settling and bridging (8 tests) |
-| 85 | Physics.LeakoffCoupling | PASS | 0.39s | Carter leak-off sqrt(t) scaling (7 tests) |
-| 86 | Physics.ProductionForecast | PASS | 0.40s | Arps decline and PI (9 tests) |
-| 87 | Physics.LockedFaultTransparency | PASS | ~1.0s | Locked fault slip must be < 5e-4 |
-| 88 | Physics.ElastostaticsPatchLayered | PASS | ~0.5s | Layered patch test |
-
-### Integration Tests (32 tests)
-
-| # | Test Name | Status | Time | Description |
-|---|-----------|--------|------|-------------|
-| 56 | Integration.FullSimulation | PASS | 0.41s | Full simulation lifecycle through TSSolve |
-| 57 | Integration.Restart | PASS | 0.37s | Checkpoint/restart |
-| 58 | Integration.CoupledPhysics | PASS | 0.41s | Coupled physics modules |
-| 59 | Integration.InjectionPressure | PASS | 0.80s | Injection pressure buildup (two-sim comparison) |
-| 60 | Integration.InjectionRuptureChain | PASS | 0.40s | Injection-to-rupture chain |
-| 61 | Integration.LockedFault | PASS | 0.41s | Locked fault behavior |
-| 62 | Integration.LayeredElastostatics | PASS | 0.40s | Depth-based material layering via auxiliary fields |
-| 63 | Integration.ExplosionSeismogram | PASS | 8.54s | Explosion source to SAC seismogram pipeline |
-| 64 | Integration.PrescribedSlip | PASS | 0.42s | Prescribed slip on cohesive fault |
-| 65 | Integration.OutputFile | PASS | 0.69s | HDF5/VTK output file generation |
-| 66 | Integration.GmshImport | PASS | 0.69s | Gmsh mesh import and label creation |
-| 67 | Integration.GmshMultiMaterial | PASS | 0.65s | Gmsh physical-group per-cell material assignment |
-| 68 | Integration.GasbuggyMesh | PASS | 0.70s | Historical Gasbuggy layered MSH2 mesh (3 regions) |
-| 69 | Integration.NuclearTwinGmsh | PASS | 3.03s | Gmsh-based nuclear twin with mapped regions |
-| 70 | Integration.PunggyeRiLayered | PASS | 20.52s | Punggye-ri layered model with absorbing BCs and SAC |
-| 71 | Integration.DerivedFields | PASS | 2.43s | Cell-centered stress, strain, CFS from FEM solution |
-| 72 | Integration.DPRK2017Comparison | PASS | 0.41s | Synthetic vs observed mb for DPRK 2017 |
-| 87 | Integration.PressurizedFractureFEM | PASS | 1.21s | Pressurized fracture FEM solve |
-| 90 | Integration.ElastoplasticSim | PASS | 0.78s | Drucker-Prager through TSSolve |
-| 91 | Integration.DynamicRuptureSolve.LockedQuasiStatic | PASS | 0.73s | Manual cohesive assembly, quasi-static locked |
-| 92 | Integration.DynamicRuptureSolve.LockedElastodynamic | PASS | 0.78s | Cohesive + TSALPHA2 locked |
-| 93 | Integration.DynamicRuptureSolve.PrescribedSlip | PASS | 0.67s | Imposed displacement jump |
-| 94 | Integration.ExplosionFaultReactivation | PASS | 0.39s | Moment-tensor + cohesive residual coexistence |
-| 95 | Integration.TractionBC | PASS | 0.62s | Per-face Neumann traction BC |
-| 96 | Integration.TimeDependentSlip | PASS | 0.71s | Linear slip ramp with onset/rise time |
-| 97 | Integration.NearFieldCoupled | PASS | 6.22s | COUPLED_ANALYTIC 1D solver to 3D FEM coupling |
-| 98 | Integration.SlippingFaultSolve | PASS | 1.32s | Augmented Lagrangian, GTEST_SKIP on divergence |
-| 99 | Integration.HistoricNuclear.Gasbuggy1967 | PASS | 3.70s | 29 kt, 4-layer Lewis Shale, SAC output |
-| 100 | Integration.HistoricNuclear.Gnome1961 | PASS | 3.15s | 3.1 kt, 4-layer Salado Salt, SAC output |
-| 101 | Integration.HistoricNuclear.Sedan1962 | PASS | 3.04s | 104 kt, 3-layer alluvium, SAC output |
-| 102 | Integration.HistoricNuclear.DegelenMountain | PASS | 1.93s | 50 kt, 3-layer granite, SAC output |
-| 103 | Integration.HistoricNuclear.NtsPahuteMesa | PASS | 1.95s | 150 kt, 4-layer tuff, SAC output |
-
-### Performance Tests (4 tests)
-
-| # | Test Name | Status | Time |
-|---|-----------|--------|------|
-| 104 | Performance.Benchmarks | PASS | 0.35s |
-| 105 | Performance.Scaling | PASS | 1.02s |
-| 106 | Performance.Memory | PASS | 0.34s |
-| 107 | Performance.GPUAcceleration | PASS | 0.34s |
-
-### Experimental Tests (1 test)
-
-| # | Test Name | Status | Time |
-|---|-----------|--------|------|
-| 108 | Experimental.NeuralStubs | PASS | 0.33s |
-
-## Known Limitations Documented in Tests
-
-1. **Drucker-Prager return mapping** (`Unit.DruckerPragerStandalone`): Yield function evaluation works for Drucker-Prager, von Mises, and Mohr-Coulomb. Return mapping produces nonzero plastic strain at the material-point level (`PlasticityModel::integrateStress`). NOT wired into PetscDS FEM callbacks.
-
-2. **Elastoplasticity callback** (`Unit.Elastoplasticity`): PetscFEElastoplasticity callback works in isolation. Not wired into `setupPhysics()` in the Simulator. No config flag to enable.
-
-3. **SCEC TPV5 infrastructure** (`Physics.SCEC.TPV5`): Parameters, CohesiveFaultKernel, FaultMeshManager, and friction parameter setup verified with 3 tests. Full dynamic rupture solve not implemented.
-
-4. **Dynamic rupture setup** (`Functional.DynamicRuptureSetup.*`): Mesh splitting, fault geometry, locked/slipping fault setup, and absorbing BC coexistence all verified. TSSolve never called. SNES divergence risk.
-
-5. **Hydrofrac callbacks** (`Unit.FractureFlowCallbacks`, `Unit.HydrofracFormulas`, `Unit.FracturePropagation`): Poiseuille lubrication, PKN width scaling, and cohesive strength tested in isolation. Not coupled end-to-end through the FEM solver.
-
-6. **Standalone physics** (`Physics.StressShadowing`, `Physics.InducedSeismicity`, `Physics.ProppantTransport`, `Physics.LeakoffCoupling`, `Physics.ProductionForecast`): Analytical formulas and standalone solvers verified. Not coupled to PetscDS FEM.
-
-7. **Mohr-Coulomb principal stress** (`Unit.DruckerPragerStandalone`): `computePrincipalStresses` returns NaN for pure hydrostatic stress (q=0) due to division by zero in the Cardano formula. Tests use stress states with nonzero deviatoric component.
-
-8. **Slipping fault (Coulomb friction)** (`Integration.SlippingFaultSolve`): Augmented Lagrangian regularization (0.01 * penalty_stiffness) with approximate Jacobian contribution. TSSolve diverges because the locked-mode linearization does not capture d(tau_f * slip_t/|slip_t|)/d(u) or d(tau_f)/d(lambda_n). Needs semi-smooth Newton tangent operator. GTEST_SKIP documents the root cause.
-
-9. **COUPLED_ANALYTIC NearField coupling** (`Integration.NearFieldCoupled`): 1D NearFieldExplosionSolver cavity pressure/velocity drives an RDP Brune source time function that computes moment rate injected into the 3D FEM via equivalent nodal forces. Damage profile from 1D solver degrades auxiliary fields near cavity.
+Total Test time (real) =  78.88 sec

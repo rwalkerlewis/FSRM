@@ -20,13 +20,13 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-112 registered tests. All pass or GTEST_SKIP. Zero failures.
+112 registered tests (plus 1 new Physics.CohesiveBdResidual = 113 total). All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
-| Physics | 26 | Analytical solutions, FEM-coupled benchmarks, standalone physics, viscoelastic relaxation |
+| Physics | 27 | Analytical solutions, FEM-coupled benchmarks, standalone physics, viscoelastic relaxation, cohesive BdResidual verification |
 | Integration | 35 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave |
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
@@ -36,7 +36,7 @@ Note: some tests may fail when run in parallel (`ctest -j`) due to HDF5 output f
 
 ## Build Environment
 
-Docker-based. PETSc 3.22.2 with ctetgen.
+Docker-based. PETSc 3.25.0 with ctetgen.
 
 ```bash
 # Build
@@ -64,12 +64,12 @@ docker run --gpus all --rm -v $(pwd):/workspace -w /workspace/build-cuda fsrm-cu
 
 The PetscDS pointwise callbacks (f0, f1, g0, g3) run on CPU. PETSc handles all vector operations via cuBLAS, matrix operations via cuSPARSE, and KSP solves on GPU. Data transfer is automatic.
 
-## MANDATORY: Check PETSc 3.22.2 API Before Use
+## MANDATORY: Check PETSc 3.25.0 API Before Use
 
 Before calling ANY PETSc function, verify its signature exists in the installed headers:
 
 ```bash
-grep -rn "FunctionName" /opt/petsc-3.22.2/include/
+grep -rn "FunctionName" /opt/petsc-3.25.0/include/
 ```
 
 Do not assume PETSc API signatures from memory. They change between versions.
@@ -96,7 +96,7 @@ FormFunction uses DMPlexTSComputeIFunctionFEM for volume residual, plus addExplo
 ### CRITICAL: DS/BC Ordering in setupFields()
 
 ```cpp
-DMCreateDS(dm); // 1. PETSc 3.22 requires DS before DMAddBoundary
+DMCreateDS(dm); // 1. PETSc 3.25 requires DS before DMAddBoundary
 setupBoundaryConditions(); // 2. DMAddBoundary calls (needs DS)
 DMSetLocalSection(dm, nullptr); // 3. Clear cached section
 DMSetUp(dm); // 4. Rebuild section WITH BC constraints
@@ -185,6 +185,7 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | Hydrofrac formulas | Unit.HydrofracFormulas + 8 Physics tests |
 | Fluid flow callbacks | Unit.SinglePhaseFlow, Unit.MultiphaseFlow |
 | Viscoelastic relaxation | Physics.ViscoelasticRelaxation |
+| PetscDS BdResidual on cohesive | Physics.CohesiveBdResidual |
 
 ### DOES NOT WORK: Code Exists but No TSSolve Test
 
@@ -271,7 +272,7 @@ Each item requires: PetscDS callbacks integrated into setupPhysics(), integratio
 through TSSolve, example config, and visualization. Source code in archive/src/ may provide
 a starting point but must be rewritten to use the PetscDS callback pattern.
 
-1. ~~Slipping fault convergence~~ DONE (semi-smooth Newton tangent for Coulomb friction)
+1. ~~Slipping fault convergence~~ DONE (semi-smooth Newton tangent for Coulomb friction, full Jacobian kernels in CohesiveFaultKernel.cpp)
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
 4. ~~Viscoelastic attenuation~~ DONE (generalized Maxwell body, Q-factor memory variables)
@@ -285,7 +286,7 @@ a starting point but must be rewritten to use the PetscDS callback pattern.
 ## Rules
 
 1. Build and test in Docker. Always.
-2. Check PETSc 3.22.2 API signatures before calling any PETSc function.
+2. Check PETSc 3.25.0 API signatures before calling any PETSc function.
 3. All existing tests must continue to pass after every change.
 4. NEVER change the DS/BC ordering in setupFields().
 5. Do NOT modify callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, or PetscFEFluidFlow.cpp.
