@@ -4007,13 +4007,10 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
             }
 
-            // Augmented Lagrangian penalty: full penalty for locked/prescribed,
-            // reduced penalty for slipping to regularize the saddle-point system
-            // and prevent singular Jacobian with FD coloring.
-            const PetscReal effective_penalty =
-                (mode == CohesiveAssemblyMode::Slipping)
-                ? 0.01 * penalty_stiffness
-                : penalty_stiffness;
+            // Augmented Lagrangian penalty: full penalty for all modes.
+            // The semi-smooth Newton Jacobian now provides accurate coupling
+            // for the slipping mode, so full penalty is appropriate.
+            const PetscReal effective_penalty = penalty_stiffness;
 
             for (PetscInt d = 0; d < dim; ++d)
             {
@@ -4049,11 +4046,9 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
 
-    // For slipping mode, use a reduced penalty factor matching the augmented
-    // Lagrangian regularization in addCohesiveConstraintToResidual.
-    // This provides enough coupling to prevent a singular Jacobian.
+    // With the semi-smooth Newton Jacobian, full penalty is used for all modes.
     const bool is_slipping = (fault_mode_ == "slipping");
-    const PetscReal penalty_scale = is_slipping ? 0.01 : 1.0;
+    const PetscReal penalty_scale = 1.0;
 
     PetscErrorCode ierr;
     PetscSection gsection = nullptr;
@@ -4316,8 +4311,9 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                     for (PetscInt d = 0; d < dim; ++d) s_hat[d] = slip_t[d] / slip_t_mag;
                 }
 
-                // Compute augmented Lagrangian penalty
-                const PetscReal eff_penalty = 0.01 * 10.0 * youngs_modulus / h_char_jac;
+                // Augmented Lagrangian penalty: larger penalty provides stronger
+                // coupling and better conditioning for the semi-smooth Newton method.
+                const PetscReal eff_penalty = 1.0 * 10.0 * youngs_modulus / h_char_jac;
 
                 // ---------------------------------------------------------
                 // Assemble Jacobian blocks for all (d, e) pairs
