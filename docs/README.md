@@ -29,6 +29,7 @@ This directory contains the complete documentation for FSRM (Fully-coupled Subsu
 | [SEISSOL_COMPARISON.md](SEISSOL_COMPARISON.md) | Comparison with SeisSol earthquake simulator |
 | [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) | **Nuclear tests, impacts, EMP, radiation** |
 | [NUCLEAR_TEST_DIGITAL_TWIN.md](NUCLEAR_TEST_DIGITAL_TWIN.md) | Verified underground nuclear digital twin workflow |
+| [PYLITH_COMPATIBILITY.md](PYLITH_COMPATIBILITY.md) | PyLith-compatible features (traction BCs, fault slip) |
 | [VOLCANO_MODELING.md](VOLCANO_MODELING.md) | **Comprehensive volcanic system simulation** |
 | [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md) | **Earthquake-tsunami coupling and inundation** |
 

@@ -638,6 +638,9 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
             fault_length_ = reader.getDouble("FAULT", "length", -1.0);
             fault_width_ = reader.getDouble("FAULT", "width", -1.0);
         }
+        // Time-dependent prescribed slip parameters
+        fault_slip_onset_time_ = reader.getDouble("FAULT", "slip_onset_time", 0.0);
+        fault_slip_rise_time_ = reader.getDouble("FAULT", "slip_rise_time", 0.0);
         config.enable_faults = true;
     }
 
@@ -739,9 +742,72 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         config.bottom_bc = reader.getString("BOUNDARY_CONDITIONS", "bottom", "fixed");
         config.side_bc = reader.getString("BOUNDARY_CONDITIONS", "sides", "free");
         config.top_bc = reader.getString("BOUNDARY_CONDITIONS", "top", "compression");
+
+        // Parse per-face boundary conditions (overrides bottom/sides/top)
+        // Face ordering: 0=x_min, 1=x_max, 2=y_min, 3=y_max, 4=z_min, 5=z_max
+        static const char *face_keys[6] = {
+            "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"
+        };
+        for (int fi = 0; fi < 6; ++fi) {
+            std::string ftype = reader.getString("BOUNDARY_CONDITIONS", face_keys[fi], "");
+            if (!ftype.empty()) {
+                config.face_bc[fi].configured = true;
+                config.face_bc[fi].type = ftype;
+                if (ftype == "traction") {
+                    // Read traction vector: x_min_traction_x, x_min_traction_y, x_min_traction_z
+                    // or compact form: x_min_traction = tx, ty, tz
+                    std::string tkey = std::string(face_keys[fi]) + "_traction";
+                    if (reader.hasKey("BOUNDARY_CONDITIONS", tkey)) {
+                        auto tv = reader.getDoubleArray("BOUNDARY_CONDITIONS", tkey);
+                        for (int d = 0; d < 3 && d < static_cast<int>(tv.size()); ++d) {
+                            config.face_bc[fi].traction[d] = tv[static_cast<std::size_t>(d)];
+                        }
+                    } else {
+                        config.face_bc[fi].traction[0] = reader.getDouble("BOUNDARY_CONDITIONS",
+                            std::string(face_keys[fi]) + "_traction_x", 0.0);
+                        config.face_bc[fi].traction[1] = reader.getDouble("BOUNDARY_CONDITIONS",
+                            std::string(face_keys[fi]) + "_traction_y", 0.0);
+                        config.face_bc[fi].traction[2] = reader.getDouble("BOUNDARY_CONDITIONS",
+                            std::string(face_keys[fi]) + "_traction_z", 0.0);
+                    }
+                } else if (ftype == "dirichlet") {
+                    // Read constrained components and values
+                    std::string ckey = std::string(face_keys[fi]) + "_components";
+                    std::string vkey = std::string(face_keys[fi]) + "_values";
+                    if (reader.hasKey("BOUNDARY_CONDITIONS", ckey)) {
+                        auto cv = reader.getDoubleArray("BOUNDARY_CONDITIONS", ckey);
+                        for (auto c : cv) {
+                            config.face_bc[fi].components.push_back(static_cast<int>(c));
+                        }
+                    } else {
+                        config.face_bc[fi].components = {0, 1, 2};
+                    }
+                    if (reader.hasKey("BOUNDARY_CONDITIONS", vkey)) {
+                        config.face_bc[fi].values = reader.getDoubleArray("BOUNDARY_CONDITIONS", vkey);
+                    }
+                    // Fill to match component count
+                    while (config.face_bc[fi].values.size() < config.face_bc[fi].components.size()) {
+                        config.face_bc[fi].values.push_back(0.0);
+                    }
+                }
+            }
+        }
+
         if (rank == 0) {
             PetscPrintf(comm, "Boundary conditions: bottom=%s, sides=%s, top=%s\n",
                         config.bottom_bc.c_str(), config.side_bc.c_str(), config.top_bc.c_str());
+            for (int fi = 0; fi < 6; ++fi) {
+                if (config.face_bc[fi].configured) {
+                    PetscPrintf(comm, "  %s = %s", face_keys[fi], config.face_bc[fi].type.c_str());
+                    if (config.face_bc[fi].type == "traction") {
+                        PetscPrintf(comm, " (%.2e, %.2e, %.2e)",
+                                    config.face_bc[fi].traction[0],
+                                    config.face_bc[fi].traction[1],
+                                    config.face_bc[fi].traction[2]);
+                    }
+                    PetscPrintf(comm, "\n");
+                }
+            }
         }
     }
 
@@ -1533,6 +1599,58 @@ static PetscErrorCode bc_drained(PetscInt dim, PetscReal time, const PetscReal x
     return PETSC_SUCCESS;
 }
 
+// BC callback: prescribed Dirichlet values read from context
+// ctx points to a static double[3] array with the prescribed displacement values
+static PetscErrorCode bc_dirichlet_values(PetscInt dim, PetscReal time, const PetscReal x[],
+                                           PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x;
+    const double *vals = static_cast<const double *>(ctx);
+    for (PetscInt c = 0; c < Nc; c++) {
+        u[c] = vals ? vals[c] : 0.0;
+    }
+    return PETSC_SUCCESS;
+}
+
+// Traction BC boundary residual callback (f0)
+// Reads traction vector from constants array using the face normal to determine face index.
+// Face ordering: 0=x_min, 1=x_max, 2=y_min, 3=y_max, 4=z_min, 5=z_max
+// Traction constants start at slot TractionBC::TRACTION_CONST_BASE (36).
+static void f0_traction_bc(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                            const PetscInt uOff[], const PetscInt uOff_x[],
+                            const PetscScalar u[], const PetscScalar u_t[],
+                            const PetscScalar u_x[],
+                            const PetscInt aOff[], const PetscInt aOff_x[],
+                            const PetscScalar a[], const PetscScalar a_t[],
+                            const PetscScalar a_x[],
+                            PetscReal t, const PetscReal x[],
+                            const PetscReal n[],
+                            PetscInt numConstants,
+                            const PetscScalar constants[],
+                            PetscScalar f[]) {
+    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
+    (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x;
+    if (numConstants < FSRM::TractionBC::TRACTION_CONST_COUNT) {
+        for (PetscInt d = 0; d < dim; ++d) f[d] = 0.0;
+        return;
+    }
+    // Determine face index from outward normal direction
+    PetscInt face_idx = 0;
+    PetscReal max_abs = 0.0;
+    for (PetscInt d = 0; d < dim; ++d) {
+        PetscReal absn = PetscAbsReal(PetscRealPart(n[d]));
+        if (absn > max_abs) {
+            max_abs = absn;
+            face_idx = d * 2 + (PetscRealPart(n[d]) > 0.0 ? 1 : 0);
+        }
+    }
+    PetscInt base = FSRM::TractionBC::TRACTION_CONST_BASE + face_idx * 3;
+    for (PetscInt d = 0; d < dim; ++d) {
+        f[d] = PetscRealPart(constants[base + d]);
+    }
+}
+
 // IC callback: Terzaghi consolidation initial conditions
 // Nc=1 for pressure field (set to 1 MPa undrained response), Nc=3 for displacement (zero)
 static PetscErrorCode terzaghi_ic(PetscInt dim, PetscReal time, const PetscReal x[],
@@ -1762,7 +1880,8 @@ PetscErrorCode Simulator::setupPhysics() {
     //   [22] = biot_coefficient (alpha)
     //   [23] = biot_modulus_inv (1/M)
     //   [24] = rho_fluid
-    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = PetscFEElastoplasticity::EP_CONST_COUNT;
+    //   [36-53] = traction BC values (6 faces x 3 components)
+    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = TractionBC::TRACTION_CONST_COUNT;
     PetscScalar unified_constants[MAX_UNIFIED_CONSTANTS] = {0};
 
     // Always set material properties if geomechanics is enabled
@@ -1865,9 +1984,21 @@ PetscErrorCode Simulator::setupPhysics() {
         unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_F] = fault_friction_coefficient_;
     }
 
+    // Set traction BC constants (6 faces x 3 components, starting at slot 36)
+    bool has_traction_bc = false;
+    for (int fi = 0; fi < 6; ++fi) {
+        if (config.face_bc[fi].configured && config.face_bc[fi].type == "traction") {
+            has_traction_bc = true;
+            PetscInt base = TractionBC::TRACTION_CONST_BASE + fi * 3;
+            for (int d = 0; d < 3; ++d) {
+                unified_constants[base + d] = config.face_bc[fi].traction[d];
+            }
+        }
+    }
+
     // Set constants once for all physics (eliminates collision bug)
     // [0-24]=fluid/elasticity/poroelasticity, [25-30]=cohesive fault, [31]=hydrofrac pressure,
-    // [32-35]=elastoplasticity
+    // [32-35]=elastoplasticity, [36-53]=traction BC
     PetscInt nconst_unified = hydrofrac_fem_pressurized_mode_
                               ? PetscFEHydrofrac::HYDROFRAC_CONST_COUNT
                               : 27;
@@ -1879,6 +2010,11 @@ PetscErrorCode Simulator::setupPhysics() {
         nconst_unified = std::max(nconst_unified,
             static_cast<PetscInt>(PetscFEElastoplasticity::EP_CONST_COUNT));
     }
+    if (has_traction_bc) {
+        nconst_unified = std::max(nconst_unified,
+            static_cast<PetscInt>(TractionBC::TRACTION_CONST_COUNT));
+    }
+    has_traction_bc_ = has_traction_bc;
     ierr = PetscDSSetConstants(prob, nconst_unified, unified_constants); CHKERRQ(ierr);
 
     // Register PetscFEPoroelasticity callbacks for fully coupled Biot poroelasticity
@@ -2204,6 +2340,43 @@ PetscErrorCode Simulator::setupPhysics() {
         if (rank == 0) {
             PetscPrintf(comm, "Registered absorbing BC callbacks on field %d\n",
                         displacement_field_idx);
+        }
+    }
+
+    // Register traction boundary residual callbacks
+    // Must use PetscWeakFormAddBdResidual with the exact label and value that
+    // DMAddBoundary used, because PETSc weak form lookup is a strict hash match
+    // on (label, value, field, part) with no fallback to NULL label.
+    if (has_traction_bc) {
+        PetscInt disp_field = absorbing_disp_field;
+        if (disp_field < 0) {
+            disp_field = 0;  // Fallback: displacement is first field
+        }
+
+        PetscWeakForm wf = nullptr;
+        ierr = PetscDSGetWeakForm(prob, &wf); CHKERRQ(ierr);
+
+        DMLabel face_labels_phys[6];
+        ierr = DMGetLabel(dm, "boundary_x_min", &face_labels_phys[0]); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, "boundary_x_max", &face_labels_phys[1]); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, "boundary_y_min", &face_labels_phys[2]); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, "boundary_y_max", &face_labels_phys[3]); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, "boundary_z_min", &face_labels_phys[4]); CHKERRQ(ierr);
+        ierr = DMGetLabel(dm, "boundary_z_max", &face_labels_phys[5]); CHKERRQ(ierr);
+
+        for (int fi = 0; fi < 6; ++fi) {
+            if (!config.face_bc[fi].configured || config.face_bc[fi].type != "traction") continue;
+            if (!face_labels_phys[fi]) continue;
+            PetscInt label_value = 1;
+            ierr = PetscWeakFormAddBdResidual(wf, face_labels_phys[fi], label_value,
+                disp_field, 0, f0_traction_bc, nullptr); CHKERRQ(ierr);
+            if (rank == 0) {
+                static const char *face_names[6] = {
+                    "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"
+                };
+                PetscPrintf(comm, "  Registered traction BdResidual on %s, field %d\n",
+                            face_names[fi], disp_field);
+            }
         }
     }
 
@@ -2939,6 +3112,131 @@ PetscErrorCode Simulator::addInjectionToResidual(PetscReal t, Vec locF) {
     PetscFunctionReturn(0);
 }
 
+PetscErrorCode Simulator::addTractionToResidual(PetscReal t, Vec locF)
+{
+    (void)t;
+    PetscFunctionBeginUser;
+    if (!has_traction_bc_) PetscFunctionReturn(0);
+
+    PetscErrorCode ierr;
+    PetscSection section;
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+
+    PetscInt dim;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    DMLabel depth_label;
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        disp_field = 1;
+    } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+        disp_field = 3;
+    } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+        disp_field = 4;
+    }
+
+    static const char *label_names[6] = {
+        "boundary_x_min", "boundary_x_max",
+        "boundary_y_min", "boundary_y_max",
+        "boundary_z_min", "boundary_z_max"
+    };
+
+    PetscScalar *farray = nullptr;
+    ierr = VecGetArray(locF, &farray); CHKERRQ(ierr);
+
+    for (int fi = 0; fi < 6; ++fi) {
+        if (!config.face_bc[fi].configured || config.face_bc[fi].type != "traction") continue;
+
+        DMLabel face_label = nullptr;
+        ierr = DMGetLabel(dm, label_names[fi], &face_label); CHKERRQ(ierr);
+        if (!face_label) continue;
+
+        IS stratum_is = nullptr;
+        ierr = DMLabelGetStratumIS(face_label, 1, &stratum_is); CHKERRQ(ierr);
+        if (!stratum_is) continue;
+
+        const PetscInt *pts = nullptr;
+        PetscInt npts = 0;
+        ierr = ISGetLocalSize(stratum_is, &npts); CHKERRQ(ierr);
+        ierr = ISGetIndices(stratum_is, &pts); CHKERRQ(ierr);
+
+        const double *traction = config.face_bc[fi].traction;
+
+        for (PetscInt i = 0; i < npts; ++i) {
+            const PetscInt face = pts[i];
+
+            // Only process face entities (depth dim-1)
+            PetscInt depth = -1;
+            ierr = DMLabelGetValue(depth_label, face, &depth); CHKERRQ(ierr);
+            if (depth != dim - 1) continue;
+
+            // Must be a boundary face (support size == 1)
+            PetscInt support_size = 0;
+            ierr = DMPlexGetSupportSize(dm, face, &support_size); CHKERRQ(ierr);
+            if (support_size != 1) continue;
+
+            // Get face geometry
+            PetscReal face_area = 0.0;
+            PetscReal centroid[3] = {0.0, 0.0, 0.0};
+            PetscReal normal[3] = {0.0, 0.0, 0.0};
+            ierr = DMPlexComputeCellGeometryFVM(dm, face, &face_area, centroid, normal); CHKERRQ(ierr);
+            if (face_area <= 0.0) continue;
+
+            // Get the support cell
+            const PetscInt *support = nullptr;
+            ierr = DMPlexGetSupport(dm, face, &support); CHKERRQ(ierr);
+            const PetscInt cell = support[0];
+
+            // Get closure of the face to find vertices on the face
+            PetscInt nclosure_face = 0;
+            PetscInt *closure_face = nullptr;
+            ierr = DMPlexGetTransitiveClosure(dm, face, PETSC_TRUE, &nclosure_face, &closure_face); CHKERRQ(ierr);
+
+            // Count nodes on the face that are in the cell and have displacement DOFs
+            PetscInt nface_nodes = 0;
+            for (PetscInt c = 0; c < 2 * nclosure_face; c += 2) {
+                PetscInt point = closure_face[c];
+                PetscInt fdof = 0;
+                ierr = PetscSectionGetFieldDof(section, point, disp_field, &fdof); CHKERRQ(ierr);
+                if (fdof > 0) nface_nodes++;
+            }
+
+            if (nface_nodes <= 0) {
+                ierr = DMPlexRestoreTransitiveClosure(dm, face, PETSC_TRUE, &nclosure_face, &closure_face); CHKERRQ(ierr);
+                continue;
+            }
+
+            // Distribute traction force equally among face nodes
+            // Total force = traction * face_area
+            // Per-node force = traction * face_area / nface_nodes
+            // Sign: traction enters the residual as -t (weak form: F_int - F_ext = 0)
+            for (PetscInt c = 0; c < 2 * nclosure_face; c += 2) {
+                PetscInt point = closure_face[c];
+                PetscInt fdof = 0;
+                ierr = PetscSectionGetFieldDof(section, point, disp_field, &fdof); CHKERRQ(ierr);
+                if (fdof <= 0) continue;
+
+                PetscInt field_off = 0;
+                ierr = PetscSectionGetFieldOffset(section, point, disp_field, &field_off); CHKERRQ(ierr);
+
+                for (PetscInt d = 0; d < PetscMin(fdof, dim); ++d) {
+                    farray[field_off + d] -= traction[d] * face_area / (PetscReal)nface_nodes;
+                }
+            }
+
+            ierr = DMPlexRestoreTransitiveClosure(dm, face, PETSC_TRUE, &nclosure_face, &closure_face); CHKERRQ(ierr);
+        }
+
+        ierr = ISRestoreIndices(stratum_is, &pts); CHKERRQ(ierr);
+        ierr = ISDestroy(&stratum_is); CHKERRQ(ierr);
+    }
+
+    ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
 PetscErrorCode Simulator::addFaultPressureToResidual(PetscReal t, Vec locF) {
     (void)t;
     PetscFunctionBeginUser;
@@ -3089,7 +3387,6 @@ PetscErrorCode Simulator::addFaultPressureToResidual(PetscReal t, Vec locF) {
 // =============================================================================
 PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU, Vec locF)
 {
-    (void)t;
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
 
@@ -3184,6 +3481,19 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
         prescribed_slip[2] = fault_slip_strike_ * strike_dir[2] +
                                                  fault_slip_dip_ * dip_dir[2] +
                                                  fault_slip_opening_ * normal_dir[2];
+
+        // Time-dependent slip: ramp from 0 to full slip over [onset, onset+rise]
+        if (fault_slip_rise_time_ > 0.0) {
+            PetscReal slip_fraction = 0.0;
+            if (t >= fault_slip_onset_time_ + fault_slip_rise_time_) {
+                slip_fraction = 1.0;
+            } else if (t > fault_slip_onset_time_) {
+                slip_fraction = (t - fault_slip_onset_time_) / fault_slip_rise_time_;
+            }
+            for (int d = 0; d < 3; ++d) {
+                prescribed_slip[d] *= slip_fraction;
+            }
+        }
     }
 
     struct FaultVertex
@@ -4170,7 +4480,7 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
         }
 
         // Compute FEM residual on local vectors
-                ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
+        ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
 
         // Add injection source to the local residual (modifies pressure DOFs)
         if (sim->injection_enabled_ && sim->injection_cell_ >= 0) {
@@ -4183,6 +4493,11 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
         // Add explosion moment tensor source to displacement DOFs
         if (sim->explosion_ && sim->explosion_cell_ >= 0 && sim->use_fem_time_residual_) {
             ierr = sim->addExplosionSourceToResidual(t, locF); CHKERRQ(ierr);
+        }
+
+        // Apply traction boundary conditions via manual assembly
+        if (sim->has_traction_bc_) {
+            ierr = sim->addTractionToResidual(t, locF); CHKERRQ(ierr);
         }
 
         // Apply uniform pressurized-fracture traction on cohesive faces.
@@ -4940,111 +5255,215 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
         PetscInt comps_all[3] = {0, 1, 2};
         PetscInt label_value = 1;
 
-        // Bottom BC
-        if (label_zmin && config.bottom_bc == "fixed") {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom", label_zmin, 1, &label_value,
-                                 field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-            CHKERRQ(ierr);
-            if (rank == 0) {
-                PetscPrintf(comm, "  Applied BC: fixed bottom (z_min), field %d, all components = 0\n", field);
+        // Check whether per-face BCs are configured
+        bool use_per_face = false;
+        for (int fi = 0; fi < 6; ++fi) {
+            if (config.face_bc[fi].configured) {
+                use_per_face = true;
+                break;
             }
         }
 
-        // Top BC
-        if (label_zmax && config.top_bc == "compression") {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top", label_zmax, 1, &label_value,
-                                 field, 3, comps_all, (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
-            CHKERRQ(ierr);
-            if (rank == 0) {
-                PetscPrintf(comm, "  Applied BC: compression top (z_max), field %d, u_z = -0.001\n", field);
-            }
-        }
-        // top_bc == "free" means no Dirichlet BC on top (natural zero-traction)
+        if (use_per_face) {
+            // Per-face boundary conditions (new system)
+            DMLabel face_labels[6] = {label_xmin, label_xmax, label_ymin, label_ymax, label_zmin, label_zmax};
+            static const char *face_names[6] = {
+                "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"
+            };
+            // Normal component index for roller BCs: x faces constrain comp 0, y faces comp 1, z faces comp 2
+            PetscInt roller_comp[6] = {0, 0, 1, 1, 2, 2};
 
-        // Side BCs: roller constrains normal displacement to zero
-        if (config.side_bc == "roller") {
-            if (label_xmin) {
-                PetscInt comp = 0;
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmin", label_xmin, 1, &label_value,
-                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-                CHKERRQ(ierr);
-                if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: roller x_min, field %d, u_x = 0\n", field);
-                }
-            }
-            if (label_xmax) {
-                PetscInt comp = 0;
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmax", label_xmax, 1, &label_value,
-                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-                CHKERRQ(ierr);
-                if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: roller x_max, field %d, u_x = 0\n", field);
-                }
-            }
-            if (label_ymin) {
-                PetscInt comp = 1;
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymin", label_ymin, 1, &label_value,
-                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-                CHKERRQ(ierr);
-                if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: roller y_min, field %d, u_y = 0\n", field);
-                }
-            }
-            if (label_ymax) {
-                PetscInt comp = 1;
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymax", label_ymax, 1, &label_value,
-                                     field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-                CHKERRQ(ierr);
-                if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: roller y_max, field %d, u_y = 0\n", field);
-                }
-            }
-        }
+            for (int fi = 0; fi < 6; ++fi) {
+                if (!config.face_bc[fi].configured || !face_labels[fi]) continue;
+                const auto &fbc = config.face_bc[fi];
+                std::string bc_name = std::string("bc_") + face_names[fi];
 
-        // Side BCs: fixed constrains all displacement components to zero
-        if (config.side_bc == "fixed") {
-            if (label_xmin) {
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_xmin", label_xmin, 1, &label_value,
+                if (fbc.type == "fixed") {
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                        face_labels[fi], 1, &label_value, field, 3, comps_all,
+                        (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: fixed %s, field %d, all components = 0\n",
+                                    face_names[fi], field);
+                    }
+                } else if (fbc.type == "roller") {
+                    PetscInt comp = roller_comp[fi];
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                        face_labels[fi], 1, &label_value, field, 1, &comp,
+                        (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: roller %s, field %d, u_%d = 0\n",
+                                    face_names[fi], field, (int)comp);
+                    }
+                } else if (fbc.type == "roller_y") {
+                    // Plane-strain roller: constrain u_y = 0
+                    PetscInt comp = 1;
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                        face_labels[fi], 1, &label_value, field, 1, &comp,
+                        (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: roller_y %s, field %d, u_y = 0\n",
+                                    face_names[fi], field);
+                    }
+                } else if (fbc.type == "compression") {
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                        face_labels[fi], 1, &label_value, field, 3, comps_all,
+                        (void (*)(void))bc_compression, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: compression %s, field %d\n",
+                                    face_names[fi], field);
+                    }
+                } else if (fbc.type == "dirichlet") {
+                    // General Dirichlet: constrain specified components to specified values
+                    PetscInt ncomps = static_cast<PetscInt>(fbc.components.size());
+                    std::vector<PetscInt> pcomps(fbc.components.begin(), fbc.components.end());
+                    bool all_zero = true;
+                    for (const auto &v : fbc.values) {
+                        if (std::abs(v) > 1.0e-30) { all_zero = false; break; }
+                    }
+                    if (all_zero) {
+                        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                            face_labels[fi], 1, &label_value, field, ncomps, pcomps.data(),
+                            (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+                    } else {
+                        // Store values in static storage so callback can read them
+                        // Use face index to avoid collisions
+                        static double dirichlet_vals[6][3] = {};
+                        for (int d = 0; d < 3; ++d) {
+                            dirichlet_vals[fi][d] = (d < static_cast<int>(fbc.values.size()))
+                                                     ? fbc.values[static_cast<std::size_t>(d)] : 0.0;
+                        }
+                        ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                            face_labels[fi], 1, &label_value, field, ncomps, pcomps.data(),
+                            (void (*)(void))bc_dirichlet_values, nullptr,
+                            dirichlet_vals[fi], nullptr); CHKERRQ(ierr);
+                    }
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: dirichlet %s, field %d, %d components\n",
+                                    face_names[fi], field, (int)ncomps);
+                    }
+                } else if (fbc.type == "traction") {
+                    // Natural BC: register DM_BC_NATURAL so PETSc does not constrain DOFs.
+                    // The traction residual contribution is registered later via PetscWeakForm.
+                    ierr = DMAddBoundary(dm, DM_BC_NATURAL, bc_name.c_str(),
+                        face_labels[fi], 1, &label_value, field, 0, NULL,
+                        NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: traction %s, field %d, t=(%.2e, %.2e, %.2e)\n",
+                                    face_names[fi], field,
+                                    fbc.traction[0], fbc.traction[1], fbc.traction[2]);
+                    }
+                }
+                // "free" type: no Dirichlet constraint, natural zero-traction (do nothing)
+            }
+        } else {
+            // Legacy boundary conditions (bottom/sides/top strings)
+            // Bottom BC
+            if (label_zmin && config.bottom_bc == "fixed") {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_bottom", label_zmin, 1, &label_value,
                                      field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
                 CHKERRQ(ierr);
                 if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: fixed x_min, field %d, all components = 0\n", field);
+                    PetscPrintf(comm, "  Applied BC: fixed bottom (z_min), field %d, all components = 0\n", field);
                 }
             }
-            if (label_xmax) {
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_xmax", label_xmax, 1, &label_value,
-                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-                CHKERRQ(ierr);
-                if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: fixed x_max, field %d, all components = 0\n", field);
-                }
-            }
-            if (label_ymin) {
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_ymin", label_ymin, 1, &label_value,
-                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-                CHKERRQ(ierr);
-                if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: fixed y_min, field %d, all components = 0\n", field);
-                }
-            }
-            if (label_ymax) {
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_ymax", label_ymax, 1, &label_value,
-                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
-                CHKERRQ(ierr);
-                if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: fixed y_max, field %d, all components = 0\n", field);
-                }
-            }
-        }
 
-        // Top BC: fixed constrains all displacement components to zero
-        if (config.top_bc == "fixed") {
-            if (label_zmax) {
-                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_top", label_zmax, 1, &label_value,
-                                     field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+            // Top BC
+            if (label_zmax && config.top_bc == "compression") {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "compression_top", label_zmax, 1, &label_value,
+                                     field, 3, comps_all, (void (*)(void))bc_compression, nullptr, nullptr, nullptr);
                 CHKERRQ(ierr);
                 if (rank == 0) {
-                    PetscPrintf(comm, "  Applied BC: fixed top (z_max), field %d, all components = 0\n", field);
+                    PetscPrintf(comm, "  Applied BC: compression top (z_max), field %d, u_z = -0.001\n", field);
+                }
+            }
+            // top_bc == "free" means no Dirichlet BC on top (natural zero-traction)
+
+            // Side BCs: roller constrains normal displacement to zero
+            if (config.side_bc == "roller") {
+                if (label_xmin) {
+                    PetscInt comp = 0;
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmin", label_xmin, 1, &label_value,
+                                         field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: roller x_min, field %d, u_x = 0\n", field);
+                    }
+                }
+                if (label_xmax) {
+                    PetscInt comp = 0;
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_xmax", label_xmax, 1, &label_value,
+                                         field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: roller x_max, field %d, u_x = 0\n", field);
+                    }
+                }
+                if (label_ymin) {
+                    PetscInt comp = 1;
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymin", label_ymin, 1, &label_value,
+                                         field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: roller y_min, field %d, u_y = 0\n", field);
+                    }
+                }
+                if (label_ymax) {
+                    PetscInt comp = 1;
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "roller_ymax", label_ymax, 1, &label_value,
+                                         field, 1, &comp, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: roller y_max, field %d, u_y = 0\n", field);
+                    }
+                }
+            }
+
+            // Side BCs: fixed constrains all displacement components to zero
+            if (config.side_bc == "fixed") {
+                if (label_xmin) {
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_xmin", label_xmin, 1, &label_value,
+                                         field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: fixed x_min, field %d, all components = 0\n", field);
+                    }
+                }
+                if (label_xmax) {
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_xmax", label_xmax, 1, &label_value,
+                                         field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: fixed x_max, field %d, all components = 0\n", field);
+                    }
+                }
+                if (label_ymin) {
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_ymin", label_ymin, 1, &label_value,
+                                         field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: fixed y_min, field %d, all components = 0\n", field);
+                    }
+                }
+                if (label_ymax) {
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_ymax", label_ymax, 1, &label_value,
+                                         field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: fixed y_max, field %d, all components = 0\n", field);
+                    }
+                }
+            }
+
+            // Top BC: fixed constrains all displacement components to zero
+            if (config.top_bc == "fixed") {
+                if (label_zmax) {
+                    ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_top", label_zmax, 1, &label_value,
+                                         field, 3, comps_all, (void (*)(void))bc_zero, nullptr, nullptr, nullptr);
+                    CHKERRQ(ierr);
+                    if (rank == 0) {
+                        PetscPrintf(comm, "  Applied BC: fixed top (z_max), field %d, all components = 0\n", field);
+                    }
                 }
             }
         }

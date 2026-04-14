@@ -47,12 +47,14 @@ Six runnable examples demonstrate verified capabilities. Each has a `README.md`,
 | 04 | [Locked Fault](examples/04_locked_fault/) | Cohesive cell insertion, locked constraint | < 1s |
 | 05 | [Punggye-ri Nuclear Test](examples/05_punggye_ri_nuclear_test/) | Layered geology, explosion, seismograms | ~15s |
 | 06 | [Gmsh Multi-Material](examples/06_gmsh_multimaterial/) | Gmsh mesh import, per-region materials | < 1s |
+| 07 | [Traction BC](examples/07_traction_bc/) | Per-face Neumann traction BC, analytical verification | < 1s |
+| 08 | [Time-Dependent Slip](examples/08_time_dependent_slip/) | Prescribed fault slip with linear time ramp | < 1s |
 
 ---
 
 ## Verified Capabilities
 
-Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 99 tests total.
+Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 101 tests total.
 
 ### Integration-Tested Through TSSolve
 

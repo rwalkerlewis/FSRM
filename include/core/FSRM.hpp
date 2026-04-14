@@ -350,6 +350,18 @@ struct SimulationConfig {
     std::string side_bc = "free";                  // "free" or "roller"
     std::string top_bc = "compression";            // "free", "compression", or "traction"
 
+    // Per-face boundary conditions (overrides bottom_bc/side_bc/top_bc if set)
+    // Supported types: "fixed", "free", "roller", "compression", "traction", "dirichlet"
+    struct FaceBCConfig
+    {
+      std::string type;                      // BC type string
+      std::vector<int> components;           // Constrained component indices
+      std::vector<double> values;            // Prescribed values per component
+      double traction[3] = {0.0, 0.0, 0.0}; // Traction vector for "traction" type
+      bool configured = false;               // Whether this face was explicitly set
+    };
+    FaceBCConfig face_bc[6];                 // x_min, x_max, y_min, y_max, z_min, z_max
+
     // =========================================================================
     // Initial Conditions and Checkpointing
     // =========================================================================
@@ -630,6 +642,16 @@ struct FluidProperties {
     std::vector<double> component_Pc; // Critical pressures
     std::vector<double> component_omega; // Acentric factors
 };
+
+// Unified constants layout: traction BC slots (6 faces x 3 components)
+// These follow the elastoplasticity constants (slots 32-35)
+namespace TractionBC
+{
+  static constexpr PetscInt TRACTION_CONST_BASE = 36;  // Start of traction constants
+  // Face ordering: 0=x_min, 1=x_max, 2=y_min, 3=y_max, 4=z_min, 5=z_max
+  // Each face occupies 3 slots (x, y, z components)
+  static constexpr PetscInt TRACTION_CONST_COUNT = 54; // 36 + 6*3
+}; // namespace TractionBC
 
 } // namespace FSRM
 

@@ -116,6 +116,8 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_elastoplastic_sim.cpp
     integration/test_dynamic_rupture_solve.cpp
     integration/test_explosion_fault_reactivation.cpp
+    integration/test_traction_bc.cpp
+    integration/test_time_dependent_slip.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -276,6 +278,8 @@ if(GTest_FOUND)
     add_test(NAME Integration.DynamicRuptureSolve.LockedElastodynamic COMMAND run_integration_tests --gtest_filter=DynamicRuptureSolveTest.LockedFaultElastodynamic)
     add_test(NAME Integration.DynamicRuptureSolve.PrescribedSlip COMMAND run_integration_tests --gtest_filter=DynamicRuptureSolveTest.PrescribedSlipQuasiStatic)
     add_test(NAME Integration.ExplosionFaultReactivation COMMAND run_integration_tests --gtest_filter=ExplosionFaultReactivationTest.*)
+    add_test(NAME Integration.TractionBC COMMAND run_integration_tests --gtest_filter=TractionBCTest.*)
+    add_test(NAME Integration.TimeDependentSlip COMMAND run_integration_tests --gtest_filter=TimeDependentSlipTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -370,6 +374,8 @@ if(GTest_FOUND)
         Integration.DynamicRuptureSolve.LockedElastodynamic
         Integration.DynamicRuptureSolve.PrescribedSlip
         Integration.ExplosionFaultReactivation
+        Integration.TractionBC
+        Integration.TimeDependentSlip
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 
