@@ -83,6 +83,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_elastoplastic_strip.cpp
     physics_validation/test_locked_fault_transparency.cpp
     physics_validation/test_viscoelastic_relaxation.cpp
+    physics_validation/test_cohesive_bd_residual.cpp
 )
 
 set(INTEGRATION_TEST_SOURCES
@@ -244,6 +245,7 @@ if(GTest_FOUND)
     add_test(NAME Physics.ElastoplasticBearingCapacity COMMAND run_physics_tests --gtest_filter=ElastoplasticBearingCapacityTest.*)
     add_test(NAME Physics.LockedFaultTransparency COMMAND run_physics_tests --gtest_filter=LockedFaultTransparencyTest.*)
     add_test(NAME Physics.ViscoelasticRelaxation COMMAND run_physics_tests --gtest_filter=ViscoelasticRelaxationTest.*)
+    add_test(NAME Physics.CohesiveBdResidual COMMAND run_physics_tests --gtest_filter=CohesiveBdResidualTest.*)
 
     # --- Integration tests ---
     add_test(NAME Integration.FullSimulation  COMMAND run_integration_tests --gtest_filter=FullSimulationTest.*)
@@ -368,6 +370,7 @@ if(GTest_FOUND)
         Physics.ElastoplasticBearingCapacity
         Physics.LockedFaultTransparency
         Physics.ViscoelasticRelaxation
+        Physics.CohesiveBdResidual
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
