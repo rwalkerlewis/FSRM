@@ -331,19 +331,85 @@ void CohesiveFaultKernel::g0_lagrange_displacement(
     const PetscScalar constants[],
     PetscScalar g0[]) {
 
-    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
-    (void)u; (void)u_t; (void)u_x;
+    (void)Nf; (void)NfAux; (void)uOff_x;
+    (void)u_t; (void)u_x;
     (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
-    (void)t; (void)u_tShift; (void)x; (void)n;
-    (void)numConstants; (void)constants;
+    (void)t; (void)u_tShift; (void)x;
 
-    // For LOCKED: d(f_lambda)/d(u) = +I for positive side, -I for negative
-    // The locked constraint is f_lambda = u+ - u-
-    // d(f_lambda)/d(u+) = +I, d(f_lambda)/d(u-) = -I
-    // In the combined form for the hybrid cell:
-    for (PetscInt i = 0; i < dim; ++i) {
-        for (PetscInt j = 0; j < dim; ++j) {
-            g0[i * dim + j] = (i == j) ? 1.0 : 0.0;
+    PetscScalar mode = (numConstants > COHESIVE_CONST_MODE)
+                       ? constants[COHESIVE_CONST_MODE] : 0.0;
+
+    if (PetscRealPart(mode) < 0.5) {
+        // LOCKED: d(f_lambda)/d(u) = I
+        // The locked constraint is f_lambda = u+ - u-
+        // PETSc hybrid cell convention handles the +/- sign.
+        for (PetscInt i = 0; i < dim; ++i) {
+            for (PetscInt j = 0; j < dim; ++j) {
+                g0[i * dim + j] = (i == j) ? 1.0 : 0.0;
+            }
+        }
+    } else {
+        // SLIPPING: d(C_d)/d(u_e) where the constraint is:
+        //   C_d = lambda_t_d - tau_f * s_hat_d + max(-slip_n, 0) * n_d
+        //
+        // d(C_d)/d(u_e) = -tau_f * d(s_hat_d)/d(u_e) - H(-slip_n) * n_d * n_e
+        // where d(s_hat_d)/d(u_e) = (P_de - s_hat_d * s_hat_e) / |slip_t|
+        // and P_de = delta_de - n_d * n_e (tangential projector)
+
+        // Compute displacement jump (slip)
+        PetscScalar slip[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < dim; ++d) {
+            slip[d] = u[uOff[0] + dim + d] - u[uOff[0] + d];
+        }
+
+        // Normal component of slip
+        PetscReal slip_n = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) {
+            slip_n += PetscRealPart(slip[d]) * n[d];
+        }
+
+        // Tangential slip
+        PetscReal slip_t[3] = {0.0, 0.0, 0.0};
+        PetscReal slip_t_mag2 = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) {
+            slip_t[d] = PetscRealPart(slip[d]) - slip_n * n[d];
+            slip_t_mag2 += slip_t[d] * slip_t[d];
+        }
+        PetscReal slip_t_mag = std::sqrt(slip_t_mag2);
+
+        // Slip direction
+        PetscReal s_hat[3] = {0.0, 0.0, 0.0};
+        if (slip_t_mag > 1e-15) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                s_hat[d] = slip_t[d] / slip_t_mag;
+            }
+        }
+
+        // Friction coefficient and strength
+        PetscReal mu_f = (numConstants > COHESIVE_CONST_MU_F)
+                         ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        PetscReal lambda_n = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) {
+            lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];
+        }
+        PetscReal sigma_n_comp = std::max(0.0, -lambda_n);
+        PetscReal tau_f = mu_f * sigma_n_comp;
+
+        for (PetscInt i = 0; i < dim; ++i) {
+            for (PetscInt j = 0; j < dim; ++j) {
+                PetscReal P_ij = ((i == j) ? 1.0 : 0.0) - n[i] * n[j];
+                PetscReal dS_ij = 0.0;
+                if (slip_t_mag > 1e-15) {
+                    dS_ij = (P_ij - s_hat[i] * s_hat[j]) / slip_t_mag;
+                }
+                g0[i * dim + j] = -tau_f * dS_ij;
+
+                // Normal non-penetration: d(max(-slip_n,0)*n_d)/d(u_e)
+                // = -H(-slip_n) * n_d * n_e (derivative of max(-slip_n,0) w.r.t. slip_e)
+                if (slip_n < 0.0) {
+                    g0[i * dim + j] += -n[i] * n[j];
+                }
+            }
         }
     }
 }
@@ -362,24 +428,85 @@ void CohesiveFaultKernel::g0_lagrange_lagrange(
     const PetscScalar constants[],
     PetscScalar g0[]) {
 
-    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
-    (void)u; (void)u_t; (void)u_x;
+    (void)Nf; (void)NfAux; (void)uOff_x;
+    (void)u_t; (void)u_x;
     (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
-    (void)t; (void)u_tShift; (void)x; (void)n;
+    (void)t; (void)u_tShift; (void)x;
 
     PetscScalar mode = (numConstants > COHESIVE_CONST_MODE)
                        ? constants[COHESIVE_CONST_MODE] : 0.0;
 
-    // For LOCKED: d(f_lambda)/d(lambda) = 0 (constraint doesn't depend on lambda)
-    // For SLIPPING: d(f_lambda)/d(lambda) = d(tau)/d(lambda) (traction direction)
-    for (PetscInt i = 0; i < dim; ++i) {
-        for (PetscInt j = 0; j < dim; ++j) {
-            if (PetscRealPart(mode) < 0.5) {
+    if (PetscRealPart(mode) < 0.5) {
+        // LOCKED: d(f_lambda)/d(lambda) = 0
+        // The constraint (u+ - u-) does not depend on lambda.
+        for (PetscInt i = 0; i < dim; ++i) {
+            for (PetscInt j = 0; j < dim; ++j) {
                 g0[i * dim + j] = 0.0;
-            } else {
-                // For slipping mode, the Jacobian depends on the friction
-                // law and current state. Use identity as a preconditioner.
-                g0[i * dim + j] = (i == j) ? 1.0 : 0.0;
+            }
+        }
+    } else {
+        // SLIPPING: d(C_d)/d(lambda_e)
+        // The constraint is:
+        //   C_d = lambda_t_d - tau_f * s_hat_d + max(-slip_n, 0) * n_d
+        //
+        // d(C_d)/d(lambda_e):
+        //   d(lambda_t_d)/d(lambda_e) = P_de = delta_de - n_d * n_e
+        //   d(-tau_f * s_hat_d)/d(lambda_e) = -mu_f * sign(-lambda_n) * s_hat_d * (-n_e)
+        //     since tau_f = mu_f * |compressive sigma_n| = mu_f * max(0, -lambda_n)
+        //     d(tau_f)/d(lambda_e) = mu_f * sign(-lambda_n) * (-n_e)
+        //                          = -mu_f * H(-lambda_n) * n_e  (where H is Heaviside, lambda_n = lam . n)
+        //   d(max(-slip_n,0)*n_d)/d(lambda_e) = 0 (slip does not depend on lambda)
+        //
+        // So: d(C_d)/d(lambda_e) = P_de + mu_f * H(sigma_n_comp > 0) * s_hat_d * n_e
+
+        // Compute slip for the slip direction
+        PetscScalar slip[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < dim; ++d) {
+            slip[d] = u[uOff[0] + dim + d] - u[uOff[0] + d];
+        }
+
+        // Normal component of slip
+        PetscReal slip_n_val = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) {
+            slip_n_val += PetscRealPart(slip[d]) * n[d];
+        }
+
+        // Tangential slip and direction
+        PetscReal slip_t[3] = {0.0, 0.0, 0.0};
+        PetscReal slip_t_mag2 = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) {
+            slip_t[d] = PetscRealPart(slip[d]) - slip_n_val * n[d];
+            slip_t_mag2 += slip_t[d] * slip_t[d];
+        }
+        PetscReal slip_t_mag = std::sqrt(slip_t_mag2);
+
+        PetscReal s_hat[3] = {0.0, 0.0, 0.0};
+        if (slip_t_mag > 1e-15) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                s_hat[d] = slip_t[d] / slip_t_mag;
+            }
+        }
+
+        // Normal traction and friction
+        PetscReal mu_f = (numConstants > COHESIVE_CONST_MU_F)
+                         ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        PetscReal lambda_n = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) {
+            lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];
+        }
+        PetscReal sigma_n_comp = std::max(0.0, -lambda_n);
+
+        for (PetscInt i = 0; i < dim; ++i) {
+            for (PetscInt j = 0; j < dim; ++j) {
+                // Tangential projector: d(lambda_t_d)/d(lambda_e)
+                PetscReal P_ij = ((i == j) ? 1.0 : 0.0) - n[i] * n[j];
+                g0[i * dim + j] = P_ij;
+
+                // Friction strength derivative: d(-tau_f * s_hat_d)/d(lambda_e)
+                // = mu_f * s_hat_d * n_e (when under compression and slipping)
+                if (sigma_n_comp > 0.0 && slip_t_mag > 1e-15) {
+                    g0[i * dim + j] += mu_f * s_hat[i] * n[j];
+                }
             }
         }
     }
