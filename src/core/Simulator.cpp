@@ -2544,17 +2544,23 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
         ierr = DMSetField(auxDM_, f, NULL, (PetscObject)fe_aux); CHKERRQ(ierr);
         ierr = PetscFEDestroy(&fe_aux); CHKERRQ(ierr);
     }
-    // Add memory variable fields for viscoelastic attenuation
+    // Add memory variable fields for viscoelastic attenuation.
+    // Each mechanism has 6 Voigt components (xx, yy, zz, yz, xz, xy).
+    // Store as N*6 separate scalar fields to match the existing scalar aux
+    // field pattern (degree-0 Lagrange). This avoids tabulation issues with
+    // multi-component aux fields in PETSc's DMPlex FEM.
+    // Field layout: [3..3+6*N-1] = R_0_xx, R_0_yy, ..., R_0_xy, R_1_xx, ...
     if (config.enable_viscoelastic) {
         for (int m = 0; m < config.visco_num_mechanisms; ++m) {
-            PetscFE fe_memory;
-            // 6 components for symmetric stress tensor in Voigt notation
-            ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, 6, isSimplex, 0, PETSC_DETERMINE, &fe_memory); CHKERRQ(ierr);
-            if (quad) {
-                ierr = PetscFESetQuadrature(fe_memory, quad); CHKERRQ(ierr);
+            for (int v = 0; v < 6; ++v) {
+                PetscFE fe_memory;
+                ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, 1, isSimplex, 0, PETSC_DETERMINE, &fe_memory); CHKERRQ(ierr);
+                if (quad) {
+                    ierr = PetscFESetQuadrature(fe_memory, quad); CHKERRQ(ierr);
+                }
+                ierr = DMSetField(auxDM_, NUM_AUX_FIELDS + m * 6 + v, NULL, (PetscObject)fe_memory); CHKERRQ(ierr);
+                ierr = PetscFEDestroy(&fe_memory); CHKERRQ(ierr);
             }
-            ierr = DMSetField(auxDM_, NUM_AUX_FIELDS + m, NULL, (PetscObject)fe_memory); CHKERRQ(ierr);
-            ierr = PetscFEDestroy(&fe_memory); CHKERRQ(ierr);
         }
     }
 
@@ -2948,15 +2954,15 @@ PetscErrorCode Simulator::ViscoelasticPostStep(TS ts)
 
     for (PetscInt c = cStart; c < cEnd; ++c) {
         for (int m = 0; m < N; ++m) {
-            PetscInt mem_field = PetscFEViscoelastic::VISCO_AUX_MEMORY_BASE + m;
-            PetscInt dof = 0, off = 0;
-            ierr = PetscSectionGetFieldDof(aux_section, c, mem_field, &dof); CHKERRQ(ierr);
-            if (dof <= 0) continue;
-            ierr = PetscSectionGetFieldOffset(aux_section, c, mem_field, &off); CHKERRQ(ierr);
-
             double exp_factor = std::exp(-dt / tau_arr[m]);
-            for (PetscInt d = 0; d < dof; ++d) {
-                aux_array[off + d] *= static_cast<PetscScalar>(exp_factor);
+            // Each mechanism has 6 scalar aux fields (Voigt components)
+            for (int v = 0; v < 6; ++v) {
+                PetscInt mem_field = PetscFEViscoelastic::VISCO_AUX_MEMORY_BASE + m * 6 + v;
+                PetscInt dof = 0, off = 0;
+                ierr = PetscSectionGetFieldDof(aux_section, c, mem_field, &dof); CHKERRQ(ierr);
+                if (dof <= 0) continue;
+                ierr = PetscSectionGetFieldOffset(aux_section, c, mem_field, &off); CHKERRQ(ierr);
+                aux_array[off] *= static_cast<PetscScalar>(exp_factor);
             }
         }
     }

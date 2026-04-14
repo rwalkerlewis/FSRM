@@ -17,14 +17,14 @@
  * The memory variables R_i are stored as auxiliary fields (6 components each,
  * symmetric tensor in Voigt notation: xx, yy, zz, yz, xz, xy).
  *
- * Auxiliary field layout:
+ * Auxiliary field layout (all scalar degree-0 Lagrange):
  *   aOff[0] = lambda (relaxed first Lame parameter)
  *   aOff[1] = mu (relaxed shear modulus)
  *   aOff[2] = rho (density)
- *   aOff[3] = R_0 (6 components)
- *   aOff[4] = R_1 (6 components)
+ *   aOff[3]  = R_0_xx,  aOff[4]  = R_0_yy,  ...  aOff[8]  = R_0_xy
+ *   aOff[9]  = R_1_xx,  aOff[10] = R_1_yy,  ...  aOff[14] = R_1_xy
  *   ...
- *   aOff[2+N] = R_{N-1} (6 components)
+ *   aOff[3 + m*6 + v] = R_m component v (Voigt: 0=xx,1=yy,2=zz,3=yz,4=xz,5=xy)
  *
  * Constants layout (starting at VISCO_CONST_BASE = 54):
  *   [54] = num_mechanisms N

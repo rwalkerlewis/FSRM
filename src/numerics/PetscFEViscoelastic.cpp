@@ -193,11 +193,14 @@ void f1_viscoelastic_aux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     if (N_mech > VISCO_MAX_MECHANISMS) N_mech = VISCO_MAX_MECHANISMS;
 
     if (N_mech > 0 && NfAux > VISCO_AUX_MEMORY_BASE) {
-        // Memory variables are stored in aux fields 3..2+N as 6-component Voigt tensors:
-        // [R_xx, R_yy, R_zz, R_yz, R_xz, R_xy]
-        // Map from Voigt to (i,j): 0=xx, 1=yy, 2=zz, 3=yz, 4=xz, 5=xy
-        for (PetscInt m = 0; m < N_mech && (VISCO_AUX_MEMORY_BASE + m) < NfAux; ++m) {
-            const PetscScalar *R = &a[aOff[VISCO_AUX_MEMORY_BASE + m]];
+        // Memory variables are stored as N*6 separate scalar aux fields:
+        //   aOff[3 + m*6 + v] where m=mechanism, v=Voigt index
+        // Voigt: 0=xx, 1=yy, 2=zz, 3=yz, 4=xz, 5=xy
+        for (PetscInt m = 0; m < N_mech; ++m) {
+            PetscInt base = VISCO_AUX_MEMORY_BASE + m * 6;
+            if (base + 5 >= NfAux) break;  // bounds check
+            PetscScalar R[6];
+            for (int v = 0; v < 6; ++v) R[v] = a[aOff[base + v]];
             if (dim == 3) {
                 f1[0*3+0] += R[0]; // xx
                 f1[1*3+1] += R[1]; // yy
