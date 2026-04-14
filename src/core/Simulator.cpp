@@ -4007,10 +4007,12 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
             }
 
-            // Augmented Lagrangian penalty: full penalty for all modes.
-            // The semi-smooth Newton Jacobian now provides accurate coupling
-            // for the slipping mode, so full penalty is appropriate.
-            const PetscReal effective_penalty = penalty_stiffness;
+            // Augmented Lagrangian penalty: moderate penalty for slipping mode
+            // (too large causes Newton overshoot), full penalty for locked/prescribed.
+            const PetscReal effective_penalty =
+                (mode == CohesiveAssemblyMode::Slipping)
+                ? 0.1 * penalty_stiffness
+                : penalty_stiffness;
 
             for (PetscInt d = 0; d < dim; ++d)
             {
@@ -4046,9 +4048,9 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
 
-    // With the semi-smooth Newton Jacobian, full penalty is used for all modes.
+    // Moderate penalty for slipping mode (semi-smooth Newton), full for locked.
     const bool is_slipping = (fault_mode_ == "slipping");
-    const PetscReal penalty_scale = 1.0;
+    const PetscReal penalty_scale = is_slipping ? 0.1 : 1.0;
 
     PetscErrorCode ierr;
     PetscSection gsection = nullptr;
@@ -4311,9 +4313,9 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                     for (PetscInt d = 0; d < dim; ++d) s_hat[d] = slip_t[d] / slip_t_mag;
                 }
 
-                // Augmented Lagrangian penalty: larger penalty provides stronger
-                // coupling and better conditioning for the semi-smooth Newton method.
-                const PetscReal eff_penalty = 1.0 * 10.0 * youngs_modulus / h_char_jac;
+                // Augmented Lagrangian penalty: moderate penalty for the semi-smooth
+                // Newton method. Too large causes overshoot, too small gives slow convergence.
+                const PetscReal eff_penalty = 0.1 * 10.0 * youngs_modulus / h_char_jac;
 
                 // ---------------------------------------------------------
                 // Assemble Jacobian blocks for all (d, e) pairs
