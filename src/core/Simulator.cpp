@@ -1697,6 +1697,51 @@ static PetscErrorCode bc_pressure_dirichlet(PetscInt dim, PetscReal time, const 
     return PETSC_SUCCESS;
 }
 
+// Zero volume residual callback for the Lagrange multiplier field.
+// Returns f[d] = 0 for all components. This is used instead of the
+// identity regularization (f = lambda) when BdResidual callbacks handle
+// the actual constraint on cohesive cells. The zero callback ensures
+// PETSc allocates the correct sparsity pattern without contributing any
+// residual that would compete with the BdResidual constraint.
+static void f0_lagrange_zero(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar f[])
+{
+    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
+    (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x; (void)numConstants; (void)constants;
+    for (PetscInt d = 0; d < dim; ++d) f[d] = 0.0;
+}
+
+// Zero volume Jacobian callback for the Lagrange multiplier field.
+// Returns g0 = 0 (zero matrix). Used with f0_lagrange_zero to provide
+// a non-null volume callback without affecting the saddle-point structure.
+static void g0_lagrange_zero(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift, const PetscReal x[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar g0[])
+{
+    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
+    (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
+    for (PetscInt i = 0; i < dim * dim; ++i) g0[i] = 0.0;
+}
+
 // Traction BC boundary residual callback (f0)
 // Reads traction vector from constants array using the face normal to determine face index.
 // Face ordering: 0=x_min, 1=x_max, 2=y_min, 3=y_max, 4=z_min, 5=z_max
@@ -2295,33 +2340,115 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Cohesive constraint assembly is performed manually in FormFunction
-        // via addCohesiveConstraintToResidual(). PetscDSSetBdResidual on
-        // cohesive cells crashes in PETSc 3.22 due to totDim mismatch
-        // between hybrid prism cells and bulk tet cells.
+        // PETSc 3.25 fixes DMPlexComputeBdResidual_Single_Internal for hybrid
+        // prism / tet cells. Register CohesiveFaultKernel callbacks via
+        // PetscDSSetBdResidual so the FEM machinery handles all cohesive
+        // integration (residual and Jacobian) automatically.
         //
-        // For all fault modes (locked, slipping, prescribed slip, hydrofrac),
-        // we add a volume identity residual for the Lagrange field to keep
-        // the PetscDS system non-singular. The actual constraint is assembled
-        // manually in FormFunction.
+        // Volume regularization for the Lagrange field is kept to prevent
+        // NaN from DMPlexTSComputeIFunctionFEM when a field has no volume
+        // callback. The regularization (f = lambda) is overridden on the
+        // cohesive surface by the BdResidual callback.
         if (hydrofrac_fem_pressurized_mode_) {
+            // Hydrofrac mode: volume regularization (f = lambda) for DOFs
+            // away from the pressurized surface.
             ierr = PetscDSSetResidual(prob, lagrange_field,
                 PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
             ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
                 PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
                 nullptr, nullptr); CHKERRQ(ierr);
         } else {
-            // For non-hydrofrac fault modes, register the Lagrange
-            // regularization callback (f = lambda) as a volume residual.
-            // This is required because DMPlexTSComputeIFunctionFEM produces
-            // NaN when a field in the DS has no registered volume callback.
-            // The true cohesive interface residual is assembled manually in
-            // addCohesiveConstraintToResidual() on the hybrid-cell vertex pairs.
+            // Non-hydrofrac fault modes: volume regularization for Lagrange.
+            // f = lambda (drives lambda -> 0 away from constraint).
+            // g = I (identity Jacobian for sparsity pattern).
+            // The BdResidual adds the constraint additively:
+            //   total: f_lambda = lambda + (u+-u-) [locked]
+            //          f_lambda = lambda + (u+-u-) - delta [prescribed]
+            //   total: g_lambda_lambda = I (from volume)
+            // The FD coloring Jacobian captures the correct derivatives
+            // from the total residual.
             ierr = PetscDSSetResidual(prob, lagrange_field,
                 PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
             ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
                 PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
                 nullptr, nullptr); CHKERRQ(ierr);
+
+            // NOTE: Do NOT register coupling Jacobian blocks (disp,lagrange)
+            // or (lagrange,disp) as volume callbacks. These coupling
+            // blocks only exist on cohesive cells and registering them
+            // as volume callbacks integrates them on ALL cells, including
+            // non-cohesive ones where the coupling is meaningless.
+            // The FD coloring Jacobian will discover these entries
+            // automatically from the residual perturbation.
+        }
+
+        // Register BdResidual / BdJacobian on the BOUNDARY's weak forms.
+        // Each DMAddBoundary creates a boundary with its OWN PetscWeakForm.
+        // DMPlexComputeBdResidual_Internal looks up callbacks from these
+        // per-boundary weak forms (NOT from the DS's weak form). So we
+        // must find the boundary objects for fault_traction and
+        // fault_constraint and register our callbacks on THEIR weak forms.
+        if (!hydrofrac_fem_pressurized_mode_) {
+            // Set constants via registerWithDS (mode, mu_f, prescribed slip, etc.)
+            if (fault_mode_ == "prescribed_slip") {
+                ierr = cohesive_kernel_->registerPrescribedSlipWithDS(
+                    prob, disp_field, lagrange_field); CHKERRQ(ierr);
+            } else {
+                ierr = cohesive_kernel_->registerWithDS(
+                    prob, disp_field, lagrange_field); CHKERRQ(ierr);
+            }
+
+            // Find and register on boundary weak forms.
+            // Each boundary has its own PetscWeakForm. The lookup uses
+            // (label, value, field, part) from the boundary object itself.
+            PetscInt numBd = 0;
+            ierr = PetscDSGetNumBoundary(prob, &numBd); CHKERRQ(ierr);
+            for (PetscInt bd = 0; bd < numBd; ++bd) {
+                PetscWeakForm bwf = nullptr;
+                DMBoundaryConditionType btype;
+                const char *bname = nullptr;
+                DMLabel blabel = nullptr;
+                PetscInt bnumValues = 0;
+                const PetscInt *bvalues = nullptr;
+                PetscInt bfield = -1;
+                ierr = PetscDSGetBoundary(prob, bd, &bwf, &btype, &bname, &blabel,
+                    &bnumValues, &bvalues, &bfield, nullptr, nullptr, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+
+                if (btype & DM_BC_ESSENTIAL) continue;
+                if (!bwf || !blabel || bnumValues < 1) continue;
+                PetscInt bval = bvalues[0];
+
+                // Check if this is the fault_traction boundary (displacement field)
+                if (bfield == disp_field && bname && std::string(bname) == "fault_traction") {
+                    ierr = PetscWeakFormSetIndexBdResidual(bwf, blabel, bval,
+                        disp_field, 0, 0, CohesiveFaultKernel::f0_displacement_cohesive, 0, nullptr); CHKERRQ(ierr);
+                    // BdJacobian: d(f_u)/d(lambda)
+                    ierr = PetscWeakFormSetIndexBdJacobian(bwf, blabel, bval,
+                        disp_field, lagrange_field, 0,
+                        0, CohesiveFaultKernel::g0_displacement_lagrange,
+                        0, nullptr, 0, nullptr, 0, nullptr); CHKERRQ(ierr);
+                }
+
+                // Check if this is the fault_constraint boundary (lagrange field)
+                if (bfield == lagrange_field && bname && std::string(bname) == "fault_constraint") {
+                    if (fault_mode_ == "prescribed_slip") {
+                        ierr = PetscWeakFormSetIndexBdResidual(bwf, blabel, bval,
+                            lagrange_field, 0, 0, CohesiveFaultKernel::f0_prescribed_slip, 0, nullptr); CHKERRQ(ierr);
+                    } else {
+                        ierr = PetscWeakFormSetIndexBdResidual(bwf, blabel, bval,
+                            lagrange_field, 0, 0, CohesiveFaultKernel::f0_lagrange_constraint, 0, nullptr); CHKERRQ(ierr);
+                    }
+                    // BdJacobian: d(f_lambda)/d(u) and d(f_lambda)/d(lambda)
+                    ierr = PetscWeakFormSetIndexBdJacobian(bwf, blabel, bval,
+                        lagrange_field, disp_field, 0,
+                        0, CohesiveFaultKernel::g0_lagrange_displacement,
+                        0, nullptr, 0, nullptr, 0, nullptr); CHKERRQ(ierr);
+                    ierr = PetscWeakFormSetIndexBdJacobian(bwf, blabel, bval,
+                        lagrange_field, lagrange_field, 0,
+                        0, CohesiveFaultKernel::g0_lagrange_lagrange,
+                        0, nullptr, 0, nullptr, 0, nullptr); CHKERRQ(ierr);
+                }
+            }
         }
 
         if (rank == 0) {
@@ -2331,8 +2458,8 @@ PetscErrorCode Simulator::setupPhysics() {
                             disp_field, lagrange_field);
             } else {
                 PetscPrintf(comm,
-                            "Registered manual cohesive assembly on fields %d (disp), %d (lagrange)\n",
-                            disp_field, lagrange_field);
+                            "Registered PetscDS cohesive callbacks on fields %d (disp), %d (lagrange), mode=%s\n",
+                            disp_field, lagrange_field, fault_mode_.c_str());
             }
         }
     }
@@ -2397,9 +2524,6 @@ PetscErrorCode Simulator::setupPhysics() {
         ierr = PetscDSCopy(prob, 0, nfields, dm, absorbing_ds); CHKERRQ(ierr);
 
         if (hydrofrac_fem_pressurized_mode_) {
-            // Hydrofrac mode: BdResidual still called on fault_ds because
-            // addFaultPressureToResidual handles the real pressure contribution.
-            // The BdResidual here is for the Lagrange multiplier coupling.
             ierr = PetscDSSetBdResidual(fault_ds, cohesive_disp_field,
                                         CohesiveFaultKernel::f0_displacement_cohesive,
                                         nullptr); CHKERRQ(ierr);
@@ -2416,11 +2540,15 @@ PetscErrorCode Simulator::setupPhysics() {
                                         CohesiveFaultKernel::g0_lagrange_lagrange, nullptr,
                                         nullptr, nullptr); CHKERRQ(ierr);
         } else {
-            // Non-hydrofrac fault modes: cohesive constraint assembly is
-            // performed manually in FormFunction via addCohesiveConstraintToResidual().
-            // Do NOT call PetscDSSetBdResidual on the fault DS because it crashes
-            // in PETSc 3.22 on cohesive cells. The fault_ds is still needed for
-            // the region split but has no BdResidual callbacks.
+            // PETSc 3.25 fixes hybrid cell BdResidual integration.
+            // Register CohesiveFaultKernel callbacks on the fault region DS.
+            if (fault_mode_ == "prescribed_slip") {
+                ierr = cohesive_kernel_->registerPrescribedSlipWithDS(
+                    fault_ds, cohesive_disp_field, cohesive_lagrange_field); CHKERRQ(ierr);
+            } else {
+                ierr = cohesive_kernel_->registerWithDS(
+                    fault_ds, cohesive_disp_field, cohesive_lagrange_field); CHKERRQ(ierr);
+            }
         }
 
         ierr = PetscDSSetBdResidual(absorbing_ds, absorbing_disp_field,
@@ -3593,15 +3721,19 @@ PetscErrorCode Simulator::addFaultPressureToResidual(PetscReal t, Vec locF) {
 }
 
 // =============================================================================
-// addCohesiveConstraintToResidual
+// addCohesiveConstraintToResidual / addCohesivePenaltyToJacobian
 //
-// Manual cohesive interface assembly that bypasses PetscDSSetBdResidual,
-// which crashes in PETSc 3.22 on cohesive cells due to the hybrid prism / tet
-// support mismatch. The live section layout on the split mesh places both the
-// displacement and lagrange DOFs on the duplicated fault vertices, so the
-// assembly is performed on paired negative/positive face vertices of each
-// cohesive prism cell.
+// DEAD CODE: preserved for reference. These manual assembly functions were the
+// workaround for PETSc 3.22 where DMPlexComputeBdResidual_Single_Internal
+// crashed on hybrid prism / tet cells. PETSc 3.25 fixes this, so all fault
+// mechanics now use PetscDSSetBdResidual / PetscDSSetBdJacobian callbacks
+// registered in setupPhysics(). The callbacks live in CohesiveFaultKernel.cpp.
+//
+// To re-enable manual assembly (e.g., for debugging), change #if 0 to #if 1,
+// re-enable the calls in FormFunction and FormJacobian, and remove the
+// BdResidual registration in setupPhysics().
 // =============================================================================
+#if 0
 PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU, Vec locF)
 {
     PetscFunctionBeginUser;
@@ -4376,6 +4508,7 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
     ierr = MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
     PetscFunctionReturn(PETSC_SUCCESS);
 }
+#endif // Manual cohesive assembly (dead code, preserved for reference)
 
 PetscErrorCode Simulator::locateExplosionCell() {
     PetscFunctionBeginUser;
@@ -4887,12 +5020,11 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
             ierr = sim->addFaultPressureToResidual(t, locF); CHKERRQ(ierr);
         }
 
-        // Apply cohesive constraint (locked/slipping) via manual assembly.
-        // This bypasses PetscDSSetBdResidual which crashes on cohesive cells
-        // in PETSc 3.22 due to totDim mismatch between prism and tet cells.
-        if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
-            ierr = sim->addCohesiveConstraintToResidual(t, locU, locF); CHKERRQ(ierr);
-        }
+        // Cohesive fault residual is now assembled by DMPlexTSComputeIFunctionFEM
+        // through PetscDSSetBdResidual callbacks registered in setupPhysics().
+        // PETSc 3.25 fixes DMPlexComputeBdResidual_Single_Internal for hybrid
+        // prism / tet cells, so manual assembly is no longer needed.
+        // (Manual assembly preserved in #if 0 block below for reference.)
 
         // Scatter local residual back to global (ADD_VALUES to accumulate)
         ierr = DMLocalToGlobal(dm, locF, ADD_VALUES, F); CHKERRQ(ierr);
@@ -4939,19 +5071,10 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
         ierr = DMPlexTSComputeIJacobianFEM(dm, t, locU, locU_t, a, J, P, ctx);
         CHKERRQ(ierr);
 
-        // The cohesive interface currently relies on finite-difference
-        // coloring for the hybrid-cell coupling terms. Keep the placeholder
-        // hook so the explicit interface Jacobian can be added later without
-        // changing the call pattern here.
-        if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
-            ierr = MatSetOption(P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-            ierr = sim->addCohesivePenaltyToJacobian(P, locU);
-            CHKERRQ(ierr);
-            if (J != P) {
-                ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-                ierr = sim->addCohesivePenaltyToJacobian(J, locU); CHKERRQ(ierr);
-            }
-        }
+        // NOTE: PETSc 3.25's DMPlexComputeJacobianByKey has BdJacobian
+        // evaluation commented out (line 4812 of plexfem.c). The Jacobian
+        // for fault coupling blocks is computed via -snes_fd_color,
+        // set in setupSolvers() for fault-enabled simulations.
 
         if (U_t) {
             ierr = DMRestoreLocalVector(dm, &locU_t); CHKERRQ(ierr);
