@@ -475,6 +475,7 @@ struct SimulationConfig {
     
     // THM coupling
     std::string thm_coupling_type = "iterative"; ///< sequential, iterative, monolithic
+    double reference_temperature = 293.0;         ///< T_ref [K] (20 C)
     double thermal_expansion_solid = 1e-5;       ///< α_T [1/K]
     double thermal_expansion_fluid = 2.1e-4;     ///< β_T [1/K]
     double thermal_pressurization_coeff = 0.1e6; ///< Λ [Pa/K]

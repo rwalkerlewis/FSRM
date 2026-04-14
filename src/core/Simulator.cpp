@@ -7,6 +7,7 @@
 #include "numerics/PetscFEViscoelastic.hpp"
 #include "numerics/PetscFEPoroelasticity.hpp"
 #include "numerics/PetscFEHydrofrac.hpp"
+#include "numerics/PetscFEThermal.hpp"
 #include "numerics/AbsorbingBC.hpp"
 #include "io/Visualization.hpp"
 #include "core/ConfigReader.hpp"
@@ -800,6 +801,33 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 (int)config.absorbing_bc_x_min, (int)config.absorbing_bc_x_max,
                 (int)config.absorbing_bc_y_min, (int)config.absorbing_bc_y_max,
                 (int)config.absorbing_bc_z_min, (int)config.absorbing_bc_z_max);
+        }
+    }
+
+    // Parse thermal configuration (optional)
+    if (reader.hasSection("THERMAL")) {
+        config.enable_thermal = true;
+        // Override thermal properties from [THERMAL] section if specified
+        if (reader.hasKey("THERMAL", "thermal_conductivity") && !material_props.empty()) {
+            material_props[0].thermal_conductivity =
+                reader.getDouble("THERMAL", "thermal_conductivity",
+                                 material_props[0].thermal_conductivity);
+        }
+        if (reader.hasKey("THERMAL", "specific_heat") && !material_props.empty()) {
+            material_props[0].heat_capacity =
+                reader.getDouble("THERMAL", "specific_heat",
+                                 material_props[0].heat_capacity);
+        }
+        if (reader.hasKey("THERMAL", "thermal_expansion") && !material_props.empty()) {
+            material_props[0].thermal_expansion =
+                reader.getDouble("THERMAL", "thermal_expansion",
+                                 material_props[0].thermal_expansion);
+        }
+        config.reference_temperature =
+            reader.getDouble("THERMAL", "reference_temperature", 293.0);
+        if (rank == 0) {
+            PetscPrintf(comm, "Thermal coupling enabled: T_ref = %.1f K\n",
+                        config.reference_temperature);
         }
     }
 
@@ -2308,6 +2336,87 @@ PetscErrorCode Simulator::setupPhysics() {
         }
 
         use_fem_time_residual_ = true;
+    }
+
+    // Register thermal PetscDS callbacks if enabled
+    if (config.enable_thermal) {
+        // Compute thermal field index: it is the last field added to the DM.
+        // Field ordering: [fluid fields] [displacement] [lagrange] [temperature]
+        PetscInt thermal_field_idx = 0;
+        if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+            thermal_field_idx += 1;
+        } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+            thermal_field_idx += 3;
+        } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+            thermal_field_idx += 4;
+        }
+        if (config.enable_geomechanics || config.enable_elastodynamics) {
+            thermal_field_idx += 1; // displacement field
+        }
+        if (config.enable_faults && cohesive_kernel_) {
+            thermal_field_idx += 1; // lagrange field
+        }
+
+        // Store thermal field index and material properties in constants
+        const MaterialProperties& mat = material_props.empty() ? MaterialProperties() : material_props[0];
+        unified_constants[PetscFEThermal::THERMAL_CONST_KAPPA] = mat.thermal_conductivity;
+        unified_constants[PetscFEThermal::THERMAL_CONST_CP] = mat.heat_capacity;
+        unified_constants[PetscFEThermal::THERMAL_CONST_ALPHA_T] = mat.thermal_expansion;
+        unified_constants[PetscFEThermal::THERMAL_CONST_T_REF] = config.reference_temperature;
+        unified_constants[PetscFEThermal::THERMAL_CONST_FIELD_IDX] = static_cast<PetscScalar>(thermal_field_idx);
+
+        // Register thermal diffusion callbacks
+        ierr = PetscDSSetResidual(prob, thermal_field_idx,
+                                  PetscFEThermal::f0_thermal,
+                                  PetscFEThermal::f1_thermal); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, thermal_field_idx, thermal_field_idx,
+                                  PetscFEThermal::g0_thermal_thermal, nullptr, nullptr,
+                                  PetscFEThermal::g3_thermal_thermal); CHKERRQ(ierr);
+
+        // If geomechanics/elastodynamics is also enabled, override the elastic
+        // stress callback with the thermoelastic version that subtracts thermal strain.
+        // The elastic Jacobian (g3) is unchanged since thermal strain is independent
+        // of displacement gradient.
+        if (config.enable_geomechanics || config.enable_elastodynamics) {
+            PetscInt disp_idx = 0;
+            if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) disp_idx = 1;
+            else if (config.fluid_model == FluidModelType::BLACK_OIL) disp_idx = 3;
+            else if (config.fluid_model == FluidModelType::COMPOSITIONAL) disp_idx = 4;
+
+            if (use_aux_callbacks) {
+                // Override f1 with thermoelastic aux version
+                // f0 remains the same (elastostatics/elastodynamics)
+                // g3 remains the same (elastic tangent does not change)
+                if (config.enable_elastodynamics) {
+                    ierr = PetscDSSetResidual(prob, disp_idx,
+                                              PetscFEElasticityAux::f0_elastodynamics_aux,
+                                              PetscFEThermal::f1_thermoelastic_aux); CHKERRQ(ierr);
+                } else {
+                    ierr = PetscDSSetResidual(prob, disp_idx,
+                                              PetscFEElasticityAux::f0_elastostatics_aux,
+                                              PetscFEThermal::f1_thermoelastic_aux); CHKERRQ(ierr);
+                }
+            } else {
+                if (config.enable_elastodynamics) {
+                    ierr = PetscDSSetResidual(prob, disp_idx,
+                                              PetscFEElasticity::f0_elastodynamics,
+                                              PetscFEThermal::f1_thermoelastic); CHKERRQ(ierr);
+                } else {
+                    ierr = PetscDSSetResidual(prob, disp_idx,
+                                              PetscFEElasticity::f0_elastostatics,
+                                              PetscFEThermal::f1_thermoelastic); CHKERRQ(ierr);
+                }
+            }
+        }
+
+        use_fem_time_residual_ = true;
+        if (rank == 0) {
+            PetscPrintf(comm, "Registered thermal PetscDS callbacks: field %d, "
+                        "kappa=%.2f, Cp=%.1f, alpha_T=%.2e, T_ref=%.1f\n",
+                        (int)thermal_field_idx,
+                        mat.thermal_conductivity, mat.heat_capacity,
+                        mat.thermal_expansion, config.reference_temperature);
+        }
     }
 
     // Determine field indices used by cohesive and absorbing boundary callbacks.
