@@ -31,6 +31,27 @@ void f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                     const PetscReal x[], PetscInt numConstants,
                     const PetscScalar constants[], PetscScalar f1[]);
 
+// Single-phase Jacobian: g0 = phi*ct*shift, g3 = (k/mu)*I (diagonal)
+void g0_SinglePhasePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                            const PetscInt uOff[], const PetscInt uOff_x[],
+                            const PetscScalar u[], const PetscScalar u_t[],
+                            const PetscScalar u_x[], const PetscInt aOff[],
+                            const PetscInt aOff_x[], const PetscScalar a[],
+                            const PetscScalar a_x[], const PetscScalar a_t[],
+                            PetscReal t, PetscReal u_tShift,
+                            const PetscReal x[], PetscInt numConstants,
+                            const PetscScalar constants[], PetscScalar g0[]);
+
+void g3_SinglePhasePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                            const PetscInt uOff[], const PetscInt uOff_x[],
+                            const PetscScalar u[], const PetscScalar u_t[],
+                            const PetscScalar u_x[], const PetscInt aOff[],
+                            const PetscInt aOff_x[], const PetscScalar a[],
+                            const PetscScalar a_x[], const PetscScalar a_t[],
+                            PetscReal t, PetscReal u_tShift,
+                            const PetscReal x[], PetscInt numConstants,
+                            const PetscScalar constants[], PetscScalar g3[]);
+
 // Multiphase (black-oil) pressure:
 //   phi * ct_eff(Sw,Sg) * dP/dt - div( K * lambda_t(Sw,Sg) * grad(P) ) = 0
 void f0_BlackOilPressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,

@@ -121,6 +121,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_nearfield_coupled.cpp
     integration/test_slipping_fault_solve.cpp
     integration/test_historic_nuclear.cpp
+    integration/test_single_phase_flow.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -285,6 +286,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.TimeDependentSlip COMMAND run_integration_tests --gtest_filter=TimeDependentSlipTest.*)
     add_test(NAME Integration.NearFieldCoupled COMMAND run_integration_tests --gtest_filter=NearFieldCoupledTest.*)
     add_test(NAME Integration.SlippingFaultSolve COMMAND run_integration_tests --gtest_filter=SlippingFaultSolveTest.*)
+    add_test(NAME Integration.SinglePhaseFlow COMMAND run_integration_tests --gtest_filter=SinglePhaseFlowTest.*)
     add_test(NAME Integration.HistoricNuclear.Gasbuggy1967 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gasbuggy1967)
     add_test(NAME Integration.HistoricNuclear.Gnome1961 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gnome1961)
     add_test(NAME Integration.HistoricNuclear.Sedan1962 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962)
@@ -388,6 +390,7 @@ if(GTest_FOUND)
         Integration.TimeDependentSlip
         Integration.NearFieldCoupled
         Integration.SlippingFaultSolve
+        Integration.SinglePhaseFlow
         Integration.HistoricNuclear.Gasbuggy1967
         Integration.HistoricNuclear.Gnome1961
         Integration.HistoricNuclear.Sedan1962

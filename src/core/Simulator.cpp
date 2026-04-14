@@ -798,6 +798,10 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     while (config.face_bc[fi].values.size() < config.face_bc[fi].components.size()) {
                         config.face_bc[fi].values.push_back(0.0);
                     }
+                } else if (ftype == "dirichlet_pressure") {
+                    // Read pressure value for Dirichlet pressure BC on fluid field
+                    std::string pkey = std::string(face_keys[fi]) + "_pressure";
+                    config.face_bc[fi].pressure = reader.getDouble("BOUNDARY_CONDITIONS", pkey, 0.0);
                 }
             }
         }
@@ -1665,6 +1669,16 @@ static PetscErrorCode bc_dirichlet_values(PetscInt dim, PetscReal time, const Pe
     return PETSC_SUCCESS;
 }
 
+// BC callback: Dirichlet pressure (single scalar field).
+// The ctx pointer points to a double holding the pressure value.
+static PetscErrorCode bc_pressure_dirichlet(PetscInt dim, PetscReal time, const PetscReal x[],
+                                             PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)Nc;
+    const double *pval = static_cast<const double *>(ctx);
+    u[0] = pval ? *pval : 0.0;
+    return PETSC_SUCCESS;
+}
+
 // Traction BC boundary residual callback (f0)
 // Reads traction vector from constants array using the face normal to determine face index.
 // Face ordering: 0=x_min, 1=x_max, 2=y_min, 3=y_max, 4=z_min, 5=z_max
@@ -2113,10 +2127,9 @@ PetscErrorCode Simulator::setupPhysics() {
     // Register fluid flow residuals and jacobians (uncoupled or non-poroelastic)
     else if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
         ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_SinglePhase, PetscFEFluidFlow::f1_SinglePhase); CHKERRQ(ierr);
-        // Provide a basic Jacobian for pressure diffusion
-        // g0 = phi*ct*shift, g3 = (k/mu)*I
-        // For now, reuse the multiphase pressure Jacobian with default constants.
-        ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
+        // Dedicated single-phase Jacobian: g0 = phi*ct*shift, g3 = (k/mu)*I
+        // Uses only single-field data (no Sw/Sg access like the BlackOil callbacks).
+        ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_SinglePhasePressure, nullptr, nullptr, PetscFEFluidFlow::g3_SinglePhasePressure); CHKERRQ(ierr);
         use_fem_time_residual_ = true;
     } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
         // Pressure equation
@@ -5562,6 +5575,43 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                     if (rank == 0) {
                         PetscPrintf(comm, "  Applied BC: fixed top (z_max), field %d, all components = 0\n", field);
                     }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Standalone fluid flow: Dirichlet pressure BCs on the pressure field
+    // -------------------------------------------------------------------------
+    if (pressure_field >= 0 && displacement_field < 0) {
+        // Pure fluid flow (no geomechanics) -- apply pressure Dirichlet BCs
+        PetscInt pfield = pressure_field;
+        PetscInt label_value = 1;
+        DMLabel face_labels_p[6] = {label_xmin, label_xmax, label_ymin, label_ymax, label_zmin, label_zmax};
+        static const char *face_names_p[6] = {
+            "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"
+        };
+
+        // Static storage for pressure values indexed by face (up to 6 faces).
+        // The BC callback reads from this array via the context pointer.
+        static double pressure_bc_vals[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+        for (int fi = 0; fi < 6; ++fi) {
+            if (!config.face_bc[fi].configured || !face_labels_p[fi]) continue;
+            const auto &fbc = config.face_bc[fi];
+
+            if (fbc.type == "dirichlet_pressure") {
+                pressure_bc_vals[fi] = fbc.pressure;
+
+                std::string bc_name = std::string("pressure_") + face_names_p[fi];
+                PetscInt comp = 0;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                    face_labels_p[fi], 1, &label_value, pfield, 1, &comp,
+                    (void (*)(void))bc_pressure_dirichlet, nullptr,
+                    &pressure_bc_vals[fi], nullptr); CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: dirichlet_pressure %s, field %d, P = %.4e Pa\n",
+                                face_names_p[fi], pfield, fbc.pressure);
                 }
             }
         }

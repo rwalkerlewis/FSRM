@@ -358,6 +358,7 @@ struct SimulationConfig {
       std::vector<int> components;           // Constrained component indices
       std::vector<double> values;            // Prescribed values per component
       double traction[3] = {0.0, 0.0, 0.0}; // Traction vector for "traction" type
+      double pressure = 0.0;                 // Pressure value for "dirichlet_pressure" type (Pa)
       bool configured = false;               // Whether this face was explicitly set
     };
     FaceBCConfig face_bc[6];                 // x_min, x_max, y_min, y_max, z_min, z_max
