@@ -153,30 +153,39 @@ TEST_F(SinglePhaseFlowTest, PressureDiffusion1D)
     PetscSection section;
     DMGetLocalSection(dm, &section);
 
-    // Iterate over cells to sample pressure at different x-locations
-    PetscInt cStart, cEnd;
-    DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd);
+    // Iterate over vertices to sample pressure at different x-locations.
+    // For FEM, DOFs are on vertices, not cells.
+    PetscInt vStart, vEnd;
+    DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd);
+
+    PetscSection coord_section;
+    Vec coord_vec;
+    DMGetCoordinateSection(dm, &coord_section);
+    DMGetCoordinatesLocal(dm, &coord_vec);
+    if (!coord_vec) DMGetCoordinates(dm, &coord_vec);
 
     double p_left = 0.0, p_center = 0.0, p_right = 0.0;
     double x_left = 1e30, x_center_dist = 1e30, x_right = -1e30;
     const double x_mid = 50.0;
 
     const PetscScalar *sol_array;
+    const PetscScalar *coord_array;
     VecGetArrayRead(local_sol, &sol_array);
+    VecGetArrayRead(coord_vec, &coord_array);
 
-    for (PetscInt c = cStart; c < cEnd; ++c) {
-        // Get cell centroid
-        PetscReal vol, centroid[3], normal[3];
-        DMPlexComputeCellGeometryFVM(dm, c, &vol, centroid, normal);
-        if (vol <= 0.0) continue;
+    for (PetscInt v = vStart; v < vEnd; ++v) {
+        // Get vertex coordinates
+        PetscInt cdof, coff;
+        PetscSectionGetDof(coord_section, v, &cdof);
+        if (cdof <= 0) continue;
+        PetscSectionGetOffset(coord_section, v, &coff);
+        double cx = PetscRealPart(coord_array[coff]);
 
-        double cx = centroid[0];
-
-        // Get pressure at this cell (field 0, component 0)
+        // Get pressure at this vertex (field 0, component 0)
         PetscInt dof, off;
-        PetscSectionGetDof(section, c, &dof);
+        PetscSectionGetFieldDof(section, v, 0, &dof);
         if (dof <= 0) continue;
-        PetscSectionGetOffset(section, c, &off);
+        PetscSectionGetFieldOffset(section, v, 0, &off);
         double p = PetscRealPart(sol_array[off]);
 
         // Track leftmost, center, rightmost pressure
@@ -188,6 +197,7 @@ TEST_F(SinglePhaseFlowTest, PressureDiffusion1D)
         }
     }
 
+    VecRestoreArrayRead(coord_vec, &coord_array);
     VecRestoreArrayRead(local_sol, &sol_array);
     DMRestoreLocalVector(dm, &local_sol);
 

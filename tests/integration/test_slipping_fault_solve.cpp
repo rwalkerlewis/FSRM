@@ -116,20 +116,20 @@ protected:
     PetscErrorCode ierr;
 
     PetscOptionsClear(nullptr);
-    // Use the analytical (approximate) Jacobian with augmented Lagrangian
-    // regularization -- addCohesivePenaltyToJacobian now contributes for
-    // slipping mode with reduced penalty factor.
+    // Semi-smooth Newton solver for Coulomb friction with augmented Lagrangian.
+    // Use basic line search (backtracking can reject good Newton steps for
+    // non-smooth problems) and generous tolerances.
     PetscOptionsSetValue(nullptr, "-snes_max_it", "500");
     PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-4");
     PetscOptionsSetValue(nullptr, "-snes_atol", "1e-2");
     PetscOptionsSetValue(nullptr, "-snes_stol", "1e-12");
     PetscOptionsSetValue(nullptr, "-ts_type", "beuler");
-    PetscOptionsSetValue(nullptr, "-ts_max_snes_failures", "50");
+    PetscOptionsSetValue(nullptr, "-ts_max_snes_failures", "100");
     PetscOptionsSetValue(nullptr, "-ts_adapt_type", "basic");
+    PetscOptionsSetValue(nullptr, "-ts_adapt_dt_min", "0.001");
     PetscOptionsSetValue(nullptr, "-pc_type", "lu");
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
-    PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
-    PetscOptionsSetValue(nullptr, "-snes_linesearch_maxstep", "1e10");
+    PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
     PetscOptionsSetValue(nullptr, "-snes_monitor", nullptr);
     PetscOptionsSetValue(nullptr, "-snes_converged_reason", nullptr);
 

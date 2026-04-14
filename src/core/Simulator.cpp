@@ -1967,7 +1967,9 @@ PetscErrorCode Simulator::setupPhysics() {
     //   [23] = biot_modulus_inv (1/M)
     //   [24] = rho_fluid
     //   [36-53] = traction BC values (6 faces x 3 components)
-    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = TractionBC::TRACTION_CONST_COUNT;
+    // Maximum constant array size: must accommodate all physics modules.
+    // TractionBC uses up to slot 53, Viscoelastic uses up to slot 69.
+    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = 80;
     PetscScalar unified_constants[MAX_UNIFIED_CONSTANTS] = {0};
 
     // Always set material properties if geomechanics is enabled
@@ -4193,6 +4195,13 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
             continue;
         }
 
+        // Normalize the face normal (DMPlexComputeCellGeometryFVM may return unnormalized)
+        PetscReal normal_mag_j = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) normal_mag_j += normal[d] * normal[d];
+        normal_mag_j = PetscSqrtReal(normal_mag_j);
+        if (normal_mag_j <= PETSC_SMALL) continue;
+        for (PetscInt d = 0; d < dim; ++d) normal[d] /= normal_mag_j;
+
         const PetscScalar coeff = static_cast<PetscScalar>(face_area / static_cast<PetscReal>(n_pairs));
         const PetscReal h_char_jac = PetscMax(PetscSqrtReal(face_area), PETSC_SMALL);
         const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus / h_char_jac);
@@ -6052,18 +6061,29 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
 
     // For fluid flow only (no geomechanics):
     // - Fixed pressure on x_min: p = 0 (reference)
-    if (pressure_field >= 0 && !config.enable_geomechanics &&
-        config.solid_model != SolidModelType::POROELASTIC) {
-        PetscInt field = pressure_field;
-        PetscInt comp = 0;
-        PetscInt label_value = 1;
+    // Skip this legacy BC if per-face dirichlet_pressure BCs are configured.
+    {
+        bool has_dirichlet_pressure_bc = false;
+        for (int fi = 0; fi < 6; ++fi) {
+            if (config.face_bc[fi].configured && config.face_bc[fi].type == "dirichlet_pressure") {
+                has_dirichlet_pressure_bc = true;
+                break;
+            }
+        }
+        if (pressure_field >= 0 && !config.enable_geomechanics &&
+            config.solid_model != SolidModelType::POROELASTIC &&
+            !has_dirichlet_pressure_bc) {
+            PetscInt field = pressure_field;
+            PetscInt comp = 0;
+            PetscInt label_value = 1;
 
-        if (label_xmin) {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &label_value,
-                                 field, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
-            CHKERRQ(ierr);
-            if (rank == 0) {
-                PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
+            if (label_xmin) {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
+                }
             }
         }
     }
