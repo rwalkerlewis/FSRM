@@ -116,14 +116,75 @@ void f1_SinglePhase(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)aOff; (void)aOff_x;
     (void)a; (void)a_x; (void)a_t;
     (void)t; (void)x;
-    (void)numConstants; (void)constants;
 
     // Flux term: -div( k/mu * grad(P) ) in strong form -> provide coefficient for weak form.
-    const PetscReal k  = 100.0e-15; // m^2
-    const PetscReal mu = 1e-3;      // Pa*s
+    // Read permeability from constants[4] (kx) and viscosity from constants[10] (mu_w).
+    const PetscReal k  = getConst(numConstants, constants, 4, 100.0e-15);
+    const PetscReal mu = getConst(numConstants, constants, 10, 1.0e-3);
     const PetscReal mobility = k / mu;
     for (PetscInt d = 0; d < dim; ++d) {
         f1[d] = mobility * u_x[uOff_x[0] + d];
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Single-phase Jacobian callbacks
+// -----------------------------------------------------------------------------
+
+void g0_SinglePhasePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                            const PetscInt uOff[], const PetscInt uOff_x[],
+                            const PetscScalar u[], const PetscScalar u_t[],
+                            const PetscScalar u_x[], const PetscInt aOff[],
+                            const PetscInt aOff_x[], const PetscScalar a[],
+                            const PetscScalar a_x[], const PetscScalar a_t[],
+                            PetscReal t, PetscReal u_tShift,
+                            const PetscReal x[], PetscInt numConstants,
+                            const PetscScalar constants[], PetscScalar g0[]) {
+    (void)dim; (void)Nf; (void)NfAux;
+    (void)uOff; (void)uOff_x; (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)x;
+
+    // d(f0)/d(p_t) = phi * ct * u_tShift
+    const PetscScalar phi = getConst(numConstants, constants, 3, 0.2);
+    const PetscScalar ct  = getConst(numConstants, constants, 7, 1e-9);
+    g0[0] = phi * ct * u_tShift;
+}
+
+void g3_SinglePhasePressure(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                            const PetscInt uOff[], const PetscInt uOff_x[],
+                            const PetscScalar u[], const PetscScalar u_t[],
+                            const PetscScalar u_x[], const PetscInt aOff[],
+                            const PetscInt aOff_x[], const PetscScalar a[],
+                            const PetscScalar a_x[], const PetscScalar a_t[],
+                            PetscReal t, PetscReal u_tShift,
+                            const PetscReal x[], PetscInt numConstants,
+                            const PetscScalar constants[], PetscScalar g3[]) {
+    (void)Nf; (void)NfAux;
+    (void)uOff; (void)uOff_x; (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_x; (void)a_t;
+    (void)t; (void)u_tShift; (void)x;
+
+    // d(f1_d)/d(p_x_e) = (k_d / mu) * delta_de (diagonal permeability tensor)
+    const PetscScalar kx = getConst(numConstants, constants, 4, 100e-15);
+    const PetscScalar ky = getConst(numConstants, constants, 5, 100e-15);
+    const PetscScalar kz = getConst(numConstants, constants, 6, 10e-15);
+    const PetscScalar mu_w = getConst(numConstants, constants, 10, 1e-3);
+
+    const PetscInt n = dim * dim;
+    for (PetscInt i = 0; i < n; ++i) g3[i] = 0.0;
+
+    if (dim == 2) {
+        g3[0] = kx / mu_w;       // xx
+        g3[3] = kz / mu_w;       // zz (2D x-z convention)
+    } else if (dim == 3) {
+        g3[0] = kx / mu_w;       // xx
+        g3[4] = ky / mu_w;       // yy
+        g3[8] = kz / mu_w;       // zz
+    } else {
+        for (PetscInt d = 0; d < dim; ++d) {
+            g3[d * dim + d] = kx / mu_w;
+        }
     }
 }
 

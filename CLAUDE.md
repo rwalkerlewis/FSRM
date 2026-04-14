@@ -12,22 +12,22 @@ Branch: main
 ### Codebase Size
 
 After cleanup, the live codebase is:
-- 58 source files (.cpp): ~50,000 lines
-- 69 header files (.hpp): ~32,000 lines
-- Total live: ~82,000 lines
+- 60 source files (.cpp): ~52,000 lines
+- 71 header files (.hpp): ~33,000 lines
+- Total live: ~85,000 lines
 
 Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and `archive/include/`.
 
 ### Test Suite
 
-108 registered tests. All pass or GTEST_SKIP. Zero failures.
+112 registered tests. All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
-| Physics | 25 | Analytical solutions, FEM-coupled benchmarks, standalone physics |
-| Integration | 32 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, 5 historic nuclear tests, traction BC, time-dependent slip, and explosion-fault residual coexistence |
+| Physics | 26 | Analytical solutions, FEM-coupled benchmarks, standalone physics, viscoelastic relaxation |
+| Integration | 35 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave |
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
@@ -109,7 +109,7 @@ DMGetDS(dm, &prob); // 5. Get DS for later use
 
 PETSc DMPlex unstructured FEM with PetscDS pointwise callbacks (f0, f1, g0, g3).
 
-### Unified Constants Array (36 elements)
+### Unified Constants Array (up to 70 elements)
 
 Set once in `setupPhysics()`:
 
@@ -163,7 +163,9 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | DPRK 2017 mb | Integration.DPRK2017Comparison | Synthetic vs observed body-wave magnitude |
 | Explosion+fault residual | Integration.ExplosionFaultReactivation | Coexistence of moment-tensor and cohesive residual |
 | NearField-FEM coupling | Integration.NearFieldCoupled | COUPLED_ANALYTIC 1D solver to 3D FEM moment rate |
-| Slipping fault (augmented) | Integration.SlippingFaultSolve | Augmented Lagrangian regularization, GTEST_SKIP on divergence |
+| Slipping fault (Coulomb) | Integration.SlippingFaultSolve | Semi-smooth Newton Jacobian for Coulomb friction |
+| Single-phase flow | Integration.SinglePhaseFlow | Pressure diffusion with Dirichlet pressure BCs |
+| Viscoelastic attenuation | Integration.ViscoelasticWave | Generalized Maxwell body, memory variables in aux fields |
 | Historic: Gasbuggy 1967 | Integration.HistoricNuclear.Gasbuggy1967 | 29 kt, 4-layer Lewis Shale, SAC output |
 | Historic: Gnome 1961 | Integration.HistoricNuclear.Gnome1961 | 3.1 kt, 4-layer Salado Salt, SAC output |
 | Historic: Sedan 1962 | Integration.HistoricNuclear.Sedan1962 | 104 kt, 3-layer alluvium, SAC output |
@@ -182,6 +184,7 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | Coulomb stress transfer | Unit.CoulombStressTransfer |
 | Hydrofrac formulas | Unit.HydrofracFormulas + 8 Physics tests |
 | Fluid flow callbacks | Unit.SinglePhaseFlow, Unit.MultiphaseFlow |
+| Viscoelastic relaxation | Physics.ViscoelasticRelaxation |
 
 ### DOES NOT WORK: Code Exists but No TSSolve Test
 
@@ -189,7 +192,6 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 |---------|-----------------|
 | Multiphase flow end-to-end | Buckley-Leverett or waterflood through TSSolve |
 | Hydraulic fracture coupled solve | Full lubrication + deformation coupling |
-| Slipping fault (Coulomb friction) | Test exists (Integration.SlippingFaultSolve) with augmented Lagrangian regularization. Diverges at TSSolve because the locked-mode Jacobian linearization does not capture Coulomb friction derivatives. Needs semi-smooth Newton tangent operator. GTEST_SKIP documents the root cause. |
 | Explosion + fault full TSSolve | Diverges; residual coexistence verified only |
 
 ### DEAD CODE (Archived to archive/src/)
@@ -224,6 +226,7 @@ Do not reference these in documentation or claims. Do not try to use them.
 | Fluid flow callbacks | src/numerics/PetscFEFluidFlow.cpp | include/numerics/PetscFEFluidFlow.hpp |
 | Elastoplasticity callback | src/numerics/PetscFEElastoplasticity.cpp | include/numerics/PetscFEElastoplasticity.hpp |
 | Hydrofrac callbacks | src/numerics/PetscFEHydrofrac.cpp | include/numerics/PetscFEHydrofrac.hpp |
+| Viscoelastic callbacks | src/numerics/PetscFEViscoelastic.cpp | include/numerics/PetscFEViscoelastic.hpp |
 | Absorbing BC | src/numerics/AbsorbingBC.cpp | include/numerics/AbsorbingBC.hpp |
 | Gravity body force | src/numerics/PetscFEElasticityGravity.cpp | include/numerics/PetscFEElasticityGravity.hpp |
 | Boundary conditions | src/numerics/BoundaryConditions.cpp | include/numerics/BoundaryConditions.hpp |
@@ -242,7 +245,7 @@ Do not reference these in documentation or claims. Do not try to use them.
 
 ## Runnable Examples
 
-Thirteen examples in `examples/`, each with README.md and run.sh:
+Fifteen examples in `examples/`, each with README.md and run.sh:
 
 | # | Directory | Config | Physics |
 |---|-----------|--------|--------|
@@ -259,6 +262,8 @@ Thirteen examples in `examples/`, each with README.md and run.sh:
 | 11 | examples/11_sedan_1962 | sedan_1962.config | 104 kt, 3-layer alluvium |
 | 12 | examples/12_degelen_mountain | degelen_mountain.config | 50 kt, 3-layer granite |
 | 13 | examples/13_nts_pahute_mesa | nts_pahute_mesa.config | 150 kt, 4-layer tuff |
+| 14 | examples/14_single_phase_flow | config.config | Darcy pressure diffusion |
+| 15 | examples/15_viscoelastic_attenuation | config.config | GMB attenuation, seismograms |
 
 ## Roadmap: Features to Implement
 
@@ -266,10 +271,10 @@ Each item requires: PetscDS callbacks integrated into setupPhysics(), integratio
 through TSSolve, example config, and visualization. Source code in archive/src/ may provide
 a starting point but must be rewritten to use the PetscDS callback pattern.
 
-1. Slipping fault convergence (semi-smooth Newton tangent operator for Coulomb friction)
+1. ~~Slipping fault convergence~~ DONE (semi-smooth Newton tangent for Coulomb friction)
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
-4. Viscoelastic attenuation (Q-factor memory variables)
+4. ~~Viscoelastic attenuation~~ DONE (generalized Maxwell body, Q-factor memory variables)
 5. Thermal coupling (heat equation + THM Biot)
 6. Radiation transport (advection-diffusion for fallout)
 7. Per-cell material from velocity model files

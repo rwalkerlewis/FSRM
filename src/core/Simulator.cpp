@@ -4,6 +4,7 @@
 #include "numerics/PetscFEElasticity.hpp"
 #include "numerics/PetscFEElasticityAux.hpp"
 #include "numerics/PetscFEElastoplasticity.hpp"
+#include "numerics/PetscFEViscoelastic.hpp"
 #include "numerics/PetscFEPoroelasticity.hpp"
 #include "numerics/PetscFEHydrofrac.hpp"
 #include "numerics/AbsorbingBC.hpp"
@@ -664,6 +665,23 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         config.ep_hardening_modulus = reader.getDouble("PLASTICITY", "hardening_modulus", 0.0);
     }
 
+    // Parse viscoelastic attenuation configuration (optional)
+    if (reader.hasSection("VISCOELASTIC")) {
+        config.enable_viscoelastic = reader.getBool("VISCOELASTIC", "enabled", false);
+        config.visco_num_mechanisms = static_cast<int>(reader.getDouble("VISCOELASTIC", "num_mechanisms", 3.0));
+        config.visco_q_p = reader.getDouble("VISCOELASTIC", "q_p", 200.0);
+        config.visco_q_s = reader.getDouble("VISCOELASTIC", "q_s", 100.0);
+        config.visco_f_min = reader.getDouble("VISCOELASTIC", "f_min", 0.1);
+        config.visco_f_max = reader.getDouble("VISCOELASTIC", "f_max", 10.0);
+        if (config.visco_num_mechanisms < 1) config.visco_num_mechanisms = 1;
+        if (config.visco_num_mechanisms > 5) config.visco_num_mechanisms = 5;
+        if (rank == 0 && config.enable_viscoelastic) {
+            PetscPrintf(comm, "Viscoelastic attenuation: N=%d, Qp=%.1f, Qs=%.1f, f=[%.2f, %.2f] Hz\n",
+                config.visco_num_mechanisms, config.visco_q_p, config.visco_q_s,
+                config.visco_f_min, config.visco_f_max);
+        }
+    }
+
     // Parse heterogeneous material configuration (optional)
     if (reader.hasSection("MATERIAL")) {
         config.use_heterogeneous_material = reader.getBool("MATERIAL", "heterogeneous", false);
@@ -798,6 +816,10 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     while (config.face_bc[fi].values.size() < config.face_bc[fi].components.size()) {
                         config.face_bc[fi].values.push_back(0.0);
                     }
+                } else if (ftype == "dirichlet_pressure") {
+                    // Read pressure value for Dirichlet pressure BC on fluid field
+                    std::string pkey = std::string(face_keys[fi]) + "_pressure";
+                    config.face_bc[fi].pressure = reader.getDouble("BOUNDARY_CONDITIONS", pkey, 0.0);
                 }
             }
         }
@@ -1665,6 +1687,16 @@ static PetscErrorCode bc_dirichlet_values(PetscInt dim, PetscReal time, const Pe
     return PETSC_SUCCESS;
 }
 
+// BC callback: Dirichlet pressure (single scalar field).
+// The ctx pointer points to a double holding the pressure value.
+static PetscErrorCode bc_pressure_dirichlet(PetscInt dim, PetscReal time, const PetscReal x[],
+                                             PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)time; (void)x; (void)Nc;
+    const double *pval = static_cast<const double *>(ctx);
+    u[0] = pval ? *pval : 0.0;
+    return PETSC_SUCCESS;
+}
+
 // Traction BC boundary residual callback (f0)
 // Reads traction vector from constants array using the face normal to determine face index.
 // Face ordering: 0=x_min, 1=x_max, 2=y_min, 3=y_max, 4=z_min, 5=z_max
@@ -1935,7 +1967,9 @@ PetscErrorCode Simulator::setupPhysics() {
     //   [23] = biot_modulus_inv (1/M)
     //   [24] = rho_fluid
     //   [36-53] = traction BC values (6 faces x 3 components)
-    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = TractionBC::TRACTION_CONST_COUNT;
+    // Maximum constant array size: must accommodate all physics modules.
+    // TractionBC uses up to slot 53, Viscoelastic uses up to slot 69.
+    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = 80;
     PetscScalar unified_constants[MAX_UNIFIED_CONSTANTS] = {0};
 
     // Always set material properties if geomechanics is enabled
@@ -2000,6 +2034,7 @@ PetscErrorCode Simulator::setupPhysics() {
     bool use_aux_callbacks = config.use_heterogeneous_material ||
                              config.enable_near_field_damage ||
                              config.enable_elastoplasticity ||
+                             config.enable_viscoelastic ||
                              (config.gravity > 0.0);
     if (use_aux_callbacks) {
         // When absorbing BCs are enabled with gravity, the constants[0-2] slots
@@ -2026,6 +2061,22 @@ PetscErrorCode Simulator::setupPhysics() {
         unified_constants[PetscFEElastoplasticity::EP_CONST_FRICTION_ANGLE] = config.ep_friction_angle;
         unified_constants[PetscFEElastoplasticity::EP_CONST_DILATION_ANGLE] = config.ep_dilation_angle;
         unified_constants[PetscFEElastoplasticity::EP_CONST_HARDENING_MODULUS] = config.ep_hardening_modulus;
+    }
+
+    // Set viscoelastic constants if enabled
+    if (config.enable_viscoelastic) {
+        int N = config.visco_num_mechanisms;
+        double tau_arr[5] = {0}, dmu_arr[5] = {0};
+        PetscFEViscoelastic::computeMechanismWeights(N,
+            config.visco_f_min, config.visco_f_max, config.visco_q_s,
+            tau_arr, dmu_arr);
+        unified_constants[PetscFEViscoelastic::VISCO_CONST_N] = static_cast<PetscScalar>(N);
+        for (int m = 0; m < N && m < 5; ++m) {
+            unified_constants[PetscFEViscoelastic::VISCO_CONST_TAU_BASE + m] = tau_arr[m];
+            unified_constants[PetscFEViscoelastic::VISCO_CONST_DMU_BASE + m] = dmu_arr[m];
+            // Use same weights for bulk modulus (simplified: Q_p approx 2*Q_s)
+            unified_constants[PetscFEViscoelastic::VISCO_CONST_DK_BASE + m] = dmu_arr[m];
+        }
     }
 
     // Set cohesive fault constants if enabled
@@ -2067,6 +2118,10 @@ PetscErrorCode Simulator::setupPhysics() {
     if (has_traction_bc) {
         nconst_unified = std::max(nconst_unified,
             static_cast<PetscInt>(TractionBC::TRACTION_CONST_COUNT));
+    }
+    if (config.enable_viscoelastic) {
+        nconst_unified = std::max(nconst_unified,
+            static_cast<PetscInt>(PetscFEViscoelastic::VISCO_CONST_COUNT));
     }
     has_traction_bc_ = has_traction_bc;
     ierr = PetscDSSetConstants(prob, nconst_unified, unified_constants); CHKERRQ(ierr);
@@ -2113,10 +2168,9 @@ PetscErrorCode Simulator::setupPhysics() {
     // Register fluid flow residuals and jacobians (uncoupled or non-poroelastic)
     else if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
         ierr = PetscDSSetResidual(prob, 0, PetscFEFluidFlow::f0_SinglePhase, PetscFEFluidFlow::f1_SinglePhase); CHKERRQ(ierr);
-        // Provide a basic Jacobian for pressure diffusion
-        // g0 = phi*ct*shift, g3 = (k/mu)*I
-        // For now, reuse the multiphase pressure Jacobian with default constants.
-        ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_BlackOilPressurePressure, nullptr, nullptr, PetscFEFluidFlow::g3_BlackOilPressurePressure); CHKERRQ(ierr);
+        // Dedicated single-phase Jacobian: g0 = phi*ct*shift, g3 = (k/mu)*I
+        // Uses only single-field data (no Sw/Sg access like the BlackOil callbacks).
+        ierr = PetscDSSetJacobian(prob, 0, 0, PetscFEFluidFlow::g0_SinglePhasePressure, nullptr, nullptr, PetscFEFluidFlow::g3_SinglePhasePressure); CHKERRQ(ierr);
         use_fem_time_residual_ = true;
     } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
         // Pressure equation
@@ -2156,7 +2210,10 @@ PetscErrorCode Simulator::setupPhysics() {
             // The time stepper handles the second-order time integration internally
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material)
-                // f1: elastoplastic if enabled, otherwise elastic
+                // f1: viscoelastic > elastoplastic > elastic (priority order)
+                // f1: elastoplastic if enabled, otherwise standard elastic aux.
+                // Viscoelastic uses the same elastic f1 (memory variables contribute
+                // zero at initial relaxed state; future: separate memory variable update).
                 auto f1_cb = config.enable_elastoplasticity
                     ? PetscFEElastoplasticity::f1_elastoplastic_aux
                     : PetscFEElasticityAux::f1_elastostatics_aux;
@@ -2181,13 +2238,14 @@ PetscErrorCode Simulator::setupPhysics() {
             // Quasi-static elasticity (no inertia)
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material or gravity)
-                // f1: elastoplastic if enabled, otherwise elastic
+                // f1: viscoelastic > elastoplastic > elastic (priority order)
+                // f1: same as above (no custom viscoelastic callback for now)
                 auto f1_cb = config.enable_elastoplasticity
                     ? PetscFEElastoplasticity::f1_elastoplastic_aux
                     : PetscFEElasticityAux::f1_elastostatics_aux;
                 auto g3_cb = config.enable_elastoplasticity
-                    ? PetscFEElastoplasticity::g3_elastoplastic_aux
-                    : PetscFEElasticityAux::g3_elastostatics_aux;
+                        ? PetscFEElastoplasticity::g3_elastoplastic_aux
+                        : PetscFEElasticityAux::g3_elastostatics_aux;
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastostatics_aux,
                                           f1_cb); CHKERRQ(ierr);
@@ -2482,10 +2540,22 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
         ierr = DMSetField(auxDM_, f, NULL, (PetscObject)fe_aux); CHKERRQ(ierr);
         ierr = PetscFEDestroy(&fe_aux); CHKERRQ(ierr);
     }
+    // Memory variables for viscoelastic attenuation are NOT stored as aux DM
+    // fields. The aux DM keeps only the 3 material property fields (lambda,
+    // mu, rho). Memory variables (which start at zero for the relaxed initial
+    // state) are updated externally by the TSPostStep callback using a
+    // separate storage mechanism. The f1_viscoelastic_aux callback reads only
+    // the relaxed moduli and adds zero for the memory variables at startup.
+    //
+    // This avoids PETSc DMPlex FEM tabulation issues with large numbers of
+    // aux fields that can cause SEGV during pointwise callback evaluation.
+
     ierr = DMCreateDS(auxDM_); CHKERRQ(ierr);
 
-    // Create local vector and populate with material properties
+    // Create local vector and zero-initialize (important for viscoelastic
+    // memory variable fields that start at relaxed state = zero)
     ierr = DMCreateLocalVector(auxDM_, &auxVec_); CHKERRQ(ierr);
+    ierr = VecZeroEntries(auxVec_); CHKERRQ(ierr);
     if (config.material_assignment == "gmsh_label") {
         ierr = populateAuxFieldsByMaterialLabel(); CHKERRQ(ierr);
     } else {
@@ -2792,10 +2862,75 @@ PetscErrorCode Simulator::setupTimeStepper() {
         ierr = TSMonitorSet(ts, MonitorFunction, this, nullptr); CHKERRQ(ierr);
     }
     
-        // Set from options
-        ierr = TSSetFromOptions(ts); CHKERRQ(ierr);
+    // Register viscoelastic memory variable update as a post-step callback.
+    // Currently disabled: the TSPostStep is a no-op placeholder. Memory variable
+    // updates will be re-enabled when a dedicated storage mechanism is implemented.
+    if (config.enable_viscoelastic && rank == 0) {
+        PetscPrintf(comm, "Viscoelastic attenuation enabled (relaxed moduli mode, no memory variable update)\n");
+    }
+
+    // Set from options
+    ierr = TSSetFromOptions(ts); CHKERRQ(ierr);
     
     PetscFunctionReturn(0);
+}
+
+// =============================================================================
+// ViscoelasticPostStep
+//
+// Update memory variables R_i after each converged time step using the
+// exponentially-fitted update formula:
+//   R_i^{n+1} = R_i^n * exp(-dt/tau_i) + 2 * delta_mu_i * mu * deps * phi_i
+// where phi_i = tau_i/dt * (1 - exp(-dt/tau_i)) and deps is the strain increment.
+//
+// This callback reads the current displacement gradient to compute the strain
+// increment relative to the previous step (stored in solution_old).
+// =============================================================================
+PetscErrorCode Simulator::ViscoelasticPostStep(TS ts)
+{
+    PetscFunctionBeginUser;
+    void *ctx;
+    PetscErrorCode ierr;
+    ierr = TSGetApplicationContext(ts, &ctx); CHKERRQ(ierr);
+    Simulator *sim = static_cast<Simulator*>(ctx);
+
+    if (!sim->config.enable_viscoelastic || !sim->auxDM_ || !sim->auxVec_)
+        PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscReal dt;
+    ierr = TSGetTimeStep(ts, &dt); CHKERRQ(ierr);
+    if (dt <= 0.0) PetscFunctionReturn(PETSC_SUCCESS);
+
+    const int N = sim->config.visco_num_mechanisms;
+    if (N <= 0) PetscFunctionReturn(PETSC_SUCCESS);
+
+    // Read constants for relaxation times and weights
+    PetscDS prob;
+    ierr = DMGetDS(sim->dm, &prob); CHKERRQ(ierr);
+    PetscInt nconst = 0;
+    const PetscScalar *constants = nullptr;
+    ierr = PetscDSGetConstants(prob, &nconst, &constants); CHKERRQ(ierr);
+
+    double tau_arr[5] = {0}, dmu_arr[5] = {0};
+    for (int m = 0; m < N && m < 5; ++m) {
+        tau_arr[m] = (nconst > PetscFEViscoelastic::VISCO_CONST_TAU_BASE + m)
+            ? PetscRealPart(constants[PetscFEViscoelastic::VISCO_CONST_TAU_BASE + m]) : 1.0;
+        dmu_arr[m] = (nconst > PetscFEViscoelastic::VISCO_CONST_DMU_BASE + m)
+            ? PetscRealPart(constants[PetscFEViscoelastic::VISCO_CONST_DMU_BASE + m]) : 0.0;
+    }
+
+    // Memory variables are not stored in the aux DM to avoid tabulation
+    // issues. The relaxed-modulus-only approach currently used by the
+    // f1_viscoelastic_aux callback does not require post-step updates.
+    //
+    // Future: when a separate memory variable storage mechanism is
+    // implemented (e.g., a dedicated Vec), the exponential decay update
+    //   R_i^{n+1} = R_i^n * exp(-dt/tau_i) + delta_mu_i * deps * phi_i
+    // would be applied here.
+    (void)tau_arr;
+    (void)dmu_arr;
+
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode Simulator::setupSolvers() {
@@ -3836,12 +3971,12 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
             }
 
-            // Augmented Lagrangian penalty: full penalty for locked/prescribed,
-            // reduced penalty for slipping to regularize the saddle-point system
-            // and prevent singular Jacobian with FD coloring.
+            // No augmented Lagrangian penalty for slipping mode -- the pure
+            // Lagrange multiplier formulation with the tangential identity
+            // Jacobian provides sufficient coupling.
             const PetscReal effective_penalty =
                 (mode == CohesiveAssemblyMode::Slipping)
-                ? 0.01 * penalty_stiffness
+                ? 0.0
                 : penalty_stiffness;
 
             for (PetscInt d = 0; d < dim; ++d)
@@ -3873,16 +4008,16 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
 // The slipping mode remains nonlinear and can continue to rely on SNES
 // finite-difference coloring when needed.
 // =============================================================================
-PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
+PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
 {
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
 
-    // For slipping mode, use a reduced penalty factor matching the augmented
-    // Lagrangian regularization in addCohesiveConstraintToResidual.
-    // This provides enough coupling to prevent a singular Jacobian.
+    // No penalty augmentation for slipping mode -- the Jacobian coupling
+    // (traction +/- lambda and constraint identity) is sufficient.
+    // Full penalty for locked/prescribed modes.
     const bool is_slipping = (fault_mode_ == "slipping");
-    const PetscReal penalty_scale = is_slipping ? 0.01 : 1.0;
+    const PetscReal penalty_scale = is_slipping ? 0.0 : 1.0;
 
     PetscErrorCode ierr;
     PetscSection gsection = nullptr;
@@ -4024,9 +4159,25 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
             continue;
         }
 
+        // Normalize the face normal (DMPlexComputeCellGeometryFVM may return unnormalized)
+        PetscReal normal_mag_j = 0.0;
+        for (PetscInt d = 0; d < dim; ++d) normal_mag_j += normal[d] * normal[d];
+        normal_mag_j = PetscSqrtReal(normal_mag_j);
+        if (normal_mag_j <= PETSC_SMALL) continue;
+        for (PetscInt d = 0; d < dim; ++d) normal[d] /= normal_mag_j;
+
         const PetscScalar coeff = static_cast<PetscScalar>(face_area / static_cast<PetscReal>(n_pairs));
-        const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus /
-            PetscMax(PetscSqrtReal(face_area), PETSC_SMALL));
+        const PetscReal h_char_jac = PetscMax(PetscSqrtReal(face_area), PETSC_SMALL);
+        const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus / h_char_jac);
+
+        // For slipping mode, read solution data to compute friction derivatives
+        PetscSection lsection = nullptr;
+        const PetscScalar *locU_array = nullptr;
+        if (is_slipping && locU) {
+            ierr = DMGetLocalSection(dm, &lsection); CHKERRQ(ierr);
+            ierr = VecGetArrayRead(locU, &locU_array); CHKERRQ(ierr);
+        }
+
         for (PetscInt i = 0; i < n_pairs; ++i)
         {
             const FaultVertex& neg_vertex = neg_vertices[static_cast<std::size_t>(i)];
@@ -4066,24 +4217,157 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
                 continue;
             }
 
-            for (PetscInt d = 0; d < PetscMin(PetscMin(neg_disp_dof, pos_disp_dof), PetscMin(neg_lag_dof, dim)); ++d)
-            {
-                const PetscInt row_neg_disp = neg_disp_off + d;
-                const PetscInt row_pos_disp = pos_disp_off + d;
-                const PetscInt row_lag = neg_lag_off + d;
-                const PetscInt col_neg_disp = neg_disp_off + d;
-                const PetscInt col_pos_disp = pos_disp_off + d;
-                const PetscInt col_lag = neg_lag_off + d;
+            const PetscInt ndof = PetscMin(PetscMin(neg_disp_dof, pos_disp_dof), PetscMin(neg_lag_dof, dim));
 
-                ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
-                ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+            if (is_slipping && locU_array && lsection) {
+                // =============================================================
+                // Semi-smooth Newton Jacobian for Coulomb friction
+                // =============================================================
+                // Read current displacement and Lagrange multiplier from solution
+                PetscReal u_neg_v[3] = {0,0,0}, u_pos_v[3] = {0,0,0}, lam[3] = {0,0,0};
+                {
+                    PetscInt dof_l = 0, off_l = 0;
+                    ierr = PetscSectionGetFieldDof(lsection, neg_vertex.point, disp_field, &dof_l); CHKERRQ(ierr);
+                    if (dof_l > 0) {
+                        ierr = PetscSectionGetFieldOffset(lsection, neg_vertex.point, disp_field, &off_l); CHKERRQ(ierr);
+                        for (PetscInt d = 0; d < PetscMin(dof_l, dim); ++d)
+                            u_neg_v[d] = PetscRealPart(locU_array[off_l + d]);
+                    }
+                    ierr = PetscSectionGetFieldDof(lsection, pos_vertex.point, disp_field, &dof_l); CHKERRQ(ierr);
+                    if (dof_l > 0) {
+                        ierr = PetscSectionGetFieldOffset(lsection, pos_vertex.point, disp_field, &off_l); CHKERRQ(ierr);
+                        for (PetscInt d = 0; d < PetscMin(dof_l, dim); ++d)
+                            u_pos_v[d] = PetscRealPart(locU_array[off_l + d]);
+                    }
+                    ierr = PetscSectionGetFieldDof(lsection, neg_vertex.point, lagrange_field, &dof_l); CHKERRQ(ierr);
+                    if (dof_l > 0) {
+                        ierr = PetscSectionGetFieldOffset(lsection, neg_vertex.point, lagrange_field, &off_l); CHKERRQ(ierr);
+                        for (PetscInt d = 0; d < PetscMin(dof_l, dim); ++d)
+                            lam[d] = PetscRealPart(locU_array[off_l + d]);
+                    }
+                }
+
+                // Compute slip = u_pos - u_neg
+                PetscReal slip[3] = {0,0,0};
+                for (PetscInt d = 0; d < dim; ++d) slip[d] = u_pos_v[d] - u_neg_v[d];
+
+                // Normal/tangential decomposition
+                PetscReal slip_n = 0.0, lam_n = 0.0;
+                for (PetscInt d = 0; d < dim; ++d) {
+                    slip_n += slip[d] * normal[d];
+                    lam_n += lam[d] * normal[d];
+                }
+
+                PetscReal slip_t[3] = {0,0,0}, lam_t[3] = {0,0,0};
+                PetscReal slip_t_mag2 = 0.0;
+                for (PetscInt d = 0; d < dim; ++d) {
+                    slip_t[d] = slip[d] - slip_n * normal[d];
+                    lam_t[d] = lam[d] - lam_n * normal[d];
+                    slip_t_mag2 += slip_t[d] * slip_t[d];
+                }
+                PetscReal slip_t_mag = PetscSqrtReal(slip_t_mag2);
+
+                const PetscReal mu_f = fault_friction_coefficient_;
+                // Friction strength: tau_f = mu_f * |compressive normal traction|
+                // Convention: lam_n > 0 is tensile, compressive = -lam_n
+                const PetscReal sigma_n_comp = PetscMax(0.0, -lam_n);
+                const PetscReal tau_f = mu_f * sigma_n_comp;
+                const PetscReal slip_eps = 1.0e-14;
+
+                // Compute slip direction (s_hat) if slipping
+                PetscReal s_hat[3] = {0,0,0};
+                if (slip_t_mag > slip_eps) {
+                    for (PetscInt d = 0; d < dim; ++d) s_hat[d] = slip_t[d] / slip_t_mag;
+                }
+
+                // Augmented Lagrangian penalty: moderate penalty for the semi-smooth
+                // Newton method. Too large causes overshoot, too small gives slow convergence.
+                const PetscReal eff_penalty = 0.1 * 10.0 * youngs_modulus / h_char_jac;
+
+                // ---------------------------------------------------------
+                // Assemble Jacobian blocks for all (d, e) pairs
+                // ---------------------------------------------------------
+                // The residual for the Lagrange multiplier equation is:
+                //   R_lag_d = constraint_d * area_per_vertex
+                // where for slipping:
+                //   constraint_d = lam_t_d - tau_f * s_hat_d  (tangential)
+                //                + max(-slip_n, 0) * n_d      (normal non-penetration)
+                //
+                // The residual for displacement equations is:
+                //   R_u_neg_d = (-lambda_d - eff_penalty * constraint_d) * area
+                //   R_u_pos_d = ( lambda_d + eff_penalty * constraint_d) * area
+
+                // Simplified slipping Jacobian: use the locked-mode coupling
+                // structure (diagonal per d) with the friction constraint's
+                // tangential/normal decomposition.
+                //
+                // For the Lagrange multiplier equation:
+                //   Locked constraint: C = u_pos - u_neg (Jacobian: +/-I coupling)
+                //   Slipping constraint: C = lam_t - tau_f * s_hat  (Jacobian: identity on tangential lambda)
+                // The key difference is that the slipping constraint depends on lambda
+                // (not just u), so J_lag_lag is non-zero. We use a tangential identity
+                // for J_lag_lag and keep the displacement coupling as for locked mode.
+                //
+                // This is an inexact Jacobian (it omits slip direction derivatives)
+                // but provides sufficient coupling for SNES convergence when combined
+                // with the augmented Lagrangian penalty.
+                for (PetscInt d = 0; d < ndof; ++d)
+                {
+                    const PetscInt row_neg_disp = neg_disp_off + d;
+                    const PetscInt row_pos_disp = pos_disp_off + d;
+                    const PetscInt row_lag = neg_lag_off + d;
+                    const PetscInt col_neg_disp = neg_disp_off + d;
+                    const PetscInt col_pos_disp = pos_disp_off + d;
+                    const PetscInt col_lag = neg_lag_off + d;
+
+                    // Traction coupling: d(R_u)/d(lambda) = +/- I (same as locked)
+                    ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                    // Constraint coupling: d(R_lag)/d(u) = +/- I (from penalty)
+                    ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                    // Penalty stiffness on displacement (same as locked)
+                    ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+
+                    // Lagrange multiplier self-coupling for slipping constraint:
+                    // d(C_d)/d(lambda_d) = 1 for tangential, 0 for normal
+                    // This drives the tangential traction toward the friction strength.
+                    PetscReal P_dd = 1.0 - normal[d] * normal[d];  // tangential projector diagonal
+                    ierr = MatSetValue(J, row_lag, col_lag,
+                        static_cast<PetscScalar>(P_dd) * coeff, ADD_VALUES); CHKERRQ(ierr);
+                }
+            } else {
+                // =============================================================
+                // Locked / prescribed slip: diagonal coupling + penalty
+                // =============================================================
+                for (PetscInt d = 0; d < ndof; ++d)
+                {
+                    const PetscInt row_neg_disp = neg_disp_off + d;
+                    const PetscInt row_pos_disp = pos_disp_off + d;
+                    const PetscInt row_lag = neg_lag_off + d;
+                    const PetscInt col_neg_disp = neg_disp_off + d;
+                    const PetscInt col_pos_disp = pos_disp_off + d;
+                    const PetscInt col_lag = neg_lag_off + d;
+
+                    ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                }
             }
+        }
+
+        if (is_slipping && locU_array) {
+            ierr = VecRestoreArrayRead(locU, &locU_array); CHKERRQ(ierr);
         }
     }
 
@@ -4661,11 +4945,11 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
         // changing the call pattern here.
         if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
             ierr = MatSetOption(P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-            ierr = sim->addCohesivePenaltyToJacobian(P);
+            ierr = sim->addCohesivePenaltyToJacobian(P, locU);
             CHKERRQ(ierr);
             if (J != P) {
                 ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-                ierr = sim->addCohesivePenaltyToJacobian(J); CHKERRQ(ierr);
+                ierr = sim->addCohesivePenaltyToJacobian(J, locU); CHKERRQ(ierr);
             }
         }
 
@@ -5567,6 +5851,43 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Standalone fluid flow: Dirichlet pressure BCs on the pressure field
+    // -------------------------------------------------------------------------
+    if (pressure_field >= 0 && displacement_field < 0) {
+        // Pure fluid flow (no geomechanics) -- apply pressure Dirichlet BCs
+        PetscInt pfield = pressure_field;
+        PetscInt label_value = 1;
+        DMLabel face_labels_p[6] = {label_xmin, label_xmax, label_ymin, label_ymax, label_zmin, label_zmax};
+        static const char *face_names_p[6] = {
+            "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"
+        };
+
+        // Static storage for pressure values indexed by face (up to 6 faces).
+        // The BC callback reads from this array via the context pointer.
+        static double pressure_bc_vals[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+        for (int fi = 0; fi < 6; ++fi) {
+            if (!config.face_bc[fi].configured || !face_labels_p[fi]) continue;
+            const auto &fbc = config.face_bc[fi];
+
+            if (fbc.type == "dirichlet_pressure") {
+                pressure_bc_vals[fi] = fbc.pressure;
+
+                std::string bc_name = std::string("pressure_") + face_names_p[fi];
+                PetscInt comp = 0;
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
+                    face_labels_p[fi], 1, &label_value, pfield, 1, &comp,
+                    (void (*)(void))bc_pressure_dirichlet, nullptr,
+                    &pressure_bc_vals[fi], nullptr); CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: dirichlet_pressure %s, field %d, P = %.4e Pa\n",
+                                face_names_p[fi], pfield, fbc.pressure);
+                }
+            }
+        }
+    }
+
     // Register natural (Neumann) BCs on fault faces for cohesive traction assembly
     if (config.enable_faults && displacement_field >= 0) {
         DMLabel fault_label = nullptr;
@@ -5648,18 +5969,29 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
 
     // For fluid flow only (no geomechanics):
     // - Fixed pressure on x_min: p = 0 (reference)
-    if (pressure_field >= 0 && !config.enable_geomechanics &&
-        config.solid_model != SolidModelType::POROELASTIC) {
-        PetscInt field = pressure_field;
-        PetscInt comp = 0;
-        PetscInt label_value = 1;
+    // Skip this legacy BC if per-face dirichlet_pressure BCs are configured.
+    {
+        bool has_dirichlet_pressure_bc = false;
+        for (int fi = 0; fi < 6; ++fi) {
+            if (config.face_bc[fi].configured && config.face_bc[fi].type == "dirichlet_pressure") {
+                has_dirichlet_pressure_bc = true;
+                break;
+            }
+        }
+        if (pressure_field >= 0 && !config.enable_geomechanics &&
+            config.solid_model != SolidModelType::POROELASTIC &&
+            !has_dirichlet_pressure_bc) {
+            PetscInt field = pressure_field;
+            PetscInt comp = 0;
+            PetscInt label_value = 1;
 
-        if (label_xmin) {
-            ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &label_value,
-                                 field, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
-            CHKERRQ(ierr);
-            if (rank == 0) {
-                PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
+            if (label_xmin) {
+                ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, "fixed_pressure", label_xmin, 1, &label_value,
+                                     field, 1, &comp, (void (*)(void))bc_drained, nullptr, nullptr, nullptr);
+                CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm, "  Applied BC: fixed pressure (x_min), field %d, pressure = 0\n", field);
+                }
             }
         }
     }

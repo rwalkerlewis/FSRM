@@ -358,6 +358,7 @@ struct SimulationConfig {
       std::vector<int> components;           // Constrained component indices
       std::vector<double> values;            // Prescribed values per component
       double traction[3] = {0.0, 0.0, 0.0}; // Traction vector for "traction" type
+      double pressure = 0.0;                 // Pressure value for "dirichlet_pressure" type (Pa)
       bool configured = false;               // Whether this face was explicitly set
     };
     FaceBCConfig face_bc[6];                 // x_min, x_max, y_min, y_max, z_min, z_max
@@ -388,6 +389,16 @@ struct SimulationConfig {
     double ep_friction_angle = 0.5236;             // Friction angle (rad, default 30 deg)
     double ep_dilation_angle = 0.0;                // Dilation angle (rad)
     double ep_hardening_modulus = 0.0;             // Isotropic hardening modulus (Pa)
+
+    // =========================================================================
+    // Viscoelastic Attenuation (Generalized Maxwell Body)
+    // =========================================================================
+    bool enable_viscoelastic = false;              // Enable viscoelastic attenuation
+    int visco_num_mechanisms = 3;                  // Number of Maxwell mechanisms (1-5)
+    double visco_q_p = 200.0;                      // P-wave quality factor
+    double visco_q_s = 100.0;                      // S-wave quality factor
+    double visco_f_min = 0.1;                      // Low end of constant-Q band (Hz)
+    double visco_f_max = 10.0;                     // High end of constant-Q band (Hz)
 
     // =========================================================================
     // HIGH-FIDELITY OPTIONS (Optional Advanced Features)
