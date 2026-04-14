@@ -12,22 +12,22 @@ Branch: main
 ### Codebase Size
 
 After cleanup, the live codebase is:
-- 60 source files (.cpp): ~52,000 lines
-- 71 header files (.hpp): ~33,000 lines
-- Total live: ~85,000 lines
+- 63 source files (.cpp): ~54,000 lines
+- 73 header files (.hpp): ~34,000 lines
+- Total live: ~88,000 lines
 
 Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and `archive/include/`.
 
 ### Test Suite
 
-114 registered tests. All pass or GTEST_SKIP. Zero failures.
+118 registered tests. All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
 | Physics | 27 | Analytical solutions, FEM-coupled benchmarks, standalone physics, viscoelastic relaxation, cohesive BdResidual verification, SCEC TPV5 |
-| Integration | 36 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, slip-weakening fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave |
+| Integration | 40 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, slip-weakening fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave |
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
@@ -131,6 +131,11 @@ Set once in `setupPhysics()`:
 [70] friction_model (0=constant, 1=slip_weakening)
 [71] mu_s (static friction) [72] mu_d (dynamic friction)
 [73] D_c (critical slip distance)
+[74] thermal_conductivity (W/(m*K))
+[75] specific_heat (J/(kg*K))
+[76] thermal_expansion_coeff (1/K)
+[77] reference_temperature (K)
+[78] thermal_field_index
 ```
 
 When auxiliary fields are used, callbacks read material properties from `a[]`/`a_x[]` via `aOff[]` instead of from `constants[]`. The constants array remains for non-material parameters.
@@ -179,6 +184,9 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | Historic: Sedan 1962 | Integration.HistoricNuclear.Sedan1962 | 104 kt, 3-layer alluvium, SAC output |
 | Historic: Degelen Mountain | Integration.HistoricNuclear.DegelenMountain | 50 kt, 3-layer granite, SAC output |
 | Historic: NTS Pahute Mesa | Integration.HistoricNuclear.NtsPahuteMesa | 150 kt, 4-layer tuff, SAC output |
+| Per-cell velocity model | Integration.VelocityModelMaterial | Binary Vp/Vs/rho file, trilinear interp, aux fields |
+| Thermal diffusion | Integration.ThermalDiffusion | Steady-state heat equation via PetscDS |
+| Thermal expansion (THM) | Integration.ThermalExpansion | Thermoelastic stress, alpha_T*dT*Lz |
 
 ### WORKS: Standalone (correct, tested, not FEM-coupled)
 
@@ -201,7 +209,7 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 |---------|-----------------|
 | Multiphase flow end-to-end | Buckley-Leverett or waterflood through TSSolve |
 | Hydraulic fracture coupled solve | Full lubrication + deformation coupling |
-| Explosion + fault full TSSolve | Diverges; residual coexistence verified only |
+| Explosion + fault full TSSolve | Test added; convergence depends on explosion-fault interaction |
 
 ### DEAD CODE (Archived to archive/src/)
 
@@ -245,6 +253,8 @@ Do not reference these in documentation or claims. Do not try to use them.
 | Seismometers | src/domain/seismic/SeismometerNetwork.cpp | include/domain/seismic/SeismometerNetwork.hpp |
 | Fracture model | src/domain/geomechanics/FractureModel.cpp | include/domain/geomechanics/FractureModel.hpp |
 | Gmsh I/O | src/io/GmshIO.cpp | include/io/GmshIO.hpp |
+| Velocity model I/O | src/io/VelocityModelReader.cpp | include/io/VelocityModelReader.hpp |
+| Thermal callbacks | src/numerics/PetscFEThermal.cpp | include/numerics/PetscFEThermal.hpp |
 | Unit tests | tests/unit/ | -- |
 | Integration tests | tests/integration/ | -- |
 | Physics validation | tests/physics_validation/ | -- |
@@ -254,7 +264,7 @@ Do not reference these in documentation or claims. Do not try to use them.
 
 ## Runnable Examples
 
-Sixteen examples in `examples/`, each with README.md and run.sh:
+Eighteen examples in `examples/`, each with README.md and run.sh:
 
 | # | Directory | Config | Physics |
 |---|-----------|--------|--------|
@@ -274,6 +284,8 @@ Sixteen examples in `examples/`, each with README.md and run.sh:
 | 14 | examples/14_single_phase_flow | config.config | Darcy pressure diffusion |
 | 15 | examples/15_viscoelastic_attenuation | config.config | GMB attenuation, seismograms |
 | 16 | examples/16_scec_tpv5 | config.config | TPV5 dynamic rupture, slip-weakening |
+| 17 | examples/17_velocity_model | config.config | Per-cell material from velocity file |
+| 18 | examples/18_thermal_expansion | config.config | THM coupling, thermal stress |
 
 ## Roadmap: Features to Implement
 
@@ -285,9 +297,9 @@ a starting point but must be rewritten to use the PetscDS callback pattern.
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
 4. ~~Viscoelastic attenuation~~ DONE (generalized Maxwell body, Q-factor memory variables)
-5. Thermal coupling (heat equation + THM Biot)
+5. ~~Thermal coupling~~ DONE (heat equation + THM Biot)
 6. Radiation transport (advection-diffusion for fallout)
-7. Per-cell material from velocity model files
+7. ~~Per-cell material from velocity model files~~ DONE
 8. ~~SCEC TPV5 dynamic rupture benchmark~~ DONE (slip-weakening friction, initial fault stress, nucleation patch)
 9. Multi-stage hydraulic fracturing with stress shadowing
 10. Production forecasting through propped fracture
