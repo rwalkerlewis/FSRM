@@ -37,7 +37,7 @@ python3 scripts/plot_seismograms.py build/output/seismograms/
 
 ## Examples
 
-Fifteen runnable examples demonstrate verified capabilities. Each has a `README.md`, `run.sh`, and a config file.
+Eighteen runnable examples demonstrate verified capabilities. Each has a `README.md`, `run.sh`, and a config file.
 
 | # | Example | Physics | Run Time |
 |---|---------|---------|----------|
@@ -57,12 +57,14 @@ Fifteen runnable examples demonstrate verified capabilities. Each has a `README.
 | 14 | [Single-Phase Flow](examples/14_single_phase_flow/) | Darcy pressure diffusion, Dirichlet pressure BCs | < 1s |
 | 15 | [Viscoelastic Attenuation](examples/15_viscoelastic_attenuation/) | Generalized Maxwell body, Q-factor, seismograms | ~15s |
 | 16 | [SCEC TPV5](examples/16_scec_tpv5/) | Dynamic rupture, slip-weakening friction, nucleation | ~300s |
+| 17 | [Velocity Model](examples/17_velocity_model/) | Per-cell material from binary velocity file (Vp/Vs/rho) | varies |
+| 18 | [Thermal Expansion](examples/18_thermal_expansion/) | THM coupling, thermoelastic stress, uniform heating | < 1s |
 
 ---
 
 ## Verified Capabilities
 
-Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 108 tests total.
+Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 116 tests total.
 
 ### Integration-Tested Through TSSolve
 
@@ -101,6 +103,9 @@ Every feature below has automated tests with quantitative pass/fail criteria. Ru
 | Historic: Sedan 1962 | `Integration.HistoricNuclear.Sedan1962` | 104 kt, 3-layer alluvium, SAC output |
 | Historic: Degelen Mountain | `Integration.HistoricNuclear.DegelenMountain` | 50 kt, 3-layer granite, SAC output |
 | Historic: NTS Pahute Mesa | `Integration.HistoricNuclear.NtsPahuteMesa` | 150 kt, 4-layer tuff, SAC output |
+| Per-cell material from velocity model | `Integration.VelocityModelMaterial` | Binary Vp/Vs/rho grid mapped to mesh via interpolation |
+| Thermal diffusion (heat equation) | `Integration.ThermalDiffusion` | Steady-state thermal field through TSSolve |
+| Thermoelastic stress (THM) | `Integration.ThermalExpansion` | Thermal expansion coupling, uniform heating, displacement checks |
 
 ### Standalone Verified (Correct, Tested, Not FEM-Coupled)
 
@@ -119,15 +124,16 @@ Every feature below has automated tests with quantitative pass/fail criteria. Ru
 
 ## Known Gaps
 
-These features have source code but are not fully end-to-end verified through TSSolve.
+These entries track remaining limitations, work in progress, and recently closed gaps.
 
 | Feature | Status |
 |---------|--------|
 | Multiphase flow end-to-end | Callbacks unit-tested; no simulation test |
 | Hydraulic fracture coupled solve | PressurizedFractureFEM passes; lubrication+deformation not coupled |
-| Explosion + fault full TSSolve | Residual coexistence verified; full solve diverges |
+| Explosion + fault full TSSolve | Test added (`ExplosionFaultReactivationTest.FullTSSolve` in `Integration.ExplosionFaultReactivation`); pending CI verification |
+| Per-cell material from velocity model | DONE (`Integration.VelocityModelMaterial`, Example 17) |
+| Thermal coupling | DONE (`Integration.ThermalExpansion`, `Integration.ThermalDiffusion`, Example 18) |
 | Radiation transport / fallout | Source code archived; not integrated |
-| Thermal coupling | Source code archived; not integrated |
 
 ---
 
@@ -139,9 +145,9 @@ Each item requires PetscDS callbacks integrated into `setupPhysics()`, integrati
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
 4. ~~Viscoelastic attenuation~~ DONE
-5. Thermal coupling (heat equation + THM Biot)
+5. ~~Thermal coupling (heat equation + THM Biot)~~ DONE
 6. Radiation transport (advection-diffusion for fallout)
-7. Per-cell material from velocity model files
+7. ~~Per-cell material from velocity model files~~ DONE
 8. ~~SCEC TPV5 dynamic rupture benchmark~~ DONE
 9. Multi-stage hydraulic fracturing with stress shadowing
 10. Production forecasting through propped fracture
@@ -153,7 +159,7 @@ Each item requires PetscDS callbacks integrated into `setupPhysics()`, integrati
 | Component | Version | Role |
 |-----------|---------|------|
 | C++17 | GCC 11+ | Language standard |
-| PETSc | 3.22.2 | FEM assembly, solvers, mesh (DMPlex) |
+| PETSc | 3.25.0 | FEM assembly, solvers, mesh (DMPlex) |
 | MPI | OpenMPI 4+ | Parallelism |
 | HDF5 | 1.10+ | Solution output |
 | GTest | 1.14+ | Test framework |
@@ -171,10 +177,10 @@ docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c \
   'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF && make -j$(nproc)'
 ```
 
-### Native (Requires PETSc 3.22.2)
+### Native (Requires PETSc 3.25.0)
 
 ```bash
-export PETSC_DIR=/path/to/petsc-3.22.2
+export PETSC_DIR=/path/to/petsc-3.25.0
 export PETSC_ARCH=arch-linux-c-opt
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF
@@ -199,9 +205,9 @@ PETSc handles vector operations via cuBLAS, matrix operations via cuSPARSE, and 
 ```
 src/                    Live source code (~45 files, ~35k lines)
 include/                Headers
-tests/                  112 automated tests (unit, functional, physics, integration)
+tests/                  116 automated tests (unit, functional, physics, integration)
 config/examples/        Working example configurations
-examples/               15 runnable examples with README and run.sh
+examples/               18 runnable examples with README and run.sh
 scripts/                Visualization scripts (Python, reads C++ output)
 meshes/                 Gmsh mesh files for examples
 archive/                Removed dead code, fake examples, aspirational configs
