@@ -20,18 +20,19 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-99 registered tests. All pass or GTEST_SKIP. Zero failures.
+101 registered tests. All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
 | Physics | 25 | Analytical solutions, FEM-coupled benchmarks, standalone physics |
-| Integration | 23 | Full Simulator pipeline through TSSolve, plus one explosion-fault residual coexistence check |
+| Integration | 25 | Full Simulator pipeline through TSSolve, plus traction BC, time-dependent slip, and explosion-fault residual coexistence |
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
 Note: the performance test `GPUAcceleration` uses `GTEST_SKIP` when CUDA is not available.
+Note: some tests may fail when run in parallel (`ctest -j`) due to HDF5 output file conflicts. All pass when run individually.
 
 ## Build Environment
 
@@ -154,6 +155,8 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | Locked fault (elastodynamic) | Integration.DynamicRuptureSolve.LockedElastodynamic | Cohesive + TSALPHA2 |
 | Prescribed slip | Integration.DynamicRuptureSolve.PrescribedSlip | Imposed displacement jump |
 | Locked fault transparency | Physics.LockedFaultTransparency | Fault slip < 5e-4 |
+| Per-face traction BC | Integration.TractionBC | Manual assembly, uniaxial analytical |
+| Time-dependent slip ramp | Integration.TimeDependentSlip | Linear slip ramp with onset/rise time |
 | Derived fields | Integration.DerivedFields | Stress/strain/CFS from solution |
 | HDF5/VTK output | Integration.OutputFile | PetscViewerHDF5, VTK |
 | Restart | Integration.Restart | Checkpoint/restore lifecycle |
@@ -232,7 +235,7 @@ Do not reference these in documentation or claims. Do not try to use them.
 
 ## Runnable Examples
 
-Six examples in `examples/`, each with README.md and run.sh:
+Eight examples in `examples/`, each with README.md and run.sh:
 
 | # | Directory | Config | Physics |
 |---|-----------|--------|---------|
@@ -242,6 +245,8 @@ Six examples in `examples/`, each with README.md and run.sh:
 | 04 | examples/04_locked_fault | locked_fault_compression.config | Cohesive cells |
 | 05 | examples/05_punggye_ri_nuclear_test | punggye_ri_layered_quick.config | Layered, SAC, HDF5 |
 | 06 | examples/06_gmsh_multimaterial | nuclear_twin_gmsh.config | Gmsh, per-region |
+| 07 | examples/07_traction_bc | traction_bc.config | Per-face traction BC |
+| 08 | examples/08_time_dependent_slip | time_dependent_slip.config | Slip ramp |
 
 ## Roadmap: Features to Implement
 

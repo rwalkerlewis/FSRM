@@ -203,6 +203,7 @@ private:
     PetscErrorCode locateInjectionCell();
     PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
     PetscErrorCode addFaultPressureToResidual(PetscReal t, Vec locF);
+    PetscErrorCode addTractionToResidual(PetscReal t, Vec locF);
     PetscErrorCode addCohesiveConstraintToResidual(PetscReal t, Vec locU, Vec locF);
     PetscErrorCode addCohesivePenaltyToJacobian(Mat J);
 
@@ -211,6 +212,9 @@ private:
     bool hydrofrac_initiated_ = false;
     bool hydrofrac_fem_pressurized_mode_ = false;
     double hydrofrac_uniform_pressure_pa_ = 0.0;
+
+    // Traction boundary conditions (manual assembly)
+    bool has_traction_bc_ = false;
 
     // Cohesive fracture plane (Phase 4)
     bool fracture_plane_enabled_ = false;
@@ -233,6 +237,8 @@ private:
     double fault_slip_dip_ = 0.0;
     double fault_slip_opening_ = 0.0;
     double fault_friction_coefficient_ = 0.6;
+    double fault_slip_onset_time_ = 0.0;   // Time when prescribed slip begins (s)
+    double fault_slip_rise_time_ = 0.0;    // Duration of slip ramp (s); 0 = instantaneous
 
     // Output directory and format for HDF5/VTK output
     std::string output_directory_ = "output";
