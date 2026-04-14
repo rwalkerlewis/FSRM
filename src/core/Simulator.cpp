@@ -631,6 +631,21 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         fault_slip_dip_ = reader.getDouble("FAULT", "slip_dip", 0.0);
         fault_slip_opening_ = reader.getDouble("FAULT", "slip_opening", 0.0);
         fault_friction_coefficient_ = reader.getDouble("FAULT", "friction_coefficient", 0.6);
+        // Read slip-weakening friction model parameters
+        if (reader.hasKey("FAULT", "friction_model")) {
+            std::string fm = reader.getString("FAULT", "friction_model", "constant");
+            if (fm == "slip_weakening") {
+                use_slip_weakening_ = true;
+                mu_static_ = reader.getDouble("FAULT", "static_friction", 0.677);
+                mu_dynamic_ = reader.getDouble("FAULT", "dynamic_friction", 0.525);
+                critical_slip_distance_ = reader.getDouble("FAULT", "critical_slip_distance", 0.40);
+                if (rank == 0) {
+                    PetscPrintf(comm,
+                        "Slip-weakening friction: mu_s=%.3f, mu_d=%.3f, Dc=%.4f m\n",
+                        mu_static_, mu_dynamic_, critical_slip_distance_);
+                }
+            }
+        }
         // Read optional fault geometry (center, orientation, dimensions)
         if (reader.hasKey("FAULT", "center_x") || reader.hasKey("FAULT", "center_y") ||
             reader.hasKey("FAULT", "center_z") || reader.hasKey("FAULT", "strike") ||
@@ -2087,6 +2102,12 @@ PetscErrorCode Simulator::setupPhysics() {
         }
         unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MODE] = fault_mode_val;
         unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_F] = fault_friction_coefficient_;
+        if (use_slip_weakening_) {
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_FRICTION_MODEL] = 1.0;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_S] = mu_static_;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_D] = mu_dynamic_;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_DC] = critical_slip_distance_;
+        }
     }
 
     // Set traction BC constants (6 faces x 3 components, starting at slot 36)
@@ -3951,7 +3972,15 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
                 slip_t_mag = PetscSqrtReal(slip_t_mag);
                 lambda_t_mag = PetscSqrtReal(lambda_t_mag);
-                const PetscReal tau_f = fault_friction_coefficient_ * PetscAbsReal(-lambda_n);
+                // Friction coefficient: constant or slip-weakening
+                PetscReal mu_f_resid;
+                if (use_slip_weakening_) {
+                    mu_f_resid = mu_static_ - (mu_static_ - mu_dynamic_) *
+                                 PetscMin(slip_t_mag, critical_slip_distance_) / critical_slip_distance_;
+                } else {
+                    mu_f_resid = fault_friction_coefficient_;
+                }
+                const PetscReal tau_f = mu_f_resid * PetscAbsReal(-lambda_n);
 
                 for (PetscInt d = 0; d < dim; ++d)
                 {
@@ -4269,7 +4298,14 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                 }
                 PetscReal slip_t_mag = PetscSqrtReal(slip_t_mag2);
 
-                const PetscReal mu_f = fault_friction_coefficient_;
+                // Friction coefficient: constant or slip-weakening
+                PetscReal mu_f;
+                if (use_slip_weakening_) {
+                    mu_f = mu_static_ - (mu_static_ - mu_dynamic_) *
+                           PetscMin(slip_t_mag, critical_slip_distance_) / critical_slip_distance_;
+                } else {
+                    mu_f = fault_friction_coefficient_;
+                }
                 // Friction strength: tau_f = mu_f * |compressive normal traction|
                 // Convention: lam_n > 0 is tensile, compressive = -lam_n
                 const PetscReal sigma_n_comp = PetscMax(0.0, -lam_n);
@@ -4335,6 +4371,12 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                             dS_de = (P_de - s_hat[d] * s_hat[e]) / slip_t_mag;
                         }
                         PetscReal J_lu = -tau_f * dS_de;
+                        // Slip-weakening: d(mu_f)/d(|slip_t|) * sigma_n * s_hat_d * s_hat_e
+                        if (use_slip_weakening_ && slip_t_mag < critical_slip_distance_
+                            && slip_t_mag > slip_eps) {
+                            PetscReal dmu_dslip = -(mu_static_ - mu_dynamic_) / critical_slip_distance_;
+                            J_lu += -dmu_dslip * sigma_n_comp * s_hat[d] * s_hat[e];
+                        }
                         if (slip_n < 0.0) {
                             J_lu += -normal[d] * normal[e];
                         }

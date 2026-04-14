@@ -40,6 +40,13 @@ void CohesiveFaultKernel::setPrescribedSlip(double sx, double sy, double sz) {
     prescribed_slip_mode_ = true;
 }
 
+void CohesiveFaultKernel::setSlipWeakeningParams(double mu_s, double mu_d, double D_c) {
+    mu_static_ = mu_s;
+    mu_dynamic_ = mu_d;
+    critical_slip_distance_ = D_c;
+    use_slip_weakening_ = true;
+}
+
 void CohesiveFaultKernel::setFrictionModel(FaultFrictionModel* model) {
     friction_model_ = model;
 }
@@ -246,13 +253,28 @@ void CohesiveFaultKernel::f0_lagrange_constraint(
             lambda_n += u[uOff[1] + d] * n[d];
         }
 
-        // Friction coefficient from dedicated constant slot (COHESIVE_CONST_MU_F = 25)
-        PetscScalar mu_f = (numConstants > COHESIVE_CONST_MU_F)
-                           ? constants[COHESIVE_CONST_MU_F] : 0.6;
+        // Friction coefficient: constant or slip-weakening
+        PetscReal friction_model = (numConstants > COHESIVE_CONST_FRICTION_MODEL)
+                                   ? PetscRealPart(constants[COHESIVE_CONST_FRICTION_MODEL]) : 0.0;
+        PetscReal mu_f_val;
+        if (friction_model > 0.5) {
+            // Linear slip-weakening: mu = mu_s - (mu_s - mu_d) * min(|slip_t|, Dc) / Dc
+            PetscReal mu_s = (numConstants > COHESIVE_CONST_MU_S)
+                             ? PetscRealPart(constants[COHESIVE_CONST_MU_S]) : 0.677;
+            PetscReal mu_d = (numConstants > COHESIVE_CONST_MU_D)
+                             ? PetscRealPart(constants[COHESIVE_CONST_MU_D]) : 0.525;
+            PetscReal D_c = (numConstants > COHESIVE_CONST_DC)
+                            ? PetscRealPart(constants[COHESIVE_CONST_DC]) : 0.40;
+            PetscReal slip_mag_real = PetscRealPart(slip_mag);
+            mu_f_val = mu_s - (mu_s - mu_d) * PetscMin(slip_mag_real, D_c) / D_c;
+        } else {
+            mu_f_val = (numConstants > COHESIVE_CONST_MU_F)
+                       ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        }
 
         // Friction strength: tau_f = mu_f * |sigma_n_eff|
         // sigma_n_eff is the normal traction (compressive positive)
-        PetscScalar tau_f = mu_f * std::abs(PetscRealPart(-lambda_n));
+        PetscScalar tau_f = mu_f_val * std::abs(PetscRealPart(-lambda_n));
 
         // Tangential traction from Lagrange multiplier
         PetscScalar lambda_t[3];
@@ -385,15 +407,37 @@ void CohesiveFaultKernel::g0_lagrange_displacement(
             }
         }
 
-        // Friction coefficient and strength
-        PetscReal mu_f = (numConstants > COHESIVE_CONST_MU_F)
-                         ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        // Friction coefficient: constant or slip-weakening
+        PetscReal friction_model = (numConstants > COHESIVE_CONST_FRICTION_MODEL)
+                                   ? PetscRealPart(constants[COHESIVE_CONST_FRICTION_MODEL]) : 0.0;
+        PetscReal mu_s = 0.0, mu_d = 0.0, D_c = 1.0;
+        PetscReal mu_f;
+        if (friction_model > 0.5) {
+            mu_s = (numConstants > COHESIVE_CONST_MU_S)
+                   ? PetscRealPart(constants[COHESIVE_CONST_MU_S]) : 0.677;
+            mu_d = (numConstants > COHESIVE_CONST_MU_D)
+                   ? PetscRealPart(constants[COHESIVE_CONST_MU_D]) : 0.525;
+            D_c = (numConstants > COHESIVE_CONST_DC)
+                  ? PetscRealPart(constants[COHESIVE_CONST_DC]) : 0.40;
+            mu_f = mu_s - (mu_s - mu_d) * std::min(slip_t_mag, D_c) / D_c;
+        } else {
+            mu_f = (numConstants > COHESIVE_CONST_MU_F)
+                   ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        }
+
         PetscReal lambda_n = 0.0;
         for (PetscInt d = 0; d < dim; ++d) {
             lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];
         }
         PetscReal sigma_n_comp = std::max(0.0, -lambda_n);
         PetscReal tau_f = mu_f * sigma_n_comp;
+
+        // Slip-weakening derivative: d(mu_f)/d(|slip_t|) = -(mu_s - mu_d)/Dc
+        // when |slip_t| < Dc, 0 otherwise
+        PetscReal dmu_dslip = 0.0;
+        if (friction_model > 0.5 && slip_t_mag < D_c) {
+            dmu_dslip = -(mu_s - mu_d) / D_c;
+        }
 
         for (PetscInt i = 0; i < dim; ++i) {
             for (PetscInt j = 0; j < dim; ++j) {
@@ -403,6 +447,14 @@ void CohesiveFaultKernel::g0_lagrange_displacement(
                     dS_ij = (P_ij - s_hat[i] * s_hat[j]) / slip_t_mag;
                 }
                 g0[i * dim + j] = -tau_f * dS_ij;
+
+                // Slip-weakening contribution: d(tau_f * s_hat_i)/d(u_j)
+                // includes d(mu_f)/d(|slip_t|) * d(|slip_t|)/d(u_j) * sigma_n * s_hat_i
+                // d(|slip_t|)/d(u_j) = s_hat_j, so:
+                // contribution = -dmu_dslip * sigma_n_comp * s_hat_i * s_hat_j
+                if (dmu_dslip != 0.0 && slip_t_mag > 1e-15) {
+                    g0[i * dim + j] += -dmu_dslip * sigma_n_comp * s_hat[i] * s_hat[j];
+                }
 
                 // Normal non-penetration: d(max(-slip_n,0)*n_d)/d(u_e)
                 // = -H(-slip_n) * n_d * n_e (derivative of max(-slip_n,0) w.r.t. slip_e)
@@ -487,9 +539,23 @@ void CohesiveFaultKernel::g0_lagrange_lagrange(
             }
         }
 
-        // Normal traction and friction
-        PetscReal mu_f = (numConstants > COHESIVE_CONST_MU_F)
-                         ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        // Friction coefficient: constant or slip-weakening
+        PetscReal friction_model = (numConstants > COHESIVE_CONST_FRICTION_MODEL)
+                                   ? PetscRealPart(constants[COHESIVE_CONST_FRICTION_MODEL]) : 0.0;
+        PetscReal mu_f;
+        if (friction_model > 0.5) {
+            PetscReal mu_s = (numConstants > COHESIVE_CONST_MU_S)
+                             ? PetscRealPart(constants[COHESIVE_CONST_MU_S]) : 0.677;
+            PetscReal mu_d = (numConstants > COHESIVE_CONST_MU_D)
+                             ? PetscRealPart(constants[COHESIVE_CONST_MU_D]) : 0.525;
+            PetscReal D_c = (numConstants > COHESIVE_CONST_DC)
+                            ? PetscRealPart(constants[COHESIVE_CONST_DC]) : 0.40;
+            mu_f = mu_s - (mu_s - mu_d) * std::min(slip_t_mag, D_c) / D_c;
+        } else {
+            mu_f = (numConstants > COHESIVE_CONST_MU_F)
+                   ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        }
+
         PetscReal lambda_n = 0.0;
         for (PetscInt d = 0; d < dim; ++d) {
             lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];

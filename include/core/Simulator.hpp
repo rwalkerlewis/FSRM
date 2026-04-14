@@ -237,6 +237,10 @@ private:
     double fault_slip_dip_ = 0.0;
     double fault_slip_opening_ = 0.0;
     double fault_friction_coefficient_ = 0.6;
+    bool use_slip_weakening_ = false;
+    double mu_static_ = 0.677;
+    double mu_dynamic_ = 0.525;
+    double critical_slip_distance_ = 0.40;
     double fault_slip_onset_time_ = 0.0;   // Time when prescribed slip begins (s)
     double fault_slip_rise_time_ = 0.0;    // Duration of slip ramp (s); 0 = instantaneous
 

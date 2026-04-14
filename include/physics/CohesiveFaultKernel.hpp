@@ -50,7 +50,13 @@ public:
     static constexpr PetscInt COHESIVE_CONST_PRESCRIBED_SLIP_X = 28;  // prescribed slip x
     static constexpr PetscInt COHESIVE_CONST_PRESCRIBED_SLIP_Y = 29;  // prescribed slip y
     static constexpr PetscInt COHESIVE_CONST_PRESCRIBED_SLIP_Z = 30;  // prescribed slip z
-    static constexpr PetscInt COHESIVE_CONST_COUNT = 31;  // total constant slots needed
+    static constexpr PetscInt COHESIVE_CONST_COUNT = 31;  // minimum constant slots for base cohesive
+
+    // Slip-weakening friction constants (slots 70-73, after viscoelastic 54-69)
+    static constexpr PetscInt COHESIVE_CONST_FRICTION_MODEL = 70;  // 0=constant, 1=slip_weakening
+    static constexpr PetscInt COHESIVE_CONST_MU_S = 71;            // static friction coefficient
+    static constexpr PetscInt COHESIVE_CONST_MU_D = 72;            // dynamic friction coefficient
+    static constexpr PetscInt COHESIVE_CONST_DC = 73;              // critical slip distance (m)
 
     CohesiveFaultKernel();
 
@@ -86,6 +92,14 @@ public:
      * @param sz Prescribed displacement jump in z
      */
     void setPrescribedSlip(double sx, double sy, double sz);
+
+    /**
+     * @brief Set slip-weakening friction parameters
+     * @param mu_s Static friction coefficient
+     * @param mu_d Dynamic friction coefficient
+     * @param D_c Critical slip distance (m)
+     */
+    void setSlipWeakeningParams(double mu_s, double mu_d, double D_c);
 
     /**
      * @brief Set the friction model for slipping constraint
@@ -255,6 +269,10 @@ private:
     double mu_friction_ = 0.6;  // Coulomb friction coefficient for slipping mode
     double tensile_strength_ = 0.0;  // Tensile strength in Pa (0 = no check)
     double prescribed_slip_[3] = {0.0, 0.0, 0.0};  // Cartesian slip vector
+    double mu_static_ = 0.677;           // Static friction coefficient (slip-weakening)
+    double mu_dynamic_ = 0.525;          // Dynamic friction coefficient (slip-weakening)
+    double critical_slip_distance_ = 0.40;  // Critical slip distance in m
+    bool use_slip_weakening_ = false;    // True if slip-weakening friction model is active
     FaultFrictionModel* friction_model_ = nullptr;
 };
 

@@ -125,6 +125,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_historic_nuclear.cpp
     integration/test_single_phase_flow.cpp
     integration/test_viscoelastic_wave.cpp
+    integration/test_slip_weakening.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -291,6 +292,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.TimeDependentSlip COMMAND run_integration_tests --gtest_filter=TimeDependentSlipTest.*)
     add_test(NAME Integration.NearFieldCoupled COMMAND run_integration_tests --gtest_filter=NearFieldCoupledTest.*)
     add_test(NAME Integration.SlippingFaultSolve COMMAND run_integration_tests --gtest_filter=SlippingFaultSolveTest.*)
+    add_test(NAME Integration.SlipWeakeningFault COMMAND run_integration_tests --gtest_filter=SlipWeakeningFaultTest.*)
     add_test(NAME Integration.SinglePhaseFlow COMMAND run_integration_tests --gtest_filter=SinglePhaseFlowTest.*)
     add_test(NAME Integration.ViscoelasticWave COMMAND run_integration_tests --gtest_filter=ViscoelasticWaveTest.*)
     add_test(NAME Integration.HistoricNuclear.Gasbuggy1967 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gasbuggy1967)
@@ -398,6 +400,7 @@ if(GTest_FOUND)
         Integration.TimeDependentSlip
         Integration.NearFieldCoupled
         Integration.SlippingFaultSolve
+        Integration.SlipWeakeningFault
         Integration.SinglePhaseFlow
         Integration.ViscoelasticWave
         Integration.HistoricNuclear.Gasbuggy1967
