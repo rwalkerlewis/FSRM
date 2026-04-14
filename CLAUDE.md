@@ -20,14 +20,14 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-112 registered tests (plus 1 new Physics.CohesiveBdResidual = 113 total). All pass or GTEST_SKIP. Zero failures.
+114 registered tests. All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
-| Physics | 27 | Analytical solutions, FEM-coupled benchmarks, standalone physics, viscoelastic relaxation, cohesive BdResidual verification |
-| Integration | 35 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave |
+| Physics | 27 | Analytical solutions, FEM-coupled benchmarks, standalone physics, viscoelastic relaxation, cohesive BdResidual verification, SCEC TPV5 |
+| Integration | 36 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, slip-weakening fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave |
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
@@ -88,10 +88,11 @@ setupPhysics() -> register PetscDS callbacks + unified constants
 setupTimeStepper() -> create TS with IFunction/IJacobian
 setupSolvers() -> configure SNES/KSP
 setInitialConditions() -> zero solution, locate injection/explosion cells
+applyInitialFaultStress() -> set Lagrange DOFs to initial traction (optional, for TPV5-type benchmarks)
 run() -> TSSolve
 ```
 
-FormFunction uses DMPlexTSComputeIFunctionFEM for volume residual, plus addExplosionSourceToResidual (displacement DOFs via moment tensor equivalent nodal forces) and addInjectionToResidual (pressure DOFs) for point sources, plus addFaultPressureToResidual for pressurized fractures.
+FormFunction uses DMPlexTSComputeIFunctionFEM for volume residual (including BdResidual on cohesive cells for fault constraints), plus addExplosionSourceToResidual (displacement DOFs via moment tensor equivalent nodal forces) and addInjectionToResidual (pressure DOFs) for point sources, plus addFaultPressureToResidual for pressurized fractures. The Jacobian is assembled by DMPlexTSComputeIJacobianFEM for volume terms, plus addCohesivePenaltyToJacobian for cohesive fault terms (BdJacobian is not functional in PETSc 3.25).
 
 ### CRITICAL: DS/BC Ordering in setupFields()
 
@@ -109,7 +110,7 @@ DMGetDS(dm, &prob); // 5. Get DS for later use
 
 PETSc DMPlex unstructured FEM with PetscDS pointwise callbacks (f0, f1, g0, g3).
 
-### Unified Constants Array (up to 70 elements)
+### Unified Constants Array (up to 80 elements)
 
 Set once in `setupPhysics()`:
 
@@ -125,6 +126,11 @@ Set once in `setupPhysics()`:
 [25] cohesive_mode [26] cohesive_mu_f [27-31] reserved
 [32] ep_cohesion [33] ep_friction_angle
 [34] ep_dilation_angle [35] ep_hardening_modulus
+[36-53] traction BC (6 faces x 3 components)
+[54-69] viscoelastic (N, tau, delta_mu, delta_kappa)
+[70] friction_model (0=constant, 1=slip_weakening)
+[71] mu_s (static friction) [72] mu_d (dynamic friction)
+[73] D_c (critical slip distance)
 ```
 
 When auxiliary fields are used, callbacks read material properties from `a[]`/`a_x[]` via `aOff[]` instead of from `constants[]`. The constants array remains for non-material parameters.
@@ -163,7 +169,9 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | DPRK 2017 mb | Integration.DPRK2017Comparison | Synthetic vs observed body-wave magnitude |
 | Explosion+fault residual | Integration.ExplosionFaultReactivation | Coexistence of moment-tensor and cohesive residual |
 | NearField-FEM coupling | Integration.NearFieldCoupled | COUPLED_ANALYTIC 1D solver to 3D FEM moment rate |
-| Slipping fault (Coulomb) | Integration.SlippingFaultSolve | Semi-smooth Newton Jacobian for Coulomb friction |
+| Slipping fault (Coulomb) | Integration.SlippingFaultSolve | Full semi-smooth Newton Jacobian for Coulomb friction |
+| Slip-weakening friction | Integration.SlipWeakeningFault | Linear slip-weakening (mu_s, mu_d, Dc) through TSSolve |
+| SCEC TPV5 benchmark | Physics.SCEC.TPV5 | Dynamic rupture with initial stress and nucleation patch |
 | Single-phase flow | Integration.SinglePhaseFlow | Pressure diffusion with Dirichlet pressure BCs |
 | Viscoelastic attenuation | Integration.ViscoelasticWave | Generalized Maxwell body, memory variables in aux fields |
 | Historic: Gasbuggy 1967 | Integration.HistoricNuclear.Gasbuggy1967 | 29 kt, 4-layer Lewis Shale, SAC output |
@@ -246,7 +254,7 @@ Do not reference these in documentation or claims. Do not try to use them.
 
 ## Runnable Examples
 
-Fifteen examples in `examples/`, each with README.md and run.sh:
+Sixteen examples in `examples/`, each with README.md and run.sh:
 
 | # | Directory | Config | Physics |
 |---|-----------|--------|--------|
@@ -265,6 +273,7 @@ Fifteen examples in `examples/`, each with README.md and run.sh:
 | 13 | examples/13_nts_pahute_mesa | nts_pahute_mesa.config | 150 kt, 4-layer tuff |
 | 14 | examples/14_single_phase_flow | config.config | Darcy pressure diffusion |
 | 15 | examples/15_viscoelastic_attenuation | config.config | GMB attenuation, seismograms |
+| 16 | examples/16_scec_tpv5 | config.config | TPV5 dynamic rupture, slip-weakening |
 
 ## Roadmap: Features to Implement
 
@@ -272,14 +281,14 @@ Each item requires: PetscDS callbacks integrated into setupPhysics(), integratio
 through TSSolve, example config, and visualization. Source code in archive/src/ may provide
 a starting point but must be rewritten to use the PetscDS callback pattern.
 
-1. ~~Slipping fault convergence~~ DONE (semi-smooth Newton tangent for Coulomb friction, full Jacobian kernels in CohesiveFaultKernel.cpp)
+1. ~~Slipping fault convergence~~ DONE (full semi-smooth Newton Jacobian with off-diagonal slip direction derivatives and friction-normal coupling)
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
 4. ~~Viscoelastic attenuation~~ DONE (generalized Maxwell body, Q-factor memory variables)
 5. Thermal coupling (heat equation + THM Biot)
 6. Radiation transport (advection-diffusion for fallout)
 7. Per-cell material from velocity model files
-8. SCEC TPV5 dynamic rupture benchmark
+8. ~~SCEC TPV5 dynamic rupture benchmark~~ DONE (slip-weakening friction, initial fault stress, nucleation patch)
 9. Multi-stage hydraulic fracturing with stress shadowing
 10. Production forecasting through propped fracture
 

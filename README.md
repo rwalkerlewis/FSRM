@@ -56,6 +56,7 @@ Fifteen runnable examples demonstrate verified capabilities. Each has a `README.
 | 13 | [NTS Pahute Mesa](examples/13_nts_pahute_mesa/) | 150 kt, 4-layer tuff, SAC output | ~15s |
 | 14 | [Single-Phase Flow](examples/14_single_phase_flow/) | Darcy pressure diffusion, Dirichlet pressure BCs | < 1s |
 | 15 | [Viscoelastic Attenuation](examples/15_viscoelastic_attenuation/) | Generalized Maxwell body, Q-factor, seismograms | ~15s |
+| 16 | [SCEC TPV5](examples/16_scec_tpv5/) | Dynamic rupture, slip-weakening friction, nucleation | ~300s |
 
 ---
 
@@ -141,7 +142,7 @@ Each item requires PetscDS callbacks integrated into `setupPhysics()`, integrati
 5. Thermal coupling (heat equation + THM Biot)
 6. Radiation transport (advection-diffusion for fallout)
 7. Per-cell material from velocity model files
-8. SCEC TPV5 dynamic rupture benchmark
+8. ~~SCEC TPV5 dynamic rupture benchmark~~ DONE
 9. Multi-stage hydraulic fracturing with stress shadowing
 10. Production forecasting through propped fracture
 

@@ -1658,7 +1658,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         fe_fields.push_back(fe);
     }
 
-    // Create DS (required before adding boundaries in PETSc 3.22.2)
+    // Create DS (required before adding boundaries in PETSc 3.25)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
 
     // Add boundary conditions to the DS
@@ -3637,9 +3637,10 @@ PetscErrorCode Simulator::addFaultPressureToResidual(PetscReal t, Vec locF) {
 // =============================================================================
 // addCohesiveConstraintToResidual
 //
-// Manual cohesive interface assembly that bypasses PetscDSSetBdResidual,
-// which crashes in PETSc 3.22 on cohesive cells due to the hybrid prism / tet
-// support mismatch. The live section layout on the split mesh places both the
+// Manual cohesive interface assembly (legacy path). PETSc 3.25 supports
+// PetscDSSetBdResidual on cohesive cells, so the primary residual path is
+// now through BdResidual callbacks. This function is retained as a fallback.
+// The live section layout on the split mesh places both the
 // displacement and lagrange DOFs on the duplicated fault vertices, so the
 // assembly is performed on paired negative/positive face vertices of each
 // cohesive prism cell.
