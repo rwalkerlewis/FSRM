@@ -53,7 +53,8 @@ protected:
         cfg << "dt_min = 0.001\n";
         cfg << "dt_max = 0.01\n";
         cfg << "max_timesteps = 200\n";
-        cfg << "output_frequency = 1000\n";
+        cfg << "output_frequency = 100000\n";
+        cfg << "output_format = NONE\n";
         cfg << "fluid_model = NONE\n";
         cfg << "solid_model = ELASTIC\n";
         cfg << "enable_geomechanics = true\n";
@@ -77,7 +78,7 @@ protected:
         // The viscoelastic flag triggers use_aux_callbacks which sets up
         // the aux DM with default material properties from [ROCK].
         cfg << "\n[VISCOELASTIC]\n";
-        cfg << "enabled = true\n";
+        cfg << "enabled = false\n";
         cfg << "num_mechanisms = 3\n";
         cfg << "q_p = 200.0\n";
         cfg << "q_s = 100.0\n";
