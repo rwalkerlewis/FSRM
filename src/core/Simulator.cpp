@@ -2249,7 +2249,7 @@ PetscErrorCode Simulator::setupPhysics() {
                 // Use standard aux g3 for all cases (including viscoelastic)
                 auto g3_cb = config.enable_elastoplasticity
                         ? PetscFEElastoplasticity::g3_elastoplastic_aux
-                        : PetscFEElasticityAux::g3_elastostatics_aux);
+                        : PetscFEElasticityAux::g3_elastostatics_aux;
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastostatics_aux,
                                           f1_cb); CHKERRQ(ierr);
