@@ -7,6 +7,12 @@
  * Seismometers at two distances verify that attenuation reduces the amplitude
  * ratio beyond pure geometric spreading.
  *
+ * Known issue: the multi-component (6-component) auxiliary fields for memory
+ * variables cause a segfault in PETSc's DMPlex FEM tabulation when the aux DM
+ * has mixed scalar + multi-component fields. This needs deeper investigation
+ * (possibly degree-0 multi-component FE fields require special tabulation setup
+ * or the aux DM needs to match the primary DM's quadrature more carefully).
+ *
  * The test verifies:
  *   1. TSSolve completes with viscoelastic attenuation enabled
  *   2. Seismometers record nonzero waveforms
