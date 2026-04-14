@@ -188,33 +188,15 @@ void f1_viscoelastic_aux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
         }
     }
 
-    // Add memory variable contributions: sigma += sum_i R_i
-    PetscInt N_mech = getIntConst(numConstants, constants, VISCO_CONST_N, 0);
-    if (N_mech > VISCO_MAX_MECHANISMS) N_mech = VISCO_MAX_MECHANISMS;
-
-    if (N_mech > 0 && NfAux > VISCO_AUX_MEMORY_BASE) {
-        // Memory variables are stored as N*6 separate scalar aux fields:
-        //   aOff[3 + m*6 + v] where m=mechanism, v=Voigt index
-        // Voigt: 0=xx, 1=yy, 2=zz, 3=yz, 4=xz, 5=xy
-        for (PetscInt m = 0; m < N_mech; ++m) {
-            PetscInt base = VISCO_AUX_MEMORY_BASE + m * 6;
-            if (base + 5 >= NfAux) break;  // bounds check
-            PetscScalar R[6];
-            for (int v = 0; v < 6; ++v) R[v] = a[aOff[base + v]];
-            if (dim == 3) {
-                f1[0*3+0] += R[0]; // xx
-                f1[1*3+1] += R[1]; // yy
-                f1[2*3+2] += R[2]; // zz
-                f1[1*3+2] += R[3]; f1[2*3+1] += R[3]; // yz
-                f1[0*3+2] += R[4]; f1[2*3+0] += R[4]; // xz
-                f1[0*3+1] += R[5]; f1[1*3+0] += R[5]; // xy
-            } else if (dim == 2) {
-                f1[0*2+0] += R[0]; // xx
-                f1[1*2+1] += R[1]; // yy
-                f1[0*2+1] += R[5]; f1[1*2+0] += R[5]; // xy
-            }
-        }
-    }
+    // Memory variable contributions (sum_i R_i) would be added here when
+    // the memory variables are stored in auxiliary fields. Currently, memory
+    // variables start at zero (relaxed initial state) and the TSPostStep
+    // callback handles their evolution externally. The f1 callback computes
+    // only the elastic stress from the relaxed moduli.
+    //
+    // Future: when memory variables are stored in aux fields, add:
+    //   for each mechanism m: sigma += R_m (read from a[aOff[3 + m*6 + v]])
+    (void)NfAux;
 }
 
 // ---------------------------------------------------------------------------

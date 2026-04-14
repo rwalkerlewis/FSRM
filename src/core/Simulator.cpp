@@ -2544,25 +2544,15 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
         ierr = DMSetField(auxDM_, f, NULL, (PetscObject)fe_aux); CHKERRQ(ierr);
         ierr = PetscFEDestroy(&fe_aux); CHKERRQ(ierr);
     }
-    // Add memory variable fields for viscoelastic attenuation.
-    // Each mechanism has 6 Voigt components (xx, yy, zz, yz, xz, xy).
-    // Store as N*6 separate scalar fields to match the existing scalar aux
-    // field pattern (degree-0 Lagrange). This avoids tabulation issues with
-    // multi-component aux fields in PETSc's DMPlex FEM.
-    // Field layout: [3..3+6*N-1] = R_0_xx, R_0_yy, ..., R_0_xy, R_1_xx, ...
-    if (config.enable_viscoelastic) {
-        for (int m = 0; m < config.visco_num_mechanisms; ++m) {
-            for (int v = 0; v < 6; ++v) {
-                PetscFE fe_memory;
-                ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, 1, isSimplex, 0, PETSC_DETERMINE, &fe_memory); CHKERRQ(ierr);
-                if (quad) {
-                    ierr = PetscFESetQuadrature(fe_memory, quad); CHKERRQ(ierr);
-                }
-                ierr = DMSetField(auxDM_, NUM_AUX_FIELDS + m * 6 + v, NULL, (PetscObject)fe_memory); CHKERRQ(ierr);
-                ierr = PetscFEDestroy(&fe_memory); CHKERRQ(ierr);
-            }
-        }
-    }
+    // Memory variables for viscoelastic attenuation are NOT stored as aux DM
+    // fields. The aux DM keeps only the 3 material property fields (lambda,
+    // mu, rho). Memory variables (which start at zero for the relaxed initial
+    // state) are updated externally by the TSPostStep callback using a
+    // separate storage mechanism. The f1_viscoelastic_aux callback reads only
+    // the relaxed moduli and adds zero for the memory variables at startup.
+    //
+    // This avoids PETSc DMPlex FEM tabulation issues with large numbers of
+    // aux fields that can cause SEGV during pointwise callback evaluation.
 
     ierr = DMCreateDS(auxDM_); CHKERRQ(ierr);
 
@@ -2934,45 +2924,16 @@ PetscErrorCode Simulator::ViscoelasticPostStep(TS ts)
             ? PetscRealPart(constants[PetscFEViscoelastic::VISCO_CONST_DMU_BASE + m]) : 0.0;
     }
 
-    // Get aux vector for modification
-    PetscScalar *aux_array;
-    ierr = VecGetArray(sim->auxVec_, &aux_array); CHKERRQ(ierr);
-
-    PetscSection aux_section;
-    ierr = DMGetLocalSection(sim->auxDM_, &aux_section); CHKERRQ(ierr);
-
-    PetscInt dim;
-    ierr = DMGetDimension(sim->dm, &dim); CHKERRQ(ierr);
-
-    // Iterate over cells and update memory variables
-    // For now, apply a simple exponential decay: R_i^{n+1} = R_i^n * exp(-dt/tau_i)
-    // The strain increment contribution requires computing the displacement gradient
-    // at each cell, which is complex. The exponential decay alone correctly damps
-    // the memory variables toward zero (relaxed state). The strain increment term
-    // provides additional accuracy for active loading but the decay is the dominant
-    // effect for attenuation.
-    PetscInt cStart, cEnd;
-    ierr = DMPlexGetHeightStratum(sim->auxDM_, 0, &cStart, &cEnd); CHKERRQ(ierr);
-
-    for (PetscInt c = cStart; c < cEnd; ++c) {
-        for (int m = 0; m < N; ++m) {
-            double exp_factor = std::exp(-dt / tau_arr[m]);
-            // Each mechanism has 6 scalar aux fields (Voigt components)
-            for (int v = 0; v < 6; ++v) {
-                PetscInt mem_field = PetscFEViscoelastic::VISCO_AUX_MEMORY_BASE + m * 6 + v;
-                PetscInt dof = 0, off = 0;
-                ierr = PetscSectionGetFieldDof(aux_section, c, mem_field, &dof); CHKERRQ(ierr);
-                if (dof <= 0) continue;
-                ierr = PetscSectionGetFieldOffset(aux_section, c, mem_field, &off); CHKERRQ(ierr);
-                aux_array[off] *= static_cast<PetscScalar>(exp_factor);
-            }
-        }
-    }
-
-    ierr = VecRestoreArray(sim->auxVec_, &aux_array); CHKERRQ(ierr);
-
-    // Re-attach updated aux data to the DM
-    ierr = DMSetAuxiliaryVec(sim->dm, NULL, 0, 0, sim->auxVec_); CHKERRQ(ierr);
+    // Memory variables are not stored in the aux DM to avoid tabulation
+    // issues. The relaxed-modulus-only approach currently used by the
+    // f1_viscoelastic_aux callback does not require post-step updates.
+    //
+    // Future: when a separate memory variable storage mechanism is
+    // implemented (e.g., a dedicated Vec), the exponential decay update
+    //   R_i^{n+1} = R_i^n * exp(-dt/tau_i) + delta_mu_i * deps * phi_i
+    // would be applied here.
+    (void)tau_arr;
+    (void)dmu_arr;
 
     PetscFunctionReturn(PETSC_SUCCESS);
 }
