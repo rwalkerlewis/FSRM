@@ -4330,106 +4330,49 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                 //   R_u_neg_d = (-lambda_d - eff_penalty * constraint_d) * area
                 //   R_u_pos_d = ( lambda_d + eff_penalty * constraint_d) * area
 
-                for (PetscInt d = 0; d < ndof; ++d) {
-                    for (PetscInt e = 0; e < ndof; ++e) {
-                        const PetscInt row_lag_d = neg_lag_off + d;
-                        const PetscInt col_neg_e = neg_disp_off + e;
-                        const PetscInt col_pos_e = pos_disp_off + e;
-                        const PetscInt col_lag_e = neg_lag_off + e;
-                        const PetscInt row_neg_d = neg_disp_off + d;
-                        const PetscInt row_pos_d = pos_disp_off + d;
+                // Simplified slipping Jacobian: use the locked-mode coupling
+                // structure (diagonal per d) with the friction constraint's
+                // tangential/normal decomposition.
+                //
+                // For the Lagrange multiplier equation:
+                //   Locked constraint: C = u_pos - u_neg (Jacobian: +/-I coupling)
+                //   Slipping constraint: C = lam_t - tau_f * s_hat  (Jacobian: identity on tangential lambda)
+                // The key difference is that the slipping constraint depends on lambda
+                // (not just u), so J_lag_lag is non-zero. We use a tangential identity
+                // for J_lag_lag and keep the displacement coupling as for locked mode.
+                //
+                // This is an inexact Jacobian (it omits slip direction derivatives)
+                // but provides sufficient coupling for SNES convergence when combined
+                // with the augmented Lagrangian penalty.
+                for (PetscInt d = 0; d < ndof; ++d)
+                {
+                    const PetscInt row_neg_disp = neg_disp_off + d;
+                    const PetscInt row_pos_disp = pos_disp_off + d;
+                    const PetscInt row_lag = neg_lag_off + d;
+                    const PetscInt col_neg_disp = neg_disp_off + d;
+                    const PetscInt col_pos_disp = pos_disp_off + d;
+                    const PetscInt col_lag = neg_lag_off + d;
 
-                        // Tangential projector: P_de = delta_de - n_d * n_e
-                        PetscReal P_de = (d == e ? 1.0 : 0.0) - normal[d] * normal[e];
+                    // Traction coupling: d(R_u)/d(lambda) = +/- I (same as locked)
+                    ierr = MatSetValue(J, row_neg_disp, col_lag, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
 
-                        // =====================================================
-                        // d(constraint_d) / d(lambda_e)  -- J_lag_lag
-                        // =====================================================
-                        // Tangential: d(lam_t_d)/d(lam_e) = P_de
-                        // Friction:   d(tau_f)/d(lam_e) = mu_f * d(sigma_n_comp)/d(lam_e)
-                        //             d(sigma_n_comp)/d(lam_e) = -n_e  if -lam_n > 0
-                        // So: d(constraint_d)/d(lam_e) = P_de + mu_f * s_hat_d * n_e  (when compressive)
-                        PetscScalar dC_dlam = static_cast<PetscScalar>(P_de);
-                        if (slip_t_mag > slip_eps && sigma_n_comp > 0.0) {
-                            dC_dlam += static_cast<PetscScalar>(mu_f * s_hat[d] * normal[e]);
-                        }
+                    // Constraint coupling: d(R_lag)/d(u) = +/- I (from penalty)
+                    ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
 
-                        // =====================================================
-                        // d(constraint_d) / d(u_neg_e)  -- J_lag_uneg
-                        // =====================================================
-                        // Tangential friction derivative:
-                        //   d(constraint_d)/d(u_neg_e) = -tau_f * d(s_hat_d)/d(u_neg_e)
-                        //   d(s_hat_d)/d(u_neg_e) = d(s_hat_d)/d(slip_t_k) * d(slip_t_k)/d(u_neg_e)
-                        //   d(slip_t_k)/d(u_neg_e) = -(delta_ke - n_k*n_e) = -P_ke
-                        //   d(s_hat_d)/d(slip_t_k) = (delta_dk - s_hat_d*s_hat_k) / slip_t_mag
-                        // => d(constraint_d)/d(u_neg_e) = tau_f/slip_t_mag * sum_k (delta_dk - s_hat_d*s_hat_k) * P_ke
-                        //
-                        // Normal non-penetration: if slip_n < 0:
-                        //   constraint_d += (-slip_n) * n_d
-                        //   d((-slip_n)*n_d)/d(u_neg_e) = +n_d * n_e  (since d(slip_n)/d(u_neg_e) = -n_e)
-                        PetscScalar dC_duneg = 0.0;
-                        if (slip_t_mag > slip_eps && tau_f > 0.0) {
-                            // Compute sum_k (delta_dk - s_hat_d*s_hat_k) * P_ke
-                            PetscReal sum_val = 0.0;
-                            for (PetscInt k = 0; k < dim; ++k) {
-                                PetscReal A_dk = (d == k ? 1.0 : 0.0) - s_hat[d] * s_hat[k];
-                                PetscReal P_ke = (k == e ? 1.0 : 0.0) - normal[k] * normal[e];
-                                sum_val += A_dk * P_ke;
-                            }
-                            dC_duneg = static_cast<PetscScalar>(tau_f / slip_t_mag * sum_val);
-                        }
-                        // Normal non-penetration
-                        if (slip_n < 0.0) {
-                            dC_duneg += static_cast<PetscScalar>(normal[d] * normal[e]);
-                        }
+                    // Penalty stiffness on displacement (same as locked)
+                    ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
+                    ierr = MatSetValue(J, row_pos_disp, col_pos_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
 
-                        // d(constraint_d)/d(u_pos_e) = -d(constraint_d)/d(u_neg_e)  for the slip-dependent part
-                        PetscScalar dC_dupos = -dC_duneg;
-
-                        // =====================================================
-                        // Full Jacobian assembly with augmented Lagrangian
-                        // =====================================================
-                        // R_lag_d = constraint_d * area
-                        // => d(R_lag_d)/d(lam_e) = dC_dlam * area
-                        ierr = MatSetValue(J, row_lag_d, col_lag_e,
-                            dC_dlam * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // d(R_lag_d)/d(u_neg_e) = dC_duneg * area
-                        ierr = MatSetValue(J, row_lag_d, col_neg_e,
-                            dC_duneg * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // d(R_lag_d)/d(u_pos_e) = dC_dupos * area
-                        ierr = MatSetValue(J, row_lag_d, col_pos_e,
-                            dC_dupos * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // R_u_neg_d = (-lam_d - eff_penalty * constraint_d) * area
-                        // d(R_u_neg_d)/d(lam_e) = (-delta_de - eff_penalty * dC_dlam) * area
-                        PetscScalar dRun_dlam = -(d == e ? 1.0 : 0.0) - eff_penalty * dC_dlam;
-                        ierr = MatSetValue(J, row_neg_d, col_lag_e,
-                            static_cast<PetscScalar>(dRun_dlam) * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // d(R_u_neg_d)/d(u_neg_e) = -eff_penalty * dC_duneg * area
-                        ierr = MatSetValue(J, row_neg_d, col_neg_e,
-                            static_cast<PetscScalar>(-eff_penalty * dC_duneg) * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // d(R_u_neg_d)/d(u_pos_e) = -eff_penalty * dC_dupos * area
-                        ierr = MatSetValue(J, row_neg_d, col_pos_e,
-                            static_cast<PetscScalar>(-eff_penalty * dC_dupos) * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // R_u_pos_d = (lam_d + eff_penalty * constraint_d) * area
-                        // d(R_u_pos_d)/d(lam_e) = (delta_de + eff_penalty * dC_dlam) * area
-                        PetscScalar dRup_dlam = (d == e ? 1.0 : 0.0) + eff_penalty * dC_dlam;
-                        ierr = MatSetValue(J, row_pos_d, col_lag_e,
-                            static_cast<PetscScalar>(dRup_dlam) * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // d(R_u_pos_d)/d(u_neg_e) = eff_penalty * dC_duneg * area
-                        ierr = MatSetValue(J, row_pos_d, col_neg_e,
-                            static_cast<PetscScalar>(eff_penalty * dC_duneg) * coeff, ADD_VALUES); CHKERRQ(ierr);
-
-                        // d(R_u_pos_d)/d(u_pos_e) = eff_penalty * dC_dupos * area
-                        ierr = MatSetValue(J, row_pos_d, col_pos_e,
-                            static_cast<PetscScalar>(eff_penalty * dC_dupos) * coeff, ADD_VALUES); CHKERRQ(ierr);
-                    }
+                    // Lagrange multiplier self-coupling for slipping constraint:
+                    // d(C_d)/d(lambda_d) = 1 for tangential, 0 for normal
+                    // This drives the tangential traction toward the friction strength.
+                    PetscReal P_dd = 1.0 - normal[d] * normal[d];  // tangential projector diagonal
+                    ierr = MatSetValue(J, row_lag, col_lag,
+                        static_cast<PetscScalar>(P_dd) * coeff, ADD_VALUES); CHKERRQ(ierr);
                 }
             } else {
                 // =============================================================
