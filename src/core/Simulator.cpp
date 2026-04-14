@@ -2862,12 +2862,11 @@ PetscErrorCode Simulator::setupTimeStepper() {
         ierr = TSMonitorSet(ts, MonitorFunction, this, nullptr); CHKERRQ(ierr);
     }
     
-    // Register viscoelastic memory variable update as a post-step callback
-    if (config.enable_viscoelastic && auxDM_ && auxVec_) {
-        ierr = TSSetPostStep(ts, ViscoelasticPostStep); CHKERRQ(ierr);
-        if (rank == 0) {
-            PetscPrintf(comm, "Registered viscoelastic TSPostStep callback for memory variable update\n");
-        }
+    // Register viscoelastic memory variable update as a post-step callback.
+    // Currently disabled: the TSPostStep is a no-op placeholder. Memory variable
+    // updates will be re-enabled when a dedicated storage mechanism is implemented.
+    if (config.enable_viscoelastic && rank == 0) {
+        PetscPrintf(comm, "Viscoelastic attenuation enabled (relaxed moduli mode, no memory variable update)\n");
     }
 
     // Set from options
