@@ -173,31 +173,31 @@ TEST_F(SlipWeakeningFaultTest, SlipWeakeningConverges)
     Vec coords = nullptr;
     PetscInt dim = 0;
 
-    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
-    ierr = DMGetCoordinateSection(dm, &coord_section); CHKERRQ(ierr);
-    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
-    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
-    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
-    if (!coords) { ierr = DMGetCoordinates(dm, &coords); CHKERRQ(ierr); }
+    ierr = DMGetLocalSection(dm, &section); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = DMGetCoordinateSection(dm, &coord_section); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = DMGetDimension(dm, &dim); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = DMGetCoordinatesLocal(dm, &coords); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    if (!coords) { ierr = DMGetCoordinates(dm, &coords); ASSERT_EQ(ierr, PETSC_SUCCESS); }
 
-    ierr = DMGetLocalVector(dm, &local_solution); CHKERRQ(ierr);
-    ierr = VecZeroEntries(local_solution); CHKERRQ(ierr);
-    ierr = DMGlobalToLocal(dm, sol, INSERT_VALUES, local_solution); CHKERRQ(ierr);
+    ierr = DMGetLocalVector(dm, &local_solution); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = VecZeroEntries(local_solution); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = DMGlobalToLocal(dm, sol, INSERT_VALUES, local_solution); ASSERT_EQ(ierr, PETSC_SUCCESS);
 
     const PetscScalar* uarray = nullptr;
     const PetscScalar* coord_array = nullptr;
-    ierr = VecGetArrayRead(local_solution, &uarray); CHKERRQ(ierr);
-    ierr = VecGetArrayRead(coords, &coord_array); CHKERRQ(ierr);
+    ierr = VecGetArrayRead(local_solution, &uarray); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = VecGetArrayRead(coords, &coord_array); ASSERT_EQ(ierr, PETSC_SUCCESS);
 
     PetscReal max_tangential_slip = 0.0;
     const PetscReal fault_normal[3] = {1.0, 0.0, 0.0};
 
     PetscInt cStart = 0, cEnd = 0;
-    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); ASSERT_EQ(ierr, PETSC_SUCCESS);
 
     for (PetscInt c = cStart; c < cEnd; ++c) {
         DMPolytopeType ct;
-        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        ierr = DMPlexGetCellType(dm, c, &ct); ASSERT_EQ(ierr, PETSC_SUCCESS);
         if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
             ct != DM_POLYTOPE_TRI_PRISM_TENSOR &&
             ct != DM_POLYTOPE_QUAD_PRISM_TENSOR)
@@ -205,9 +205,9 @@ TEST_F(SlipWeakeningFaultTest, SlipWeakeningConverges)
 
         const PetscInt* cone = nullptr;
         PetscInt cone_size = 0;
-        ierr = DMPlexGetConeSize(dm, c, &cone_size); CHKERRQ(ierr);
+        ierr = DMPlexGetConeSize(dm, c, &cone_size); ASSERT_EQ(ierr, PETSC_SUCCESS);
         if (cone_size < 2) continue;
-        ierr = DMPlexGetCone(dm, c, &cone); CHKERRQ(ierr);
+        ierr = DMPlexGetCone(dm, c, &cone); ASSERT_EQ(ierr, PETSC_SUCCESS);
 
         auto collectVertices = [&](PetscInt face,
             std::vector<std::pair<PetscInt, std::array<PetscReal,3>>>& verts) -> PetscErrorCode {
@@ -238,8 +238,8 @@ TEST_F(SlipWeakeningFaultTest, SlipWeakeningConverges)
         };
 
         std::vector<std::pair<PetscInt, std::array<PetscReal,3>>> neg_verts, pos_verts;
-        ierr = collectVertices(cone[0], neg_verts); CHKERRQ(ierr);
-        ierr = collectVertices(cone[1], pos_verts); CHKERRQ(ierr);
+        ierr = collectVertices(cone[0], neg_verts); ASSERT_EQ(ierr, PETSC_SUCCESS);
+        ierr = collectVertices(cone[1], pos_verts); ASSERT_EQ(ierr, PETSC_SUCCESS);
 
         PetscInt n_pairs = static_cast<PetscInt>(std::min(neg_verts.size(), pos_verts.size()));
         for (PetscInt i = 0; i < n_pairs; ++i) {
@@ -253,14 +253,14 @@ TEST_F(SlipWeakeningFaultTest, SlipWeakeningConverges)
 
             PetscReal u_neg[3] = {0,0,0}, u_pos[3] = {0,0,0};
             PetscInt dof_n = 0, off_n = 0, dof_p = 0, off_p = 0;
-            ierr = PetscSectionGetFieldDof(section, neg_verts[static_cast<std::size_t>(i)].first, 0, &dof_n); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldDof(section, neg_verts[static_cast<std::size_t>(i)].first, 0, &dof_n); ASSERT_EQ(ierr, PETSC_SUCCESS);
             if (dof_n > 0) {
-                ierr = PetscSectionGetFieldOffset(section, neg_verts[static_cast<std::size_t>(i)].first, 0, &off_n); CHKERRQ(ierr);
+                ierr = PetscSectionGetFieldOffset(section, neg_verts[static_cast<std::size_t>(i)].first, 0, &off_n); ASSERT_EQ(ierr, PETSC_SUCCESS);
                 for (PetscInt d = 0; d < PetscMin(dof_n, dim); ++d) u_neg[d] = PetscRealPart(uarray[off_n+d]);
             }
-            ierr = PetscSectionGetFieldDof(section, pos_verts[static_cast<std::size_t>(i)].first, 0, &dof_p); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldDof(section, pos_verts[static_cast<std::size_t>(i)].first, 0, &dof_p); ASSERT_EQ(ierr, PETSC_SUCCESS);
             if (dof_p > 0) {
-                ierr = PetscSectionGetFieldOffset(section, pos_verts[static_cast<std::size_t>(i)].first, 0, &off_p); CHKERRQ(ierr);
+                ierr = PetscSectionGetFieldOffset(section, pos_verts[static_cast<std::size_t>(i)].first, 0, &off_p); ASSERT_EQ(ierr, PETSC_SUCCESS);
                 for (PetscInt d = 0; d < PetscMin(dof_p, dim); ++d) u_pos[d] = PetscRealPart(uarray[off_p+d]);
             }
 
@@ -280,9 +280,9 @@ TEST_F(SlipWeakeningFaultTest, SlipWeakeningConverges)
         }
     }
 
-    ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
-    ierr = VecRestoreArrayRead(local_solution, &uarray); CHKERRQ(ierr);
-    ierr = DMRestoreLocalVector(dm, &local_solution); CHKERRQ(ierr);
+    ierr = VecRestoreArrayRead(coords, &coord_array); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = VecRestoreArrayRead(local_solution, &uarray); ASSERT_EQ(ierr, PETSC_SUCCESS);
+    ierr = DMRestoreLocalVector(dm, &local_solution); ASSERT_EQ(ierr, PETSC_SUCCESS);
 
     // Fault must have slipped past the critical slip distance (fully weakened)
     EXPECT_GT(max_tangential_slip, 1.0e-6)
