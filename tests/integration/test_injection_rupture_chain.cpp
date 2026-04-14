@@ -60,7 +60,7 @@ TEST_F(InjectionRuptureChainTest, FaultMeshManagerWithFaultCohesiveDynBasicSetup
     PetscInt faces[3] = {4, 4, 4};
     PetscReal lower[3] = {0.0, 0.0, 0.0};
     PetscReal upper[3] = {1.0, 1.0, 1.0};
-    // Use simplex mesh (PETSC_TRUE) - cohesive cells work reliably on simplex in PETSc 3.22
+    // Use simplex mesh (PETSC_TRUE) - cohesive cells work reliably on simplex in PETSc 3.25
     PetscErrorCode ierr =
         DMPlexCreateBoxMesh(PETSC_COMM_WORLD, 3, PETSC_TRUE, faces, lower, upper, nullptr,
                             PETSC_TRUE, 0, PETSC_FALSE, &dm);

@@ -3,14 +3,14 @@
  * @brief Verify PetscDSSetBdResidual works on cohesive cells in PETSc 3.25
  *
  * This test registers CohesiveFaultKernel callbacks via PetscDSSetBdResidual
- * on a faulted mesh and calls DMPlexTSComputeIFunctionFEM. In PETSc 3.22,
- * this crashed due to DMPlexComputeBdResidual_Single_Internal mishandling
- * hybrid prism / tet cells. PETSc 3.25 fixes this.
+ * on a faulted mesh and calls DMPlexTSComputeIFunctionFEM. PETSc 3.25
+ * supports BdResidual on cohesive cells. BdJacobian does not work
+ * (commented out in plexfem.c).
  *
  * If this test passes, the PetscDS boundary integration machinery works
  * correctly on cohesive cells, and we can replace the manual assembly
- * (addCohesiveConstraintToResidual / addCohesivePenaltyToJacobian) with
- * proper PetscDS callbacks.
+ * (addCohesivePenaltyToJacobian) with pure PetscDS callbacks. The residual
+ * already uses BdResidual; only the Jacobian still uses manual assembly.
  */
 
 #include <gtest/gtest.h>
@@ -133,7 +133,7 @@ TEST_F(CohesiveBdResidualTest, BdResidualDoesNotCrashOnCohesiveCells)
     // regularization callback and the manual assembly in FormFunction
     // handles the actual constraint. Now additionally register the
     // CohesiveFaultKernel BdResidual/BdJacobian callbacks on the DS.
-    // In PETSc 3.22 this would crash during residual evaluation.
+    // BdResidual works in PETSc 3.25; BdJacobian does not.
     // In PETSc 3.25 this should work.
     DM dm = sim.getDM();
     PetscDS prob = nullptr;
@@ -216,7 +216,7 @@ TEST_F(CohesiveBdResidualTest, BdResidualDoesNotCrashOnCohesiveCells)
 
     // Evaluate the IFunction -- this calls DMPlexTSComputeIFunctionFEM
     // which in turn calls DMPlexComputeBdResidual on cohesive cells.
-    // In PETSc 3.22 this would SEGV. In PETSc 3.25 it should work.
+    // BdResidual works in PETSc 3.25. BdJacobian does not (commented out in plexfem.c).
     PetscPushErrorHandler(PetscReturnErrorHandler, nullptr);
     ierr = TSComputeIFunction(ts, 0.0, sol, U_t, F, PETSC_FALSE);
     PetscPopErrorHandler();

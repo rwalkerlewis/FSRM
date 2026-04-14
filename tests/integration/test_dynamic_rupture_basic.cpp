@@ -13,7 +13,7 @@
  *
  * Known limitation: SNES may diverge at the first time step because
  * the cohesive Jacobian blocks (g0_displacement_lagrange, etc.) may not
- * be fully consistent with PETSc 3.22 hybrid cell assembly. This test
+ * be fully consistent with PETSc 3.25 hybrid cell assembly. This test
  * documents setup success and SNES behavior.
  */
 

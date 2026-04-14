@@ -7,10 +7,10 @@
  *   2. Locked fault elastodynamic: u+ = u- constraint, TSBEULER
  *   3. Prescribed slip quasi-static: known displacement jump
  *
- * Cohesive constraint assembly is performed manually in FormFunction
- * via addCohesiveConstraintToResidual(), bypassing PetscDSSetBdResidual
- * which crashes on cohesive cells in PETSc 3.22. Finite-difference
- * coloring Jacobian (-snes_fd_color) is used.
+ * Cohesive constraint residual uses PetscDS BdResidual callbacks on
+ * cohesive cells (PETSc 3.25+). BdJacobian is not functional in PETSc
+ * 3.25, so the Jacobian is assembled manually via
+ * addCohesivePenaltyToJacobian.
  */
 
 #include <gtest/gtest.h>

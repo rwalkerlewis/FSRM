@@ -135,7 +135,7 @@ FSRM uses the same cohesive cell approach as PyLith:
 1. `FaultMeshManager::markFaultFaces()` identifies interior faces on the fault plane
 2. `DMPlexConstructCohesiveCells()` splits the mesh along the fault
 3. Lagrange multiplier field enforces the fault constraint
-4. Manual assembly in `addCohesiveConstraintToResidual()` applies the kinematic condition
+4. PetscDS BdResidual callbacks on cohesive cells enforce the kinematic condition (PETSc 3.25+). Jacobian assembled manually via addCohesivePenaltyToJacobian.
 
 ### Fault Setup Pipeline
 
