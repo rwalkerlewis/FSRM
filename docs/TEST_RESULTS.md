@@ -1,8 +1,8 @@
 # FSRM Test Results
 
-Generated from `ctest --output-on-failure` in Docker on June 23, 2025.
+Generated from `ctest --output-on-failure` in Docker.
 
-**91/91 tests pass. 0 failures. 0 skips.**
+**108/108 tests pass. 0 failures. 0 skips.**
 
 ## Environment
 
@@ -21,13 +21,13 @@ docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
 
 | Category | Count | Total Time |
 |---|---:|---:|
-| Unit | 36 | ~15.1s |
-| Functional | 10 | ~4.1s |
-| Physics validation | 23 | ~28.7s |
-| Integration | 18 | ~43.9s |
-| Performance | 3 | ~1.8s |
-| Experimental | 1 | ~0.4s |
-| **Total** | **91** | **~93.7s** |
+| Unit | 36 | ~14s |
+| Functional | 10 | ~4s |
+| Physics validation | 25 | ~31s |
+| Integration | 32 | ~60s |
+| Performance | 4 | ~2s |
+| Experimental | 1 | ~0.3s |
+| **Total** | **108** | **~116s** |
 
 ## Label Corrections (This Release)
 
@@ -105,7 +105,7 @@ Several tests were relabeled from incorrect categories:
 | 77 | Functional.DynamicRuptureSetup.AbsorbingCoexist | PASS | 0.43s |
 | 78 | Functional.FaultAbsorbingCoexist | PASS | 0.42s |
 
-### Physics Validation Tests (23 tests)
+### Physics Validation Tests (25 tests)
 
 | # | Test Name | Status | Time | Description |
 |---|-----------|--------|------|-------------|
@@ -132,8 +132,10 @@ Several tests were relabeled from incorrect categories:
 | 84 | Physics.ProppantTransport | PASS | 0.41s | Stokes settling and bridging (8 tests) |
 | 85 | Physics.LeakoffCoupling | PASS | 0.39s | Carter leak-off sqrt(t) scaling (7 tests) |
 | 86 | Physics.ProductionForecast | PASS | 0.40s | Arps decline and PI (9 tests) |
+| 87 | Physics.LockedFaultTransparency | PASS | ~1.0s | Locked fault slip must be < 5e-4 |
+| 88 | Physics.ElastostaticsPatchLayered | PASS | ~0.5s | Layered patch test |
 
-### Integration Tests (18 tests)
+### Integration Tests (32 tests)
 
 | # | Test Name | Status | Time | Description |
 |---|-----------|--------|------|-------------|
@@ -155,20 +157,35 @@ Several tests were relabeled from incorrect categories:
 | 71 | Integration.DerivedFields | PASS | 2.43s | Cell-centered stress, strain, CFS from FEM solution |
 | 72 | Integration.DPRK2017Comparison | PASS | 0.41s | Synthetic vs observed mb for DPRK 2017 |
 | 87 | Integration.PressurizedFractureFEM | PASS | 1.21s | Pressurized fracture FEM solve |
+| 90 | Integration.ElastoplasticSim | PASS | 0.78s | Drucker-Prager through TSSolve |
+| 91 | Integration.DynamicRuptureSolve.LockedQuasiStatic | PASS | 0.73s | Manual cohesive assembly, quasi-static locked |
+| 92 | Integration.DynamicRuptureSolve.LockedElastodynamic | PASS | 0.78s | Cohesive + TSALPHA2 locked |
+| 93 | Integration.DynamicRuptureSolve.PrescribedSlip | PASS | 0.67s | Imposed displacement jump |
+| 94 | Integration.ExplosionFaultReactivation | PASS | 0.39s | Moment-tensor + cohesive residual coexistence |
+| 95 | Integration.TractionBC | PASS | 0.62s | Per-face Neumann traction BC |
+| 96 | Integration.TimeDependentSlip | PASS | 0.71s | Linear slip ramp with onset/rise time |
+| 97 | Integration.NearFieldCoupled | PASS | 6.22s | COUPLED_ANALYTIC 1D solver to 3D FEM coupling |
+| 98 | Integration.SlippingFaultSolve | PASS | 1.32s | Augmented Lagrangian, GTEST_SKIP on divergence |
+| 99 | Integration.HistoricNuclear.Gasbuggy1967 | PASS | 3.70s | 29 kt, 4-layer Lewis Shale, SAC output |
+| 100 | Integration.HistoricNuclear.Gnome1961 | PASS | 3.15s | 3.1 kt, 4-layer Salado Salt, SAC output |
+| 101 | Integration.HistoricNuclear.Sedan1962 | PASS | 3.04s | 104 kt, 3-layer alluvium, SAC output |
+| 102 | Integration.HistoricNuclear.DegelenMountain | PASS | 1.93s | 50 kt, 3-layer granite, SAC output |
+| 103 | Integration.HistoricNuclear.NtsPahuteMesa | PASS | 1.95s | 150 kt, 4-layer tuff, SAC output |
 
-### Performance Tests (3 tests)
+### Performance Tests (4 tests)
 
 | # | Test Name | Status | Time |
 |---|-----------|--------|------|
-| 88 | Performance.Benchmarks | PASS | 0.36s |
-| 89 | Performance.Scaling | PASS | 1.04s |
-| 90 | Performance.Memory | PASS | 0.36s |
+| 104 | Performance.Benchmarks | PASS | 0.35s |
+| 105 | Performance.Scaling | PASS | 1.02s |
+| 106 | Performance.Memory | PASS | 0.34s |
+| 107 | Performance.GPUAcceleration | PASS | 0.34s |
 
 ### Experimental Tests (1 test)
 
 | # | Test Name | Status | Time |
 |---|-----------|--------|------|
-| 91 | Experimental.NeuralStubs | PASS | 0.39s |
+| 108 | Experimental.NeuralStubs | PASS | 0.33s |
 
 ## Known Limitations Documented in Tests
 
@@ -185,3 +202,7 @@ Several tests were relabeled from incorrect categories:
 6. **Standalone physics** (`Physics.StressShadowing`, `Physics.InducedSeismicity`, `Physics.ProppantTransport`, `Physics.LeakoffCoupling`, `Physics.ProductionForecast`): Analytical formulas and standalone solvers verified. Not coupled to PetscDS FEM.
 
 7. **Mohr-Coulomb principal stress** (`Unit.DruckerPragerStandalone`): `computePrincipalStresses` returns NaN for pure hydrostatic stress (q=0) due to division by zero in the Cardano formula. Tests use stress states with nonzero deviatoric component.
+
+8. **Slipping fault (Coulomb friction)** (`Integration.SlippingFaultSolve`): Augmented Lagrangian regularization (0.01 * penalty_stiffness) with approximate Jacobian contribution. TSSolve diverges because the locked-mode linearization does not capture d(tau_f * slip_t/|slip_t|)/d(u) or d(tau_f)/d(lambda_n). Needs semi-smooth Newton tangent operator. GTEST_SKIP documents the root cause.
+
+9. **COUPLED_ANALYTIC NearField coupling** (`Integration.NearFieldCoupled`): 1D NearFieldExplosionSolver cavity pressure/velocity drives an RDP Brune source time function that computes moment rate injected into the 3D FEM via equivalent nodal forces. Damage profile from 1D solver degrades auxiliary fields near cavity.

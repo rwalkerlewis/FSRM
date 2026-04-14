@@ -20,14 +20,14 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-101 registered tests. All pass or GTEST_SKIP. Zero failures.
+108 registered tests. All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
 | Physics | 25 | Analytical solutions, FEM-coupled benchmarks, standalone physics |
-| Integration | 25 | Full Simulator pipeline through TSSolve, plus traction BC, time-dependent slip, and explosion-fault residual coexistence |
+| Integration | 32 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, 5 historic nuclear tests, traction BC, time-dependent slip, and explosion-fault residual coexistence |
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
@@ -162,6 +162,13 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 | Restart | Integration.Restart | Checkpoint/restore lifecycle |
 | DPRK 2017 mb | Integration.DPRK2017Comparison | Synthetic vs observed body-wave magnitude |
 | Explosion+fault residual | Integration.ExplosionFaultReactivation | Coexistence of moment-tensor and cohesive residual |
+| NearField-FEM coupling | Integration.NearFieldCoupled | COUPLED_ANALYTIC 1D solver to 3D FEM moment rate |
+| Slipping fault (augmented) | Integration.SlippingFaultSolve | Augmented Lagrangian regularization, GTEST_SKIP on divergence |
+| Historic: Gasbuggy 1967 | Integration.HistoricNuclear.Gasbuggy1967 | 29 kt, 4-layer Lewis Shale, SAC output |
+| Historic: Gnome 1961 | Integration.HistoricNuclear.Gnome1961 | 3.1 kt, 4-layer Salado Salt, SAC output |
+| Historic: Sedan 1962 | Integration.HistoricNuclear.Sedan1962 | 104 kt, 3-layer alluvium, SAC output |
+| Historic: Degelen Mountain | Integration.HistoricNuclear.DegelenMountain | 50 kt, 3-layer granite, SAC output |
+| Historic: NTS Pahute Mesa | Integration.HistoricNuclear.NtsPahuteMesa | 150 kt, 4-layer tuff, SAC output |
 
 ### WORKS: Standalone (correct, tested, not FEM-coupled)
 
@@ -182,7 +189,7 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 |---------|-----------------|
 | Multiphase flow end-to-end | Buckley-Leverett or waterflood through TSSolve |
 | Hydraulic fracture coupled solve | Full lubrication + deformation coupling |
-| Slipping fault (Coulomb friction) | TSSolve test with shear loading |
+| Slipping fault (Coulomb friction) | Test exists (Integration.SlippingFaultSolve) with augmented Lagrangian regularization. Diverges at TSSolve because the locked-mode Jacobian linearization does not capture Coulomb friction derivatives. Needs semi-smooth Newton tangent operator. GTEST_SKIP documents the root cause. |
 | Explosion + fault full TSSolve | Diverges; residual coexistence verified only |
 
 ### DEAD CODE (Archived to archive/src/)
@@ -235,10 +242,10 @@ Do not reference these in documentation or claims. Do not try to use them.
 
 ## Runnable Examples
 
-Eight examples in `examples/`, each with README.md and run.sh:
+Thirteen examples in `examples/`, each with README.md and run.sh:
 
 | # | Directory | Config | Physics |
-|---|-----------|--------|---------|
+|---|-----------|--------|--------|
 | 01 | examples/01_uniaxial_compression | uniaxial_compression.config | Elastostatics, BCs |
 | 02 | examples/02_explosion_seismogram | explosion_seismogram_quick.config | Elastodynamics, SAC |
 | 03 | examples/03_elastoplastic_compression | elastoplastic_compression.config | Drucker-Prager |
@@ -247,6 +254,11 @@ Eight examples in `examples/`, each with README.md and run.sh:
 | 06 | examples/06_gmsh_multimaterial | nuclear_twin_gmsh.config | Gmsh, per-region |
 | 07 | examples/07_traction_bc | traction_bc.config | Per-face traction BC |
 | 08 | examples/08_time_dependent_slip | time_dependent_slip.config | Slip ramp |
+| 09 | examples/09_gasbuggy_1967 | gasbuggy_1967.config | 29 kt, 4-layer Lewis Shale |
+| 10 | examples/10_gnome_1961 | gnome_1961.config | 3.1 kt, 4-layer Salado Salt |
+| 11 | examples/11_sedan_1962 | sedan_1962.config | 104 kt, 3-layer alluvium |
+| 12 | examples/12_degelen_mountain | degelen_mountain.config | 50 kt, 3-layer granite |
+| 13 | examples/13_nts_pahute_mesa | nts_pahute_mesa.config | 150 kt, 4-layer tuff |
 
 ## Roadmap: Features to Implement
 
@@ -254,7 +266,7 @@ Each item requires: PetscDS callbacks integrated into setupPhysics(), integratio
 through TSSolve, example config, and visualization. Source code in archive/src/ may provide
 a starting point but must be rewritten to use the PetscDS callback pattern.
 
-1. Slipping fault TSSolve (Coulomb friction through manual assembly)
+1. Slipping fault convergence (semi-smooth Newton tangent operator for Coulomb friction)
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
 4. Viscoelastic attenuation (Q-factor memory variables)
