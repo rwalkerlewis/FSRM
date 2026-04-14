@@ -46,6 +46,7 @@ public:
     PetscErrorCode loadEclipseInput(const std::string& filename);
     PetscErrorCode loadMaterialPropertiesFromFile(const std::string& filename);
     PetscErrorCode setInitialConditions();
+    PetscErrorCode applyInitialFaultStress();
     PetscErrorCode setMaterialProperties();
     
     // Run simulation
@@ -243,6 +244,15 @@ private:
     double critical_slip_distance_ = 0.40;
     double fault_slip_onset_time_ = 0.0;   // Time when prescribed slip begins (s)
     double fault_slip_rise_time_ = 0.0;    // Duration of slip ramp (s); 0 = instantaneous
+
+    // Initial fault stress (for SCEC TPV-type benchmarks)
+    bool fault_has_initial_stress_ = false;
+    double fault_initial_normal_stress_ = 0.0;    // Pa (compressive negative)
+    double fault_initial_shear_stress_ = 0.0;     // Pa
+    double fault_nucleation_center_x_ = 0.0;      // m
+    double fault_nucleation_center_z_ = 0.0;      // m
+    double fault_nucleation_radius_ = 0.0;         // m
+    double fault_nucleation_shear_stress_ = 0.0;   // Pa (overstressed patch)
 
     // Output directory and format for HDF5/VTK output
     std::string output_directory_ = "output";

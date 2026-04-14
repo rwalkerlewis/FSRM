@@ -666,6 +666,24 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         // Time-dependent prescribed slip parameters
         fault_slip_onset_time_ = reader.getDouble("FAULT", "slip_onset_time", 0.0);
         fault_slip_rise_time_ = reader.getDouble("FAULT", "slip_rise_time", 0.0);
+        // Initial fault stress (for SCEC TPV-type benchmarks)
+        if (reader.hasKey("FAULT", "initial_normal_stress")) {
+            fault_has_initial_stress_ = true;
+            fault_initial_normal_stress_ = reader.getDouble("FAULT", "initial_normal_stress", -120.0e6);
+            fault_initial_shear_stress_ = reader.getDouble("FAULT", "initial_shear_stress", 70.0e6);
+            fault_nucleation_center_x_ = reader.getDouble("FAULT", "nucleation_center_x", 0.0);
+            fault_nucleation_center_z_ = reader.getDouble("FAULT", "nucleation_center_z", -7500.0);
+            fault_nucleation_radius_ = reader.getDouble("FAULT", "nucleation_radius", 1500.0);
+            fault_nucleation_shear_stress_ = reader.getDouble("FAULT", "nucleation_shear_stress", 81.6e6);
+            if (rank == 0) {
+                PetscPrintf(comm,
+                    "Initial fault stress: sigma_n=%.3e Pa, tau=%.3e Pa\n"
+                    "  Nucleation patch: center=(%.1f, %.1f), radius=%.1f m, tau=%.3e Pa\n",
+                    fault_initial_normal_stress_, fault_initial_shear_stress_,
+                    fault_nucleation_center_x_, fault_nucleation_center_z_,
+                    fault_nucleation_radius_, fault_nucleation_shear_stress_);
+            }
+        }
         config.enable_faults = true;
     }
 
@@ -4727,6 +4745,160 @@ PetscErrorCode Simulator::setInitialConditions() {
     ierr = PetscPrintf(PETSC_COMM_WORLD, "  Solution norm after BC insertion: %.6e\n", norm); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
+}
+
+// =============================================================================
+// applyInitialFaultStress
+//
+// Set Lagrange multiplier DOFs on cohesive cells to prescribed initial traction.
+// Used for SCEC TPV-type benchmarks where the fault starts with known stress
+// state. Walks cohesive cells and sets lambda = tau * strike_dir + sigma_n * normal
+// at each fault vertex, with an optional overstressed nucleation patch.
+// =============================================================================
+PetscErrorCode Simulator::applyInitialFaultStress()
+{
+    PetscFunctionBeginUser;
+    if (!fault_has_initial_stress_ || !config.enable_faults || !cohesive_kernel_)
+        PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscErrorCode ierr;
+    PetscSection section = nullptr;
+    PetscSection coord_section = nullptr;
+    PetscInt dim = 0;
+    Vec coords = nullptr;
+    DMLabel depth_label = nullptr;
+
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+    ierr = DMGetCoordinateSection(dm, &coord_section); CHKERRQ(ierr);
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    if (!coords) { ierr = DMGetCoordinates(dm, &coords); CHKERRQ(ierr); }
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) disp_field = 1;
+    else if (config.fluid_model == FluidModelType::BLACK_OIL) disp_field = 3;
+    else if (config.fluid_model == FluidModelType::COMPOSITIONAL) disp_field = 4;
+    const PetscInt lagrange_field = disp_field + 1;
+
+    // Compute fault-plane directions from strike/dip
+    const PetscReal strike = fault_geometry_from_config_ ? fault_strike_ : 0.0;
+    const PetscReal dip = fault_geometry_from_config_ ? fault_dip_ : (PetscReal)(M_PI / 2.0);
+    const PetscReal cs = PetscCosReal(strike);
+    const PetscReal ss = PetscSinReal(strike);
+    const PetscReal cd = PetscCosReal(dip);
+    const PetscReal sd = PetscSinReal(dip);
+    const PetscReal strike_dir[3] = {cs, ss, 0.0};
+    const PetscReal normal_dir[3] = {-ss * sd, cs * sd, -cd};
+
+    // Work on local vector
+    Vec localVec;
+    ierr = DMGetLocalVector(dm, &localVec); CHKERRQ(ierr);
+    ierr = DMGlobalToLocal(dm, solution, INSERT_VALUES, localVec); CHKERRQ(ierr);
+
+    PetscScalar *larray = nullptr;
+    const PetscScalar *coord_array = nullptr;
+    ierr = VecGetArray(localVec, &larray); CHKERRQ(ierr);
+    ierr = VecGetArrayRead(coords, &coord_array); CHKERRQ(ierr);
+
+    struct FaultVertex {
+        PetscInt point = -1;
+        std::array<PetscReal, 3> xyz = {0.0, 0.0, 0.0};
+    };
+
+    auto loadCoordinates = [&](PetscInt point, std::array<PetscReal,3>& xyz) -> PetscErrorCode {
+        PetscInt dof = 0, off = 0;
+        xyz = {0.0, 0.0, 0.0};
+        PetscErrorCode e = PetscSectionGetDof(coord_section, point, &dof); CHKERRQ(e);
+        if (dof <= 0) return PETSC_SUCCESS;
+        e = PetscSectionGetOffset(coord_section, point, &off); CHKERRQ(e);
+        for (PetscInt d = 0; d < PetscMin(dof, 3); ++d)
+            xyz[static_cast<std::size_t>(d)] = PetscRealPart(coord_array[off + d]);
+        return PETSC_SUCCESS;
+    };
+
+    auto collectFaceVertices = [&](PetscInt face, std::vector<FaultVertex>& vertices) -> PetscErrorCode {
+        PetscInt closure_size = 0;
+        PetscInt* closure = nullptr;
+        PetscErrorCode e = DMPlexGetTransitiveClosure(dm, face, PETSC_TRUE, &closure_size, &closure); CHKERRQ(e);
+        vertices.clear();
+        for (PetscInt i = 0; i < closure_size; ++i) {
+            PetscInt point = closure[2*i];
+            PetscInt depth = -1;
+            e = DMLabelGetValue(depth_label, point, &depth); CHKERRQ(e);
+            if (depth != 0) continue;
+            FaultVertex v;
+            v.point = point;
+            e = loadCoordinates(point, v.xyz); CHKERRQ(e);
+            vertices.push_back(v);
+        }
+        e = DMPlexRestoreTransitiveClosure(dm, face, PETSC_TRUE, &closure_size, &closure); CHKERRQ(e);
+        return PETSC_SUCCESS;
+    };
+
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    PetscInt nset = 0;
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
+            ct != DM_POLYTOPE_TRI_PRISM_TENSOR &&
+            ct != DM_POLYTOPE_QUAD_PRISM_TENSOR)
+            continue;
+
+        const PetscInt* cone = nullptr;
+        PetscInt cone_size = 0;
+        ierr = DMPlexGetConeSize(dm, c, &cone_size); CHKERRQ(ierr);
+        if (cone_size < 2) continue;
+        ierr = DMPlexGetCone(dm, c, &cone); CHKERRQ(ierr);
+
+        std::vector<FaultVertex> neg_vertices;
+        ierr = collectFaceVertices(cone[0], neg_vertices); CHKERRQ(ierr);
+
+        for (const auto& vertex : neg_vertices) {
+            PetscInt lag_dof = 0, lag_off = 0;
+            ierr = PetscSectionGetFieldDof(section, vertex.point, lagrange_field, &lag_dof); CHKERRQ(ierr);
+            if (lag_dof <= 0) continue;
+            ierr = PetscSectionGetFieldOffset(section, vertex.point, lagrange_field, &lag_off); CHKERRQ(ierr);
+
+            // Determine shear stress: background or nucleation patch
+            PetscReal tau = fault_initial_shear_stress_;
+            if (fault_nucleation_radius_ > 0.0) {
+                // Distance from nucleation center in the fault plane
+                // nucleation_center_x is along-strike distance from domain center
+                // nucleation_center_z is depth (vertical)
+                PetscReal dx = vertex.xyz[0] - (fault_center_[0] >= 0 ? fault_center_[0] : 0.0)
+                             - fault_nucleation_center_x_ * strike_dir[0];
+                PetscReal dy = vertex.xyz[1] - (fault_center_[1] >= 0 ? fault_center_[1] : 0.0)
+                             - fault_nucleation_center_x_ * strike_dir[1];
+                PetscReal dz = vertex.xyz[2] - fault_nucleation_center_z_;
+                PetscReal dist = PetscSqrtReal(dx*dx + dy*dy + dz*dz);
+                if (dist <= fault_nucleation_radius_) {
+                    tau = fault_nucleation_shear_stress_;
+                }
+            }
+
+            // Set lambda = tau * strike_dir + sigma_n * normal_dir
+            // sigma_n is compressive negative, lambda convention: compression = negative
+            for (PetscInt d = 0; d < PetscMin(lag_dof, dim); ++d) {
+                larray[lag_off + d] = tau * strike_dir[d] + fault_initial_normal_stress_ * normal_dir[d];
+            }
+            nset++;
+        }
+    }
+
+    ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
+    ierr = VecRestoreArray(localVec, &larray); CHKERRQ(ierr);
+    ierr = DMLocalToGlobal(dm, localVec, INSERT_VALUES, solution); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(dm, &localVec); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Applied initial fault stress to %d Lagrange DOF sets\n", (int)nset);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode Simulator::setMaterialProperties() {
