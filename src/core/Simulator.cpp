@@ -2211,17 +2211,15 @@ PetscErrorCode Simulator::setupPhysics() {
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material)
                 // f1: viscoelastic > elastoplastic > elastic (priority order)
-                auto f1_cb = config.enable_viscoelastic
-                    ? PetscFEViscoelastic::f1_viscoelastic_aux
-                    : (config.enable_elastoplasticity
-                        ? PetscFEElastoplasticity::f1_elastoplastic_aux
-                        : PetscFEElasticityAux::f1_elastostatics_aux);
-                // Use standard aux g3 for all cases (including viscoelastic).
-                // The viscoelastic g3 uses unrelaxed moduli but for the initial
-                // implementation, the relaxed moduli tangent is sufficient.
+                // f1: elastoplastic if enabled, otherwise standard elastic aux.
+                // Viscoelastic uses the same elastic f1 (memory variables contribute
+                // zero at initial relaxed state; future: separate memory variable update).
+                auto f1_cb = config.enable_elastoplasticity
+                    ? PetscFEElastoplasticity::f1_elastoplastic_aux
+                    : PetscFEElasticityAux::f1_elastostatics_aux;
                 auto g3_cb = config.enable_elastoplasticity
-                        ? PetscFEElastoplasticity::g3_elastoplastic_aux
-                        : PetscFEElasticityAux::g3_elastostatics_aux;
+                    ? PetscFEElastoplasticity::g3_elastoplastic_aux
+                    : PetscFEElasticityAux::g3_elastostatics_aux;
                 ierr = PetscDSSetResidual(prob, displacement_field_idx,
                                           PetscFEElasticityAux::f0_elastodynamics_aux,
                                           f1_cb); CHKERRQ(ierr);
@@ -2241,12 +2239,10 @@ PetscErrorCode Simulator::setupPhysics() {
             if (use_aux_callbacks) {
                 // Use auxiliary-field-aware callbacks (heterogeneous material or gravity)
                 // f1: viscoelastic > elastoplastic > elastic (priority order)
-                auto f1_cb = config.enable_viscoelastic
-                    ? PetscFEViscoelastic::f1_viscoelastic_aux
-                    : (config.enable_elastoplasticity
-                        ? PetscFEElastoplasticity::f1_elastoplastic_aux
-                        : PetscFEElasticityAux::f1_elastostatics_aux);
-                // Use standard aux g3 for all cases (including viscoelastic)
+                // f1: same as above (no custom viscoelastic callback for now)
+                auto f1_cb = config.enable_elastoplasticity
+                    ? PetscFEElastoplasticity::f1_elastoplastic_aux
+                    : PetscFEElasticityAux::f1_elastostatics_aux;
                 auto g3_cb = config.enable_elastoplasticity
                         ? PetscFEElastoplasticity::g3_elastoplastic_aux
                         : PetscFEElasticityAux::g3_elastostatics_aux;
