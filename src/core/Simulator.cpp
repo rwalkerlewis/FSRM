@@ -3836,15 +3836,18 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
             }
 
+            // Augmented Lagrangian penalty: full penalty for locked/prescribed,
+            // reduced penalty for slipping to regularize the saddle-point system
+            // and prevent singular Jacobian with FD coloring.
+            const PetscReal effective_penalty =
+                (mode == CohesiveAssemblyMode::Slipping)
+                ? 0.01 * penalty_stiffness
+                : penalty_stiffness;
+
             for (PetscInt d = 0; d < dim; ++d)
             {
-                traction_neg[d] = -lambda_interface[d];
-                traction_pos[d] = lambda_interface[d];
-                if (mode != CohesiveAssemblyMode::Slipping)
-                {
-                    traction_neg[d] -= penalty_stiffness * constraint[d];
-                    traction_pos[d] += penalty_stiffness * constraint[d];
-                }
+                traction_neg[d] = -lambda_interface[d] - effective_penalty * constraint[d];
+                traction_pos[d] = lambda_interface[d] + effective_penalty * constraint[d];
             }
 
             ierr = addFieldResidual(neg_vertex.point, disp_field, traction_neg, area_per_vertex); CHKERRQ(ierr);
@@ -3874,7 +3877,12 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
 {
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
-    if (fault_mode_ == "slipping") PetscFunctionReturn(PETSC_SUCCESS);
+
+    // For slipping mode, use a reduced penalty factor matching the augmented
+    // Lagrangian regularization in addCohesiveConstraintToResidual.
+    // This provides enough coupling to prevent a singular Jacobian.
+    const bool is_slipping = (fault_mode_ == "slipping");
+    const PetscReal penalty_scale = is_slipping ? 0.01 : 1.0;
 
     PetscErrorCode ierr;
     PetscSection gsection = nullptr;
@@ -4017,7 +4025,7 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
         }
 
         const PetscScalar coeff = static_cast<PetscScalar>(face_area / static_cast<PetscReal>(n_pairs));
-        const PetscScalar penalty = static_cast<PetscScalar>(10.0 * youngs_modulus /
+        const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus /
             PetscMax(PetscSqrtReal(face_area), PETSC_SMALL));
         for (PetscInt i = 0; i < n_pairs; ++i)
         {
