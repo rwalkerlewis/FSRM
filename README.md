@@ -37,7 +37,7 @@ python3 scripts/plot_seismograms.py build/output/seismograms/
 
 ## Examples
 
-Six runnable examples demonstrate verified capabilities. Each has a `README.md`, `run.sh`, and a config file in `config/examples/`.
+Fifteen runnable examples demonstrate verified capabilities. Each has a `README.md`, `run.sh`, and a config file.
 
 | # | Example | Physics | Run Time |
 |---|---------|---------|----------|
@@ -54,6 +54,8 @@ Six runnable examples demonstrate verified capabilities. Each has a `README.md`,
 | 11 | [Sedan 1962](examples/11_sedan_1962/) | 104 kt, 3-layer alluvium, SAC output | ~15s |
 | 12 | [Degelen Mountain](examples/12_degelen_mountain/) | 50 kt, 3-layer granite, SAC output | ~15s |
 | 13 | [NTS Pahute Mesa](examples/13_nts_pahute_mesa/) | 150 kt, 4-layer tuff, SAC output | ~15s |
+| 14 | [Single-Phase Flow](examples/14_single_phase_flow/) | Darcy pressure diffusion, Dirichlet pressure BCs | < 1s |
+| 15 | [Viscoelastic Attenuation](examples/15_viscoelastic_attenuation/) | Generalized Maxwell body, Q-factor, seismograms | ~15s |
 
 ---
 
@@ -122,9 +124,7 @@ These features have source code but are not fully end-to-end verified through TS
 |---------|--------|
 | Multiphase flow end-to-end | Callbacks unit-tested; no simulation test |
 | Hydraulic fracture coupled solve | PressurizedFractureFEM passes; lubrication+deformation not coupled |
-| Slipping fault (Coulomb friction) | Augmented Lagrangian regularization implemented; diverges at TSSolve due to approximate Jacobian. Needs semi-smooth Newton tangent operator. GTEST_SKIP documents root cause. |
 | Explosion + fault full TSSolve | Residual coexistence verified; full solve diverges |
-| Viscoelastic attenuation | Source code archived; not integrated |
 | Radiation transport / fallout | Source code archived; not integrated |
 | Thermal coupling | Source code archived; not integrated |
 
@@ -134,10 +134,10 @@ These features have source code but are not fully end-to-end verified through TS
 
 Each item requires PetscDS callbacks integrated into `setupPhysics()`, integration tests through TSSolve, an example config, and visualization. Source code in `archive/src/` may provide a starting point but must be rewritten to use the PetscDS callback pattern.
 
-1. Slipping fault convergence (semi-smooth Newton tangent operator for Coulomb friction)
+1. ~~Slipping fault convergence~~ DONE
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
-4. Viscoelastic attenuation (Q-factor memory variables)
+4. ~~Viscoelastic attenuation~~ DONE
 5. Thermal coupling (heat equation + THM Biot)
 6. Radiation transport (advection-diffusion for fallout)
 7. Per-cell material from velocity model files
@@ -198,9 +198,9 @@ PETSc handles vector operations via cuBLAS, matrix operations via cuSPARSE, and 
 ```
 src/                    Live source code (~45 files, ~35k lines)
 include/                Headers
-tests/                  108 automated tests (unit, functional, physics, integration)
+tests/                  112 automated tests (unit, functional, physics, integration)
 config/examples/        Working example configurations
-examples/               13 runnable examples with README and run.sh
+examples/               15 runnable examples with README and run.sh
 scripts/                Visualization scripts (Python, reads C++ output)
 meshes/                 Gmsh mesh files for examples
 archive/                Removed dead code, fake examples, aspirational configs
