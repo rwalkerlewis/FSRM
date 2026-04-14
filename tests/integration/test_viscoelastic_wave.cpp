@@ -93,13 +93,7 @@ protected:
         cfg << "f_min = 0.1\n";
         cfg << "f_max = 10.0\n";
         cfg << "\n[EXPLOSION]\n";
-        cfg << "enabled = true\n";
-        cfg << "yield_kt = 1.0\n";
-        cfg << "depth = 3000.0\n";
-        cfg << "source_x = 3000.0\n";
-        cfg << "source_y = 3000.0\n";
-        cfg << "source_z = 3000.0\n";
-        cfg << "source_time = 0.0\n";
+        cfg << "enabled = false\n";
         cfg << "\n[BOUNDARY_CONDITIONS]\n";
         cfg << "bottom = fixed\n";
         cfg << "sides = roller\n";
