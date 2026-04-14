@@ -118,6 +118,9 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_explosion_fault_reactivation.cpp
     integration/test_traction_bc.cpp
     integration/test_time_dependent_slip.cpp
+    integration/test_nearfield_coupled.cpp
+    integration/test_slipping_fault_solve.cpp
+    integration/test_historic_nuclear.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -280,6 +283,13 @@ if(GTest_FOUND)
     add_test(NAME Integration.ExplosionFaultReactivation COMMAND run_integration_tests --gtest_filter=ExplosionFaultReactivationTest.*)
     add_test(NAME Integration.TractionBC COMMAND run_integration_tests --gtest_filter=TractionBCTest.*)
     add_test(NAME Integration.TimeDependentSlip COMMAND run_integration_tests --gtest_filter=TimeDependentSlipTest.*)
+    add_test(NAME Integration.NearFieldCoupled COMMAND run_integration_tests --gtest_filter=NearFieldCoupledTest.*)
+    add_test(NAME Integration.SlippingFaultSolve COMMAND run_integration_tests --gtest_filter=SlippingFaultSolveTest.*)
+    add_test(NAME Integration.HistoricNuclear.Gasbuggy1967 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gasbuggy1967)
+    add_test(NAME Integration.HistoricNuclear.Gnome1961 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gnome1961)
+    add_test(NAME Integration.HistoricNuclear.Sedan1962 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962)
+    add_test(NAME Integration.HistoricNuclear.DegelenMountain COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DegelenMountain)
+    add_test(NAME Integration.HistoricNuclear.NtsPahuteMesa COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.NtsPahuteMesa)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -376,6 +386,13 @@ if(GTest_FOUND)
         Integration.ExplosionFaultReactivation
         Integration.TractionBC
         Integration.TimeDependentSlip
+        Integration.NearFieldCoupled
+        Integration.SlippingFaultSolve
+        Integration.HistoricNuclear.Gasbuggy1967
+        Integration.HistoricNuclear.Gnome1961
+        Integration.HistoricNuclear.Sedan1962
+        Integration.HistoricNuclear.DegelenMountain
+        Integration.HistoricNuclear.NtsPahuteMesa
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

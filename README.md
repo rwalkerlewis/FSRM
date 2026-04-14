@@ -49,12 +49,17 @@ Six runnable examples demonstrate verified capabilities. Each has a `README.md`,
 | 06 | [Gmsh Multi-Material](examples/06_gmsh_multimaterial/) | Gmsh mesh import, per-region materials | < 1s |
 | 07 | [Traction BC](examples/07_traction_bc/) | Per-face Neumann traction BC, analytical verification | < 1s |
 | 08 | [Time-Dependent Slip](examples/08_time_dependent_slip/) | Prescribed fault slip with linear time ramp | < 1s |
+| 09 | [Gasbuggy 1967](examples/09_gasbuggy_1967/) | 29 kt, 4-layer Lewis Shale, SAC output | ~15s |
+| 10 | [Gnome 1961](examples/10_gnome_1961/) | 3.1 kt, 4-layer Salado Salt, SAC output | ~15s |
+| 11 | [Sedan 1962](examples/11_sedan_1962/) | 104 kt, 3-layer alluvium, SAC output | ~15s |
+| 12 | [Degelen Mountain](examples/12_degelen_mountain/) | 50 kt, 3-layer granite, SAC output | ~15s |
+| 13 | [NTS Pahute Mesa](examples/13_nts_pahute_mesa/) | 150 kt, 4-layer tuff, SAC output | ~15s |
 
 ---
 
 ## Verified Capabilities
 
-Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 101 tests total.
+Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 108 tests total.
 
 ### Integration-Tested Through TSSolve
 
@@ -84,6 +89,15 @@ Every feature below has automated tests with quantitative pass/fail criteria. Ru
 | HDF5/VTK output | `Integration.OutputFile` | PetscViewerHDF5, VTK |
 | Restart | `Integration.Restart` | Checkpoint/restore lifecycle |
 | DPRK 2017 synthetic mb | `Integration.DPRK2017Comparison` | Synthetic vs observed body-wave magnitude |
+| Explosion+fault residual | `Integration.ExplosionFaultReactivation` | Coexistence of moment-tensor and cohesive residual |
+| NearField-FEM coupling | `Integration.NearFieldCoupled` | COUPLED_ANALYTIC 1D solver to 3D FEM moment rate |
+| Per-face traction BC | `Integration.TractionBC` | Manual assembly, uniaxial analytical |
+| Time-dependent slip ramp | `Integration.TimeDependentSlip` | Linear slip ramp with onset/rise time |
+| Historic: Gasbuggy 1967 | `Integration.HistoricNuclear.Gasbuggy1967` | 29 kt, 4-layer Lewis Shale, SAC output |
+| Historic: Gnome 1961 | `Integration.HistoricNuclear.Gnome1961` | 3.1 kt, 4-layer Salado Salt, SAC output |
+| Historic: Sedan 1962 | `Integration.HistoricNuclear.Sedan1962` | 104 kt, 3-layer alluvium, SAC output |
+| Historic: Degelen Mountain | `Integration.HistoricNuclear.DegelenMountain` | 50 kt, 3-layer granite, SAC output |
+| Historic: NTS Pahute Mesa | `Integration.HistoricNuclear.NtsPahuteMesa` | 150 kt, 4-layer tuff, SAC output |
 
 ### Standalone Verified (Correct, Tested, Not FEM-Coupled)
 
@@ -108,7 +122,7 @@ These features have source code but are not fully end-to-end verified through TS
 |---------|--------|
 | Multiphase flow end-to-end | Callbacks unit-tested; no simulation test |
 | Hydraulic fracture coupled solve | PressurizedFractureFEM passes; lubrication+deformation not coupled |
-| Slipping fault (Coulomb friction) | Setup completes; TSSolve not tested |
+| Slipping fault (Coulomb friction) | Augmented Lagrangian regularization implemented; diverges at TSSolve due to approximate Jacobian. Needs semi-smooth Newton tangent operator. GTEST_SKIP documents root cause. |
 | Explosion + fault full TSSolve | Residual coexistence verified; full solve diverges |
 | Viscoelastic attenuation | Source code archived; not integrated |
 | Radiation transport / fallout | Source code archived; not integrated |
@@ -120,7 +134,7 @@ These features have source code but are not fully end-to-end verified through TS
 
 Each item requires PetscDS callbacks integrated into `setupPhysics()`, integration tests through TSSolve, an example config, and visualization. Source code in `archive/src/` may provide a starting point but must be rewritten to use the PetscDS callback pattern.
 
-1. Slipping fault TSSolve (Coulomb friction through manual assembly)
+1. Slipping fault convergence (semi-smooth Newton tangent operator for Coulomb friction)
 2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
 3. Full coupled hydraulic fracturing (lubrication + deformation)
 4. Viscoelastic attenuation (Q-factor memory variables)
@@ -184,9 +198,9 @@ PETSc handles vector operations via cuBLAS, matrix operations via cuSPARSE, and 
 ```
 src/                    Live source code (~45 files, ~35k lines)
 include/                Headers
-tests/                  99 automated tests (unit, functional, physics, integration)
+tests/                  108 automated tests (unit, functional, physics, integration)
 config/examples/        Working example configurations
-examples/               6 runnable examples with README and run.sh
+examples/               13 runnable examples with README and run.sh
 scripts/                Visualization scripts (Python, reads C++ output)
 meshes/                 Gmsh mesh files for examples
 archive/                Removed dead code, fake examples, aspirational configs

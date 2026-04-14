@@ -4,26 +4,30 @@ This file provides context and guidelines for GitHub Copilot when working in thi
 
 ## Repository Overview
 
-FSRM (Fully-coupled Subsurface Reservoir Model) is a fully coupled, physics-based simulator for petroleum reservoirs and earth systems. It is built on PETSc for scalable parallel computing and supports GPU acceleration via CUDA/HIP.
+FSRM (Full Service Reservoir Model) is a C++17/PETSc/MPI coupled multiphysics simulator for nuclear explosion monitoring, seismic wave propagation, dynamic fault rupture, and coupled THM poroelasticity. MIT licensed. Config-driven: a single executable reads `.config` files.
 
-### Key Features
-- Multi-physics simulation (THM - Thermo-Hydro-Mechanical coupling)
-- Fluid flow models (single-phase, black oil, compositional)
-- Geomechanics (elastic, viscoelastic, poroelastic)
-- Hydraulic fracturing and induced seismicity
-- Machine learning solvers (Fourier Neural Operator)
-- Adaptive Mesh Refinement
+### Key Features (Integration-Tested)
+- Elastostatics and elastodynamics with absorbing BCs
+- Poroelasticity (Biot coupling, Terzaghi consolidation)
+- Mueller-Murphy underground explosion source with moment tensor injection
+- COUPLED_ANALYTIC NearField 1D solver to 3D FEM coupling
+- Layered heterogeneous material via auxiliary fields
+- Cohesive fault cells (locked, prescribed slip, time-dependent slip)
+- Drucker-Prager elastoplasticity
+- Gmsh mesh import with per-region materials
+- SAC seismometer output
+- HDF5/VTK output with checkpoint/restart
+- 5 historic nuclear test digital twins (Gasbuggy, Gnome, Sedan, Degelen, Pahute Mesa)
 
 ## Technology Stack
 
 - **Language**: C++17
 - **Build System**: CMake >= 3.15
-- **Parallel Computing**: PETSc >= 3.15, MPI
-- **I/O**: HDF5, Eclipse format
-- **GPU**: CUDA (NVIDIA), ROCm/HIP (AMD)
-- **Testing**: Google Test
-- **Coordinate Systems**: PROJ library
-- **Mesh**: Gmsh integration
+- **Parallel Computing**: PETSc 3.22.2, MPI
+- **I/O**: HDF5
+- **GPU**: PETSc CUDA backend (no FSRM code changes needed)
+- **Testing**: Google Test (108 tests)
+- **Build Environment**: Docker (Dockerfile.ci)
 
 ## Code Style Guidelines
 
@@ -140,13 +144,15 @@ Example:
 ```ini
 [SIMULATION]
 start_time = 0.0
-end_time = 86400.0        # 1 day in seconds
-fluid_model = BLACK_OIL
+end_time = 5.0            # seconds
+fluid_model = NONE
+solid_model = ELASTIC
+enable_elastodynamics = true
 
 [ROCK]
-porosity = 0.20           # 20%
-permeability_x = 100.0    # milliDarcy
-youngs_modulus = 10.0e9   # 10 GPa (Pa)
+density = 2650.0          # kg/m^3
+youngs_modulus = 60.0e9   # Pa
+poissons_ratio = 0.25
 ```
 
 ## Git Commit Messages
@@ -161,12 +167,16 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `perf`, `build`, `ci`
 
 ## Important Notes
 
-1. **PETSc Integration**: All matrix/vector operations should use PETSc types (`Vec`, `Mat`, `KSP`, etc.)
-2. **MPI**: Code must be MPI-safe for parallel execution
-3. **GPU Code**: CUDA kernels go in `.cu` files with corresponding `.cuh` headers
-4. **Error Handling**: Use PETSc error checking macros (`PetscCall`, `PetscCheck`)
-5. **Memory**: Follow RAII patterns; use smart pointers where appropriate
-6. **Units**: Internal calculations use SI units; conversions happen at I/O boundaries
+1. **PETSc 3.22.2**: Verify API signatures before calling any PETSc function. They change between versions.
+2. **MPI**: Code must be MPI-safe for parallel execution.
+3. **Error Handling**: Use `CHKERRQ(ierr)` for PETSc error propagation (not `PetscCall` -- this codebase uses the older pattern).
+4. **DS/BC Ordering**: NEVER change the ordering in setupFields(): DMCreateDS -> setupBoundaryConditions -> DMSetLocalSection(nullptr) -> DMSetUp -> DMGetDS.
+5. **Do NOT modify**: callback math in PetscFEElasticity.cpp, PetscFEPoroelasticity.cpp, PetscFEFluidFlow.cpp, FaultMeshManager::splitMeshAlongFault, or CohesiveFaultKernel::registerWithDS.
+6. **Units**: Internal calculations use SI units; conversions at I/O boundaries.
+7. **Build/test in Docker**: `docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local bash -c 'make -j$(nproc) && ctest --output-on-failure'`
+8. **No Python in simulator**: Python is ONLY for post-processing visualization scripts.
+9. **Dead code**: Archived in `archive/`. Do not reference or use.
+10. **Executable**: `./fsrm -c ../config/examples/example.config` (not `fsrm_simulator`).
 
 ## Common Patterns
 

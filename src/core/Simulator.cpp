@@ -11,6 +11,7 @@
 #include "core/ConfigReader.hpp"
 #include "numerics/ImplicitExplicitTransition.hpp"
 #include "domain/explosion/ExplosionImpactPhysics.hpp"
+#include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
 
 // GPU kernel support — conditionally include GPU headers when built with CUDA
@@ -387,6 +388,14 @@ struct Simulator::ExplosionCoupling {
 
     // Cavity model (spherically symmetric proxy)
     SphericalCavitySource cavity;
+
+    // COUPLED_ANALYTIC: 1D solver results
+    bool use_nearfield_coupling = false;
+    RDPSeismicSource rdp_source;
+    NearFieldExplosionSolver nf_solver;
+    double nf_cavity_radius = 0.0;
+    double nf_crushed_radius = 0.0;
+    double nf_fractured_radius = 0.0;
 
     // Configure from basic nuclear underground parameters
     void configureUndergroundNuclear(double yield_kt, double depth_m,
@@ -1021,6 +1030,51 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
 
             explosion_ = std::make_unique<ExplosionCoupling>();
             explosion_->configureUndergroundNuclear(yield_kt, depth_m, x, y, z, rho, vp, vs, rise, P0, t0);
+
+            // COUPLED_ANALYTIC: run 1D NearField solver and store RDP source
+            if (config.explosion_solve_mode == "COUPLED_ANALYTIC") {
+                UndergroundExplosionSource nf_src;
+                nf_src.yield_kt = yield_kt;
+                nf_src.depth = depth_m;
+                nf_src.location = {x, y, z};
+                nf_src.host_density = rho;
+                nf_src.host_vp = vp;
+                nf_src.host_vs = vs;
+                nf_src.rise_time = rise;
+                nf_src.overburden_stress = rho * 9.81 * depth_m;
+
+                explosion_->nf_solver.setSource(nf_src);
+                explosion_->nf_solver.initialize();
+
+                // Run the 1D solver to completion (fast, sub-second)
+                double nf_dt = 0.0001;
+                double nf_end = std::max(1.0, 10.0 * rise);
+                for (double nf_t = 0.0; nf_t < nf_end; nf_t += nf_dt) {
+                    explosion_->nf_solver.prestep(nf_t, nf_dt);
+                    explosion_->nf_solver.step(nf_dt);
+                    explosion_->nf_solver.poststep(nf_t + nf_dt, nf_dt);
+                }
+
+                // Store zone radii from the 1D solver
+                explosion_->nf_cavity_radius = explosion_->nf_solver.getCavityRadius(nf_end);
+                explosion_->nf_crushed_radius = explosion_->nf_solver.getCrushedZoneRadius();
+                explosion_->nf_fractured_radius = explosion_->nf_solver.getFracturedZoneRadius();
+
+                // Initialize RDP source from the same explosion parameters
+                explosion_->rdp_source.initialize(nf_src);
+                explosion_->use_nearfield_coupling = true;
+
+                if (rank == 0) {
+                    PetscPrintf(comm, "COUPLED_ANALYTIC: NearField 1D solver completed\n");
+                    PetscPrintf(comm, "  RDP psi_inf = %.3e m^3, fc = %.3f Hz\n",
+                                explosion_->rdp_source.psi_infinity,
+                                explosion_->rdp_source.corner_frequency);
+                    PetscPrintf(comm, "  Cavity R = %.1f m, Crushed R = %.1f m, Fractured R = %.1f m\n",
+                                explosion_->nf_cavity_radius,
+                                explosion_->nf_crushed_radius,
+                                explosion_->nf_fractured_radius);
+                }
+            }
         }
     }
 
@@ -2590,9 +2644,18 @@ PetscErrorCode Simulator::applyExplosionDamageToAuxFields()
     NuclearSourceParameters source_params;
     source_params.yield_kt = explosion_->yield_kt;
     source_params.depth_of_burial = explosion_->depth_of_burial;
-    const double cavity_radius = source_params.cavity_radius(explosion_->rho);
-    const double crushed_radius = source_params.crushed_zone_radius();
-    const double fractured_radius = source_params.fractured_zone_radius();
+
+    // Use 1D solver zone radii when COUPLED_ANALYTIC, else empirical scaling
+    double cavity_radius, crushed_radius, fractured_radius;
+    if (explosion_->use_nearfield_coupling) {
+        cavity_radius = explosion_->nf_cavity_radius;
+        crushed_radius = explosion_->nf_crushed_radius;
+        fractured_radius = explosion_->nf_fractured_radius;
+    } else {
+        cavity_radius = source_params.cavity_radius(explosion_->rho);
+        crushed_radius = source_params.crushed_zone_radius();
+        fractured_radius = source_params.fractured_zone_radius();
+    }
 
     PetscInt cStart = 0, cEnd = 0;
     ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
@@ -2619,19 +2682,38 @@ PetscErrorCode Simulator::applyExplosionDamageToAuxFields()
         const PetscScalar base_lambda = lambda;
         const PetscScalar base_mu = mu;
 
-        if (radius < cavity_radius) {
-            lambda = 1.0e6;
-            mu = 1.0e6;
-            rho = 100.0;
-        } else if (radius < crushed_radius) {
-            lambda = 0.1 * base_lambda;
-            mu = 0.1 * base_mu;
-        } else if (radius < fractured_radius) {
-            const double frac = (radius - crushed_radius) /
-                                std::max(1.0e-12, fractured_radius - crushed_radius);
-            const double factor = 0.5 + 0.5 * std::clamp(frac, 0.0, 1.0);
-            lambda = factor * base_lambda;
-            mu = factor * base_mu;
+        if (explosion_->use_nearfield_coupling) {
+            // COUPLED_ANALYTIC: use 1D solver continuous damage profile
+            std::array<double, 3> pt = {centroid[0], centroid[1],
+                                        (dim > 2) ? centroid[2] : 0.0};
+            double D = explosion_->nf_solver.getDamage(pt);
+            if (D > 0.9) {
+                // Cavity/crushed zone
+                lambda = 1.0e6;
+                mu = 1.0e6;
+                rho = 100.0;
+            } else if (D > 0.01) {
+                double factor = 1.0 - D;
+                factor = std::max(0.1, factor);
+                lambda = factor * base_lambda;
+                mu = factor * base_mu;
+            }
+        } else {
+            // PROXY: simple 3-zone model
+            if (radius < cavity_radius) {
+                lambda = 1.0e6;
+                mu = 1.0e6;
+                rho = 100.0;
+            } else if (radius < crushed_radius) {
+                lambda = 0.1 * base_lambda;
+                mu = 0.1 * base_mu;
+            } else if (radius < fractured_radius) {
+                const double frac = (radius - crushed_radius) /
+                                    std::max(1.0e-12, fractured_radius - crushed_radius);
+                const double factor = 0.5 + 0.5 * std::clamp(frac, 0.0, 1.0);
+                lambda = factor * base_lambda;
+                mu = factor * base_mu;
+            }
         }
     }
 
@@ -3754,15 +3836,18 @@ PetscErrorCode Simulator::addCohesiveConstraintToResidual(PetscReal t, Vec locU,
                 }
             }
 
+            // Augmented Lagrangian penalty: full penalty for locked/prescribed,
+            // reduced penalty for slipping to regularize the saddle-point system
+            // and prevent singular Jacobian with FD coloring.
+            const PetscReal effective_penalty =
+                (mode == CohesiveAssemblyMode::Slipping)
+                ? 0.01 * penalty_stiffness
+                : penalty_stiffness;
+
             for (PetscInt d = 0; d < dim; ++d)
             {
-                traction_neg[d] = -lambda_interface[d];
-                traction_pos[d] = lambda_interface[d];
-                if (mode != CohesiveAssemblyMode::Slipping)
-                {
-                    traction_neg[d] -= penalty_stiffness * constraint[d];
-                    traction_pos[d] += penalty_stiffness * constraint[d];
-                }
+                traction_neg[d] = -lambda_interface[d] - effective_penalty * constraint[d];
+                traction_pos[d] = lambda_interface[d] + effective_penalty * constraint[d];
             }
 
             ierr = addFieldResidual(neg_vertex.point, disp_field, traction_neg, area_per_vertex); CHKERRQ(ierr);
@@ -3792,7 +3877,12 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
 {
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
-    if (fault_mode_ == "slipping") PetscFunctionReturn(PETSC_SUCCESS);
+
+    // For slipping mode, use a reduced penalty factor matching the augmented
+    // Lagrangian regularization in addCohesiveConstraintToResidual.
+    // This provides enough coupling to prevent a singular Jacobian.
+    const bool is_slipping = (fault_mode_ == "slipping");
+    const PetscReal penalty_scale = is_slipping ? 0.01 : 1.0;
 
     PetscErrorCode ierr;
     PetscSection gsection = nullptr;
@@ -3935,7 +4025,7 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J)
         }
 
         const PetscScalar coeff = static_cast<PetscScalar>(face_area / static_cast<PetscReal>(n_pairs));
-        const PetscScalar penalty = static_cast<PetscScalar>(10.0 * youngs_modulus /
+        const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus /
             PetscMax(PetscSqrtReal(face_area), PETSC_SMALL));
         for (PetscInt i = 0; i < n_pairs; ++i)
         {
@@ -4044,17 +4134,25 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
 
     // Get moment tensor at current time
     double M[6];  // Mxx, Myy, Mzz, Mxy, Mxz, Myz
-    // Use Mueller-Murphy moment rate for physically consistent source magnitude
     double mr = 0.0;
     double elapsed = static_cast<double>(t) - explosion_->t0;
     if (elapsed >= 0.0) {
-        NuclearSourceParameters nsp;
-        nsp.yield_kt = explosion_->yield_kt;
-        nsp.depth_of_burial = explosion_->depth_of_burial;
-        MuellerMurphySource mm;
-        mm.setMediumProperties(explosion_->rho, explosion_->vp, explosion_->vs);
-        mm.setParameters(nsp);
-        mr = mm.momentRate(elapsed);
+        if (explosion_->use_nearfield_coupling) {
+            // COUPLED_ANALYTIC: moment rate from RDP derivative
+            // M_dot(t) = 4 * pi * rho * vp^2 * psi_dot(t)
+            double psi_dot = explosion_->rdp_source.psiDot(elapsed);
+            double K = explosion_->rho * explosion_->vp * explosion_->vp;
+            mr = 4.0 * M_PI * K * psi_dot;
+        } else {
+            // PROXY: Mueller-Murphy moment rate
+            NuclearSourceParameters nsp;
+            nsp.yield_kt = explosion_->yield_kt;
+            nsp.depth_of_burial = explosion_->depth_of_burial;
+            MuellerMurphySource mm;
+            mm.setMediumProperties(explosion_->rho, explosion_->vp, explosion_->vs);
+            mm.setParameters(nsp);
+            mr = mm.momentRate(elapsed);
+        }
     }
     double scale = mr / 3.0;
     M[0] = M[1] = M[2] = scale;
