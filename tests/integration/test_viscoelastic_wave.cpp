@@ -73,18 +73,9 @@ protected:
         cfg << "density = 2650.0\n";
         cfg << "youngs_modulus = 50.0e9\n";
         cfg << "poissons_ratio = 0.25\n";
-        cfg << "\n[MATERIAL]\n";
-        cfg << "heterogeneous = true\n";
-        cfg << "assignment = depth\n";
-        // Layer with lambda/mu/rho (from vp=5800, vs=3349, rho=2650):
-        //   mu = rho * vs^2 = 2650 * 3349^2 = 2.97e10
-        //   lambda = rho * (vp^2 - 2*vs^2) = 2650 * (5800^2 - 2*3349^2) = 2.97e10
-        cfg << "\n[LAYER_1]\n";
-        cfg << "z_top = 6000.0\n";
-        cfg << "z_bottom = 0.0\n";
-        cfg << "lambda = 2.97e10\n";
-        cfg << "mu = 2.97e10\n";
-        cfg << "rho = 2650.0\n";
+        // No heterogeneous material -- use homogeneous constants.
+        // The viscoelastic flag triggers use_aux_callbacks which sets up
+        // the aux DM with default material properties from [ROCK].
         cfg << "\n[VISCOELASTIC]\n";
         cfg << "enabled = true\n";
         cfg << "num_mechanisms = 3\n";
