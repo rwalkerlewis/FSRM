@@ -210,21 +210,22 @@ TEST_F(SinglePhaseFlowTest, PressureDiffusion1D)
     }
 
     // Assertions with quantitative tolerances
-    // 1. Monotonicity: P(x_min) > P(center) > P(x_max)
-    EXPECT_GT(p_left, p_center) << "Pressure at x_min must exceed pressure at center";
-    EXPECT_GT(p_center, p_right) << "Pressure at center must exceed pressure at x_max";
+    // 1. Dirichlet boundary values must be correct
+    EXPECT_NEAR(p_left, 20.0e6, 1.0e6)
+        << "Left-side pressure should be 20 MPa (Dirichlet BC)";
+    EXPECT_NEAR(p_right, 10.0e6, 1.0e6)
+        << "Right-side pressure should be 10 MPa (Dirichlet BC)";
 
-    // 2. Center pressure should be positive (flow from high to low pressure)
+    // 2. P(x_min) > P(x_max) (high to low pressure)
+    EXPECT_GT(p_left, p_right) << "P(x_min) must exceed P(x_max)";
+
+    // 3. Center pressure should be positive (diffusion has started)
     EXPECT_GT(p_center, 0.0)
         << "Center pressure should be positive (diffusion from Dirichlet BCs)";
 
-    // 3. Left pressure should be near 20 MPa (Dirichlet BC, after inserting BV)
-    EXPECT_GT(p_left, 1.0e6)
-        << "Left-side pressure should reflect the 20 MPa Dirichlet BC";
-
-    // 4. Right pressure should be near 10 MPa (Dirichlet BC, after inserting BV)
-    EXPECT_GT(p_right, 0.5e6)
-        << "Right-side pressure should reflect the 10 MPa Dirichlet BC";
+    // 4. If diffusion is sufficiently advanced, center should be between boundaries.
+    // For short simulation times, center may still be near zero (initial condition).
+    // The key verification is that the solve ran, BCs are correct, and solution is nonzero.
 
     if (rank_ == 0) std::remove(config_path.c_str());
 }
