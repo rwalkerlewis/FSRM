@@ -386,9 +386,7 @@ TEST_F(DynamicRuptureSolveTest, LockedFaultQuasiStatic)
   ASSERT_EQ(ierr, 0) << "TSSolve must succeed for locked fault quasi-static "
                       << "(manual cohesive assembly with -snes_fd_color)";
 
-  if (sol_norm == 0.0) {
-    GTEST_SKIP() << "SNES did not converge to a nonzero solution on this coarse mesh";
-  }
+  EXPECT_GT(sol_norm, 0.0) << "Solution must be nonzero";
   EXPECT_TRUE(std::isfinite(sol_norm)) << "Solution norm must be finite";
   EXPECT_LT(max_fault_slip, 5.0e-4) << "Locked fault must remain nearly continuous";
 }
@@ -408,9 +406,7 @@ TEST_F(DynamicRuptureSolveTest, LockedFaultElastodynamic)
   ASSERT_EQ(ierr, 0) << "TSSolve must succeed for locked fault elastodynamic "
                       << "(manual cohesive assembly with -snes_fd_color)";
 
-  if (sol_norm == 0.0) {
-    GTEST_SKIP() << "SNES did not converge to a nonzero solution on this coarse mesh";
-  }
+  EXPECT_GT(sol_norm, 0.0) << "Solution must be nonzero";
   EXPECT_TRUE(std::isfinite(sol_norm)) << "Solution norm must be finite";
 }
 
@@ -432,10 +428,7 @@ TEST_F(DynamicRuptureSolveTest, PrescribedSlipQuasiStatic)
   if (rank_ == 0) std::remove(config_path.c_str());
 
   ASSERT_EQ(ierr, 0) << "TSSolve must succeed for prescribed-slip quasi-static solve";
-  if (sol_norm == 0.0 || max_fault_slip < 1.0e-8) {
-    GTEST_SKIP() << "SNES did not converge to a meaningful solution on this coarse mesh "
-                 << "(sol_norm=" << sol_norm << ", max_slip=" << max_fault_slip << ")";
-  }
+  EXPECT_GT(sol_norm, 0.0) << "Solution must be nonzero";
   EXPECT_TRUE(std::isfinite(sol_norm)) << "Solution norm must be finite";
   EXPECT_GT(max_fault_slip, 5.0e-4) << "Prescribed slip must create a measurable displacement jump";
   EXPECT_LT(max_fault_slip, 2.0e-3) << "Prescribed slip jump should stay near the configured 1 mm opening";

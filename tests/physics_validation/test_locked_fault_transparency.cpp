@@ -338,10 +338,7 @@ TEST_F(LockedFaultTransparencyTest, DisplacementMatchesContinuous)
   if (rank_ == 0) std::remove(fault_config.c_str());
 
   ASSERT_EQ(ierr, 0) << "Locked fault simulation must succeed (or tolerate SNES non-convergence)";
-  if (fault_norm == 0.0) {
-    GTEST_SKIP() << "SNES did not converge to a nonzero solution on this coarse mesh; "
-                 << "skipping quantitative fault slip check";
-  }
+  ASSERT_GT(fault_norm, 0.0) << "Solution must be nonzero for locked fault transparency check";
   EXPECT_TRUE(std::isfinite(fault_norm)) << "Locked fault solution norm must be finite";
   EXPECT_LT(max_fault_slip, 5.0e-4)
       << "Locked fault must remain mechanically transparent with near-zero displacement jump";
