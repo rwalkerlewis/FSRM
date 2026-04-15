@@ -20,7 +20,13 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. All pass honestly. Zero failures, zero fake skips.
+116 registered tests. 112 pass, 4 fail honestly (no fake skips).
+
+Known failures (identity Lagrange regularization produces zero solutions on coarse mesh):
+- Physics.LockedFaultTransparency: locked fault, zero solution
+- Physics.SCEC.TPV5: setupFields error 63 (PETSc simplex mesh issue)
+- Integration.DynamicRuptureSolve.LockedQuasiStatic: locked fault, zero solution
+- Integration.DynamicRuptureSolve.PrescribedSlipQuasiStatic: prescribed slip, zero solution
 
 | Category | Tests | Description |
 |----------|------:|-------------|
