@@ -268,10 +268,12 @@ public:
       PetscReal wellbore_radius);
 
   /**
-   * @brief Volume residual for Lagrange field regularization (identity).
+   * @brief Volume residual for Lagrange field regularization (epsilon-scaled).
    *
-   * Returns f[d] = lambda[d] to ensure non-singular system matrix
-   * for Lagrange DOFs that are not on the fault surface.
+   * Returns f[d] = epsilon * lambda[d] (epsilon = 1e-10) to ensure
+   * non-singular system matrix for Lagrange DOFs that are not on the
+   * fault surface, without interfering with the BdResidual constraint
+   * on cohesive faces where the Lagrange multiplier must be nonzero.
    */
   static void f0_lagrange_regularize(
       PetscInt dim, PetscInt Nf, PetscInt NfAux,
@@ -287,9 +289,10 @@ public:
       PetscScalar f[]);
 
   /**
-   * @brief Jacobian for Lagrange-Lagrange block (identity).
+   * @brief Jacobian for Lagrange-Lagrange block (epsilon-scaled diagonal).
    *
-   * Returns g0[d*dim+d] = 1 (identity matrix) for the Lagrange self-coupling.
+   * Returns g0[d*dim+d] = epsilon (epsilon = 1e-10) for the Lagrange
+   * self-coupling. Matches the epsilon used in f0_lagrange_regularize.
    */
   static void g0_lagrange_regularize(
       PetscInt dim, PetscInt Nf, PetscInt NfAux,

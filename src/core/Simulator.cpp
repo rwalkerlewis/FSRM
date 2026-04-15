@@ -2449,9 +2449,10 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Volume regularization for the Lagrange field: f = lambda, g = I.
+        // Epsilon regularization for the Lagrange field: f = eps*lambda, g = eps*I.
         // This keeps the PetscDS system non-singular on interior (non-cohesive)
-        // cells that have Lagrange DOFs. The actual constraint on cohesive
+        // cells that have Lagrange DOFs without interfering with the BdResidual
+        // constraint on cohesive faces. The actual constraint on cohesive
         // cells is handled by BdResidual callbacks registered below.
         // BdJacobian on cohesive cells does NOT work in PETSc 3.25 (commented
         // out in plexfem.c), so the Jacobian is assembled manually in

@@ -496,12 +496,18 @@ void PetscFEHydrofrac::f0_lagrange_regularize(
   (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
   (void)t; (void)x; (void)numConstants; (void)constants;
 
-  // Identity: F_lambda = lambda (makes system non-singular away from fault)
-  // Lagrange field is always the last solution field before thermal
+  // Epsilon regularization: F_lambda = epsilon * lambda
+  // Prevents singularity on interior cells where Lagrange DOFs exist but
+  // no cohesive BdResidual constraint is active. Must be small enough not
+  // to interfere with the BdResidual constraint on cohesive faces, which
+  // has magnitude O(MPa) for typical geomechanics problems.
+  // On interior cells: epsilon * lambda = 0 => lambda = 0 (correct).
+  // On cohesive cells: epsilon * lambda + (u+ - u-) = 0 => constraint dominates.
   const PetscInt lagr_off = uOff[Nf - 1];
+  const PetscReal epsilon = 1.0e-10;
   for (PetscInt d = 0; d < dim; ++d)
   {
-    f[d] = u[lagr_off + d];
+    f[d] = epsilon * u[lagr_off + d];
   }
 }
 
@@ -522,10 +528,12 @@ void PetscFEHydrofrac::g0_lagrange_regularize(
   (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
   (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
 
-  // Identity Jacobian for the (Lagrange, Lagrange) block
+  // Epsilon-scaled Jacobian for the (Lagrange, Lagrange) block.
+  // Matches the epsilon used in f0_lagrange_regularize.
+  const PetscReal epsilon = 1.0e-10;
   for (PetscInt d = 0; d < dim; ++d)
   {
-    g0[d * dim + d] = 1.0;
+    g0[d * dim + d] = epsilon;
   }
 }
 
