@@ -20,7 +20,13 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. All pass or GTEST_SKIP. Zero failures.
+116 registered tests. 112 pass, 4 fail honestly (no fake skips).
+
+Known failures (identity Lagrange regularization produces zero solutions on coarse mesh):
+- Physics.LockedFaultTransparency: locked fault, zero solution
+- Physics.SCEC.TPV5: setupFields error 63 (PETSc simplex mesh issue)
+- Integration.DynamicRuptureSolve.LockedQuasiStatic: locked fault, zero solution
+- Integration.DynamicRuptureSolve.PrescribedSlipQuasiStatic: prescribed slip, zero solution
 
 | Category | Tests | Description |
 |----------|------:|-------------|
@@ -31,7 +37,7 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
-Note: the performance test `GPUAcceleration` uses `GTEST_SKIP` when CUDA is not available.
+Note: `GTEST_SKIP` is used ONLY for hardware-dependent tests (GPU/CUDA detection) and one known segfault bug (explosion+fault TSSolve). A test that produces a zero solution is a FAILURE, not a skip. If SNES converges to zero, the physics setup is wrong -- fix it.
 Note: some tests may fail when run in parallel (`ctest -j`) due to HDF5 output file conflicts. All pass when run individually.
 
 ## Build Environment
@@ -319,6 +325,7 @@ a starting point but must be rewritten to use the PetscDS callback pattern.
 12. No em dashes or contractions in code comments or documentation.
 13. Verification tests must have quantitative pass/fail criteria with numerical tolerances.
 14. Update CLAUDE.md and README.md after every session to reflect actual code state. Every claim must be backed by a specific test name or code reference.
+15. GTEST_SKIP is ONLY for hardware-dependent tests (GPU, MPI rank count) or genuine crash bugs that would kill the test runner. A test that produces a zero solution is a FAILURE, not a skip. If SNES converges to zero, the physics setup is wrong -- fix it, do not hide it behind GTEST_SKIP.
 
 ## Parallel Development and Execution
 

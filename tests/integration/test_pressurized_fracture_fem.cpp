@@ -154,9 +154,7 @@ TEST_F(PressurizedFractureFEMTest, TSSolveProducesNonzeroDisplacement)
   PetscReal norm;
   ierr = VecNorm(sol, NORM_2, &norm);
   ASSERT_EQ(ierr, 0);
-  if (norm == 0.0) {
-    GTEST_SKIP() << "SNES did not converge to a nonzero solution on this coarse mesh";
-  }
+  EXPECT_GT(norm, 0.0) << "Solution must be nonzero";
 
   ASSERT_EQ(PetscOptionsClearValue(nullptr, "-snes_max_it"), 0);
   ASSERT_EQ(PetscOptionsClearValue(nullptr, "-snes_rtol"), 0);
