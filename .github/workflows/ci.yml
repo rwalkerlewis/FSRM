@@ -35,6 +35,17 @@ jobs:
             type=registry,ref=ghcr.io/rwalkerlewis/fsrm-ci:latest
           cache-to: type=gha,mode=max
 
+      - name: Save Docker Image
+        run: docker save fsrm-ci:local | gzip > /tmp/fsrm-ci-image.tar.gz
+
+      - name: Upload Docker Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-docker-image
+          path: /tmp/fsrm-ci-image.tar.gz
+          retention-days: 1
+          compression-level: 0  # already gzipped
+
       - name: Configure & Build
         run: |
           docker run --rm \
@@ -85,16 +96,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull CI Image
-        run: |
-          for attempt in 1 2 3; do
-            docker pull ghcr.io/rwalkerlewis/fsrm-ci:latest \
-              && docker tag ghcr.io/rwalkerlewis/fsrm-ci:latest fsrm-ci:local \
-              && break
-            echo "Pull attempt $attempt failed. Retrying in 30s..."
-            sleep 30
-          done
-          docker inspect fsrm-ci:local
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-docker-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load < /tmp/fsrm-ci-image.tar.gz
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -131,16 +140,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull CI Image
-        run: |
-          for attempt in 1 2 3; do
-            docker pull ghcr.io/rwalkerlewis/fsrm-ci:latest \
-              && docker tag ghcr.io/rwalkerlewis/fsrm-ci:latest fsrm-ci:local \
-              && break
-            echo "Pull attempt $attempt failed. Retrying in 30s..."
-            sleep 30
-          done
-          docker inspect fsrm-ci:local
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-docker-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load < /tmp/fsrm-ci-image.tar.gz
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -177,16 +184,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull CI Image
-        run: |
-          for attempt in 1 2 3; do
-            docker pull ghcr.io/rwalkerlewis/fsrm-ci:latest \
-              && docker tag ghcr.io/rwalkerlewis/fsrm-ci:latest fsrm-ci:local \
-              && break
-            echo "Pull attempt $attempt failed. Retrying in 30s..."
-            sleep 30
-          done
-          docker inspect fsrm-ci:local
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-docker-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load < /tmp/fsrm-ci-image.tar.gz
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -223,16 +228,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull CI Image
-        run: |
-          for attempt in 1 2 3; do
-            docker pull ghcr.io/rwalkerlewis/fsrm-ci:latest \
-              && docker tag ghcr.io/rwalkerlewis/fsrm-ci:latest fsrm-ci:local \
-              && break
-            echo "Pull attempt $attempt failed. Retrying in 30s..."
-            sleep 30
-          done
-          docker inspect fsrm-ci:local
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-docker-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load < /tmp/fsrm-ci-image.tar.gz
 
       - name: Download Build
         uses: actions/download-artifact@v4
@@ -270,16 +273,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull CI Image
-        run: |
-          for attempt in 1 2 3; do
-            docker pull ghcr.io/rwalkerlewis/fsrm-ci:latest \
-              && docker tag ghcr.io/rwalkerlewis/fsrm-ci:latest fsrm-ci:local \
-              && break
-            echo "Pull attempt $attempt failed. Retrying in 30s..."
-            sleep 30
-          done
-          docker inspect fsrm-ci:local
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-docker-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load < /tmp/fsrm-ci-image.tar.gz
 
       - name: Download Build
         uses: actions/download-artifact@v4
