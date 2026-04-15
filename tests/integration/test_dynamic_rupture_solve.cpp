@@ -302,11 +302,13 @@ protected:
     PetscOptionsClear(nullptr);
 
     PetscOptionsSetValue(nullptr, "-ts_type", "beuler");
-    PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
+    PetscOptionsSetValue(nullptr, "-snes_max_it", "200");
+    PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-6");
+    PetscOptionsSetValue(nullptr, "-snes_atol", "1e-8");
     PetscOptionsSetValue(nullptr, "-ts_max_snes_failures", "-1");
     PetscOptionsSetValue(nullptr, "-pc_type", "lu");
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
-    PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
+    PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
     PetscOptionsSetValue(nullptr, "-snes_monitor", nullptr);
     PetscOptionsSetValue(nullptr, "-snes_converged_reason", nullptr);
     PetscOptionsSetValue(nullptr, "-ts_monitor", nullptr);

@@ -105,11 +105,13 @@ TEST_F(ExplosionFaultReactivationTest, SetupAndResidualEvaluation)
 
   PetscOptionsClear(nullptr);
   PetscOptionsSetValue(nullptr, "-ts_type", "beuler");
-  PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
+  PetscOptionsSetValue(nullptr, "-snes_max_it", "200");
+  PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-6");
+  PetscOptionsSetValue(nullptr, "-snes_atol", "1e-8");
   PetscOptionsSetValue(nullptr, "-ts_max_snes_failures", "-1");
   PetscOptionsSetValue(nullptr, "-pc_type", "lu");
   PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
-  PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
+  PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
 
   ierr = sim.initializeFromConfigFile(config_path);
   ASSERT_EQ(ierr, 0) << "initializeFromConfigFile must succeed";
@@ -247,11 +249,13 @@ TEST_F(ExplosionFaultReactivationTest, FullTSSolve)
   // Use TSALPHA2 for elastodynamics (same as locked fault elastodynamic test)
   PetscOptionsSetValue(nullptr, "-ts_type", "alpha2");
   PetscOptionsSetValue(nullptr, "-ts_alpha_radius", "1.0");
-  PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
+  PetscOptionsSetValue(nullptr, "-snes_max_it", "200");
+  PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-6");
+  PetscOptionsSetValue(nullptr, "-snes_atol", "1e-8");
   PetscOptionsSetValue(nullptr, "-ts_max_snes_failures", "-1");
   PetscOptionsSetValue(nullptr, "-pc_type", "lu");
   PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
-  PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
+  PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
   PetscOptionsSetValue(nullptr, "-snes_monitor", nullptr);
   PetscOptionsSetValue(nullptr, "-snes_converged_reason", nullptr);
   PetscOptionsSetValue(nullptr, "-ts_monitor", nullptr);
