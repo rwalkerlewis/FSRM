@@ -20,14 +20,14 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-118 registered tests. All pass or GTEST_SKIP. Zero failures.
+116 registered tests. All pass or GTEST_SKIP. Zero failures.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
 | Unit | 36 | Standalone formula, callback, and component tests |
 | Functional | 10 | Setup pipeline verification (no TSSolve) |
 | Physics | 27 | Analytical solutions, FEM-coupled benchmarks, standalone physics, viscoelastic relaxation, cohesive BdResidual verification, SCEC TPV5 |
-| Integration | 40 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, slip-weakening fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave |
+| Integration | 38 | Full Simulator pipeline through TSSolve, plus NearField coupling, slipping fault, slip-weakening fault, 5 historic nuclear tests, traction BC, time-dependent slip, explosion-fault residual coexistence, single-phase flow, viscoelastic wave, velocity model material, thermal diffusion, thermal expansion |
 | Performance | 4 | Benchmarks, scaling, memory, GPU |
 | Experimental | 1 | Neural operator stubs |
 
@@ -209,7 +209,6 @@ When auxiliary fields are used, callbacks read material properties from `a[]`/`a
 |---------|-----------------|
 | Multiphase flow end-to-end | Buckley-Leverett or waterflood through TSSolve |
 | Hydraulic fracture coupled solve | Full lubrication + deformation coupling |
-| Explosion + fault full TSSolve | Test added; convergence depends on explosion-fault interaction |
 
 ### DEAD CODE (Archived to archive/src/)
 
