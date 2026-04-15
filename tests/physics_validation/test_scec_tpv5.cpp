@@ -69,7 +69,7 @@ protected:
         cfg << "max_nonlinear_iterations = 100\n";
         cfg << "\n[GRID]\n";
         cfg << "nx = 8\n";
-        cfg << "ny = 1\n";
+        cfg << "ny = 2\n";
         cfg << "nz = 4\n";
         cfg << "Lx = 32000.0\n";
         cfg << "Ly = 100.0\n";
