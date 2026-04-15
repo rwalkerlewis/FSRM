@@ -68,11 +68,11 @@ protected:
         cfg << "atol = 1.0e-6\n";
         cfg << "max_nonlinear_iterations = 100\n";
         cfg << "\n[GRID]\n";
-        cfg << "nx = 8\n";
-        cfg << "ny = 2\n";
+        cfg << "nx = 4\n";
+        cfg << "ny = 4\n";
         cfg << "nz = 4\n";
         cfg << "Lx = 32000.0\n";
-        cfg << "Ly = 100.0\n";
+        cfg << "Ly = 32000.0\n";
         cfg << "Lz = 17000.0\n";
         cfg << "\n[ROCK]\n";
         cfg << "density = 2670.0\n";
@@ -82,7 +82,7 @@ protected:
         cfg << "strike = 90.0\n";
         cfg << "dip = 90.0\n";
         cfg << "center_x = 16000.0\n";
-        cfg << "center_y = 50.0\n";
+        cfg << "center_y = 16000.0\n";
         cfg << "center_z = 8500.0\n";
         cfg << "length = 200000.0\n";
         cfg << "width = 200000.0\n";
