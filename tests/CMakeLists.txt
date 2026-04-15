@@ -126,6 +126,9 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_single_phase_flow.cpp
     integration/test_viscoelastic_wave.cpp
     integration/test_slip_weakening.cpp
+    integration/test_velocity_model_material.cpp
+    integration/test_thermal_expansion.cpp
+    integration/test_thermal_diffusion.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -295,6 +298,9 @@ if(GTest_FOUND)
     add_test(NAME Integration.SlipWeakeningFault COMMAND run_integration_tests --gtest_filter=SlipWeakeningFaultTest.*)
     add_test(NAME Integration.SinglePhaseFlow COMMAND run_integration_tests --gtest_filter=SinglePhaseFlowTest.*)
     add_test(NAME Integration.ViscoelasticWave COMMAND run_integration_tests --gtest_filter=ViscoelasticWaveTest.*)
+    add_test(NAME Integration.VelocityModelMaterial COMMAND run_integration_tests --gtest_filter=VelocityModelMaterialTest.*)
+    add_test(NAME Integration.ThermalExpansion COMMAND run_integration_tests --gtest_filter=ThermalExpansionTest.*)
+    add_test(NAME Integration.ThermalDiffusion COMMAND run_integration_tests --gtest_filter=ThermalDiffusionTest.*)
     add_test(NAME Integration.HistoricNuclear.Gasbuggy1967 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gasbuggy1967)
     add_test(NAME Integration.HistoricNuclear.Gnome1961 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gnome1961)
     add_test(NAME Integration.HistoricNuclear.Sedan1962 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962)
@@ -403,6 +409,9 @@ if(GTest_FOUND)
         Integration.SlipWeakeningFault
         Integration.SinglePhaseFlow
         Integration.ViscoelasticWave
+        Integration.VelocityModelMaterial
+        Integration.ThermalExpansion
+        Integration.ThermalDiffusion
         Integration.HistoricNuclear.Gasbuggy1967
         Integration.HistoricNuclear.Gnome1961
         Integration.HistoricNuclear.Sedan1962

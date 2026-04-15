@@ -336,7 +336,8 @@ struct SimulationConfig {
     // Heterogeneous Material Properties
     // =========================================================================
     bool use_heterogeneous_material = false;       // Use auxiliary fields for per-cell properties
-    std::string material_assignment = "depth";     // depth or gmsh_label
+    std::string material_assignment = "depth";     // depth, gmsh_label, or velocity_model
+    std::string velocity_model_file = "";          // Path to binary velocity model file
     double gravity = 0.0;                          // Gravity magnitude (m/s^2), 0 = disabled
     bool enable_gravity = false;                   // Explicit gravity enable flag
     double K0 = 0.5;                               // Lateral earth pressure coefficient
@@ -474,6 +475,7 @@ struct SimulationConfig {
     
     // THM coupling
     std::string thm_coupling_type = "iterative"; ///< sequential, iterative, monolithic
+    double reference_temperature = 293.0;         ///< T_ref [K] (20 C)
     double thermal_expansion_solid = 1e-5;       ///< α_T [1/K]
     double thermal_expansion_fluid = 2.1e-4;     ///< β_T [1/K]
     double thermal_pressurization_coeff = 0.1e6; ///< Λ [Pa/K]

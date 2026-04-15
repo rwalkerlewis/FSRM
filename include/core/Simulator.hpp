@@ -17,6 +17,7 @@
 #include "physics/CohesiveFaultKernel.hpp"
 #include "domain/geomechanics/CoulombStressTransfer.hpp"
 #include "core/DerivedFieldComputer.hpp"
+#include "io/VelocityModelReader.hpp"
 #include <memory>
 #include <vector>
 
@@ -182,6 +183,7 @@ private:
     PetscErrorCode setupAuxiliaryDM();
     PetscErrorCode populateAuxFieldsByDepth();
     PetscErrorCode populateAuxFieldsByMaterialLabel();
+    PetscErrorCode populateAuxFieldsByVelocityModel();
     PetscErrorCode applyExplosionDamageToAuxFields();
     
     // Simulation state
@@ -205,7 +207,6 @@ private:
     PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
     PetscErrorCode addFaultPressureToResidual(PetscReal t, Vec locF);
     PetscErrorCode addTractionToResidual(PetscReal t, Vec locF);
-    PetscErrorCode addCohesiveConstraintToResidual(PetscReal t, Vec locU, Vec locF);
     PetscErrorCode addCohesivePenaltyToJacobian(Mat J, Vec locU = nullptr);
 
     // Hydraulic fracture model (Phase 3)

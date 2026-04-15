@@ -16,7 +16,7 @@ stress and displacement fields should be identical to a domain without a fault.
 Uses:
 - FaultMeshManager for cohesive cell insertion
 - CohesiveFaultKernel for constraint assembly
-- Manual addCohesiveConstraintToResidual in FormFunction
+- PetscDS BdResidual callbacks for fault constraint (PETSc 3.25+)
 - Analytical interface Jacobian for locked mode
 
 ## Config
