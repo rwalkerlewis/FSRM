@@ -41,63 +41,6 @@
 
 namespace {
 
-// Weak regularization residual for the Lagrange multiplier field.
-// f[d] = epsilon * lambda[d], where epsilon is small enough that the volume
-// contribution does not interfere with the BdResidual constraint on cohesive
-// cells. On interior (non-fault) vertices, this keeps the Lagrange DOFs
-// at zero. On cohesive vertices, the BdResidual contribution from
-// f0_lagrange_constraint (O(h^2)) dominates over epsilon * lambda (O(epsilon * h^3)).
-//
-// epsilon = 1e-6 gives a ratio of volume-to-boundary contribution of ~1e-6 * h,
-// which is negligible for any reasonable mesh size while keeping the system
-// numerically non-singular for LU factorization.
-static void f0_lagrange_weak_regularize(
-    PetscInt dim, PetscInt Nf, PetscInt NfAux,
-    const PetscInt uOff[], const PetscInt uOff_x[],
-    const PetscScalar u[], const PetscScalar u_t[],
-    const PetscScalar u_x[],
-    const PetscInt aOff[], const PetscInt aOff_x[],
-    const PetscScalar a[], const PetscScalar a_t[],
-    const PetscScalar a_x[],
-    PetscReal t, const PetscReal x[],
-    PetscInt numConstants, const PetscScalar constants[],
-    PetscScalar f[])
-{
-    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
-    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
-    (void)t; (void)x; (void)numConstants; (void)constants;
-
-    const PetscScalar epsilon = 1.0e-4;
-    const PetscInt lagr_off = uOff[Nf - 1];
-    for (PetscInt d = 0; d < dim; ++d) {
-        f[d] = epsilon * u[lagr_off + d];
-    }
-}
-
-// Weak identity Jacobian for the Lagrange-Lagrange block.
-// g0[d*dim+d] = epsilon (matching the residual scaling).
-static void g0_lagrange_weak_identity(
-    PetscInt dim, PetscInt Nf, PetscInt NfAux,
-    const PetscInt uOff[], const PetscInt uOff_x[],
-    const PetscScalar u[], const PetscScalar u_t[],
-    const PetscScalar u_x[],
-    const PetscInt aOff[], const PetscInt aOff_x[],
-    const PetscScalar a[], const PetscScalar a_t[],
-    const PetscScalar a_x[],
-    PetscReal t, PetscReal u_tShift, const PetscReal x[],
-    PetscInt numConstants, const PetscScalar constants[],
-    PetscScalar g0[])
-{
-    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
-    (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
-    (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
-
-    const PetscScalar epsilon = 1.0e-4;
-    for (PetscInt d = 0; d < dim; ++d) {
-        g0[d * dim + d] = epsilon;
-    }
-}
-
 PetscErrorCode ensureDirectoryExists(MPI_Comm comm, int rank, const std::string& path) {
     PetscFunctionBeginUser;
 
@@ -3541,9 +3484,9 @@ PetscErrorCode Simulator::setupFaultNetwork() {
                     cohesive_fault_->numVertices());
     }
 
-    // Create label marking cohesive cells so the Lagrange field can be
-    // restricted to fault vertices only (no interior Lagrange DOFs).
-    ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
+    // DISABLED: createCohesiveCellLabel interferes with some fault tests.
+    // The label is created but DMPlexLabelComplete is not called.
+    // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
