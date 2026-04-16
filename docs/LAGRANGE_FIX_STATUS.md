@@ -105,8 +105,48 @@ Use a penalty approach where the cohesive penalty in `addCohesivePenaltyToJacobi
 is made large enough to dominate the volume regularization. This would require
 scaling the penalty by 1/epsilon relative to the regularization.
 
+## Additional investigation (epsilon sweep)
+
+After the initial investigation, a systematic sweep of epsilon values for
+the weak regularization `f = epsilon * lambda, g = epsilon * I` was performed:
+
+| epsilon | LU factorization | Newton convergence | Result |
+|---------|------------------|--------------------|--------|
+| 1.0     | OK               | Converges to zero  | lambda overwhelms BdResidual |
+| 1e-2    | OK               | NaN at iteration 1 | Jacobian mismatch on cohesive cells |
+| 1e-3    | OK               | NaN at iteration 4 | Same, slower to diverge |
+| 1e-6    | Fails (singular) | N/A                | Condition number ~1e16 |
+| 1e-8    | Fails (singular) | N/A                | Condition number ~1e18 |
+| 1e-10   | Fails (singular) | N/A                | Below machine epsilon ratio |
+| 0       | Fails (singular) | N/A                | Zero diagonal rows |
+
+The NaN divergence at epsilon < 1 is caused by the PetscDS Jacobian
+(epsilon * I from volume integral) being evaluated on cohesive cells where it
+conflicts with the manual Jacobian from addCohesivePenaltyToJacobian. The
+manual Jacobian adds penalty entries O(E/h) ~ O(4e10), while the PetscDS adds
+epsilon * I. The combined Jacobian on cohesive cells is inconsistent with the
+combined residual (epsilon * lambda from PetscDS + BdResidual from PetscDS),
+causing Newton to diverge.
+
+Also attempted `subtractLagrangeRegularizationOnCohesive()` -- a manual
+correction that subtracts the f=lambda contribution from cohesive vertices
+after assembly. This did not work because cohesive vertices are also in the
+closure of interior cells, and the subtraction only removes contributions from
+cohesive cell quadrature points, not from the surrounding interior cells.
+
 ## What to try next
 
-Option B (manual Lagrange residual assembly) is most feasible without changing
-the PETSc version. It would mirror the pattern already used for the Jacobian
-in `addCohesivePenaltyToJacobian`.
+1. **Manual Lagrange assembly (Option B):** Most feasible without changing PETSc.
+   Bypass PetscDS entirely for the Lagrange field: set no PetscDS callbacks,
+   and add both residual AND Jacobian for the Lagrange field manually in
+   FormFunction/FormJacobian. The manual residual would evaluate the BdResidual
+   kernel on cohesive faces. The manual Jacobian already exists. Interior
+   Lagrange DOFs would get a scaled identity diagonal (~E) in the manual
+   Jacobian and zero residual, keeping the system non-singular.
+
+2. **PETSc upgrade (Option A):** Build PETSc from main branch (post-3.25.0)
+   and use DMAddField with label for true field restriction.
+
+3. **Separate LU factors (Option D):** Use PETSc FieldSplit with separate LU
+   on displacement and Jacobi on Lagrange. This avoids the conditioning issue
+   entirely by not mixing the two field scales in one LU factorization.
