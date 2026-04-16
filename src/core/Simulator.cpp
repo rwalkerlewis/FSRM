@@ -2533,12 +2533,15 @@ PetscErrorCode Simulator::setupPhysics() {
         // The old regularization used f = lambda, g = I. The f = lambda residual
         // on cohesive cells competed with BdResidual, driving lambda to 0 and
         // causing zero-solution failures for locked faults under weak loading.
-        // Volume residual: effectively zero (tiny epsilon prevents interference
-        // with BdResidual constraint). Volume Jacobian: identity (keeps interior
-        // Lagrange rows non-singular). The Jacobian-residual mismatch causes
-        // slow convergence on coarse meshes but produces correct solutions.
+        // Volume regularization for the Lagrange field: f = lambda, g = I.
+        // This keeps the PetscDS system non-singular on interior (non-cohesive)
+        // cells that have Lagrange DOFs. The actual constraint on cohesive
+        // cells is handled by BdResidual callbacks registered below.
+        // BdJacobian on cohesive cells does NOT work in PETSc 3.25 (commented
+        // out in plexfem.c), so the Jacobian is assembled manually in
+        // addCohesivePenaltyToJacobian.
         ierr = PetscDSSetResidual(prob, lagrange_field,
-            f0_lagrange_weak_regularize, nullptr); CHKERRQ(ierr);
+            PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
             PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
             nullptr, nullptr); CHKERRQ(ierr);
@@ -3580,22 +3583,9 @@ PetscErrorCode Simulator::createCohesiveCellLabel()
         }
     }
 
-    // Complete the label: extend from cells to all closure points (faces,
-    // edges, vertices). This is required for DMAddField(dm, label, ...) so
-    // that PETSc's section creation (DMPlexCreateSectionDof) assigns DOFs
-    // on the correct vertices.
-    ierr = DMPlexLabelComplete(dm, cohesive_label); CHKERRQ(ierr);
-
     if (rank == 0) {
-        IS label_is = nullptr;
-        ierr = DMLabelGetStratumIS(cohesive_label, 1, &label_is); CHKERRQ(ierr);
-        PetscInt npts = 0;
-        if (label_is) {
-            ierr = ISGetLocalSize(label_is, &npts); CHKERRQ(ierr);
-            ierr = ISDestroy(&label_is); CHKERRQ(ierr);
-        }
-        PetscPrintf(comm, "Created cohesive_cells label: %d cells, %d total points (after completion)\n",
-                    (int)n_cohesive, (int)npts);
+        PetscPrintf(comm, "Created cohesive_cells label: %d cohesive cells marked\n",
+                    (int)n_cohesive);
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
