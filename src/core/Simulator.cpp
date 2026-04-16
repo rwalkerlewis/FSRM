@@ -2515,29 +2515,15 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt lagrange_field = cohesive_lagrange_field;
 
         // Lagrange field volume callback: zero residual.
-        // The constraint equation for the Lagrange multiplier comes entirely
-        // from BdResidual on cohesive faces (PetscDS evaluates BdResidual
-        // automatically on hybrid cells). The volume callback must be zero
-        // so it does not compete with the constraint.
-        // The old f=lambda regularization competed with BdResidual on coarse
-        // meshes, driving lambda to zero.
-        //
-        // Jacobian: identity (g=I) from PetscDS keeps interior Lagrange rows
-        // non-singular for LU. On cohesive vertices, the manual Jacobian from
-        // addCohesivePenaltyToJacobian provides correct coupling entries that
-        // are O(E/h) >> O(1), dominating the identity contribution.
-        //
+        // Volume regularization: f = lambda, g = I on the PetscDS for ALL cells.
+        // Interior (non-cohesive) vertices: f=lambda keeps Lagrange rows
+        // non-singular for LU. On cohesive vertices, the f=lambda contribution
+        // is subtracted in FormFunction via subtractLagrangeRegularizationOnCohesive
+        // so only BdResidual (the physical constraint) remains.
+        // The g=I identity Jacobian is left on all cells; the coupling from
+        // addCohesivePenaltyToJacobian dominates on cohesive vertices.
         // BdJacobian does NOT work in PETSc 3.25, so the Jacobian is assembled
         // manually in addCohesivePenaltyToJacobian.
-        // Weak Lagrange regularization using constants array for scaling.
-        // f = epsilon * lambda with epsilon stored in constants[25] (cohesive_mode slot).
-        // The constant is set to 1e-6 * E / Lchar below, making the
-        // regularization force O(1e-6 * E / Lchar * lambda). Since the
-        // BdResidual constraint is O(E * lambda / h), the ratio is O(1e-6 * h/Lchar)
-        // ~ O(1e-6) for typical meshes, negligible compared to the constraint.
-        // The matching Jacobian diagonal is also 1e-6 * E / Lchar, giving a
-        // condition number of O(1e6) relative to the stiffness -- well within
-        // double precision.
         ierr = PetscDSSetResidual(prob, lagrange_field,
             PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
@@ -3990,7 +3976,107 @@ PetscErrorCode Simulator::subtractLagrangeRegularizationOnCohesive(Vec locF, Vec
     DMLabel depth_label = nullptr;
     ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
 
-    // Walk cohesive cells and subtract lambda from Lagrange DOFs at each vertex
+    // Collect all vertices in the closure of cohesive cells
+    std::set<PetscInt> cohesive_vertices;
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
+            ct != DM_POLYTOPE_TRI_PRISM_TENSOR &&
+            ct != DM_POLYTOPE_QUAD_PRISM_TENSOR) {
+            continue;
+        }
+        PetscInt closure_size = 0;
+        PetscInt *closure = nullptr;
+        ierr = DMPlexGetTransitiveClosure(dm, c, PETSC_TRUE,
+            &closure_size, &closure); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < closure_size; ++i) {
+            const PetscInt point = closure[2 * i];
+            PetscInt depth = -1;
+            ierr = DMLabelGetValue(depth_label, point, &depth); CHKERRQ(ierr);
+            if (depth == 0) cohesive_vertices.insert(point);
+        }
+        ierr = DMPlexRestoreTransitiveClosure(dm, c, PETSC_TRUE,
+            &closure_size, &closure); CHKERRQ(ierr);
+    }
+
+    // For each cohesive vertex, compute the lumped mass contribution from
+    // ALL cells in its support (both interior and cohesive) and subtract
+    // the f=lambda regularization from the Lagrange residual.
+    // For P1 on tets: M_lumped(v) = sum_cells_c { V_c / (dim+1) }
+    // The PetscDS assembles f=lambda using the consistent mass form, but
+    // lumped mass is a good approximation for the correction.
+    for (PetscInt v : cohesive_vertices) {
+        PetscInt lag_dof = 0, lag_off = 0;
+        ierr = PetscSectionGetFieldDof(section, v, lagrange_field, &lag_dof); CHKERRQ(ierr);
+        if (lag_dof <= 0) continue;
+        ierr = PetscSectionGetFieldOffset(section, v, lagrange_field, &lag_off); CHKERRQ(ierr);
+
+        // Compute lumped mass at this vertex from its support cells
+        PetscReal mass_lumped = 0.0;
+        PetscInt support_size = 0;
+        const PetscInt *support = nullptr;
+        ierr = DMPlexGetTransitiveClosure(dm, v, PETSC_FALSE,
+            &support_size, const_cast<PetscInt**>(&support)); CHKERRQ(ierr);
+        // Actually, DMPlexGetTransitiveClosure with useCone=FALSE gives the star.
+        // We need cells touching this vertex. Walk the star and pick height-0 points.
+        for (PetscInt i = 0; i < support_size; ++i) {
+            const PetscInt pt = support[2 * i];
+            PetscInt pt_depth = -1;
+            ierr = DMLabelGetValue(depth_label, pt, &pt_depth); CHKERRQ(ierr);
+            if (pt_depth != dim) continue; // only cells (depth == dim)
+            PetscReal vol = 0.0;
+            ierr = DMPlexComputeCellGeometryFVM(dm, pt, &vol, nullptr, nullptr); CHKERRQ(ierr);
+            mass_lumped += PetscAbsReal(vol) / static_cast<PetscReal>(dim + 1);
+        }
+        ierr = DMPlexRestoreTransitiveClosure(dm, v, PETSC_FALSE,
+            &support_size, const_cast<PetscInt**>(&support)); CHKERRQ(ierr);
+
+        // Subtract: R_lag -= mass_lumped * lambda
+        // This cancels the f=lambda volume integral at this vertex
+        for (PetscInt d = 0; d < PetscMin(lag_dof, dim); ++d) {
+            farray[lag_off + d] -= mass_lumped * uarray[lag_off + d];
+        }
+    }
+
+    ierr = VecRestoreArrayRead(locU, &uarray); CHKERRQ(ierr);
+    ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+// =============================================================================
+// zeroLagrangeDiagonalOnCohesive
+//
+// Walk cohesive cells and zero the Lagrange-Lagrange diagonal block at each
+// vertex in the closure. This removes the PetscDS g=I volume regularization
+// that competes with BdResidual on cohesive vertices.
+// Must be called between MatAssemblyBegin/End(MAT_FLUSH_ASSEMBLY) calls when
+// switching between ADD_VALUES and INSERT_VALUES.
+// =============================================================================
+PetscErrorCode Simulator::zeroLagrangeDiagonalOnCohesive(Mat J)
+{
+    PetscFunctionBeginUser;
+    if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
+    PetscErrorCode ierr;
+
+    PetscSection gsection = nullptr;
+    ierr = DMGetGlobalSection(dm, &gsection); CHKERRQ(ierr);
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) disp_field = 1;
+    else if (config.fluid_model == FluidModelType::BLACK_OIL) disp_field = 3;
+    else if (config.fluid_model == FluidModelType::COMPOSITIONAL) disp_field = 4;
+    const PetscInt lagrange_field = disp_field + 1;
+
+    DMLabel depth_label = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+
     PetscInt cStart = 0, cEnd = 0;
     ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
 
@@ -4013,27 +4099,26 @@ PetscErrorCode Simulator::subtractLagrangeRegularizationOnCohesive(Vec locF, Vec
             const PetscInt point = closure[2 * i];
             PetscInt depth = -1;
             ierr = DMLabelGetValue(depth_label, point, &depth); CHKERRQ(ierr);
-            if (depth != 0) continue;  // only vertices
+            if (depth != 0) continue;
 
-            PetscInt lag_dof = 0, lag_off = 0;
-            ierr = PetscSectionGetFieldDof(section, point, lagrange_field, &lag_dof); CHKERRQ(ierr);
+            PetscInt lag_dof = 0, lag_off = -1;
+            ierr = PetscSectionGetFieldDof(gsection, point, lagrange_field, &lag_dof); CHKERRQ(ierr);
             if (lag_dof <= 0) continue;
-            ierr = PetscSectionGetFieldOffset(section, point, lagrange_field, &lag_off); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldOffset(gsection, point, lagrange_field, &lag_off); CHKERRQ(ierr);
+            if (lag_off < 0) continue;
 
-            // Subtract the regularization: f -= lambda
-            // The PetscDS callback f0_lagrange_regularize computes f[d] = lambda[d]
-            // We subtract it so only BdResidual remains on this vertex
+            // Zero the full Lagrange block (d x d) at this vertex
             for (PetscInt d = 0; d < PetscMin(lag_dof, dim); ++d) {
-                farray[lag_off + d] -= uarray[lag_off + d];
+                for (PetscInt e = 0; e < PetscMin(lag_dof, dim); ++e) {
+                    ierr = MatSetValue(J, lag_off + d, lag_off + e,
+                        0.0, INSERT_VALUES); CHKERRQ(ierr);
+                }
             }
         }
 
         ierr = DMPlexRestoreTransitiveClosure(dm, c, PETSC_TRUE,
             &closure_size, &closure); CHKERRQ(ierr);
     }
-
-    ierr = VecRestoreArrayRead(locU, &uarray); CHKERRQ(ierr);
-    ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
 
     PetscFunctionReturn(PETSC_SUCCESS);
 }
