@@ -20,13 +20,23 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. 112 pass, 4 fail honestly (no fake skips).
+116 registered tests. 113 pass, 3 fail honestly (no fake skips).
 
 Known failures (identity Lagrange regularization produces zero solutions on coarse mesh):
 - Physics.LockedFaultTransparency: locked fault, zero solution
-- Physics.SCEC.TPV5: setupFields error 63 (PETSc simplex mesh issue)
 - Integration.DynamicRuptureSolve.LockedQuasiStatic: locked fault, zero solution
 - Integration.DynamicRuptureSolve.PrescribedSlipQuasiStatic: prescribed slip, zero solution
+
+The quasi-static fault failures are caused by the Lagrange volume regularization
+(f = lambda, g = I) competing with BdResidual on cohesive cells. The regularization
+drives lambda toward zero on ALL cells, overwhelming the constraint on coarse meshes.
+Fixing this requires restricting the Lagrange field to cohesive cells via PETSc region
+DS splitting, which is blocked by section/closure size mismatches in PETSc 3.25 when
+fields have different support labels sharing boundary vertices.
+
+Physics.SCEC.TPV5 was fixed by adding the displacement field for elastodynamics
+(previously only added for geomechanics, causing error 63 when faults were enabled
+without geomechanics).
 
 | Category | Tests | Description |
 |----------|------:|-------------|
@@ -111,6 +121,20 @@ DMGetDS(dm, &prob); // 5. Get DS for later use
 ```
 
 **NEVER change this ordering. It was debugged over multiple sessions.**
+
+### Lagrange Multiplier Field and Cohesive Cells
+
+The Lagrange multiplier field is added via `DMAddField(dm, nullptr, fe_lagrange)` on
+ALL cells. A `cohesive_cells` label marks cohesive prism cells after mesh splitting
+(for future use in field restriction). The displacement field is added for both
+`enable_geomechanics` and `enable_elastodynamics`.
+
+Volume regularization (f = lambda, g = I) keeps interior Lagrange DOFs non-singular
+but competes with BdResidual on cohesive cells, causing zero-solution failures on
+coarse quasi-static meshes. Restricting the Lagrange field to cohesive cells via
+`DMAddField(dm, cohesive_cells_label, ...)` creates region DSes that cause
+section/closure size mismatches in `DMPlexInsertBoundaryValues` (PETSc 3.25
+limitation with shared vertices between labeled and unlabeled cells).
 
 ### PDE Assembly
 

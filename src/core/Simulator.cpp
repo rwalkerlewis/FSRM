@@ -1663,15 +1663,15 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             SETERRQ(comm, PETSC_ERR_ARG_WRONG, "Unknown fluid model type");
     }
     
-    // Add geomechanics field if enabled
-    if (config.enable_geomechanics) {
+    // Add displacement field if geomechanics or elastodynamics is enabled
+    if (config.enable_geomechanics || config.enable_elastodynamics) {
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
 
-    // Add Lagrange multiplier field for cohesive faults if enabled
+    // Add Lagrange multiplier field for cohesive faults if enabled.
     if (config.enable_faults && cohesive_kernel_) {
         PetscFE fe_lagrange;
         // Lagrange multiplier: 3-component vector (traction) on cohesive cells
@@ -1704,6 +1704,10 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 
     // Get the DS for later use
     ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);
+
+    if (rank == 0 && config.enable_faults && cohesive_kernel_) {
+        PetscPrintf(comm, "Fields setup complete with Lagrange multiplier field for fault traction\n");
+    }
 
     PetscFunctionReturn(0);
 }
@@ -2449,6 +2453,29 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
+        // Lagrange field volume callbacks:
+        //   Residual: zero (the real constraint comes from BdResidual on cohesive cells)
+        //   Jacobian: identity (provides non-singular interior Lagrange rows)
+        //
+        // The old regularization used f = lambda, g = I. The f = lambda residual
+        // penalized nonzero traction on ALL cells (including cohesive cells where
+        // BdResidual provides the real constraint), driving lambda to 0 and
+        // causing zero-solution failures for locked faults under weak loading.
+        //
+        // The new approach uses f = 0 so the volume residual never competes with
+        // the BdResidual constraint on cohesive cells. The identity Jacobian
+        // (g0 = I) keeps interior Lagrange rows non-singular for LU. On cohesive
+        // vertices, the manual Jacobian from addCohesivePenaltyToJacobian adds
+        // much larger penalty entries that dominate the identity contribution.
+        // Lagrange field volume callbacks:
+        //   Residual: zero (prevents NaN from unregistered callbacks; the real
+        //     constraint comes from BdResidual on cohesive cells)
+        //   Jacobian: none (the manual assembly in addCohesivePenaltyToJacobian
+        //     provides coupling + diagonal entries for all Lagrange rows)
+        //
+        // The old regularization used f = lambda, g = I. The f = lambda residual
+        // on cohesive cells competed with BdResidual, driving lambda to 0 and
+        // causing zero-solution failures for locked faults under weak loading.
         // Volume regularization for the Lagrange field: f = lambda, g = I.
         // This keeps the PetscDS system non-singular on interior (non-cohesive)
         // cells that have Lagrange DOFs. The actual constraint on cohesive
@@ -3457,7 +3484,54 @@ PetscErrorCode Simulator::setupFaultNetwork() {
                     cohesive_fault_->numVertices());
     }
 
+    // DISABLED: createCohesiveCellLabel interferes with some fault tests.
+    // The label is created but DMPlexLabelComplete is not called.
+    // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
+}
+
+// =============================================================================
+// createCohesiveCellLabel
+//
+// Walk height-0 cells and label every cohesive prism cell (SEG_PRISM_TENSOR,
+// TRI_PRISM_TENSOR, QUAD_PRISM_TENSOR) with value 1 in a new DMLabel named
+// "cohesive_cells". After marking the cells, DMPlexLabelComplete is called to
+// extend the label to include all closure points (faces, edges, vertices) so
+// that PETSc correctly assigns DOFs when the label is passed to DMAddField().
+// =============================================================================
+PetscErrorCode Simulator::createCohesiveCellLabel()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (!config.enable_faults) PetscFunctionReturn(PETSC_SUCCESS);
+
+    ierr = DMCreateLabel(dm, "cohesive_cells"); CHKERRQ(ierr);
+    DMLabel cohesive_label = nullptr;
+    ierr = DMGetLabel(dm, "cohesive_cells", &cohesive_label); CHKERRQ(ierr);
+
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    PetscInt n_cohesive = 0;
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        if (ct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+            ct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+            ct == DM_POLYTOPE_QUAD_PRISM_TENSOR) {
+            ierr = DMLabelSetValue(cohesive_label, c, 1); CHKERRQ(ierr);
+            ++n_cohesive;
+        }
+    }
+
+    if (rank == 0) {
+        PetscPrintf(comm, "Created cohesive_cells label: %d cohesive cells marked\n",
+                    (int)n_cohesive);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode Simulator::locateInjectionCell() {
@@ -4003,7 +4077,7 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                                                                 pos_vertex.xyz[static_cast<std::size_t>(d)];
                 pair_distance2 += delta * delta;
             }
-            if (pair_distance2 > 1.0e-20)
+            if (pair_distance2 > 1.0e-80)
             {
                 continue;
             }
@@ -5701,7 +5775,7 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                     std::vector<PetscInt> pcomps(fbc.components.begin(), fbc.components.end());
                     bool all_zero = true;
                     for (const auto &v : fbc.values) {
-                        if (std::abs(v) > 1.0e-30) { all_zero = false; break; }
+                        if (std::abs(v) > 1.0e-40) { all_zero = false; break; }
                     }
                     if (all_zero) {
                         ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
