@@ -20,19 +20,19 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. 113 pass, 3 fail honestly (no fake skips).
+116 registered tests. 115 pass, 1 fail honestly (no fake skips).
 
-Known failures (identity Lagrange regularization produces zero solutions on coarse mesh):
-- Physics.LockedFaultTransparency: locked fault, zero solution
-- Integration.DynamicRuptureSolve.LockedQuasiStatic: locked fault, zero solution
-- Integration.DynamicRuptureSolve.PrescribedSlipQuasiStatic: prescribed slip, zero solution
+Known failure:
+- Integration.DynamicRuptureSolve.PrescribedSlipQuasiStatic: prescribed slip produces
+  near-zero displacement jump on coarse mesh. The penalty-scaled Lagrange diagonal in
+  addCohesivePenaltyToJacobian slows lambda convergence for prescribed slip mode.
 
-The quasi-static fault failures are caused by the Lagrange volume regularization
-(f = lambda, g = I) competing with BdResidual on cohesive cells. The regularization
-drives lambda toward zero on ALL cells, overwhelming the constraint on coarse meshes.
-Fixing this requires restricting the Lagrange field to cohesive cells via PETSc region
-DS splitting, which is blocked by section/closure size mismatches in PETSc 3.25 when
-fields have different support labels sharing boundary vertices.
+The quasi-static locked fault tests (LockedFaultTransparency, LockedQuasiStatic) were
+fixed by replacing the old f=lambda (epsilon=1) volume regularization with weak
+regularization f=epsilon*lambda, g=epsilon*I where epsilon=1e-4. The weak regularization
+is negligible compared to the BdResidual constraint on cohesive faces. A penalty-scaled
+Lagrange diagonal (penalty*coeff) is added manually at cohesive vertices in
+addCohesivePenaltyToJacobian to keep the LU factorization well-conditioned.
 
 Physics.SCEC.TPV5 was fixed by adding the displacement field for elastodynamics
 (previously only added for geomechanics, causing error 63 when faults were enabled
@@ -125,16 +125,18 @@ DMGetDS(dm, &prob); // 5. Get DS for later use
 ### Lagrange Multiplier Field and Cohesive Cells
 
 The Lagrange multiplier field is added via `DMAddField(dm, nullptr, fe_lagrange)` on
-ALL cells. A `cohesive_cells` label marks cohesive prism cells after mesh splitting
-(for future use in field restriction). The displacement field is added for both
-`enable_geomechanics` and `enable_elastodynamics`.
+ALL cells. The displacement field is added for both `enable_geomechanics` and
+`enable_elastodynamics`.
 
-Volume regularization (f = lambda, g = I) keeps interior Lagrange DOFs non-singular
-but competes with BdResidual on cohesive cells, causing zero-solution failures on
-coarse quasi-static meshes. Restricting the Lagrange field to cohesive cells via
-`DMAddField(dm, cohesive_cells_label, ...)` creates region DSes that cause
-section/closure size mismatches in `DMPlexInsertBoundaryValues` (PETSc 3.25
-limitation with shared vertices between labeled and unlabeled cells).
+Weak volume regularization (f = epsilon * lambda, g = epsilon * I with epsilon = 1e-4)
+keeps interior Lagrange DOFs non-singular for LU factorization. The regularization
+is negligible compared to the BdResidual constraint on cohesive faces. A penalty-scaled
+Lagrange diagonal (penalty * coeff ~ O(E/h)) is added manually at cohesive vertices
+in addCohesivePenaltyToJacobian to match the displacement stiffness scale.
+
+Restricting the Lagrange field to cohesive cells via `DMAddField(dm, label, ...)`
+was investigated but PETSc 3.25 region DS does not support volume assembly via
+DMPlexTSComputeIFunctionFEM. See docs/LAGRANGE_FIX_STATUS.md for details.
 
 ### PDE Assembly
 
