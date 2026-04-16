@@ -3530,6 +3530,10 @@ PetscErrorCode Simulator::setupFaultNetwork() {
     // Temporarily disabled to verify it does not cause regressions.
     // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
 
+    DMLabel interfacesLabel = NULL;
+    ierr = getOrCreateInterfacesLabel(&interfacesLabel); CHKERRQ(ierr);
+    (void)interfacesLabel;
+
     PetscFunctionReturn(0);
 }
 
