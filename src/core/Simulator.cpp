@@ -3484,9 +3484,9 @@ PetscErrorCode Simulator::setupFaultNetwork() {
                     cohesive_fault_->numVertices());
     }
 
-    // DISABLED: createCohesiveCellLabel interferes with some fault tests.
-    // The label is created but DMPlexLabelComplete is not called.
-    // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
+    // Create cohesive_cells label with full closure (faces, edges, vertices)
+    // for use by DMAddField to restrict Lagrange DOFs to fault points.
+    ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -3511,6 +3511,7 @@ PetscErrorCode Simulator::createCohesiveCellLabel()
     DMLabel cohesive_label = nullptr;
     ierr = DMGetLabel(dm, "cohesive_cells", &cohesive_label); CHKERRQ(ierr);
 
+    // Step 1: Mark cohesive prism cells with value 1
     PetscInt cStart, cEnd;
     ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
 
@@ -3526,9 +3527,24 @@ PetscErrorCode Simulator::createCohesiveCellLabel()
         }
     }
 
+    // Step 2: CRITICAL -- extend the label to the full closure of cohesive cells.
+    // This is the step PR #105 missed. Without this, PETSc cannot build a
+    // consistent section because FE basis DOFs live on vertices but the label
+    // only marks cells. DMPlexLabelComplete walks each labeled point's closure
+    // (faces, edges, vertices) and adds them to the label with the same value.
+    ierr = DMPlexLabelComplete(dm, cohesive_label); CHKERRQ(ierr);
+
     if (rank == 0) {
-        PetscPrintf(comm, "Created cohesive_cells label: %d cohesive cells marked\n",
-                    (int)n_cohesive);
+        PetscInt n_total = 0;
+        IS stratum_is = nullptr;
+        ierr = DMLabelGetStratumIS(cohesive_label, 1, &stratum_is); CHKERRQ(ierr);
+        if (stratum_is) {
+            ierr = ISGetLocalSize(stratum_is, &n_total); CHKERRQ(ierr);
+            ierr = ISDestroy(&stratum_is); CHKERRQ(ierr);
+        }
+        PetscPrintf(comm,
+            "cohesive_cells label: %d cohesive cells -> %d total closure points after DMPlexLabelComplete\n",
+            (int)n_cohesive, (int)n_total);
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
