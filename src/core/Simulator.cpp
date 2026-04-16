@@ -1720,20 +1720,22 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 }
 
 // ============================================================================
-// Zero Lagrange volume residual callback
+// Weak Lagrange volume regularization callbacks
 // ============================================================================
 
-// Weak Lagrange regularization: f = epsilon * lambda with epsilon = 1e-6.
+// Weak regularization: f = epsilon * lambda, g = epsilon * I.
+// epsilon = 1e-4 is small enough that the regularization force
+// (epsilon * lambda ~ 1e-4 * stress) is negligible compared to the
+// BdResidual constraint (O(stress * area / n_nodes)) on ALL meshes.
+// The old epsilon=1 competed with BdResidual on coarse meshes.
 //
-// The BdResidual constraint on cohesive faces has magnitude O(E * displacement / h).
-// The regularization force is epsilon * lambda ~ 1e-6 * lambda. Since
-// lambda ~ O(stress) ~ O(E * strain), the ratio is epsilon = 1e-6, making
-// the regularization negligible compared to the constraint on all meshes.
-// The old f=lambda (epsilon=1) had the same magnitude as the constraint,
-// overwhelming it on coarse meshes.
-//
-// epsilon = 1e-6 gives a condition number of O(1e6) for the Lagrange block
-// relative to the stiffness, well within double precision for LU.
+// The small epsilon Jacobian diagonal (1e-4) at INTERIOR Lagrange DOFs
+// is complemented by a penalty-scaled diagonal added manually at COHESIVE
+// vertices in addCohesivePenaltyToJacobian. This gives:
+//   interior: diag = 1e-4 (small but nonzero for LU)
+//   cohesive: diag = 1e-4 + penalty*coeff (dominated by penalty ~ E/h)
+// Condition number: stiffness / epsilon = O(1e9 / 1e-4) = O(1e13),
+// within double precision (16 digits).
 static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscInt uOff[], const PetscInt uOff_x[],
     const PetscScalar u[], const PetscScalar u_t[],
@@ -1747,7 +1749,7 @@ static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
     (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
     (void)t; (void)x; (void)numConstants; (void)constants;
-    const PetscScalar epsilon = 1.0;
+    const PetscScalar epsilon = 1.0e-4;
     const PetscInt lagr_off = uOff[Nf - 1];
     for (PetscInt d = 0; d < dim; ++d) {
         f[d] = epsilon * u[lagr_off + d];
@@ -1767,7 +1769,7 @@ static void g0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
     (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
     (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
-    const PetscScalar epsilon = 1.0;
+    const PetscScalar epsilon = 1.0e-4;
     for (PetscInt d = 0; d < dim; ++d) {
         g0[d * dim + d] = epsilon;
     }
@@ -2515,19 +2517,18 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt lagrange_field = cohesive_lagrange_field;
 
         // Lagrange field volume callback: zero residual.
-        // Volume regularization: f = lambda, g = I on the PetscDS for ALL cells.
-        // Interior (non-cohesive) vertices: f=lambda keeps Lagrange rows
-        // non-singular for LU. On cohesive vertices, the f=lambda contribution
-        // is subtracted in FormFunction via subtractLagrangeRegularizationOnCohesive
-        // so only BdResidual (the physical constraint) remains.
-        // The g=I identity Jacobian is left on all cells; the coupling from
-        // addCohesivePenaltyToJacobian dominates on cohesive vertices.
-        // BdJacobian does NOT work in PETSc 3.25, so the Jacobian is assembled
-        // manually in addCohesivePenaltyToJacobian.
+        // Weak regularization: f = epsilon * lambda, g = epsilon * I with
+        // epsilon = 1e-4. The small residual does not overwhelm BdResidual
+        // on coarse meshes (unlike the old epsilon=1). The small Jacobian
+        // diagonal is sufficient for interior Lagrange LU non-singularity.
+        // On cohesive vertices, addCohesivePenaltyToJacobian adds a
+        // penalty-scaled diagonal that dominates epsilon.
+        // BdJacobian does NOT work in PETSc 3.25, so the Jacobian is
+        // assembled manually in addCohesivePenaltyToJacobian.
         ierr = PetscDSSetResidual(prob, lagrange_field,
-            PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
+            f0_weak_lagrange, nullptr); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-            PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
+            g0_weak_lagrange, nullptr,
             nullptr, nullptr); CHKERRQ(ierr);
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
@@ -4517,6 +4518,11 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                     ierr = MatSetValue(J, row_pos_disp, col_lag, coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
+                    // Penalty-scaled Lagrange diagonal at cohesive vertices.
+                    // Complements the small epsilon*I from PetscDS to make the
+                    // Lagrange diagonal O(penalty) at fault vertices, matching
+                    // the displacement stiffness scale for LU conditioning.
+                    ierr = MatSetValue(J, row_lag, col_lag, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_pos_disp, col_neg_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
