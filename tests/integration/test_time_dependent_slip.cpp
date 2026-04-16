@@ -87,6 +87,9 @@ TEST_F(TimeDependentSlipTest, SlipRampCompletesSuccessfully)
   MPI_Barrier(PETSC_COMM_WORLD);
 
   PetscOptionsClear(nullptr);
+  // PyLith solver defaults for fault problems (cohesive reordering)
+  PetscOptionsSetValue(nullptr, "-dm_reorder_section", "true");
+  PetscOptionsSetValue(nullptr, "-dm_reorder_section_type", "cohesive");
   PetscOptionsSetValue(nullptr, "-ts_type", "beuler");
   PetscOptionsSetValue(nullptr, "-snes_max_it", "200");
   PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-6");
