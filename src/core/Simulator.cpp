@@ -1702,13 +1702,6 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Create DS (required before adding boundaries in PETSc 3.25)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
 
-    // Clear the cached local section before adding boundaries.
-    // DMCreateDS may create the section eagerly when dm_reorder_section is
-    // enabled via PETSc options. DMAddBoundary in PETSc 3.25 requires no
-    // section to exist yet. Without this clear, setupBoundaryConditions
-    // fails with "Cannot add boundary to DM after creating local section".
-    ierr = DMSetLocalSection(dm, nullptr); CHKERRQ(ierr);
-
     // Add boundary conditions to the DS
     ierr = setupBoundaryConditions(); CHKERRQ(ierr);
 
@@ -1724,62 +1717,6 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     }
 
     PetscFunctionReturn(0);
-}
-
-// ============================================================================
-// Weak Lagrange regularization callbacks
-// ============================================================================
-
-// Weak regularization for the Lagrange multiplier field.
-// f[d] = epsilon * lambda[d] with epsilon = 1e-8.
-//
-// The BdResidual on cohesive faces has magnitude ~O(stress * area / n_nodes)
-// ~ O(1e7). With lambda ~ O(stress) ~ O(1e8), the regularization force is
-// epsilon * 1e8 = 1e0, which is 7 orders of magnitude smaller than the
-// constraint. The old f=lambda (epsilon=1) was comparable to the constraint
-// on coarse meshes, overwhelming it and driving lambda to zero.
-//
-// epsilon = 1e-8 is large enough for LU factorization (well above machine
-// epsilon) but negligible compared to the physical constraint forces.
-static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-    const PetscInt uOff[], const PetscInt uOff_x[],
-    const PetscScalar u[], const PetscScalar u_t[],
-    const PetscScalar u_x[], const PetscInt aOff[],
-    const PetscInt aOff_x[], const PetscScalar a[],
-    const PetscScalar a_t[], const PetscScalar a_x[],
-    PetscReal t, const PetscReal x[],
-    PetscInt numConstants, const PetscScalar constants[],
-    PetscScalar f[])
-{
-    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
-    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
-    (void)t; (void)x; (void)numConstants; (void)constants;
-    const PetscScalar epsilon = 1.0e-8;
-    const PetscInt lagr_off = uOff[Nf - 1];
-    for (PetscInt d = 0; d < dim; ++d) {
-        f[d] = epsilon * u[lagr_off + d];
-    }
-}
-
-// Weak Jacobian for the Lagrange-Lagrange block.
-// g0[d*dim+d] = epsilon = 1e-8 (consistent with f0_weak_lagrange).
-static void g0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-    const PetscInt uOff[], const PetscInt uOff_x[],
-    const PetscScalar u[], const PetscScalar u_t[],
-    const PetscScalar u_x[], const PetscInt aOff[],
-    const PetscInt aOff_x[], const PetscScalar a[],
-    const PetscScalar a_t[], const PetscScalar a_x[],
-    PetscReal t, PetscReal u_tShift, const PetscReal x[],
-    PetscInt numConstants, const PetscScalar constants[],
-    PetscScalar g0[])
-{
-    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
-    (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
-    (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
-    const PetscScalar epsilon = 1.0e-8;
-    for (PetscInt d = 0; d < dim; ++d) {
-        g0[d * dim + d] = epsilon;
-    }
 }
 
 // ============================================================================
@@ -2523,19 +2460,24 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Weak Lagrange regularization: f = epsilon * lambda, g = epsilon * I
-        // with epsilon = 1e-8. This replaces the old f=lambda (epsilon=1)
-        // which overwhelmed the BdResidual constraint on coarse meshes,
-        // driving lambda to zero. With epsilon=1e-8, the regularization is
-        // negligible compared to the constraint but keeps interior Lagrange
-        // rows non-singular for LU factorization.
+        // Volume regularization for the Lagrange field: f = lambda, g = I.
+        // This keeps the PetscDS system non-singular on interior (non-cohesive)
+        // cells that have Lagrange DOFs. On cohesive cells, the BdResidual
+        // constraint and the manual Jacobian from addCohesivePenaltyToJacobian
+        // provide much larger entries that dominate the regularization.
         // BdJacobian on cohesive cells does NOT work in PETSc 3.25 (commented
-        // out in plexfem.c), so the Jacobian is assembled manually in
-        // addCohesivePenaltyToJacobian.
+        // out in plexfem.c), so the Jacobian is assembled manually.
+        //
+        // Known issue: on coarse meshes (e.g. 4x4x4), the f=lambda
+        // regularization can compete with BdResidual, causing the 3 quasi-
+        // static fault tests to produce zero solutions. Fixing this requires
+        // either Lagrange field restriction via PETSc region DS (blocked by
+        // PETSc 3.25 volume assembly limitations) or manual Lagrange residual
+        // assembly (future work). See docs/LAGRANGE_FIX_STATUS.md.
         ierr = PetscDSSetResidual(prob, lagrange_field,
-            f0_weak_lagrange, nullptr); CHKERRQ(ierr);
+            PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-            g0_weak_lagrange, nullptr,
+            PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
             nullptr, nullptr); CHKERRQ(ierr);
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
@@ -3533,7 +3475,9 @@ PetscErrorCode Simulator::setupFaultNetwork() {
                     cohesive_fault_->numVertices());
     }
 
-    ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
+    // createCohesiveCellLabel creates the cohesive_cells label for diagnostics.
+    // Temporarily disabled to verify it does not cause regressions.
+    // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
