@@ -273,7 +273,6 @@ protected:
     PetscErrorCode ierr;
 
     PetscOptionsClear(nullptr);
-    // Pattern from PyLith share/settings/solver_elasticity_fault.cfg
     PetscOptionsSetValue(nullptr, "-ts_type", "beuler");
     PetscOptionsSetValue(nullptr, "-snes_max_it", "200");
     PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-8");
