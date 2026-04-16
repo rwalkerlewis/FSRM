@@ -2524,12 +2524,20 @@ PetscErrorCode Simulator::setupPhysics() {
         // (g0 = I) keeps interior Lagrange rows non-singular for LU. On cohesive
         // vertices, the manual Jacobian from addCohesivePenaltyToJacobian adds
         // much larger penalty entries that dominate the identity contribution.
-        // No PetscDS volume residual or Jacobian for the Lagrange field.
-        // The constraint is handled entirely by:
-        //   - BdResidual callbacks on cohesive cells (registered below)
-        //   - Manual Jacobian assembly in addCohesivePenaltyToJacobian()
-        // Interior Lagrange DOFs get small diagonal entries in the manual
-        // Jacobian to prevent singularity.
+        // Lagrange field volume callbacks:
+        //   Residual: zero (prevents NaN from unregistered callbacks; the real
+        //     constraint comes from BdResidual on cohesive cells)
+        //   Jacobian: none (the manual assembly in addCohesivePenaltyToJacobian
+        //     provides coupling + diagonal entries for all Lagrange rows)
+        //
+        // The old regularization used f = lambda, g = I. The f = lambda residual
+        // on cohesive cells competed with BdResidual, driving lambda to 0 and
+        // causing zero-solution failures for locked faults under weak loading.
+        ierr = PetscDSSetResidual(prob, lagrange_field,
+            f0_lagrange_weak_regularize, nullptr); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
+            g0_lagrange_weak_identity, nullptr,
+            nullptr, nullptr); CHKERRQ(ierr);
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
         // (verified by Physics.CohesiveBdResidual test). DMPlexTSComputeIFunctionFEM
@@ -4132,7 +4140,7 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                                                                 pos_vertex.xyz[static_cast<std::size_t>(d)];
                 pair_distance2 += delta * delta;
             }
-            if (pair_distance2 > 1.0e-20)
+            if (pair_distance2 > 1.0e-100)
             {
                 continue;
             }
