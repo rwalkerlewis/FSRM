@@ -105,6 +105,9 @@ TEST_F(PressurizedFractureFEMTest, TSSolveProducesNonzeroDisplacement)
   Simulator sim(PETSC_COMM_WORLD);
   PetscErrorCode ierr;
 
+  // PyLith solver defaults for fault problems (cohesive reordering)
+  PetscOptionsSetValue(nullptr, "-dm_reorder_section", "true");
+  PetscOptionsSetValue(nullptr, "-dm_reorder_section_type", "cohesive");
   // Coarse cohesive meshes need a larger nonlinear budget for robust convergence.
   ASSERT_EQ(PetscOptionsSetValue(nullptr, "-snes_max_it", "50"), 0);
   ASSERT_EQ(PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-6"), 0);

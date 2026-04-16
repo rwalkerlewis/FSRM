@@ -114,6 +114,9 @@ TEST_F(SlipWeakeningFaultTest, SlipWeakeningConverges)
     PetscErrorCode ierr;
 
     PetscOptionsClear(nullptr);
+    // PyLith solver defaults for fault problems (cohesive reordering)
+    PetscOptionsSetValue(nullptr, "-dm_reorder_section", "true");
+    PetscOptionsSetValue(nullptr, "-dm_reorder_section_type", "cohesive");
     PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
     PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-8");
     PetscOptionsSetValue(nullptr, "-snes_atol", "1e-8");
