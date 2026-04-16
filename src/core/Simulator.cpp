@@ -1672,15 +1672,27 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     }
 
     // Add Lagrange multiplier field for cohesive faults if enabled.
+    // The field is restricted to the cohesive cell closure via the
+    // cohesive_cells label so DOFs exist only on fault closure points.
+    // Pattern from PyLith libsrc/pylith/topology/Field.cc line ~561
+    PetscInt lagrange_field_idx = -1;
     if (config.enable_faults && cohesive_kernel_) {
+        DMLabel cohesive_label = nullptr;
+        ierr = DMGetLabel(dm, "cohesive_cells", &cohesive_label); CHKERRQ(ierr);
+        if (!cohesive_label) {
+            SETERRQ(comm, PETSC_ERR_ARG_WRONGSTATE,
+                "Faults enabled but cohesive_cells label missing. "
+                "createCohesiveCellLabel must run in setupFaultNetwork before setupFields.");
+        }
         PetscFE fe_lagrange;
         // Lagrange multiplier: 3-component vector (traction) on cohesive cells
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe_lagrange); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
-        ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
+        lagrange_field_idx = static_cast<PetscInt>(fe_fields.size());
+        ierr = DMAddField(dm, cohesive_label, (PetscObject)fe_lagrange); CHKERRQ(ierr);
         fe_fields.push_back(fe_lagrange);
         if (rank == 0) {
-            PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
+            PetscPrintf(comm, "Added Lagrange multiplier field restricted to cohesive_cells label\n");
         }
     }
 
@@ -1694,6 +1706,27 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 
     // Create DS (required before adding boundaries in PETSc 3.25)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
+
+    // Section diagnostic: verify Lagrange field restriction
+    if (rank == 0 && config.enable_faults && lagrange_field_idx >= 0) {
+        PetscSection section = nullptr;
+        ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+        PetscInt pStart = 0, pEnd = 0;
+        ierr = PetscSectionGetChart(section, &pStart, &pEnd); CHKERRQ(ierr);
+
+        PetscInt n_with_lag = 0, n_total_pts = 0;
+        for (PetscInt p = pStart; p < pEnd; ++p) {
+            PetscInt total_dof = 0, lag_dof = 0;
+            ierr = PetscSectionGetDof(section, p, &total_dof); CHKERRQ(ierr);
+            ierr = PetscSectionGetFieldDof(section, p, lagrange_field_idx, &lag_dof); CHKERRQ(ierr);
+            if (total_dof > 0) ++n_total_pts;
+            if (lag_dof > 0) ++n_with_lag;
+        }
+        PetscPrintf(comm,
+            "Section diagnostic: %d/%d points have Lagrange DOFs (%.1f%%)\n",
+            (int)n_with_lag, (int)n_total_pts,
+            100.0 * n_with_lag / PetscMax(n_total_pts, 1));
+    }
 
     // Add boundary conditions to the DS
     ierr = setupBoundaryConditions(); CHKERRQ(ierr);
