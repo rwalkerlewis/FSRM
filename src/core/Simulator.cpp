@@ -6266,13 +6266,32 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
             PetscInt label_value = 1;
             PetscInt lagrange_field_idx = displacement_field + 1;
 
+            // Query the default DS to determine which fields exist globally.
+            // The Lagrange field may be registered on a region-specific DS
+            // (e.g., via DMAddField(dm, interfacesLabel, ...)), in which case
+            // it does not appear in the default DS and DMAddBoundary with its
+            // index would fail with "Field N is not in [0, N)".
+            PetscDS defaultDS = nullptr;
+            PetscInt numDSFields = 0;
+            ierr = DMGetDS(dm, &defaultDS); CHKERRQ(ierr);
+            if (defaultDS) {
+                ierr = PetscDSGetNumFields(defaultDS, &numDSFields); CHKERRQ(ierr);
+            }
+
             ierr = DMAddBoundary(dm, DM_BC_NATURAL, "fault_traction",
                 fault_label, 1, &label_value, displacement_field, 0, NULL,
                 NULL, NULL, NULL, NULL); CHKERRQ(ierr);
 
-            ierr = DMAddBoundary(dm, DM_BC_NATURAL, "fault_constraint",
-                fault_label, 1, &label_value, lagrange_field_idx, 0, NULL,
-                NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+            if (lagrange_field_idx < numDSFields) {
+                ierr = DMAddBoundary(dm, DM_BC_NATURAL, "fault_constraint",
+                    fault_label, 1, &label_value, lagrange_field_idx, 0, NULL,
+                    NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+            } else if (rank == 0) {
+                PetscPrintf(comm,
+                    "  Skipped fault_constraint BC: Lagrange field %d not in default DS "
+                    "(numDSFields=%d; likely on region-specific DS)\n",
+                    (int)lagrange_field_idx, (int)numDSFields);
+            }
 
             if (rank == 0) {
                 // Diagnostic: dump the fault label stratification
