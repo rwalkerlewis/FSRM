@@ -116,9 +116,6 @@ protected:
     PetscErrorCode ierr;
 
     PetscOptionsClear(nullptr);
-    // PyLith solver defaults for fault problems (cohesive reordering)
-    PetscOptionsSetValue(nullptr, "-dm_reorder_section", "true");
-    PetscOptionsSetValue(nullptr, "-dm_reorder_section_type", "cohesive");
     // Semi-smooth Newton solver for Coulomb friction with augmented Lagrangian.
     // Use basic line search (backtracking can reject good Newton steps for
     // non-smooth problems) and generous tolerances.
