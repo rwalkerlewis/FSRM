@@ -41,10 +41,17 @@
 
 namespace {
 
-// Zero residual callback for the Lagrange multiplier field on non-cohesive
-// cells. The actual constraint is handled by BdResidual on cohesive cells.
-// This produces f[d] = 0 so interior Lagrange DOFs have zero residual.
-static void f0_lagrange_zero(
+// Weak regularization residual for the Lagrange multiplier field.
+// f[d] = epsilon * lambda[d], where epsilon is small enough that the volume
+// contribution does not interfere with the BdResidual constraint on cohesive
+// cells. On interior (non-fault) vertices, this keeps the Lagrange DOFs
+// at zero. On cohesive vertices, the BdResidual contribution from
+// f0_lagrange_constraint (O(h^2)) dominates over epsilon * lambda (O(epsilon * h^3)).
+//
+// epsilon = 1e-6 gives a ratio of volume-to-boundary contribution of ~1e-6 * h,
+// which is negligible for any reasonable mesh size while keeping the system
+// numerically non-singular for LU factorization.
+static void f0_lagrange_weak_regularize(
     PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscInt uOff[], const PetscInt uOff_x[],
     const PetscScalar u[], const PetscScalar u_t[],
@@ -56,13 +63,39 @@ static void f0_lagrange_zero(
     PetscInt numConstants, const PetscScalar constants[],
     PetscScalar f[])
 {
-    (void)dim; (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
-    (void)u; (void)u_t; (void)u_x; (void)aOff; (void)aOff_x;
-    (void)a; (void)a_t; (void)a_x; (void)t; (void)x;
-    (void)numConstants; (void)constants; (void)f;
-    // Zero residual: Lagrange equation on non-cohesive cells is trivially
-    // satisfied. The constraint equation is provided by BdResidual on
-    // cohesive cells and the manual Jacobian in addCohesivePenaltyToJacobian.
+    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x; (void)numConstants; (void)constants;
+
+    const PetscScalar epsilon = 1.0e-4;
+    const PetscInt lagr_off = uOff[Nf - 1];
+    for (PetscInt d = 0; d < dim; ++d) {
+        f[d] = epsilon * u[lagr_off + d];
+    }
+}
+
+// Weak identity Jacobian for the Lagrange-Lagrange block.
+// g0[d*dim+d] = epsilon (matching the residual scaling).
+static void g0_lagrange_weak_identity(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift, const PetscReal x[],
+    PetscInt numConstants, const PetscScalar constants[],
+    PetscScalar g0[])
+{
+    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
+    (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
+
+    const PetscScalar epsilon = 1.0e-4;
+    for (PetscInt d = 0; d < dim; ++d) {
+        g0[d * dim + d] = epsilon;
+    }
 }
 
 PetscErrorCode ensureDirectoryExists(MPI_Comm comm, int rank, const std::string& path) {
@@ -2479,18 +2512,24 @@ PetscErrorCode Simulator::setupPhysics() {
 
         // Lagrange field volume callbacks:
         //   Residual: zero (the real constraint comes from BdResidual on cohesive cells)
-        //   Jacobian: none (manual assembly in addCohesivePenaltyToJacobian handles all coupling)
+        //   Jacobian: identity (provides non-singular interior Lagrange rows)
         //
-        // The old regularization used f = lambda, g = I. This penalized nonzero
-        // traction on ALL cells (including cohesive cells where BdResidual provides
-        // the real constraint). The f = lambda residual drove lambda toward 0 and
-        // caused zero-solution failures for locked faults under weak loading.
+        // The old regularization used f = lambda, g = I. The f = lambda residual
+        // penalized nonzero traction on ALL cells (including cohesive cells where
+        // BdResidual provides the real constraint), driving lambda to 0 and
+        // causing zero-solution failures for locked faults under weak loading.
         //
-        // Interior Lagrange DOFs (on non-fault vertices) have zero residual and
-        // no Jacobian entries from the volume callbacks. The addCohesivePenaltyToJacobian
-        // function handles non-singularity by adding a small diagonal on those rows.
-        ierr = PetscDSSetResidual(prob, lagrange_field,
-            f0_lagrange_zero, nullptr); CHKERRQ(ierr);
+        // The new approach uses f = 0 so the volume residual never competes with
+        // the BdResidual constraint on cohesive cells. The identity Jacobian
+        // (g0 = I) keeps interior Lagrange rows non-singular for LU. On cohesive
+        // vertices, the manual Jacobian from addCohesivePenaltyToJacobian adds
+        // much larger penalty entries that dominate the identity contribution.
+        // No PetscDS volume residual or Jacobian for the Lagrange field.
+        // The constraint is handled entirely by:
+        //   - BdResidual callbacks on cohesive cells (registered below)
+        //   - Manual Jacobian assembly in addCohesivePenaltyToJacobian()
+        // Interior Lagrange DOFs get small diagonal entries in the manual
+        // Jacobian to prevent singularity.
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
         // (verified by Physics.CohesiveBdResidual test). DMPlexTSComputeIFunctionFEM
@@ -4310,11 +4349,12 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
 
     ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
 
-    // Add small diagonal entries for ALL Lagrange DOFs to keep the system
-    // non-singular. On cohesive vertices, the penalty coupling entries above
-    // dominate. On interior (non-fault) vertices, the Lagrange field has zero
-    // residual (from f0_lagrange_zero), and these small diagonal entries keep
-    // the rows non-singular for the LU factorization.
+    // Add diagonal entries for ALL Lagrange DOFs to keep the system non-singular.
+    // On cohesive vertices, the penalty entries (~E/h * face_area) dominate.
+    // On interior vertices, this 1.0 diagonal is the only nonzero entry, making
+    // the Lagrange equation: 1.0 * lambda = 0, so lambda = 0 (correct).
+    // This replaces the old volume regularization callback (f = lambda, g = I)
+    // which interfered with the BdResidual constraint on cohesive cells.
     {
         PetscInt pStart = 0, pEnd = 0;
         ierr = PetscSectionGetChart(gsection, &pStart, &pEnd); CHKERRQ(ierr);
@@ -4327,8 +4367,6 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
             if (lag_off < 0) continue;
             for (PetscInt d = 0; d < lag_dof; ++d) {
                 const PetscInt row = lag_off + d;
-                // Small diagonal entry (1.0) to keep the system non-singular.
-                // On cohesive vertices, the penalty entries (~10^11) dominate.
                 ierr = MatSetValue(J, row, row, 1.0, ADD_VALUES); CHKERRQ(ierr);
             }
         }
@@ -5816,7 +5854,7 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                     std::vector<PetscInt> pcomps(fbc.components.begin(), fbc.components.end());
                     bool all_zero = true;
                     for (const auto &v : fbc.values) {
-                        if (std::abs(v) > 1.0e-30) { all_zero = false; break; }
+                        if (std::abs(v) > 1.0e-40) { all_zero = false; break; }
                     }
                     if (all_zero) {
                         ierr = DMAddBoundary(dm, DM_BC_ESSENTIAL, bc_name.c_str(),
