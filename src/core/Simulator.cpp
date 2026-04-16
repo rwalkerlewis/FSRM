@@ -2533,10 +2533,14 @@ PetscErrorCode Simulator::setupPhysics() {
         // The old regularization used f = lambda, g = I. The f = lambda residual
         // on cohesive cells competed with BdResidual, driving lambda to 0 and
         // causing zero-solution failures for locked faults under weak loading.
+        // Volume residual: effectively zero (tiny epsilon prevents interference
+        // with BdResidual constraint). Volume Jacobian: identity (keeps interior
+        // Lagrange rows non-singular). The Jacobian-residual mismatch causes
+        // slow convergence on coarse meshes but produces correct solutions.
         ierr = PetscDSSetResidual(prob, lagrange_field,
             f0_lagrange_weak_regularize, nullptr); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-            g0_lagrange_weak_identity, nullptr,
+            PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
             nullptr, nullptr); CHKERRQ(ierr);
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
@@ -4140,7 +4144,7 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                                                                 pos_vertex.xyz[static_cast<std::size_t>(d)];
                 pair_distance2 += delta * delta;
             }
-            if (pair_distance2 > 1.0e-100)
+            if (pair_distance2 > 1.0e-80)
             {
                 continue;
             }
@@ -4356,30 +4360,6 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
     }
 
     ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
-
-    // Add diagonal entries for ALL Lagrange DOFs to keep the system non-singular.
-    // On cohesive vertices, the penalty entries (~E/h * face_area) dominate.
-    // On interior vertices, this 1.0 diagonal is the only nonzero entry, making
-    // the Lagrange equation: 1.0 * lambda = 0, so lambda = 0 (correct).
-    // This replaces the old volume regularization callback (f = lambda, g = I)
-    // which interfered with the BdResidual constraint on cohesive cells.
-    {
-        PetscInt pStart = 0, pEnd = 0;
-        ierr = PetscSectionGetChart(gsection, &pStart, &pEnd); CHKERRQ(ierr);
-        for (PetscInt p = pStart; p < pEnd; ++p) {
-            PetscInt lag_dof = 0;
-            ierr = PetscSectionGetFieldDof(gsection, p, lagrange_field, &lag_dof); CHKERRQ(ierr);
-            if (lag_dof <= 0) continue;
-            PetscInt lag_off = 0;
-            ierr = PetscSectionGetFieldOffset(gsection, p, lagrange_field, &lag_off); CHKERRQ(ierr);
-            if (lag_off < 0) continue;
-            for (PetscInt d = 0; d < lag_dof; ++d) {
-                const PetscInt row = lag_off + d;
-                ierr = MatSetValue(J, row, row, 1.0, ADD_VALUES); CHKERRQ(ierr);
-            }
-        }
-    }
-
     ierr = MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
     ierr = MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
     PetscFunctionReturn(PETSC_SUCCESS);
