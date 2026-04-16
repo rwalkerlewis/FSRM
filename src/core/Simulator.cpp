@@ -1684,11 +1684,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe_lagrange); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
         lagrange_field_idx = static_cast<PetscInt>(fe_fields.size());
-        {
-            DMLabel interfacesLabel = NULL;
-            ierr = getOrCreateInterfacesLabel(&interfacesLabel); CHKERRQ(ierr);
-            ierr = DMAddField(dm, interfacesLabel, (PetscObject)fe_lagrange); CHKERRQ(ierr);
-        }
+        ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
         fe_fields.push_back(fe_lagrange);
         if (rank == 0) {
             PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
