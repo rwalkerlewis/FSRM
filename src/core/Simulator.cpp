@@ -1746,6 +1746,35 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 }
 
 // ============================================================================
+// Zero residual callback for restricted Lagrange field
+// ============================================================================
+
+// Zero residual for the Lagrange multiplier field on its restricted domain.
+// With the Lagrange field restricted to the cohesive cell closure via
+// DMAddField(dm, cohesive_cells_label, ...), interior cells have no Lagrange
+// DOFs. PetscDS may still require a registered volume callback on the
+// restricted DS to avoid NaN during DMPlexTSComputeIFunctionFEM.
+// This produces f[d] = 0 so it never competes with BdResidual on cohesive
+// faces. NOT f = lambda (which was the old regularization that caused
+// zero-solution failures).
+static void f0_zero_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[], const PetscInt aOff[],
+    const PetscInt aOff_x[], const PetscScalar a[],
+    const PetscScalar a_t[], const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    PetscInt numConstants, const PetscScalar constants[],
+    PetscScalar f[])
+{
+    (void)dim; (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
+    (void)u; (void)u_t; (void)u_x; (void)aOff; (void)aOff_x;
+    (void)a; (void)a_t; (void)a_x; (void)t; (void)x;
+    (void)numConstants; (void)constants;
+    for (PetscInt d = 0; d < dim; ++d) f[d] = 0.0;
+}
+
+// ============================================================================
 // Boundary condition callback functions
 // ============================================================================
 
@@ -2486,41 +2515,16 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Lagrange field volume callbacks:
-        //   Residual: zero (the real constraint comes from BdResidual on cohesive cells)
-        //   Jacobian: identity (provides non-singular interior Lagrange rows)
-        //
-        // The old regularization used f = lambda, g = I. The f = lambda residual
-        // penalized nonzero traction on ALL cells (including cohesive cells where
-        // BdResidual provides the real constraint), driving lambda to 0 and
-        // causing zero-solution failures for locked faults under weak loading.
-        //
-        // The new approach uses f = 0 so the volume residual never competes with
-        // the BdResidual constraint on cohesive cells. The identity Jacobian
-        // (g0 = I) keeps interior Lagrange rows non-singular for LU. On cohesive
-        // vertices, the manual Jacobian from addCohesivePenaltyToJacobian adds
-        // much larger penalty entries that dominate the identity contribution.
-        // Lagrange field volume callbacks:
-        //   Residual: zero (prevents NaN from unregistered callbacks; the real
-        //     constraint comes from BdResidual on cohesive cells)
-        //   Jacobian: none (the manual assembly in addCohesivePenaltyToJacobian
-        //     provides coupling + diagonal entries for all Lagrange rows)
-        //
-        // The old regularization used f = lambda, g = I. The f = lambda residual
-        // on cohesive cells competed with BdResidual, driving lambda to 0 and
-        // causing zero-solution failures for locked faults under weak loading.
-        // Volume regularization for the Lagrange field: f = lambda, g = I.
-        // This keeps the PetscDS system non-singular on interior (non-cohesive)
-        // cells that have Lagrange DOFs. The actual constraint on cohesive
-        // cells is handled by BdResidual callbacks registered below.
+        // Lagrange field volume callback: zero residual.
+        // With the Lagrange field restricted to cohesive cell closure via
+        // DMAddField(dm, cohesive_cells_label, ...), interior cells have no
+        // Lagrange DOFs. The zero callback satisfies PetscDS requirements
+        // without competing with BdResidual on cohesive faces.
+        // The Jacobian comes from manual assembly in addCohesivePenaltyToJacobian.
         // BdJacobian on cohesive cells does NOT work in PETSc 3.25 (commented
-        // out in plexfem.c), so the Jacobian is assembled manually in
-        // addCohesivePenaltyToJacobian.
+        // out in plexfem.c), so the Jacobian is assembled manually.
         ierr = PetscDSSetResidual(prob, lagrange_field,
-            PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
-        ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-            PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
-            nullptr, nullptr); CHKERRQ(ierr);
+            f0_zero_lagrange, nullptr); CHKERRQ(ierr);
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
         // (verified by Physics.CohesiveBdResidual test). DMPlexTSComputeIFunctionFEM
