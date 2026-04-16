@@ -185,6 +185,7 @@ private:
     PetscErrorCode populateAuxFieldsByMaterialLabel();
     PetscErrorCode populateAuxFieldsByVelocityModel();
     PetscErrorCode applyExplosionDamageToAuxFields();
+    PetscErrorCode createCohesiveCellLabel();
     
     // Simulation state
     double current_time;

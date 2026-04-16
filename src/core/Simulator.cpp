@@ -41,6 +41,30 @@
 
 namespace {
 
+// Zero residual callback for the Lagrange multiplier field on non-cohesive
+// cells. The actual constraint is handled by BdResidual on cohesive cells.
+// This produces f[d] = 0 so interior Lagrange DOFs have zero residual.
+static void f0_lagrange_zero(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    PetscInt numConstants, const PetscScalar constants[],
+    PetscScalar f[])
+{
+    (void)dim; (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
+    (void)u; (void)u_t; (void)u_x; (void)aOff; (void)aOff_x;
+    (void)a; (void)a_t; (void)a_x; (void)t; (void)x;
+    (void)numConstants; (void)constants; (void)f;
+    // Zero residual: Lagrange equation on non-cohesive cells is trivially
+    // satisfied. The constraint equation is provided by BdResidual on
+    // cohesive cells and the manual Jacobian in addCohesivePenaltyToJacobian.
+}
+
 PetscErrorCode ensureDirectoryExists(MPI_Comm comm, int rank, const std::string& path) {
     PetscFunctionBeginUser;
 
@@ -1663,15 +1687,15 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             SETERRQ(comm, PETSC_ERR_ARG_WRONG, "Unknown fluid model type");
     }
     
-    // Add geomechanics field if enabled
-    if (config.enable_geomechanics) {
+    // Add displacement field if geomechanics or elastodynamics is enabled
+    if (config.enable_geomechanics || config.enable_elastodynamics) {
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
 
-    // Add Lagrange multiplier field for cohesive faults if enabled
+    // Add Lagrange multiplier field for cohesive faults if enabled.
     if (config.enable_faults && cohesive_kernel_) {
         PetscFE fe_lagrange;
         // Lagrange multiplier: 3-component vector (traction) on cohesive cells
@@ -1704,6 +1728,10 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 
     // Get the DS for later use
     ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);
+
+    if (rank == 0 && config.enable_faults && cohesive_kernel_) {
+        PetscPrintf(comm, "Fields setup complete with Lagrange multiplier field for fault traction\n");
+    }
 
     PetscFunctionReturn(0);
 }
@@ -2449,18 +2477,20 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Volume regularization for the Lagrange field: f = lambda, g = I.
-        // This keeps the PetscDS system non-singular on interior (non-cohesive)
-        // cells that have Lagrange DOFs. The actual constraint on cohesive
-        // cells is handled by BdResidual callbacks registered below.
-        // BdJacobian on cohesive cells does NOT work in PETSc 3.25 (commented
-        // out in plexfem.c), so the Jacobian is assembled manually in
-        // addCohesivePenaltyToJacobian.
+        // Lagrange field volume callbacks:
+        //   Residual: zero (the real constraint comes from BdResidual on cohesive cells)
+        //   Jacobian: none (manual assembly in addCohesivePenaltyToJacobian handles all coupling)
+        //
+        // The old regularization used f = lambda, g = I. This penalized nonzero
+        // traction on ALL cells (including cohesive cells where BdResidual provides
+        // the real constraint). The f = lambda residual drove lambda toward 0 and
+        // caused zero-solution failures for locked faults under weak loading.
+        //
+        // Interior Lagrange DOFs (on non-fault vertices) have zero residual and
+        // no Jacobian entries from the volume callbacks. The addCohesivePenaltyToJacobian
+        // function handles non-singularity by adding a small diagonal on those rows.
         ierr = PetscDSSetResidual(prob, lagrange_field,
-            PetscFEHydrofrac::f0_lagrange_regularize, nullptr); CHKERRQ(ierr);
-        ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-            PetscFEHydrofrac::g0_lagrange_regularize, nullptr,
-            nullptr, nullptr); CHKERRQ(ierr);
+            f0_lagrange_zero, nullptr); CHKERRQ(ierr);
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
         // (verified by Physics.CohesiveBdResidual test). DMPlexTSComputeIFunctionFEM
@@ -3457,7 +3487,67 @@ PetscErrorCode Simulator::setupFaultNetwork() {
                     cohesive_fault_->numVertices());
     }
 
+    // Create label marking cohesive cells so the Lagrange field can be
+    // restricted to fault vertices only (no interior Lagrange DOFs).
+    ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
+}
+
+// =============================================================================
+// createCohesiveCellLabel
+//
+// Walk height-0 cells and label every cohesive prism cell (SEG_PRISM_TENSOR,
+// TRI_PRISM_TENSOR, QUAD_PRISM_TENSOR) with value 1 in a new DMLabel named
+// "cohesive_cells". After marking the cells, DMPlexLabelComplete is called to
+// extend the label to include all closure points (faces, edges, vertices) so
+// that PETSc correctly assigns DOFs when the label is passed to DMAddField().
+// =============================================================================
+PetscErrorCode Simulator::createCohesiveCellLabel()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (!config.enable_faults) PetscFunctionReturn(PETSC_SUCCESS);
+
+    ierr = DMCreateLabel(dm, "cohesive_cells"); CHKERRQ(ierr);
+    DMLabel cohesive_label = nullptr;
+    ierr = DMGetLabel(dm, "cohesive_cells", &cohesive_label); CHKERRQ(ierr);
+
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    PetscInt n_cohesive = 0;
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        if (ct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+            ct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+            ct == DM_POLYTOPE_QUAD_PRISM_TENSOR) {
+            ierr = DMLabelSetValue(cohesive_label, c, 1); CHKERRQ(ierr);
+            ++n_cohesive;
+        }
+    }
+
+    // Complete the label: extend from cells to all closure points (faces,
+    // edges, vertices). This is required for DMAddField(dm, label, ...) so
+    // that PETSc's section creation (DMPlexCreateSectionDof) assigns DOFs
+    // on the correct vertices.
+    ierr = DMPlexLabelComplete(dm, cohesive_label); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        IS label_is = nullptr;
+        ierr = DMLabelGetStratumIS(cohesive_label, 1, &label_is); CHKERRQ(ierr);
+        PetscInt npts = 0;
+        if (label_is) {
+            ierr = ISGetLocalSize(label_is, &npts); CHKERRQ(ierr);
+            ierr = ISDestroy(&label_is); CHKERRQ(ierr);
+        }
+        PetscPrintf(comm, "Created cohesive_cells label: %d cells, %d total points (after completion)\n",
+                    (int)n_cohesive, (int)npts);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode Simulator::locateInjectionCell() {
@@ -4219,6 +4309,31 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
     }
 
     ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
+
+    // Add small diagonal entries for ALL Lagrange DOFs to keep the system
+    // non-singular. On cohesive vertices, the penalty coupling entries above
+    // dominate. On interior (non-fault) vertices, the Lagrange field has zero
+    // residual (from f0_lagrange_zero), and these small diagonal entries keep
+    // the rows non-singular for the LU factorization.
+    {
+        PetscInt pStart = 0, pEnd = 0;
+        ierr = PetscSectionGetChart(gsection, &pStart, &pEnd); CHKERRQ(ierr);
+        for (PetscInt p = pStart; p < pEnd; ++p) {
+            PetscInt lag_dof = 0;
+            ierr = PetscSectionGetFieldDof(gsection, p, lagrange_field, &lag_dof); CHKERRQ(ierr);
+            if (lag_dof <= 0) continue;
+            PetscInt lag_off = 0;
+            ierr = PetscSectionGetFieldOffset(gsection, p, lagrange_field, &lag_off); CHKERRQ(ierr);
+            if (lag_off < 0) continue;
+            for (PetscInt d = 0; d < lag_dof; ++d) {
+                const PetscInt row = lag_off + d;
+                // Small diagonal entry (1.0) to keep the system non-singular.
+                // On cohesive vertices, the penalty entries (~10^11) dominate.
+                ierr = MatSetValue(J, row, row, 1.0, ADD_VALUES); CHKERRQ(ierr);
+            }
+        }
+    }
+
     ierr = MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
     ierr = MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
     PetscFunctionReturn(PETSC_SUCCESS);
