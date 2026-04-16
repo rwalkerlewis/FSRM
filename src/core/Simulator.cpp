@@ -1672,27 +1672,22 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     }
 
     // Add Lagrange multiplier field for cohesive faults if enabled.
-    // The field is restricted to the cohesive cell closure via the
-    // cohesive_cells label so DOFs exist only on fault closure points.
-    // Pattern from PyLith libsrc/pylith/topology/Field.cc line ~561
+    // The field is on ALL cells (nullptr label). PETSc 3.25 region DS with
+    // label-restricted fields does not support volume residual assembly via
+    // DMPlexTSComputeIFunctionFEM. Instead, a weak regularization (epsilon=1e-8)
+    // keeps interior Lagrange DOFs non-singular for LU while being negligible
+    // compared to the BdResidual constraint on cohesive faces.
     PetscInt lagrange_field_idx = -1;
     if (config.enable_faults && cohesive_kernel_) {
-        DMLabel cohesive_label = nullptr;
-        ierr = DMGetLabel(dm, "cohesive_cells", &cohesive_label); CHKERRQ(ierr);
-        if (!cohesive_label) {
-            SETERRQ(comm, PETSC_ERR_ARG_WRONGSTATE,
-                "Faults enabled but cohesive_cells label missing. "
-                "createCohesiveCellLabel must run in setupFaultNetwork before setupFields.");
-        }
         PetscFE fe_lagrange;
         // Lagrange multiplier: 3-component vector (traction) on cohesive cells
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe_lagrange); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
         lagrange_field_idx = static_cast<PetscInt>(fe_fields.size());
-        ierr = DMAddField(dm, cohesive_label, (PetscObject)fe_lagrange); CHKERRQ(ierr);
+        ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
         fe_fields.push_back(fe_lagrange);
         if (rank == 0) {
-            PetscPrintf(comm, "Added Lagrange multiplier field restricted to cohesive_cells label\n");
+            PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
         }
     }
 
@@ -1707,26 +1702,12 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Create DS (required before adding boundaries in PETSc 3.25)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
 
-    // Section diagnostic: verify Lagrange field restriction
-    if (rank == 0 && config.enable_faults && lagrange_field_idx >= 0) {
-        PetscSection section = nullptr;
-        ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
-        PetscInt pStart = 0, pEnd = 0;
-        ierr = PetscSectionGetChart(section, &pStart, &pEnd); CHKERRQ(ierr);
-
-        PetscInt n_with_lag = 0, n_total_pts = 0;
-        for (PetscInt p = pStart; p < pEnd; ++p) {
-            PetscInt total_dof = 0, lag_dof = 0;
-            ierr = PetscSectionGetDof(section, p, &total_dof); CHKERRQ(ierr);
-            ierr = PetscSectionGetFieldDof(section, p, lagrange_field_idx, &lag_dof); CHKERRQ(ierr);
-            if (total_dof > 0) ++n_total_pts;
-            if (lag_dof > 0) ++n_with_lag;
-        }
-        PetscPrintf(comm,
-            "Section diagnostic: %d/%d points have Lagrange DOFs (%.1f%%)\n",
-            (int)n_with_lag, (int)n_total_pts,
-            100.0 * n_with_lag / PetscMax(n_total_pts, 1));
-    }
+    // Clear the cached local section before adding boundaries.
+    // DMCreateDS may create the section eagerly when dm_reorder_section is
+    // enabled via PETSc options. DMAddBoundary in PETSc 3.25 requires no
+    // section to exist yet. Without this clear, setupBoundaryConditions
+    // fails with "Cannot add boundary to DM after creating local section".
+    ierr = DMSetLocalSection(dm, nullptr); CHKERRQ(ierr);
 
     // Add boundary conditions to the DS
     ierr = setupBoundaryConditions(); CHKERRQ(ierr);
@@ -1746,18 +1727,21 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 }
 
 // ============================================================================
-// Zero residual callback for restricted Lagrange field
+// Weak Lagrange regularization callbacks
 // ============================================================================
 
-// Zero residual for the Lagrange multiplier field on its restricted domain.
-// With the Lagrange field restricted to the cohesive cell closure via
-// DMAddField(dm, cohesive_cells_label, ...), interior cells have no Lagrange
-// DOFs. PetscDS may still require a registered volume callback on the
-// restricted DS to avoid NaN during DMPlexTSComputeIFunctionFEM.
-// This produces f[d] = 0 so it never competes with BdResidual on cohesive
-// faces. NOT f = lambda (which was the old regularization that caused
-// zero-solution failures).
-static void f0_zero_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+// Weak regularization for the Lagrange multiplier field.
+// f[d] = epsilon * lambda[d] with epsilon = 1e-8.
+//
+// The BdResidual on cohesive faces has magnitude ~O(stress * area / n_nodes)
+// ~ O(1e7). With lambda ~ O(stress) ~ O(1e8), the regularization force is
+// epsilon * 1e8 = 1e0, which is 7 orders of magnitude smaller than the
+// constraint. The old f=lambda (epsilon=1) was comparable to the constraint
+// on coarse meshes, overwhelming it and driving lambda to zero.
+//
+// epsilon = 1e-8 is large enough for LU factorization (well above machine
+// epsilon) but negligible compared to the physical constraint forces.
+static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscInt uOff[], const PetscInt uOff_x[],
     const PetscScalar u[], const PetscScalar u_t[],
     const PetscScalar u_x[], const PetscInt aOff[],
@@ -1767,11 +1751,35 @@ static void f0_zero_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     PetscInt numConstants, const PetscScalar constants[],
     PetscScalar f[])
 {
-    (void)dim; (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
-    (void)u; (void)u_t; (void)u_x; (void)aOff; (void)aOff_x;
-    (void)a; (void)a_t; (void)a_x; (void)t; (void)x;
-    (void)numConstants; (void)constants;
-    for (PetscInt d = 0; d < dim; ++d) f[d] = 0.0;
+    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x; (void)numConstants; (void)constants;
+    const PetscScalar epsilon = 1.0e-8;
+    const PetscInt lagr_off = uOff[Nf - 1];
+    for (PetscInt d = 0; d < dim; ++d) {
+        f[d] = epsilon * u[lagr_off + d];
+    }
+}
+
+// Weak Jacobian for the Lagrange-Lagrange block.
+// g0[d*dim+d] = epsilon = 1e-8 (consistent with f0_weak_lagrange).
+static void g0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[], const PetscInt aOff[],
+    const PetscInt aOff_x[], const PetscScalar a[],
+    const PetscScalar a_t[], const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift, const PetscReal x[],
+    PetscInt numConstants, const PetscScalar constants[],
+    PetscScalar g0[])
+{
+    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x; (void)u; (void)u_t;
+    (void)u_x; (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x; (void)numConstants; (void)constants;
+    const PetscScalar epsilon = 1.0e-8;
+    for (PetscInt d = 0; d < dim; ++d) {
+        g0[d * dim + d] = epsilon;
+    }
 }
 
 // ============================================================================
@@ -2515,16 +2523,20 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Lagrange field volume callback: zero residual.
-        // With the Lagrange field restricted to cohesive cell closure via
-        // DMAddField(dm, cohesive_cells_label, ...), interior cells have no
-        // Lagrange DOFs. The zero callback satisfies PetscDS requirements
-        // without competing with BdResidual on cohesive faces.
-        // The Jacobian comes from manual assembly in addCohesivePenaltyToJacobian.
+        // Weak Lagrange regularization: f = epsilon * lambda, g = epsilon * I
+        // with epsilon = 1e-8. This replaces the old f=lambda (epsilon=1)
+        // which overwhelmed the BdResidual constraint on coarse meshes,
+        // driving lambda to zero. With epsilon=1e-8, the regularization is
+        // negligible compared to the constraint but keeps interior Lagrange
+        // rows non-singular for LU factorization.
         // BdJacobian on cohesive cells does NOT work in PETSc 3.25 (commented
-        // out in plexfem.c), so the Jacobian is assembled manually.
+        // out in plexfem.c), so the Jacobian is assembled manually in
+        // addCohesivePenaltyToJacobian.
         ierr = PetscDSSetResidual(prob, lagrange_field,
-            f0_zero_lagrange, nullptr); CHKERRQ(ierr);
+            f0_weak_lagrange, nullptr); CHKERRQ(ierr);
+        ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
+            g0_weak_lagrange, nullptr,
+            nullptr, nullptr); CHKERRQ(ierr);
 
         // Register BdResidual on cohesive cells. This works in PETSc 3.25+
         // (verified by Physics.CohesiveBdResidual test). DMPlexTSComputeIFunctionFEM
