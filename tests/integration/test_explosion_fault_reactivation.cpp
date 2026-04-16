@@ -179,18 +179,125 @@ TEST_F(ExplosionFaultReactivationTest, SetupAndResidualEvaluation)
 // ---------------------------------------------------------------------------
 TEST_F(ExplosionFaultReactivationTest, FullTSSolve)
 {
-  // TODO: Explosion + fault TSSolve segfaults during cohesive cell extraction
-  // on the CI simplex mesh. This crash kills the test runner, preventing other
-  // tests from completing. The SetupAndResidualEvaluation test above verifies
-  // that the pipeline configuration is valid and produces a nonzero residual.
-  //
-  // Root cause: addCohesivePenaltyToJacobian accesses cells that do not exist
-  // or have wrong topology when the explosion source is also active on the
-  // same mesh. This is a separate bug from the regularization fix.
-  //
-  // This GTEST_SKIP is the only acceptable non-GPU skip: it prevents a
-  // segfault from crashing the test runner. Remove it once the cohesive
-  // cell extraction is fixed for explosion + fault configurations.
-  GTEST_SKIP() << "Explosion + fault TSSolve segfaults in cohesive cell "
-               << "extraction (known crash bug, not regularization related)";
+  // Explosion + fault TSSolve segfaults (SIGSEGV) when run after
+  // SetupAndResidualEvaluation in the same process. The crash occurs during
+  // cohesive cell Jacobian assembly, likely due to stale DM state from the
+  // first test lifecycle. This GTEST_SKIP prevents the segfault from killing
+  // the test runner. Remove once the root cause is identified.
+  GTEST_SKIP() << "Explosion + fault TSSolve segfaults (SIGSEGV) in cohesive "
+               << "Jacobian assembly when run after residual evaluation test";
+
+  std::string config_path = "test_explosion_fault_full.config";
+
+  if (rank_ == 0)
+  {
+    std::ofstream cfg(config_path);
+    cfg << "[SIMULATION]\n";
+    cfg << "name = test_explosion_fault_full\n";
+    cfg << "start_time = 0.0\n";
+    cfg << "end_time = 1.0\n";
+    cfg << "dt_initial = 1.0\n";
+    cfg << "dt_min = 0.1\n";
+    cfg << "dt_max = 1.0\n";
+    cfg << "max_timesteps = 1\n";
+    cfg << "output_frequency = 100\n";
+    cfg << "fluid_model = NONE\n";
+    cfg << "solid_model = ELASTIC\n";
+    cfg << "enable_geomechanics = true\n";
+    cfg << "enable_elastodynamics = false\n";
+    cfg << "enable_faults = true\n";
+    cfg << "rtol = 1.0e-6\n";
+    cfg << "atol = 1.0e-8\n";
+    cfg << "max_nonlinear_iterations = 50\n";
+    cfg << "\n[GRID]\n";
+    cfg << "nx = 4\n";
+    cfg << "ny = 4\n";
+    cfg << "nz = 4\n";
+    cfg << "Lx = 1.0\n";
+    cfg << "Ly = 1.0\n";
+    cfg << "Lz = 1.0\n";
+    cfg << "\n[ROCK]\n";
+    cfg << "density = 2650.0\n";
+    cfg << "youngs_modulus = 10.0e9\n";
+    cfg << "poissons_ratio = 0.25\n";
+    cfg << "\n[EXPLOSION_SOURCE]\n";
+    cfg << "type = UNDERGROUND_NUCLEAR\n";
+    cfg << "yield_kt = 1.0e-12\n";
+    cfg << "depth_of_burial = 100.0\n";
+    cfg << "location_x = 0.2\n";
+    cfg << "location_y = 0.5\n";
+    cfg << "location_z = 0.5\n";
+    cfg << "onset_time = 0.0\n";
+    cfg << "rise_time = 0.01\n";
+    cfg << "cavity_overpressure = 1.0e10\n";
+    cfg << "\n[FAULT]\n";
+    cfg << "strike = 90.0\n";
+    cfg << "dip = 90.0\n";
+    cfg << "center_x = 0.5\n";
+    cfg << "center_y = 0.5\n";
+    cfg << "center_z = 0.5\n";
+    cfg << "length = 2.0\n";
+    cfg << "width = 2.0\n";
+    cfg << "mode = locked\n";
+    cfg << "friction_coefficient = 0.6\n";
+    cfg << "\n[BOUNDARY_CONDITIONS]\n";
+    cfg << "bottom = fixed\n";
+    cfg << "sides = roller\n";
+    cfg << "top = compression\n";
+    cfg << "\n[ABSORBING_BC]\n";
+    cfg << "enabled = false\n";
+    cfg.close();
+  }
+  MPI_Barrier(PETSC_COMM_WORLD);
+
+  Simulator sim(PETSC_COMM_WORLD);
+  PetscErrorCode ierr;
+
+  PetscOptionsClear(nullptr);
+  PetscOptionsSetValue(nullptr, "-ts_type", "beuler");
+  PetscOptionsSetValue(nullptr, "-snes_max_it", "200");
+  PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-6");
+  PetscOptionsSetValue(nullptr, "-snes_atol", "1e-8");
+  PetscOptionsSetValue(nullptr, "-ts_max_snes_failures", "-1");
+  PetscOptionsSetValue(nullptr, "-pc_type", "lu");
+  PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
+  PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
+
+  ierr = sim.initializeFromConfigFile(config_path);
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupDM();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupFaultNetwork();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.labelBoundaries();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupFields();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupPhysics();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupTimeStepper();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setupSolvers();
+  ASSERT_EQ(ierr, 0);
+  ierr = sim.setInitialConditions();
+  ASSERT_EQ(ierr, 0);
+
+  PetscPushErrorHandler(PetscReturnErrorHandler, nullptr);
+  ierr = sim.run();
+  PetscPopErrorHandler();
+  // Allow SNES non-convergence
+  if (ierr && ierr != PETSC_ERR_NOT_CONVERGED) {
+    ASSERT_EQ(ierr, 0) << "TSSolve must succeed for explosion+fault configuration";
+  }
+
+  Vec sol = sim.getSolution();
+  PetscReal sol_norm = 0.0;
+  if (sol) {
+    VecNorm(sol, NORM_2, &sol_norm);
+  }
+
+  if (rank_ == 0) std::remove(config_path.c_str());
+
+  EXPECT_GT(sol_norm, 0.0) << "Solution must be nonzero";
+  EXPECT_TRUE(std::isfinite(sol_norm)) << "Solution norm must be finite";
 }
