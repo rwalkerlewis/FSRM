@@ -3484,9 +3484,7 @@ PetscErrorCode Simulator::setupFaultNetwork() {
                     cohesive_fault_->numVertices());
     }
 
-    // DISABLED: createCohesiveCellLabel interferes with some fault tests.
-    // The label is created but DMPlexLabelComplete is not called.
-    // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
+    ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -3526,9 +3524,26 @@ PetscErrorCode Simulator::createCohesiveCellLabel()
         }
     }
 
+    // DMPlexLabelComplete walks the closure of every labeled point and
+    // adds faces, edges, and vertices to the label. Without this call,
+    // PETSc's DS builder cannot allocate DOFs consistently because the
+    // FE basis has DOFs at vertices but the label only marks cells.
+    // This is the step PR #105 missed.
+    // Pattern: PyLith libsrc/pylith/topology/MeshOps.cc line ~247
+    ierr = DMPlexLabelComplete(dm, cohesive_label); CHKERRQ(ierr);
+
+    // Diagnostic: print cells vs. total closure points to verify completion
     if (rank == 0) {
-        PetscPrintf(comm, "Created cohesive_cells label: %d cohesive cells marked\n",
-                    (int)n_cohesive);
+        PetscInt n_total = 0;
+        IS stratum_is = nullptr;
+        ierr = DMLabelGetStratumIS(cohesive_label, 1, &stratum_is); CHKERRQ(ierr);
+        if (stratum_is) {
+            ierr = ISGetLocalSize(stratum_is, &n_total); CHKERRQ(ierr);
+            ierr = ISDestroy(&stratum_is); CHKERRQ(ierr);
+        }
+        PetscPrintf(comm,
+            "cohesive_cells label: %d cohesive cells -> %d total closure points (DMPlexLabelComplete)\n",
+            (int)n_cohesive, (int)n_total);
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
