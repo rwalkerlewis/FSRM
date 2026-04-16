@@ -3593,6 +3593,47 @@ PetscErrorCode Simulator::createCohesiveCellLabel()
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+PetscErrorCode Simulator::getOrCreateInterfacesLabel(DMLabel *interfacesLabel) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    const char *labelName = "cohesive interface";
+    PetscBool hasLabel = PETSC_FALSE;
+    ierr = DMHasLabel(dm, labelName, &hasLabel); CHKERRQ(ierr);
+
+    if (hasLabel) {
+        ierr = DMGetLabel(dm, labelName, interfacesLabel); CHKERRQ(ierr);
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+    ierr = DMCreateLabel(dm, labelName); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, labelName, interfacesLabel); CHKERRQ(ierr);
+
+    for (PetscInt iDim = 0; iDim <= dim; ++iDim) {
+        PetscInt pStart = 0, pEnd = 0, pMax = 0;
+        ierr = DMPlexGetHeightStratum(dm, iDim, &pStart, &pEnd); CHKERRQ(ierr);
+        ierr = DMPlexGetSimplexOrBoxCells(dm, iDim, NULL, &pMax); CHKERRQ(ierr);
+        for (PetscInt p = pMax; p < pEnd; ++p) {
+            ierr = DMLabelSetValue(*interfacesLabel, p, 1); CHKERRQ(ierr);
+        }
+    }
+
+    if (rank == 0) {
+        PetscInt n_total = 0;
+        IS stratumIS = NULL;
+        ierr = DMLabelGetStratumIS(*interfacesLabel, 1, &stratumIS); CHKERRQ(ierr);
+        if (stratumIS) {
+            ierr = ISGetLocalSize(stratumIS, &n_total); CHKERRQ(ierr);
+            ierr = ISDestroy(&stratumIS); CHKERRQ(ierr);
+        }
+        PetscPrintf(comm, "'cohesive interface' label created: %d hybrid points\n", (int)n_total);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode Simulator::locateInjectionCell() {
     PetscFunctionBeginUser;
     if (!injection_enabled_) PetscFunctionReturn(0);
