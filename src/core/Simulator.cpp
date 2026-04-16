@@ -4519,9 +4519,12 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
                     ierr = MatSetValue(J, row_lag, col_neg_disp, -coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_lag, col_pos_disp, coeff, ADD_VALUES); CHKERRQ(ierr);
                     // Penalty-scaled Lagrange diagonal at cohesive vertices.
-                    // Complements the small epsilon*I from PetscDS to make the
-                    // Lagrange diagonal O(penalty) at fault vertices, matching
-                    // the displacement stiffness scale for LU conditioning.
+                    // Makes the Lagrange diagonal O(penalty) at fault vertices,
+                    // matching displacement stiffness scale for LU conditioning.
+                    // The penalty acts as augmented Lagrangian; it slows
+                    // convergence for the Lagrange multiplier but does not
+                    // prevent convergence (the BdResidual drives lambda to
+                    // the correct traction).
                     ierr = MatSetValue(J, row_lag, col_lag, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_neg_disp, col_neg_disp, penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
                     ierr = MatSetValue(J, row_neg_disp, col_pos_disp, -penalty * coeff, ADD_VALUES); CHKERRQ(ierr);
