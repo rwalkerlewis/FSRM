@@ -73,6 +73,7 @@ if(NOT PETSC_FOUND)
     find_path(PETSC_INCLUDE_DIR 
         NAMES petsc.h petsc/petsc.h
         PATHS 
+            /opt/petsc-main/include
             /usr/include/petsc
             /usr/include
             /usr/local/include/petsc
@@ -89,6 +90,7 @@ if(NOT PETSC_FOUND)
     find_library(PETSC_LIBRARY
         NAMES petsc
         PATHS
+            /opt/petsc-main/lib
             /usr/lib
             /usr/lib/x86_64-linux-gnu
             /usr/local/lib
@@ -109,7 +111,7 @@ if(NOT PETSC_FOUND)
 endif()
 
 if(NOT PETSC_FOUND)
-    message(FATAL_ERROR "PETSc not found. Please install petsc-dev or set PETSC_DIR environment variable.")
+    message(FATAL_ERROR "PETSc not found. Set PETSC_DIR to the prefix of a PETSc installation, for example /opt/petsc-main in the FSRM dev container. PETSc main is pinned via docker/petsc_main_sha.txt.")
 endif()
 
 # Find HDF5 (make it optional)

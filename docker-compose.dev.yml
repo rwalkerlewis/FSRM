@@ -51,7 +51,7 @@ services:
     
     # Environment variables
     environment:
-      - PETSC_DIR=/usr/lib/petsc
+      - PETSC_DIR=/opt/petsc-main
       - OMP_NUM_THREADS=1
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -118,7 +118,7 @@ services:
     working_dir: /workspace
 
     environment:
-      - PETSC_DIR=/usr/lib/petsc
+      - PETSC_DIR=/opt/petsc-main
       - OMP_NUM_THREADS=1
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -171,7 +171,7 @@ services:
     working_dir: /notebooks
     
     environment:
-      - PETSC_DIR=/usr/lib/petsc
+      - PETSC_DIR=/opt/petsc-main
       - JUPYTER_TOKEN=fsrm
       - PROJ_DATA=/usr/share/proj
       - PROJ_LIB=/usr/share/proj

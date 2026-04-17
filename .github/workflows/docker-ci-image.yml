@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'Dockerfile*'
+      - 'docker/petsc_main_sha.txt'
       - '.github/workflows/docker-ci-image.yml'
   workflow_dispatch:
 
@@ -23,6 +24,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read pinned PETSc SHA
+        id: petsc
+        run: |
+          PETSC_SHA=$(head -n1 docker/petsc_main_sha.txt)
+          echo "sha=${PETSC_SHA}" >> "${GITHUB_OUTPUT}"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -40,6 +47,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
+            type=raw,value=petsc-${{ steps.petsc.outputs.sha }}
             type=sha,prefix=sha-
 
       - name: Build and Push
@@ -48,7 +56,9 @@ jobs:
           context: .
           file: Dockerfile.ci
           push: true
+          build-args: |
+            PETSC_SHA=${{ steps.petsc.outputs.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=petsc-${{ steps.petsc.outputs.sha }}
+          cache-to: type=gha,mode=max,scope=petsc-${{ steps.petsc.outputs.sha }}

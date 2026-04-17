@@ -1,6 +1,8 @@
 # FSRM CI Docker Image
-# Optimized for CI: builds PETSc 3.20 from source, includes Google Test,
-# and all build tools. No visualization packages.
+# Optimized for CI: builds PETSc main from source at a pinned SHA, includes
+# Google Test, and all build tools. No visualization packages.
+#
+# The pinned PETSc SHA must match docker/petsc_main_sha.txt in the repo.
 #
 # Build:  docker build -f Dockerfile.ci -t ghcr.io/rwalkerlewis/fsrm-ci:latest .
 # Usage:  docker run --rm -v $(pwd):/src -w /src ghcr.io/rwalkerlewis/fsrm-ci:latest bash
@@ -36,15 +38,19 @@ RUN mkdir -p /tmp/gtest-build \
     && ldconfig \
     && rm -rf /tmp/gtest-build
 
-# ── Build PETSc 3.25.0 from source (optimized, no debugging) ────────────────
-WORKDIR /opt
-RUN wget -q https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-3.25.0.tar.gz \
-    && tar -xzf petsc-3.25.0.tar.gz \
-    && rm petsc-3.25.0.tar.gz \
-    && ls -d petsc-3.25* | head -1 | xargs -I{} mv {} petsc-3.25.0 || true
+# ── Build PETSc main from source, pinned SHA (optimized, no debugging) ──────
+# The pinned SHA must match docker/petsc_main_sha.txt in the repo.
+# When bumping the SHA, update both places and rerun the full test suite.
+ARG PETSC_SHA=6da4a4a40b5433f3dde5af27fed58e8a9d57a14f
 
-WORKDIR /opt/petsc-3.25.0
-RUN ./configure \
+WORKDIR /opt
+RUN git clone https://gitlab.com/petsc/petsc.git /opt/petsc-src-main \
+    && cd /opt/petsc-src-main \
+    && git checkout ${PETSC_SHA}
+
+WORKDIR /opt/petsc-src-main
+RUN PETSC_DIR=/opt/petsc-src-main ./configure \
+        --prefix=/opt/petsc-main \
         --with-cc=mpicc \
         --with-cxx=mpicxx \
         --with-fc=mpif90 \
@@ -56,12 +62,16 @@ RUN ./configure \
         COPTFLAGS='-O3' \
         CXXOPTFLAGS='-O3' \
         FOPTFLAGS='-O3' \
-    && make PETSC_DIR=/opt/petsc-3.25.0 PETSC_ARCH=arch-linux-c-opt all
+        PETSC_ARCH=arch-linux-c-opt \
+    && make PETSC_DIR=/opt/petsc-src-main PETSC_ARCH=arch-linux-c-opt all \
+    && make PETSC_DIR=/opt/petsc-src-main PETSC_ARCH=arch-linux-c-opt install \
+    && ldconfig
 
 # ── Environment variables (baked into image) ─────────────────────────────────
-ENV PETSC_DIR=/opt/petsc-3.25.0
-ENV PETSC_ARCH=arch-linux-c-opt
-ENV PKG_CONFIG_PATH=/opt/petsc-3.25.0/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
+ENV PETSC_DIR=/opt/petsc-main
+ENV PETSC_ARCH=
+ENV PKG_CONFIG_PATH=/opt/petsc-main/lib/pkgconfig:${PKG_CONFIG_PATH}
+ENV LD_LIBRARY_PATH=/opt/petsc-main/lib:${LD_LIBRARY_PATH}
 
 # Allow MPI to run as root inside CI containers
 ENV OMPI_ALLOW_RUN_AS_ROOT=1

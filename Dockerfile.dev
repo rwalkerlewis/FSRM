@@ -27,8 +27,13 @@ RUN rm -rf /var/lib/apt/lists/* && \
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
-ENV PETSC_DIR=/usr/lib/petsc
-ENV PKG_CONFIG_PATH=/usr/lib/petsc/lib/pkgconfig
+# PETSc is built from source below from gitlab.com/petsc/petsc main branch at
+# the pinned commit in docker/petsc_main_sha.txt. The apt libpetsc-real-dev
+# package is intentionally not used.
+ENV PETSC_DIR=/opt/petsc-main
+ENV PETSC_ARCH=
+ENV PKG_CONFIG_PATH=/opt/petsc-main/lib/pkgconfig
+ENV LD_LIBRARY_PATH=/opt/petsc-main/lib:${LD_LIBRARY_PATH}
 ENV PROJ_DATA=/usr/share/proj
 ENV PROJ_LIB=/usr/share/proj
 ENV CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
@@ -65,9 +70,7 @@ RUN rm -rf /var/lib/apt/lists/* && \
     # Linear algebra
     liblapack-dev \
     libblas-dev \
-    # PETSc (from Ubuntu repos for development)
-    libpetsc-real-dev \
-    petsc-dev \
+    # PETSc is built from source below. Do not install libpetsc-real-dev.
     # Testing framework
     libgtest-dev \
     # Optional: PROJ for coordinate systems
@@ -111,6 +114,33 @@ RUN if [ -f /usr/lib/x86_64-linux-gnu/libgmt.so.6 ] && [ ! -f /usr/lib/x86_64-li
         ln -sf /usr/lib/x86_64-linux-gnu/libgmt.so.6 /usr/lib/x86_64-linux-gnu/libgmt.so && ldconfig; \
     fi
 
+# Build PETSc from main branch, pinned commit.
+# The pinned SHA is tracked in docker/petsc_main_sha.txt in the repo and is
+# baked in via build arg below. When bumping the SHA, update both
+# docker/petsc_main_sha.txt and the PETSC_SHA arg default here.
+ARG PETSC_SHA=6da4a4a40b5433f3dde5af27fed58e8a9d57a14f
+RUN git clone https://gitlab.com/petsc/petsc.git /opt/petsc-src-main \
+    && cd /opt/petsc-src-main \
+    && git checkout ${PETSC_SHA} \
+    && unset PETSC_DIR PETSC_ARCH \
+    && PETSC_DIR=/opt/petsc-src-main ./configure \
+        --prefix=/opt/petsc-main \
+        --with-cc=mpicc \
+        --with-cxx=mpicxx \
+        --with-fc=mpif90 \
+        --download-fblaslapack \
+        --download-ctetgen \
+        --with-hdf5-include=/usr/include/hdf5/openmpi \
+        --with-hdf5-lib="-L/usr/lib/x86_64-linux-gnu/hdf5/openmpi -lhdf5" \
+        --with-debugging=0 \
+        COPTFLAGS=-O3 \
+        CXXOPTFLAGS=-O3 \
+        FOPTFLAGS=-O3 \
+        PETSC_ARCH=arch-linux-c-opt \
+    && make PETSC_DIR=/opt/petsc-src-main PETSC_ARCH=arch-linux-c-opt all \
+    && make PETSC_DIR=/opt/petsc-src-main PETSC_ARCH=arch-linux-c-opt install \
+    && ldconfig
+
 # Install Python packages for testing, analysis, and visualization
 RUN pip3 install --break-system-packages \
     numpy \
@@ -144,7 +174,10 @@ WORKDIR /home/$USERNAME
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended || true
 
 # Configure shell
-RUN echo 'export PETSC_DIR=/usr/lib/petsc' >> ~/.bashrc && \
+RUN echo 'export PETSC_DIR=/opt/petsc-main' >> ~/.bashrc && \
+    echo 'export PETSC_ARCH=' >> ~/.bashrc && \
+    echo 'export PKG_CONFIG_PATH=/opt/petsc-main/lib/pkgconfig:${PKG_CONFIG_PATH}' >> ~/.bashrc && \
+    echo 'export LD_LIBRARY_PATH=/opt/petsc-main/lib:${LD_LIBRARY_PATH}' >> ~/.bashrc && \
     echo 'export PROJ_DATA=/usr/share/proj' >> ~/.bashrc && \
     echo 'export PROJ_LIB=/usr/share/proj' >> ~/.bashrc && \
     echo 'export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda' >> ~/.bashrc && \

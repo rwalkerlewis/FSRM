@@ -36,7 +36,10 @@
     }
   },
   "containerEnv": {
-    "PETSC_DIR": "/usr/lib/petsc",
+    "PETSC_DIR": "/opt/petsc-main",
+    "PETSC_ARCH": "",
+    "PKG_CONFIG_PATH": "/opt/petsc-main/lib/pkgconfig",
+    "LD_LIBRARY_PATH": "/opt/petsc-main/lib",
     "OMP_NUM_THREADS": "1",
     "OMPI_ALLOW_RUN_AS_ROOT": "1",
     "OMPI_ALLOW_RUN_AS_ROOT_CONFIRM": "1",
