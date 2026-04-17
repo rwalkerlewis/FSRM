@@ -1,0 +1,36 @@
+6da4a4a40b5433f3dde5af27fed58e8a9d57a14f
+
+# PETSc main branch, pinned commit SHA.
+#
+# Justification:
+#   This file is the single source of truth for which PETSc commit FSRM builds
+#   against. Do not bump this SHA without rerunning the full test suite and
+#   updating CLAUDE.md.
+#
+# Selected: 6da4a4a40b5433f3dde5af27fed58e8a9d57a14f
+#   branch:  main
+#   date:    2026-04-16 15:46:37 +0000
+#   subject: Merge branch 'jolivet/turn-off-mpich-debug' into 'main'
+#
+# Why main and not knepley/pylith:
+#   PyLith tracks https://gitlab.com/petsc/petsc.git branch knepley/pylith, a
+#   Matt Knepley development branch that carries PyLith-specific changes. FSRM
+#   targets PETSc main per explicit user direction so that FSRM stays aligned
+#   with upstream PETSc releases. knepley/pylith HEAD at the time of this pin
+#   was 7b5fd022a6ba26727040df7457b27566b4c6742d (2025-10-28), roughly six
+#   months behind main.
+#
+# Required features at this SHA (verified before pinning):
+#   - PetscDSCopy(PetscDS, PetscInt, PetscInt, DM, PetscDS) five-argument form
+#     (FSRM source already calls this form; PETSc 3.19 and 3.25 had the older
+#     three-argument form).
+#   - PetscDSSetBdJacobian, PetscDSSetBdResidual, hybrid-cell integrator path
+#     used for cohesive fault kernels.
+#
+# How to bump:
+#   1. Pick a new SHA from https://gitlab.com/petsc/petsc/-/commits/main
+#   2. Update this file with the new SHA and justification.
+#   3. Rebuild: cd /opt/petsc-src-main && git fetch && git checkout <sha> &&
+#      make distclean && rerun configure from Dockerfile.dev.
+#   4. Rebuild FSRM and run full ctest.
+#   5. Update CLAUDE.md with the new SHA.
