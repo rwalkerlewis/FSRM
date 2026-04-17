@@ -422,19 +422,59 @@ diagnostics).
 `/tmp/pylith-build` and ran `autoreconf --install --verbose`.
 
 Result: **fail**, with `configure.ac:131: error: possibly undefined
-macro: AC_PROG_SWIG`. This is a SWIG autoconf-macro installation
-issue inside the devcontainer (the `ac_prog_swig.m4` file from the
-autoconf-archive package is not on the m4 search path), not a PETSc
-API issue. Log at `/tmp/claude-logs/pylith_autogen.log`.
+macro: AC_PROG_SWIG`. Log at `/tmp/claude-logs/pylith_autogen.log`.
+
+**Step 3 (Option 1 attempted, 2026-04-17).** `apt-get install swig
+autoconf-archive` inside the devcontainer succeeded (swig 4.2.0,
+autoconf-archive 20220903-3). Autoreconf still fails at the same
+line because the `AC_PROG_SWIG` macro PyLith invokes is a pre-2018
+autoconf-archive macro that was renamed to `AX_PKG_SWIG` in the
+current autoconf-archive package; PyLith does not vendor a local copy
+in `m4/`. Falling back to the checked-in `configure` script with
+`./configure --disable-swig --disable-testing
+--with-petsc-dir=/opt/petsc-src-main --with-petsc-arch=arch-linux-c-opt`
+fails earlier with `cannot find required auxiliary files: config.guess
+config.sub compile missing install-sh`, because PyLith's `aux-config/`
+directory ships only `ltmain.sh` and expects autoreconf to install the
+remaining auxiliary scripts. Installing those scripts manually
+unblocks configure but exposes the next missing dependencies: pythia
+(Caltech/C++ component framework, not packaged in any standard
+distribution), spatialdata (geodynamics/spatialdata, separate build),
+Catch2 (apt-installable, minor), proj (apt-installable, minor). The
+cumulative delta is several hours of side-quest work and a larger
+devcontainer image, not minutes. Aborted at this point and selected
+Option 2.
+
+**Option 2 selected: API smoke test is sufficient.** Two-sentence
+rationale. First, SWIG provides PyLith's Python bindings and is
+orthogonal to the numerics path FSRM borrows (libsrc/pylith/fekernels,
+libsrc/pylith/feassemble, libsrc/pylith/faults, libsrc/pylith/topology
+are all pure C++ and do not depend on SWIG, pythia, or spatialdata
+for their compilation against PETSc). Second, the API smoke test
+`/tmp/claude-logs/pylith_api_smoke.cc` compiled cleanly against
+`/opt/petsc-main` using mpicxx with `-I/opt/petsc-main/include` and
+`-L/opt/petsc-main/lib -lpetsc`, exercising the exact PETSc symbols
+that the Phase 2 refactor will use: `PetscWeakFormAddBdResidual`,
+`PetscWeakFormAddBdJacobian`, `PetscBdPointFn`, `PetscBdPointJacFn`,
+`DMSetField` with label argument, and `DMSetFieldAvoidTensor`. This
+is the only compatibility guarantee FSRM actually needs for the
+refactor, and it is satisfied.
+
+Specific headers verified clean include by the smoke test
+(resolved by `/opt/petsc-main/include`):
+- `petscdmplex.h` (DMPlex, cohesive cell API)
+- `petscds.h` (`PetscWeakForm*`, pointwise-callback typedefs)
+- `petscfe.h` (`PetscFE`, `DMSetFieldAvoidTensor`)
 
 **Conclusion.** The PETSc API surface PyLith relies on is fully
-present and consistent in our pinned PETSc SHA. The full PyLith build
-is blocked by devcontainer packaging gaps (autoconf-archive, pythia,
-spatialdata), not by PETSc. No PETSc upgrade or downgrade is required
-for the refactor. Gate R2.5 is satisfied via the API smoke test; a
-full PyLith build is deferred and not on the critical path.
+present and consistent in our pinned PETSc SHA. Full PyLith build is
+deferred indefinitely; Option 2 closes gate R2.5 on the strength of
+the API smoke test. If a future FSRM phase needs to run PyLith unit
+tests for direct cross-validation, the remaining build blockers
+(pythia, spatialdata) will be tackled then.
 
 PyLith reference SHA used: `6accf7e7395aa792444ad1b489d455e41ece34bc`.
+Gate R2.5 status: **pass (Option 2)**.
 
 ## Implications for FSRM
 

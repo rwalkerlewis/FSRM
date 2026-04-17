@@ -503,6 +503,7 @@ with fault (see below) uses FIELDSPLIT with a Schur factorization.
   -pc_fieldsplit_type schur
   -pc_fieldsplit_schur_factorization_type full
   -pc_fieldsplit_schur_precondition selfp
+  -pc_fieldsplit_schur_scale 1.0
   -pc_fieldsplit_0_fields 0     # displacement (and velocity for elastodynamic)
   -pc_fieldsplit_1_fields <lagrange_field_idx>
   -fieldsplit_0_ksp_type preonly
@@ -517,6 +518,43 @@ with fault (see below) uses FIELDSPLIT with a Schur factorization.
   from the main matrix diagonal of the `(0,0)` block. This step
   **must** keep all 110 currently passing tests green before Phase 2
   commit B lands.
+
+**A.1 `dm_reorder_section` decision: not required.** Branch history
+shows two experimental commits: `91517e0 / 79c2adb` (2026-04-16) added
+`-dm_reorder_section=True -dm_reorder_section_type=cohesive` to nine
+fault tests; `a5bdcea / 969555e` (2026-04-16) removed them the same
+day. The intermediate attempt `fb91958 / 5cfc1f4` added a
+`DMSetLocalSection(dm, nullptr)` clear after `DMCreateDS` to work
+around the "Cannot add boundary to DM after creating local section"
+error that reordering surfaced, and the three target fault tests
+still failed with zero solutions even after that fix. `157a6e5` then
+reverted both the reorder options and the label experiment because
+the combination produced three additional regressions
+(TimeDependentSlip, SlippingFaultSolve, SlipWeakeningFault).
+
+Reordering is not required for FIELDSPLIT block identification in
+Phase 2. Per
+`/opt/petsc-src-main/src/ksp/pc/impls/fieldsplit/fieldsplit.c:2189`
+(`PCFieldSplitSetFields_FieldSplit`) and the option parser at
+`fieldsplit.c:365`, the `-pc_fieldsplit_N_fields i,j,...` option
+selects splits by **field index** into the DM field decomposition
+(`DMCreateFieldDecomposition`), not by DOF ordinal in the global
+vector. The field decomposition is built from PetscSection field
+numbering, which is unaffected by DOF reordering. Therefore
+FIELDSPLIT identifies the Lagrange block correctly regardless of
+whether Lagrange DOFs are contiguous in the global vector. Phase 2
+does not add `-dm_reorder_section*` to the option list above. If
+Phase 5 later swaps inner PCs from LU to GAMG, we will revisit
+reordering as an AMG smoothing-quality optimization, but that is
+outside the scope of Phase 2.
+
+**A.2 `-pc_fieldsplit_schur_scale 1.0` pinned.** PyLith
+`share/settings/solver_elasticity_fault_fieldsplit.cfg` sets
+`pc_fieldsplit_schur_scale = 1.0` explicitly. PETSc's default for
+this option has drifted across versions. We pin it to `1.0` to
+match PyLith and to insulate the build from future PETSc default
+changes. The option is listed in the 3.1 block above.
+
 
 - **Phase 2 commit B (kernel + field change).** After commit A is
   green, delete `addCohesivePenaltyToJacobian`, the regularization,
