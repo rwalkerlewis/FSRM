@@ -208,6 +208,8 @@ private:
     PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
     PetscErrorCode addFaultPressureToResidual(PetscReal t, Vec locF);
     PetscErrorCode addTractionToResidual(PetscReal t, Vec locF);
+    PetscErrorCode subtractLagrangeRegularizationOnCohesive(Vec locF, Vec locU);
+    PetscErrorCode zeroLagrangeDiagonalOnCohesive(Mat J);
     PetscErrorCode addCohesivePenaltyToJacobian(Mat J, Vec locU = nullptr);
 
     // Hydraulic fracture model (Phase 3)
