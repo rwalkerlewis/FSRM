@@ -1687,8 +1687,11 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         lagrange_field_idx = static_cast<PetscInt>(fe_fields.size());
         ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
         fe_fields.push_back(fe_lagrange);
+        lagrange_field_idx_ = lagrange_field_idx;
         if (rank == 0) {
-            PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
+            PetscPrintf(comm, "Added Lagrange multiplier field for fault traction "
+                        "(field index %d)\n",
+                        (int)lagrange_field_idx);
         }
     }
 
@@ -3250,14 +3253,66 @@ PetscErrorCode Simulator::setupSolvers() {
     // Get preconditioner
     ierr = KSPGetPC(ksp, &pc); CHKERRQ(ierr);
 
-    // For elastodynamics with TSALPHA2, the system matrix is K + shift*M.
-    // Use direct LU solver for robustness. For larger problems, can be overridden
-    // with command-line options: -ksp_type cg -pc_type gamg
-    if (config.enable_elastodynamics) {
+    // Phase 2 commit A: apply FIELDSPLIT-Schur solver stack when faults are
+    // enabled and the Lagrange field is present. These options are set via
+    // PetscOptionsSetValue BEFORE SNESSetFromOptions/KSPSetFromOptions/
+    // PCSetFromOptions, so they are picked up by the solver objects. Any
+    // option set by per-test drivers (or by the CLI) takes effect through
+    // the same options database; PETSc resolves last-write-wins for scalar
+    // options. Tests that still call PetscOptionsSetValue with "-pc_type
+    // lu" BEFORE this Simulator-level setup will be overridden here; tests
+    // that call it AFTER (none currently do) would override Simulator. This
+    // is intentional: Simulator picks the canonical stack, per-test
+    // overrides are for debugging only.
+    //
+    // Reference: docs/refactor/fault_kernel_design.md section 3.1 and the
+    // two addendum fold-ins (schur_scale = 1.0, no dm_reorder_section).
+    if (config.enable_faults && lagrange_field_idx_ >= 0) {
+        char field_buf[16];
+        PetscSNPrintf(field_buf, sizeof(field_buf), "%d",
+                      (int)lagrange_field_idx_);
+        ierr = PetscOptionsSetValue(nullptr, "-ksp_type", "fgmres"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-ksp_rtol", "1e-8"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-ksp_atol", "1e-12"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-pc_type", "fieldsplit"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-pc_fieldsplit_type", "schur"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-pc_fieldsplit_schur_factorization_type",
+                                    "full"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-pc_fieldsplit_schur_precondition",
+                                    "selfp"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-pc_fieldsplit_schur_scale",
+                                    "1.0"); CHKERRQ(ierr);
+        // Split 0: all fields except Lagrange (field index 0 is always
+        // displacement when faults are enabled; any additional non-Lagrange
+        // fields such as temperature sit on split 0 by default since we
+        // only explicitly assign the Lagrange field to split 1).
+        ierr = PetscOptionsSetValue(nullptr, "-pc_fieldsplit_0_fields",
+                                    "0"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-pc_fieldsplit_1_fields",
+                                    field_buf); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-fieldsplit_0_ksp_type",
+                                    "preonly"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-fieldsplit_0_pc_type",
+                                    "lu"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-fieldsplit_1_ksp_type",
+                                    "preonly"); CHKERRQ(ierr);
+        ierr = PetscOptionsSetValue(nullptr, "-fieldsplit_1_pc_type",
+                                    "lu"); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm,
+                        "Simulator: FIELDSPLIT-Schur solver stack enabled "
+                        "(split 0 = displacement field 0, split 1 = Lagrange "
+                        "field %d)\n",
+                        (int)lagrange_field_idx_);
+        }
+    } else if (config.enable_elastodynamics) {
+        // For elastodynamics without faults, the system matrix is K+shift*M.
+        // Use direct LU solver for robustness.
         ierr = KSPSetType(ksp, KSPPREONLY); CHKERRQ(ierr);
         ierr = PCSetType(pc, PCLU); CHKERRQ(ierr);
     }
-    
+
     // Set solver options from command line (override programmatic defaults)
     ierr = SNESSetFromOptions(snes); CHKERRQ(ierr);
     ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);

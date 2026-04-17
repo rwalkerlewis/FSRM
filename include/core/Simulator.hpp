@@ -170,6 +170,12 @@ private:
     std::unique_ptr<CohesiveFaultKernel> cohesive_kernel_;
     std::unique_ptr<CoulombStressTransfer> cfs_transfer_;
 
+    // Lagrange multiplier field index in the DM field decomposition. Set by
+    // createFieldsFromConfig when faults are enabled, consumed by
+    // setupSolvers to configure FIELDSPLIT. Value -1 means no Lagrange
+    // field was added (no faults).
+    PetscInt lagrange_field_idx_ = -1;
+
     // Derived field computation (stress, strain, CFS)
     DerivedFieldComputer derived_fields_;
     
