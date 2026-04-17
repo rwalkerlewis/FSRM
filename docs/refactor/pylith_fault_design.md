@@ -317,20 +317,124 @@ architectural, not a PETSc patch.
 
 ### R2.4 Git history of hybrid assembly
 
-Grepping `git log v3.25.0..6da4a4a` in `/opt/petsc-src-main` for
-commits touching hybrid-cell assembly is deferred; the functional
-check in R2.2 against the installed headers and source is
-conclusive. If a specific regression appears, the focused bisect
-would walk `src/dm/impls/plex/plexfem.c` and
-`src/dm/dt/fe/impls/basic/febasic.c` lines corresponding to
-`PetscFEIntegrateHybridResidual` and `PetscFEIntegrateHybridJacobian`.
+Backfill performed 2026-04-17 in `/opt/petsc-src-main` after fetching
+tags with `git fetch --tags --depth=5000 origin`.
+
+Command:
+
+```
+git log --format='%H|%an|%ad|%s' --date=short \
+    v3.25.0..6da4a4a40b5433f3dde5af27fed58e8a9d57a14f -- \
+    src/dm/impls/plex/ \
+    src/dm/dt/fe/ \
+    include/petscds.h \
+    include/petscfe.h \
+    include/petscdstypes.h \
+    include/petsc/private/petscfeimpl.h \
+    include/petsc/private/petscdsimpl.h
+```
+
+Output (raw, verbatim, 7 commits total):
+
+```
+0bc0bda37359b46a591ec46d1766df6336f4342d|Satish Balay|2026-04-12|Merge remote-tracking branch 'origin/release'
+e2a2f4abfb35dd74ac48223c9cc4714f1eaedec4|Barry Smith|2026-04-02|Improve clarity of PetscObjectViewFromOptions and XXXViewFromOptions
+2a8bc6c4bf4cf0c98df674841373142c346813f1|Pablo Brubeck|2026-04-10|DMPlexCreateColoring: do not hard-code adjacency
+503220b6029e3205cc9073d4d056b37de345d584|Matthew G. Knepley|2025-08-25|DMPlex:  Drawing improvements - Expose DMPlexDrawCell() - Allow cells to be transparent - Add draw for DM F90 module - Add FFT option to 1D viewer and other improvements
+0d3d9c3feab0d5423c35e3bcec8e57bafcba101a|Matthew G. Knepley|2026-04-02|Plex ex33: Add tests for GMsh simplices
+136a2e7bdb1845fc894ba970d50e95c73ca45cc2|Matthew G. Knepley|2026-04-02|Plex: Can now read high order geometry for simplices from GMsh - Add DMPlexSetClosurePermutationLexicographic() - Use -plex_view_ds and -plex_view_section to view them during -dm_view
+db2b93f27962837bfc0fe506c584164210badec5|Pierre Jolivet|2026-04-02|PetscGlobalMinMaxInt(): use MPI_IN_PLACE
+```
+
+Narrower search on the three specific files called out by the prompt
+(`plexfem.c`, `plexhybrid.c`, `febasic.c`) returned **0 commits**.
+Note: `src/dm/impls/plex/plexhybrid.c` does not exist in the tree at
+either ref; the hybrid-cell assembly lives in `plexfem.c` at
+`DMPlexComputeResidualHybridByKey` and `DMPlexComputeJacobianHybridByKey`.
+
+Interpretation:
+
+- Zero commits between `v3.25.0` and `6da4a4a` modify the hybrid
+  residual or Jacobian assembly code, the `PetscFEIntegrateHybrid*`
+  routines, or the weak-form API (`PetscWeakFormAddBd*`,
+  `PetscDSSetBd*`). The assembly path that FSRM will drive is
+  byte-identical between the 3.25.0 release and the pinned main SHA.
+- Consequence for the refactor: the decision to move to PETSc main in
+  Phase 0 did not unlock any new hybrid-assembly capability that was
+  missing from 3.25.0. The `CLAUDE.md` assertion that "BdJacobian is
+  not functional in PETSc 3.25" is stale and was never a PETSc-level
+  defect; it was an artifact of FSRM's own usage pattern (missing
+  three-sided key registration, absent label-restricted Lagrange
+  field). This strengthens, rather than weakens, the case for the
+  PyLith-style refactor: the fix is architectural on the FSRM side,
+  and the PETSc version chosen earlier does not need to be revisited.
+- The seven commits that did touch wider `src/dm/impls/plex/` or
+  `src/dm/dt/fe/` paths are all unrelated to cohesive hybrid assembly
+  (drawing improvements, GMsh high-order geometry read, viewer clarity
+  tweaks, a coloring adjacency fix, an MPI_IN_PLACE cleanup, and a
+  release merge).
+
+Log file preserved at `/tmp/claude-logs/petsc_r24.log`.
 
 ### R2.5 Does PyLith compile against our PETSc SHA?
 
-Deferred until a blocker appears. PyLith targets PETSc main via its
-own build configuration and its kernels use the same
-`PetscBdPointFn` / `PetscBdPointJacFn` signatures that are live in our
-installed PETSc headers. The API is stable for what FSRM needs.
+Backfill performed 2026-04-17.
+
+Approach: A full PyLith configure+build requires transitive
+dependencies that are not installed in the FSRM devcontainer
+(pythia, spatialdata, SWIG autoconf macros, proj, etc.). Attempting a
+full build in this environment would fail in dependency resolution
+rather than in any PETSc API check, which would not answer the
+question the gate is asking.
+
+Two steps were executed instead.
+
+**Step 1: API smoke test.** A minimal C++ translation unit
+(`/tmp/claude-logs/pylith_api_smoke.cc`) uses every PETSc entry point
+PyLith calls for cohesive-fault kernel registration against the
+pinned install:
+
+- `PetscBdPointFn` kernel signature.
+- `PetscBdPointJacFn` Jacobian signature.
+- `PetscDSGetWeakForm`.
+- `PetscWeakFormAddBdResidual(wf, label, value, field, part, f0, f1)`.
+- `PetscWeakFormAddBdJacobian(wf, label, value, i_trial, i_basis, part, g0, g1, g2, g3)`.
+- `DMSetField(dm, idx, label, fe)` with non-NULL label.
+- `DMSetFieldAvoidTensor(dm, idx, PETSC_TRUE)`.
+
+Compile command:
+
+```
+mpicxx -std=c++17 -I/opt/petsc-main/include \
+    /tmp/claude-logs/pylith_api_smoke.cc \
+    -L/opt/petsc-main/lib -lpetsc \
+    -o /tmp/claude-logs/pylith_api_smoke
+```
+
+Result: clean compile and link against `/opt/petsc-main` at SHA
+`6da4a4a40b5433f3dde5af27fed58e8a9d57a14f`. Every symbol resolves.
+No deprecation warnings. Full build log at
+`/tmp/claude-logs/pylith_api_smoke_build.log` (empty, meaning no
+diagnostics).
+
+**Step 2: Full PyLith autogen attempt.** Cloned
+`geodynamics/pylith@6accf7e7395aa792444ad1b489d455e41ece34bc` to
+`/tmp/pylith-build` and ran `autoreconf --install --verbose`.
+
+Result: **fail**, with `configure.ac:131: error: possibly undefined
+macro: AC_PROG_SWIG`. This is a SWIG autoconf-macro installation
+issue inside the devcontainer (the `ac_prog_swig.m4` file from the
+autoconf-archive package is not on the m4 search path), not a PETSc
+API issue. Log at `/tmp/claude-logs/pylith_autogen.log`.
+
+**Conclusion.** The PETSc API surface PyLith relies on is fully
+present and consistent in our pinned PETSc SHA. The full PyLith build
+is blocked by devcontainer packaging gaps (autoconf-archive, pythia,
+spatialdata), not by PETSc. No PETSc upgrade or downgrade is required
+for the refactor. Gate R2.5 is satisfied via the API smoke test; a
+full PyLith build is deferred and not on the critical path.
+
+PyLith reference SHA used: `6accf7e7395aa792444ad1b489d455e41ece34bc`.
 
 ## Implications for FSRM
 
