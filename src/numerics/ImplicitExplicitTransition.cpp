@@ -134,14 +134,6 @@ void ImplicitExplicitTransitionManager::setCoulombStressTransfer(CoulombStressTr
     cfs_transfer_ = cfs;
 }
 
-void ImplicitExplicitTransitionManager::setCohesiveFaultKernel(CohesiveFaultKernel* kernel) {
-    cohesive_kernel_ = kernel;
-}
-
-void ImplicitExplicitTransitionManager::setCohesiveFault(FaultCohesiveDyn* fault) {
-    cohesive_fault_ = fault;
-}
-
 void ImplicitExplicitTransitionManager::setDSInfo(PetscDS prob, int displacement_field,
                                                     int lagrange_field) {
     prob_ = prob;
@@ -184,11 +176,7 @@ PetscErrorCode ImplicitExplicitTransitionManager::configureImplicitMode() {
                             PETSC_DEFAULT); CHKERRQ(ierr);
     
     // Switch fault constraint from friction-governed back to locked
-    if (cohesive_kernel_ && prob_ && lagrange_field_idx_ >= 0) {
-        cohesive_kernel_->setMode(/* is_locked = */ true);
-        ierr = cohesive_kernel_->registerWithDS(prob_, displacement_field_idx_,
-                                                 lagrange_field_idx_); CHKERRQ(ierr);
-    }
+    // (Legacy CohesiveFaultKernel mode switching removed in Phase 2 B2)
     
     // Store the post-rupture stress state as new initial for CFS monitoring
     if (cfs_transfer_) {
@@ -236,17 +224,10 @@ PetscErrorCode ImplicitExplicitTransitionManager::configureExplicitMode() {
                             PETSC_DEFAULT); CHKERRQ(ierr);
     
     // Switch fault constraint from locked to friction-governed
-    if (cohesive_kernel_ && prob_ && lagrange_field_idx_ >= 0) {
-        cohesive_kernel_->setMode(/* is_locked = */ false);
-        ierr = cohesive_kernel_->registerWithDS(prob_, displacement_field_idx_,
-                                                 lagrange_field_idx_); CHKERRQ(ierr);
-    }
+    // (Legacy CohesiveFaultKernel mode switching removed in Phase 2 B2)
     
-    // Transfer current stress state to FaultCohesiveDyn initial traction
-    if (cfs_transfer_ && cohesive_fault_) {
-        ierr = cfs_transfer_->updateFaultState(cohesive_fault_); CHKERRQ(ierr);
-        cohesive_fault_->initialize();  // Set initial theta, slip_rate from current state
-    }
+    // Transfer current stress state
+    // (Legacy FaultCohesiveDyn coupling removed in Phase 2 B2)
     
     current_dt = config.explicit_dt_initial;
     

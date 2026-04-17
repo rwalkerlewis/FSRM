@@ -216,16 +216,6 @@ public:
     void setCoulombStressTransfer(class CoulombStressTransfer* cfs);
     
     /**
-     * @brief Set CohesiveFaultKernel for constraint mode switching during transitions
-     */
-    void setCohesiveFaultKernel(class CohesiveFaultKernel* kernel);
-    
-    /**
-     * @brief Set FaultCohesiveDyn for dynamic rupture during explicit phase
-     */
-    void setCohesiveFault(class FaultCohesiveDyn* fault);
-    
-    /**
      * @brief Set PetscDS and field indices for constraint switching
      */
     void setDSInfo(PetscDS prob, int displacement_field, int lagrange_field);
@@ -358,10 +348,8 @@ private:
     SeismicFaultModel* fault_model;
     FaultNetwork* fault_network;
     
-    // Cohesive fault integration (Branch 3)
+    // Cohesive fault integration
     class CoulombStressTransfer* cfs_transfer_ = nullptr;
-    class CohesiveFaultKernel* cohesive_kernel_ = nullptr;
-    class FaultCohesiveDyn* cohesive_fault_ = nullptr;
     PetscDS prob_ = nullptr;
     int displacement_field_idx_ = 2;
     int lagrange_field_idx_ = -1;

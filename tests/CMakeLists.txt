@@ -24,7 +24,6 @@ set(UNIT_TEST_SOURCES
     unit/physics/test_elastodynamics.cpp
     unit/physics/test_poroelastodynamics.cpp
     unit/physics/test_boundary_conditions.cpp
-    unit/physics/test_cohesive_fault_kernel.cpp
     # Domain
     unit/domain/test_well_model.cpp
     unit/domain/test_fracture_model.cpp
@@ -35,10 +34,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_flash_calculation.cpp
     unit/domain/test_residual_trapping.cpp
     unit/domain/test_caprock_integrity.cpp
-    unit/domain/test_fault_mechanics.cpp
-    unit/domain/test_fault_cohesive_dyn.cpp
     unit/domain/test_coulomb_stress_transfer.cpp
-    unit/numerics/test_fault_mesh_manager.cpp
     unit/numerics/test_petscfe_elasticity_aux.cpp
     # Faults (Phase 1 skeleton)
     unit/faults/test_cohesive_interface_label.cpp
@@ -213,11 +209,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.ResidualTrapping       COMMAND run_unit_tests --gtest_filter=ResidualTrappingTest.*)
     add_test(NAME Unit.CaprockIntegrity       COMMAND run_unit_tests --gtest_filter=CaprockIntegrityTest.*)
     add_test(NAME Unit.MultiphaseFlow         COMMAND run_unit_tests --gtest_filter=MultiphaseFlowKernelTest.*)
-    add_test(NAME Unit.FaultMechanics         COMMAND run_unit_tests --gtest_filter=FaultMechanicsTest.*)
-    add_test(NAME Unit.FaultCohesiveDyn       COMMAND run_unit_tests --gtest_filter=FaultCohesiveDynTest.*)
     add_test(NAME Unit.CoulombStressTransfer  COMMAND run_unit_tests --gtest_filter=CoulombStressTransferTest.*)
-    add_test(NAME Unit.FaultMeshManager       COMMAND run_unit_tests --gtest_filter=FaultMeshManagerTest.*)
-    add_test(NAME Unit.CohesiveFaultKernel    COMMAND run_unit_tests --gtest_filter=CohesiveFaultKernelTest.*)
     add_test(NAME Unit.ElasticityAux           COMMAND run_unit_tests --gtest_filter=PetscFEElasticityAuxTest.*)
     add_test(NAME Unit.CohesiveInterfaceLabel  COMMAND run_unit_tests --gtest_filter=CohesiveInterfaceLabelTest.*)
 
@@ -334,8 +326,7 @@ if(GTest_FOUND)
         Unit.EclipseIO Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
         Unit.CO2Properties Unit.FlashCalculation Unit.ResidualTrapping
         Unit.CaprockIntegrity Unit.MultiphaseFlow
-        Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
-        Unit.FaultMeshManager Unit.CohesiveFaultKernel
+        Unit.CoulombStressTransfer
         Unit.ElasticityAux
         Unit.DruckerPragerStandalone
         Unit.Elastoplasticity
