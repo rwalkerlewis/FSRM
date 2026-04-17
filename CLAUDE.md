@@ -2,6 +2,34 @@
 
 This file provides all context needed to work on FSRM. Read it fully before making any changes.
 
+## Terminal Output Policy
+
+Do not truncate, filter, or suppress command output. Specifically:
+
+- Never pipe commands through `head`, `tail`, `grep`, `sed`, `awk`, or any filter
+  for the purpose of shortening output. Filters are allowed only when the filter
+  is the actual task (for example, `grep` to locate a symbol in the codebase).
+- Never add `--quiet`, `-q`, `--silent`, `-s`, `2>/dev/null`, `>/dev/null`, or
+  any flag whose purpose is to hide output.
+- Never add `| head -N` or `| tail -N` to `make`, `cmake`, `ctest`, `ninja`,
+  `gcc`, `clang`, `mpirun`, `python`, `./fsrm`, or any build or test invocation.
+- If a command's output is genuinely enormous (the `find /` case, a full source
+  tree dump, a profiler trace), redirect the full output to a log file under
+  `/tmp/claude-logs/<timestamp>_<command>.log`, then read or grep that file.
+  Never lose data to truncation.
+- For `ctest`, the correct invocation is `ctest -j$(nproc) --output-on-failure`
+  with no further filtering. When a specific test fails, rerun it with
+  `ctest -R <TestName> -V --output-on-failure` to see everything, not a summary.
+- For compiler errors, show the full error. The first error is usually the
+  root cause and is at the top of the output, which is exactly what `| tail`
+  destroys.
+- If output volume is a real concern, say so in chat and ask before filtering.
+  Do not filter silently.
+
+Rationale: silent truncation hides root causes, wastes debug cycles, and makes
+Claude's work unreviewable. A full log Bud can read is always more useful than
+a summary Claude chose.
+
 ## Project Summary
 
 FSRM (Full Service Reservoir Model) is a C++17/PETSc/MPI coupled multiphysics simulator for nuclear explosion monitoring, seismic wave propagation, dynamic fault rupture, and coupled THM poroelasticity. MIT licensed.
