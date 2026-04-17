@@ -40,6 +40,8 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_coulomb_stress_transfer.cpp
     unit/numerics/test_fault_mesh_manager.cpp
     unit/numerics/test_petscfe_elasticity_aux.cpp
+    # Faults (Phase 1 skeleton)
+    unit/faults/test_cohesive_interface_label.cpp
     # Physics kernels (CCS)
     unit/physics/test_multiphase_flow.cpp
     # I/O
@@ -217,6 +219,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.FaultMeshManager       COMMAND run_unit_tests --gtest_filter=FaultMeshManagerTest.*)
     add_test(NAME Unit.CohesiveFaultKernel    COMMAND run_unit_tests --gtest_filter=CohesiveFaultKernelTest.*)
     add_test(NAME Unit.ElasticityAux           COMMAND run_unit_tests --gtest_filter=PetscFEElasticityAuxTest.*)
+    add_test(NAME Unit.CohesiveInterfaceLabel  COMMAND run_unit_tests --gtest_filter=CohesiveInterfaceLabelTest.*)
 
     # --- Functional tests ---
     add_test(NAME Functional.SimulatorInit    COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)

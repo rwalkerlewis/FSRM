@@ -16,6 +16,7 @@
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
 #include "io/VelocityModelReader.hpp"
+#include "faults/TopologyOps.hpp"
 
 // GPU kernel support — conditionally include GPU headers when built with CUDA
 #ifdef USE_CUDA
@@ -1697,6 +1698,20 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         ierr = PetscObjectSetName((PetscObject)fe, "temperature_"); CHKERRQ(ierr);
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
+    }
+
+    // Phase 1 additive hook: ensure the "cohesive interface" DMLabel is
+    // present on the DM before DMCreateDS. The label is created via the new
+    // modular TopologyOps helper and is idempotent: if setupFaultNetwork
+    // already created the label, this call fetches it without modification.
+    // If faults are not configured the label simply stays empty (no hybrid
+    // cells on the DM). The label is dormant in Phase 1; nothing reads it
+    // until Phase 2.
+    {
+        DMLabel phase1_cohesive_interface_label = nullptr;
+        ierr = FSRM::faults::topology::createInterfacesLabel(
+            dm, nullptr, &phase1_cohesive_interface_label); CHKERRQ(ierr);
+        (void)phase1_cohesive_interface_label;
     }
 
     // Create DS (required before adding boundaries in PETSc 3.25)
