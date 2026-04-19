@@ -4573,6 +4573,22 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
     PetscFunctionBeginUser;
     if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
 
+    // Session 6: this routine is deprecated. The hybrid Jacobian kernels
+    // (g0_hybrid_* in CohesiveFaultKernel.cpp) are now the authoritative
+    // source for all cohesive coupling entries. If anything still calls this
+    // path it has found dead code that needs removal.
+    static bool warned_once = false;
+    if (!warned_once) {
+        if (rank == 0) {
+            PetscPrintf(comm,
+                        "WARNING: addCohesivePenaltyToJacobian called "
+                        "(Session 6 deprecation). The hybrid cohesive Jacobian "
+                        "should already cover these entries; this call will "
+                        "double-write coupling rows.\n");
+        }
+        warned_once = true;
+    }
+
     // No penalty augmentation for slipping mode -- the Jacobian coupling
     // (traction +/- lambda and constraint identity) is sufficient.
     // Full penalty for locked/prescribed modes.
@@ -5800,26 +5816,38 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                 keys[2].part  = 0;
 
                 ierr = MatSetOption(P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
+                if (J != P) {
+                    ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
+                }
                 ierr = DMPlexComputeJacobianHybridByKey(
                     dm, keys, cohesiveCellsIS, t, a, locU, locU_t,
                     J, P, ctx); CHKERRQ(ierr);
                 ierr = ISDestroy(&cohesiveCellsIS); CHKERRQ(ierr);
+
+                // Session 6: the hybrid Jacobian routine adds entries via
+                // DMPlexMatSetClosure but does not end with MatAssembly.
+                // Without these final assembly calls the next consumer
+                // (KSP/PC factor) trips PETSC_ERR_ARG_WRONGSTATE (73) on
+                // an unassembled matrix. PETSc ex5.c::TestAssembly does
+                // the same MatAssembly bookend after the hybrid call.
+                ierr = MatAssemblyBegin(P, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+                ierr = MatAssemblyEnd(P, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+                if (J != P) {
+                    ierr = MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+                    ierr = MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+                }
             }
         }
 
-        // The cohesive interface currently relies on finite-difference
-        // coloring for the hybrid-cell coupling terms. Keep the placeholder
-        // hook so the explicit interface Jacobian can be added later without
-        // changing the call pattern here.
-        if (sim->config.enable_faults && !sim->hydrofrac_fem_pressurized_mode_) {
-            ierr = MatSetOption(P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-            ierr = sim->addCohesivePenaltyToJacobian(P, locU);
-            CHKERRQ(ierr);
-            if (J != P) {
-                ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
-                ierr = sim->addCohesivePenaltyToJacobian(J, locU); CHKERRQ(ierr);
-            }
-        }
+        // Session 6: removed the addCohesivePenaltyToJacobian augmentation.
+        // The hybrid cohesive Jacobian above (DMPlexComputeJacobianHybridByKey)
+        // is now the sole driver of the displacement-Lagrange coupling
+        // entries at cohesive cells. The manual penalty was double-writing
+        // those entries on top of the hybrid kernel output, which made the
+        // assembled Jacobian singular (KSP DIVERGED_LINEAR_SOLVE iterations 0
+        // observed in Session 5). The function remains in place for one more
+        // session in case the slipping branch needs to reuse the friction
+        // tangent math; new callers will trip the deprecation warning.
 
         if (U_t) {
             ierr = DMRestoreLocalVector(dm, &locU_t); CHKERRQ(ierr);
