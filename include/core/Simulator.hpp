@@ -180,6 +180,21 @@ private:
     // Auxiliary DM for heterogeneous material properties
     DM  auxDM_ = nullptr;
     Vec auxVec_ = nullptr;
+
+    // Session 15: auxiliary DM and local vector that carry the prescribed
+    // fault slip as a PyLith-style subfield. The aux DM is a topological
+    // clone of the main DM with a single (dim-1) Lagrange subfield named
+    // "slip" restricted to the cohesive interface label. The local vector
+    // is projected from the configured fault-local slip each time step in
+    // updateFaultAuxiliary(t) and attached to the main DM with
+    // DMSetAuxiliaryVec(dm, interfaces_label_, 1, 0, faultAuxVec_) right
+    // before the hybrid residual/Jacobian calls. This replaces the
+    // constants-array broadcast of prescribed slip and matches PyLith's
+    // f0l_slip kernel pattern (libsrc/pylith/fekernels/FaultCohesiveKin.hh).
+    DM  faultAuxDM_ = nullptr;
+    Vec faultAuxVec_ = nullptr;
+    PetscInt fault_slip_aux_field_idx_ = -1;
+    PetscErrorCode updateFaultAuxiliary(PetscReal t);
     PetscErrorCode setupAuxiliaryDM();
     PetscErrorCode populateAuxFieldsByDepth();
     PetscErrorCode populateAuxFieldsByMaterialLabel();

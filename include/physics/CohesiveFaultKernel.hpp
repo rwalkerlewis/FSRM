@@ -58,6 +58,23 @@ public:
     static constexpr PetscInt COHESIVE_CONST_MU_D = 72;            // dynamic friction coefficient
     static constexpr PetscInt COHESIVE_CONST_DC = 73;              // critical slip distance (m)
 
+    // Session 15: reference directions for PyLith-style fault-local slip
+    // rotation. f0_hybrid_lambda reads refDir1 and refDir2 from these slots
+    // and builds the tangent basis tanDir1, tanDir2 on the fly:
+    //   tanDir1 = normalize(refDir2 x n)
+    //   tanDir2 = normalize(n x tanDir1)
+    // The aux-field slip is stored in fault-local coordinates
+    // (opening, left-lateral, reverse) and rotated back to XYZ inside the
+    // kernel as slipXYZ[i] = n[i]*slip[0] + tanDir1[i]*slip[1] + tanDir2[i]*slip[2].
+    // Matches PyLith libsrc/pylith/fekernels/FaultCohesiveKin.hh f0l_slip.
+    static constexpr PetscInt COHESIVE_CONST_REF_DIR1_X = 80;
+    static constexpr PetscInt COHESIVE_CONST_REF_DIR1_Y = 81;
+    static constexpr PetscInt COHESIVE_CONST_REF_DIR1_Z = 82;
+    static constexpr PetscInt COHESIVE_CONST_REF_DIR2_X = 83;
+    static constexpr PetscInt COHESIVE_CONST_REF_DIR2_Y = 84;
+    static constexpr PetscInt COHESIVE_CONST_REF_DIR2_Z = 85;
+    static constexpr PetscInt COHESIVE_CONST_COUNT_EXT = 86;
+
     CohesiveFaultKernel();
 
     /**
