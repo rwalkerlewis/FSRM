@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <array>
 #include <algorithm>
 #include <fstream>
@@ -312,6 +313,11 @@ protected:
     PetscOptionsSetValue(nullptr, "-snes_monitor", nullptr);
     PetscOptionsSetValue(nullptr, "-snes_converged_reason", nullptr);
     PetscOptionsSetValue(nullptr, "-ts_monitor", nullptr);
+    // Session 6 diagnostic: dump assembled Jacobian for offline analysis.
+    // Remove after Session 6 reporting.
+    if (const char* dump = std::getenv("FSRM_DUMP_JAC")) {
+        PetscOptionsSetValue(nullptr, "-ksp_view_mat", dump);
+    }
 
     ierr = sim.initializeFromConfigFile(config_path);
     if (ierr) return ierr;

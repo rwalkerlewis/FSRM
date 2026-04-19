@@ -245,6 +245,10 @@ private:
     PetscErrorCode addTractionToResidual(PetscReal t, Vec locF);
     PetscErrorCode subtractLagrangeRegularizationOnCohesive(Vec locF, Vec locU);
     PetscErrorCode zeroLagrangeDiagonalOnCohesive(Mat J);
+    [[deprecated("Session 6: hybrid Jacobian (DMPlexComputeJacobianHybridByKey) "
+                 "is the sole driver of cohesive coupling entries. Calling this "
+                 "augmentation re-introduces the double-write that caused "
+                 "DIVERGED_LINEAR_SOLVE iterations 0 in Session 5.")]]
     PetscErrorCode addCohesivePenaltyToJacobian(Mat J, Vec locU = nullptr);
 
     /**
