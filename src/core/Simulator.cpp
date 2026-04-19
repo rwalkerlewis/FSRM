@@ -5664,8 +5664,71 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
             ierr = DMGlobalToLocal(dm, U_t, INSERT_VALUES, locU_t); CHKERRQ(ierr);
         }
 
-        // Compute FEM residual on local vectors
-        ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
+        // Session 7.5: volume physics driven directly on non-cohesive cells.
+        // PETSc's DMPlexTSComputeIFunctionFEM passes each DS an allcellIS
+        // that includes cohesive prisms; DMPlexComputeResidualByKey then
+        // reads the DS from the first cell and applies its closure size to
+        // the whole chunk, producing garbage or zero rows for cells that
+        // dispatch to a different DS via DMGetCellDS. PyLith's IntegratorDomain
+        // avoids this by calling DMPlexComputeResidualByKey on an explicit
+        // cellIS of volume (non-cohesive) cells (TimeDependent.cc:635-680,
+        // IntegratorDomain.cc:415). FSRM follows the same pattern: iterate
+        // every DS, skip cohesive ones (handled by the hybrid driver below),
+        // and restrict each non-cohesive DS's stratum IS to the non-cohesive
+        // cell range. key.label == NULL matches the weak-form registration
+        // done by PetscDSSetResidual (which always uses (NULL, 0)); the
+        // per-cell DS is still selected through DMGetCellDS inside
+        // DMPlexComputeResidualByKey.
+        {
+            PetscInt cStart = 0, cEnd_all = 0, cMax = 0;
+            ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd_all); CHKERRQ(ierr);
+            ierr = DMPlexGetSimplexOrBoxCells(dm, 0, NULL, &cMax); CHKERRQ(ierr);
+            IS volumeCellsIS = NULL;
+            ierr = ISCreateStride(PETSC_COMM_SELF, cMax - cStart, cStart, 1,
+                                  &volumeCellsIS); CHKERRQ(ierr);
+
+            PetscInt Nds = 0;
+            ierr = DMGetNumDS(dm, &Nds); CHKERRQ(ierr);
+            for (PetscInt s = 0; s < Nds; ++s) {
+                PetscDS ds_s = NULL;
+                DMLabel label_s = NULL;
+                ierr = DMGetRegionNumDS(dm, s, &label_s, NULL, &ds_s, NULL);
+                CHKERRQ(ierr);
+                PetscBool cohesive_ds = PETSC_FALSE;
+                if (ds_s) PetscDSIsCohesive(ds_s, &cohesive_ds);
+                if (cohesive_ds) continue;
+
+                PetscFormKey key;
+                key.label = NULL;
+                key.value = 0;
+                key.field = 0;
+                key.part  = 0;
+
+                IS useCellIS = NULL;
+                if (label_s) {
+                    IS stratumIS = NULL;
+                    ierr = DMLabelGetStratumIS(label_s, 1, &stratumIS);
+                    CHKERRQ(ierr);
+                    if (stratumIS) {
+                        ierr = ISIntersect(stratumIS, volumeCellsIS, &useCellIS);
+                        CHKERRQ(ierr);
+                        ierr = ISDestroy(&stratumIS); CHKERRQ(ierr);
+                    }
+                }
+                if (!useCellIS) {
+                    ierr = PetscObjectReference((PetscObject)volumeCellsIS);
+                    CHKERRQ(ierr);
+                    useCellIS = volumeCellsIS;
+                }
+
+                ierr = DMPlexComputeResidualByKey(dm, key, useCellIS,
+                                                  PETSC_MIN_REAL,
+                                                  locU, locU_t, t, locF, ctx);
+                CHKERRQ(ierr);
+                ierr = ISDestroy(&useCellIS); CHKERRQ(ierr);
+            }
+            ierr = ISDestroy(&volumeCellsIS); CHKERRQ(ierr);
+        }
 
         // Session 4: drive the cohesive residual with the PETSc hybrid-by-key
         // integrator. This replaces the pre-Session-4 BdResidual path, which
@@ -5782,8 +5845,72 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
             ierr = DMGlobalToLocal(dm, U_t, INSERT_VALUES, locU_t); CHKERRQ(ierr);
         }
 
-        ierr = DMPlexTSComputeIJacobianFEM(dm, t, locU, locU_t, a, J, P, ctx);
-        CHKERRQ(ierr);
+        // Session 7.5: volume Jacobian on non-cohesive cells only, matching
+        // the FormFunction volume-residual block above.
+        {
+            PetscInt cStart = 0, cEnd_all = 0, cMax = 0;
+            ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd_all); CHKERRQ(ierr);
+            ierr = DMPlexGetSimplexOrBoxCells(dm, 0, NULL, &cMax); CHKERRQ(ierr);
+            IS volumeCellsIS = NULL;
+            ierr = ISCreateStride(PETSC_COMM_SELF, cMax - cStart, cStart, 1,
+                                  &volumeCellsIS); CHKERRQ(ierr);
+
+            PetscInt Nds = 0;
+            ierr = DMGetNumDS(dm, &Nds); CHKERRQ(ierr);
+
+            // Match DMPlexTSComputeIJacobianFEM semantics: zero the Jacobian
+            // up front so the volume + hybrid accumulations start from a
+            // clean state on each Newton step.
+            PetscBool hasJac = PETSC_FALSE, hasPrec = PETSC_FALSE;
+            PetscDS ds0 = NULL;
+            ierr = DMGetRegionNumDS(dm, 0, NULL, NULL, &ds0, NULL); CHKERRQ(ierr);
+            if (ds0) {
+                ierr = PetscDSHasJacobian(ds0, &hasJac); CHKERRQ(ierr);
+                ierr = PetscDSHasJacobianPreconditioner(ds0, &hasPrec); CHKERRQ(ierr);
+            }
+            if (hasJac && hasPrec) { ierr = MatZeroEntries(J); CHKERRQ(ierr); }
+            ierr = MatZeroEntries(P); CHKERRQ(ierr);
+
+            for (PetscInt s = 0; s < Nds; ++s) {
+                PetscDS ds_s = NULL;
+                DMLabel label_s = NULL;
+                ierr = DMGetRegionNumDS(dm, s, &label_s, NULL, &ds_s, NULL);
+                CHKERRQ(ierr);
+                PetscBool cohesive_ds = PETSC_FALSE;
+                if (ds_s) PetscDSIsCohesive(ds_s, &cohesive_ds);
+                if (cohesive_ds) continue;
+
+                PetscFormKey key;
+                key.label = NULL;
+                key.value = 0;
+                key.field = 0;
+                key.part  = 0;
+
+                IS useCellIS = NULL;
+                if (label_s) {
+                    IS stratumIS = NULL;
+                    ierr = DMLabelGetStratumIS(label_s, 1, &stratumIS);
+                    CHKERRQ(ierr);
+                    if (stratumIS) {
+                        ierr = ISIntersect(stratumIS, volumeCellsIS, &useCellIS);
+                        CHKERRQ(ierr);
+                        ierr = ISDestroy(&stratumIS); CHKERRQ(ierr);
+                    }
+                }
+                if (!useCellIS) {
+                    ierr = PetscObjectReference((PetscObject)volumeCellsIS);
+                    CHKERRQ(ierr);
+                    useCellIS = volumeCellsIS;
+                }
+
+                ierr = DMPlexComputeJacobianByKey(dm, key, useCellIS,
+                                                  PETSC_MIN_REAL, a,
+                                                  locU, locU_t, J, P, ctx);
+                CHKERRQ(ierr);
+                ierr = ISDestroy(&useCellIS); CHKERRQ(ierr);
+            }
+            ierr = ISDestroy(&volumeCellsIS); CHKERRQ(ierr);
+        }
 
         // Session 4: hybrid cohesive Jacobian. Matches the FormFunction hybrid
         // residual call above.
