@@ -3555,9 +3555,7 @@ PetscErrorCode Simulator::setupFaultNetwork() {
     // Temporarily disabled to verify it does not cause regressions.
     // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
 
-    DMLabel interfacesLabel = NULL;
-    ierr = getOrCreateInterfacesLabel(&interfacesLabel); CHKERRQ(ierr);
-    (void)interfacesLabel;
+    ierr = getOrCreateInterfacesLabel(&interfaces_label_); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -6470,8 +6468,15 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                 NULL, NULL, NULL, NULL); CHKERRQ(ierr);
 
             if (lagrange_field_idx < numDSFields) {
+                // Use the cohesive-complete "cohesive interface" label populated
+                // by getOrCreateInterfacesLabel during setupFaultNetwork. The
+                // "fault" label is face-only and so the BdResidual on cohesive
+                // cells does not fire reliably under PETSc's per-stratum
+                // dispatch. See docs/FAULT_TEST_REGRESSION_AUDIT.md
+                // "PrescribedSlipQuasiStatic Label Topology Diagnosis".
+                DMLabel constraint_label = interfaces_label_ ? interfaces_label_ : fault_label;
                 ierr = DMAddBoundary(dm, DM_BC_NATURAL, "fault_constraint",
-                    fault_label, 1, &label_value, lagrange_field_idx, 0, NULL,
+                    constraint_label, 1, &label_value, lagrange_field_idx, 0, NULL,
                     NULL, NULL, NULL, NULL); CHKERRQ(ierr);
             } else if (rank == 0) {
                 PetscPrintf(comm,

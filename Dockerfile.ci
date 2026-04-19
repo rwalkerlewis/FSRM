@@ -1,15 +1,16 @@
 # FSRM CI Docker Image
-# Optimized for CI: builds PETSc 3.20 from source, includes Google Test,
-# and all build tools. No visualization packages.
+# Build environment only: builds PETSc main at the pinned SHA, installs Google
+# Test, and provides MPI/HDF5/BLAS for compiling FSRM. No FSRM sources baked
+# in -- mount the workspace at runtime.
 #
-# Build:  docker build -f Dockerfile.ci -t ghcr.io/rwalkerlewis/fsrm-ci:latest .
-# Usage:  docker run --rm -v $(pwd):/src -w /src ghcr.io/rwalkerlewis/fsrm-ci:latest bash
+# Build:  docker build -f Dockerfile.ci -t fsrm-ci:main .
+# Usage:  docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:main bash
 
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ── Install build dependencies ───────────────────────────────────────────────
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Build Google Test ────────────────────────────────────────────────────────
+# Build Google Test
 RUN mkdir -p /tmp/gtest-build \
     && cd /tmp/gtest-build \
     && cmake /usr/src/googletest -DCMAKE_INSTALL_PREFIX=/usr \
@@ -36,18 +37,20 @@ RUN mkdir -p /tmp/gtest-build \
     && ldconfig \
     && rm -rf /tmp/gtest-build
 
-# ── Build PETSc 3.25.0 from source (optimized, no debugging) ────────────────
-WORKDIR /opt
-RUN wget -q https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-3.25.0.tar.gz \
-    && tar -xzf petsc-3.25.0.tar.gz \
-    && rm petsc-3.25.0.tar.gz \
-    && ls -d petsc-3.25* | head -1 | xargs -I{} mv {} petsc-3.25.0 || true
+# PETSc main pinned to commit 267b8824abdb82fedbefdec8ea8d0cb3c505ddfd
+# (2026-04-17, "Merge remote-tracking branch 'origin/release'").
+ARG PETSC_SHA=267b8824abdb82fedbefdec8ea8d0cb3c505ddfd
+RUN git clone https://gitlab.com/petsc/petsc.git /opt/petsc-main \
+    && cd /opt/petsc-main \
+    && git checkout ${PETSC_SHA} \
+    && git rev-parse HEAD > /opt/petsc-main/COMMIT_SHA
 
-WORKDIR /opt/petsc-3.25.0
+WORKDIR /opt/petsc-main
 RUN ./configure \
         --with-cc=mpicc \
         --with-cxx=mpicxx \
         --with-fc=mpif90 \
+        --with-mpi=1 \
         --download-fblaslapack \
         --download-ctetgen \
         --with-hdf5-include=/usr/include/hdf5/openmpi \
@@ -56,12 +59,11 @@ RUN ./configure \
         COPTFLAGS='-O3' \
         CXXOPTFLAGS='-O3' \
         FOPTFLAGS='-O3' \
-    && make PETSC_DIR=/opt/petsc-3.25.0 PETSC_ARCH=arch-linux-c-opt all
+    && make PETSC_DIR=/opt/petsc-main PETSC_ARCH=arch-linux-c-opt all
 
-# ── Environment variables (baked into image) ─────────────────────────────────
-ENV PETSC_DIR=/opt/petsc-3.25.0
+ENV PETSC_DIR=/opt/petsc-main
 ENV PETSC_ARCH=arch-linux-c-opt
-ENV PKG_CONFIG_PATH=/opt/petsc-3.25.0/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
+ENV PKG_CONFIG_PATH=/opt/petsc-main/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
 
 # Allow MPI to run as root inside CI containers
 ENV OMPI_ALLOW_RUN_AS_ROOT=1

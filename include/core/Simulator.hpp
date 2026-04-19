@@ -187,6 +187,13 @@ private:
     PetscErrorCode applyExplosionDamageToAuxFields();
     PetscErrorCode createCohesiveCellLabel();
     PetscErrorCode getOrCreateInterfacesLabel(DMLabel *interfacesLabel);
+
+    // PyLith-style "cohesive interface" label: cohesive cells plus their
+    // closure faces, edges, and vertices on the negative side of the fault.
+    // Populated by getOrCreateInterfacesLabel during setupFaultNetwork and
+    // consumed by setupBoundaryConditions to register the Lagrange
+    // fault_constraint Neumann BC on the cohesive geometry.
+    DMLabel interfaces_label_ = nullptr;
     
     // Simulation state
     double current_time;
