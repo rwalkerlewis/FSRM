@@ -1,15 +1,15 @@
 # FSRM CUDA Docker Image
-# Optimized for CUDA builds: builds PETSc 3.20 from source with CUDA support,
-# includes Google Test, and all build tools. No visualization packages.
+# Build environment with PETSc main + CUDA backend (cuBLAS / cuSPARSE) for GPU
+# acceleration via -vec_type cuda -mat_type aijcusparse runtime flags.
 #
-# Build:  docker build -f Dockerfile.cuda -t ghcr.io/rwalkerlewis/fsrm-cuda:latest .
-# Usage:  docker run --gpus all --rm -v $(pwd):/src -w /src ghcr.io/rwalkerlewis/fsrm-cuda:latest bash
+# Build:  docker build -f Dockerfile.cuda -t fsrm-cuda:main .
+# Usage:  docker run --gpus all --rm -v $(pwd):/workspace -w /workspace fsrm-cuda:main bash
 
 FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ── Install build dependencies ───────────────────────────────────────────────
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Build Google Test ────────────────────────────────────────────────────────
+# Build Google Test
 RUN mkdir -p /tmp/gtest-build \
     && cd /tmp/gtest-build \
     && cmake /usr/src/googletest -DCMAKE_INSTALL_PREFIX=/usr \
@@ -36,34 +36,35 @@ RUN mkdir -p /tmp/gtest-build \
     && ldconfig \
     && rm -rf /tmp/gtest-build
 
-# ── Build PETSc 3.22.2 from source (optimized, with CUDA) ───────────────────
-WORKDIR /opt
-RUN wget -q https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-3.22.2.tar.gz \
-    && tar -xzf petsc-3.22.2.tar.gz \
-    && rm petsc-3.22.2.tar.gz \
-    && ls -d petsc-3.22* | head -1 | xargs -I{} mv {} petsc-3.22.2 || true
+# PETSc main pinned to commit 267b8824abdb82fedbefdec8ea8d0cb3c505ddfd
+# (2026-04-17, "Merge remote-tracking branch 'origin/release'").
+ARG PETSC_SHA=267b8824abdb82fedbefdec8ea8d0cb3c505ddfd
+RUN git clone https://gitlab.com/petsc/petsc.git /opt/petsc-main \
+    && cd /opt/petsc-main \
+    && git checkout ${PETSC_SHA} \
+    && git rev-parse HEAD > /opt/petsc-main/COMMIT_SHA
 
-WORKDIR /opt/petsc-3.22.2
+WORKDIR /opt/petsc-main
 RUN ./configure \
         --with-cc=mpicc \
         --with-cxx=mpicxx \
         --with-fc=mpif90 \
+        --with-mpi=1 \
         --download-fblaslapack \
         --download-ctetgen \
         --with-hdf5-include=/usr/include/hdf5/openmpi \
         --with-hdf5-lib="-L/usr/lib/x86_64-linux-gnu/hdf5/openmpi -lhdf5" \
-        --with-cuda \
+        --with-cuda=1 \
         --with-cuda-dir=/usr/local/cuda \
         --with-debugging=0 \
         COPTFLAGS='-O3' \
         CXXOPTFLAGS='-O3' \
         FOPTFLAGS='-O3' \
-    && make PETSC_DIR=/opt/petsc-3.22.2 PETSC_ARCH=arch-linux-c-opt all
+    && make PETSC_DIR=/opt/petsc-main PETSC_ARCH=arch-linux-c-opt all
 
-# ── Environment variables (baked into image) ─────────────────────────────────
-ENV PETSC_DIR=/opt/petsc-3.22.2
+ENV PETSC_DIR=/opt/petsc-main
 ENV PETSC_ARCH=arch-linux-c-opt
-ENV PKG_CONFIG_PATH=/opt/petsc-3.22.2/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
+ENV PKG_CONFIG_PATH=/opt/petsc-main/arch-linux-c-opt/lib/pkgconfig:${PKG_CONFIG_PATH}
 
 # Allow MPI to run as root inside CI containers
 ENV OMPI_ALLOW_RUN_AS_ROOT=1
