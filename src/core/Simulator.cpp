@@ -1673,23 +1673,49 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     }
 
     // Add Lagrange multiplier field for cohesive faults if enabled.
-    // The field is on ALL cells (nullptr label). PETSc 3.25 region DS with
-    // label-restricted fields does not support volume residual assembly via
-    // DMPlexTSComputeIFunctionFEM. Instead, a weak regularization (epsilon=1e-8)
-    // keeps interior Lagrange DOFs non-singular for LU while being negligible
-    // compared to the BdResidual constraint on cohesive faces.
+    //
+    // Session 5: recreate the Lagrange FE as a (dim-1) surface FE attached
+    // to the cohesive interface label, following PETSc tests/ex5.c:779-781.
+    // The hybrid cohesive driver (DMPlexComputeResidualHybridByKey) expects
+    // this shape and fails with a closure-size mismatch otherwise.
+    // setupFaultNetwork() runs before setupFields() (see main.cpp), so
+    // interfaces_label_ is populated at this point.
     PetscInt lagrange_field_idx = -1;
     if (config.enable_faults && cohesive_kernel_) {
-        PetscFE fe_lagrange;
-        // Lagrange multiplier: 3-component vector (traction) on cohesive cells
-        ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe_lagrange); CHKERRQ(ierr);
-        ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
+        PetscInt dim = 0;
+        ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+        if (!interfaces_label_) {
+            ierr = getOrCreateInterfacesLabel(&interfaces_label_); CHKERRQ(ierr);
+        }
+
+        if (rank == 0) {
+            PetscInt n_interface_points = 0;
+            IS stratum_is = nullptr;
+            ierr = DMLabelGetStratumIS(interfaces_label_, 1, &stratum_is); CHKERRQ(ierr);
+            if (stratum_is) {
+                ierr = ISGetLocalSize(stratum_is, &n_interface_points); CHKERRQ(ierr);
+                ierr = ISDestroy(&stratum_is); CHKERRQ(ierr);
+            }
+            PetscPrintf(comm,
+                        "Lagrange FE restriction: %d points on 'cohesive interface' label value 1\n",
+                        (int)n_interface_points);
+        }
+
+        PetscFE fe_lagrange = nullptr;
+        ierr = PetscFECreateDefault(PETSC_COMM_SELF, dim - 1, dim, isSimplex,
+                                    "lagrange_", PETSC_DETERMINE,
+                                    &fe_lagrange); CHKERRQ(ierr);
+        ierr = PetscObjectSetName((PetscObject)fe_lagrange,
+                                  "lagrange_multiplier_fault"); CHKERRQ(ierr);
         lagrange_field_idx = static_cast<PetscInt>(fe_fields.size());
         lagrange_field_idx_ = lagrange_field_idx;
-        ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
+        ierr = DMAddField(dm, interfaces_label_, (PetscObject)fe_lagrange); CHKERRQ(ierr);
         fe_fields.push_back(fe_lagrange);
         if (rank == 0) {
-            PetscPrintf(comm, "Added Lagrange multiplier field for fault traction\n");
+            PetscPrintf(comm,
+                        "Added Lagrange multiplier field (dim-1 surface FE, Nc=%d) "
+                        "restricted to 'cohesive interface' label\n", (int)dim);
         }
     }
 
@@ -1704,17 +1730,45 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Create DS (required before adding boundaries in PETSc 3.25)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
 
-    // Session 4: mark the Lagrange field cohesive in the DS so
-    // DMPlexComputeResidualHybridByKey / ...JacobianHybridByKey and the
-    // backing DMPlexGetHybridCellFields / ...HybridFields helpers can read
+    // Session 4/5: mark the Lagrange field cohesive on the cohesive-cell DS
+    // so DMPlexComputeResidualHybridByKey / ...JacobianHybridByKey can read
     // the hybrid DOF layout correctly (see PETSc plexfem.c:3864 and
-    // tests/ex5.c:795).
+    // tests/ex5.c:795). With the Session 5 region-restricted Lagrange field,
+    // the cohesive field lives in a separate DS attached to the interfaces
+    // label; the default DS has only volume fields. Walk all DSes and flag
+    // the one that contains the Lagrange field.
     if (config.enable_faults && cohesive_kernel_ && lagrange_field_idx_ >= 0) {
-        PetscDS ds_for_cohesive = nullptr;
-        ierr = DMGetDS(dm, &ds_for_cohesive); CHKERRQ(ierr);
-        if (ds_for_cohesive) {
-            ierr = PetscDSSetCohesive(ds_for_cohesive,
-                                      lagrange_field_idx_, PETSC_TRUE); CHKERRQ(ierr);
+        PetscInt num_ds = 0;
+        ierr = DMGetNumDS(dm, &num_ds); CHKERRQ(ierr);
+        for (PetscInt ids = 0; ids < num_ds; ++ids) {
+            DMLabel ds_label = nullptr;
+            IS ds_fields_is = nullptr;
+            PetscDS ds_this = nullptr;
+            ierr = DMGetRegionNumDS(dm, ids, &ds_label, &ds_fields_is,
+                                    &ds_this, NULL); CHKERRQ(ierr);
+            if (!ds_this || !ds_fields_is) continue;
+            const PetscInt *fields = nullptr;
+            PetscInt n_fields = 0;
+            ierr = ISGetLocalSize(ds_fields_is, &n_fields); CHKERRQ(ierr);
+            ierr = ISGetIndices(ds_fields_is, &fields); CHKERRQ(ierr);
+            PetscInt lagrange_ds_idx = -1;
+            for (PetscInt k = 0; k < n_fields; ++k) {
+                if (fields[k] == lagrange_field_idx_) {
+                    lagrange_ds_idx = k;
+                    break;
+                }
+            }
+            ierr = ISRestoreIndices(ds_fields_is, &fields); CHKERRQ(ierr);
+            if (lagrange_ds_idx >= 0) {
+                ierr = PetscDSSetCohesive(ds_this, lagrange_ds_idx,
+                                          PETSC_TRUE); CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm,
+                                "PetscDSSetCohesive applied: DS %d, field %d (global %d)\n",
+                                (int)ids, (int)lagrange_ds_idx,
+                                (int)lagrange_field_idx_);
+                }
+            }
         }
     }
 
@@ -1739,20 +1793,14 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 // Weak Lagrange volume regularization callbacks
 // ============================================================================
 //
-// Per docs/PYLITH_COMPATIBILITY.md Section B Option B, interior Lagrange
-// degrees of freedom are managed by manual assembly: their residual is
-// zeroed in addInteriorLagrangeResidual and their Jacobian diagonal is
-// stamped by the disjoint loop in addCohesivePenaltyToJacobian. The
-// volume callback below remains registered with PetscDS because PETSc
-// 3.25 requires a volume residual to be registered on every solution
-// field for DMPlexTSComputeIFunctionFEM to drive BdResidual on cohesive
-// cells reliably; removing it regresses LockedFaultElastodynamic. The
-// epsilon = 1e-4 contribution it writes is overwritten at interior DOFs
-// by addInteriorLagrangeResidual and is dominated at cohesive vertices by
-// the per-pair penalty in addCohesivePenaltyToJacobian, so the net
-// effect matches the strict Section B implementation.
+// Retained for reference, superseded by the hybrid driver in Session 4.
+// The Session 5 migration recreated the Lagrange field as a (dim-1)
+// surface FE restricted to the cohesive interface label, so there are no
+// interior Lagrange DOFs and no need for the epsilon volume callback.
+// These definitions are kept so future sessions can diff against the
+// pre-Session-5 scaffolding.
 
-static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+[[maybe_unused]] static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscInt uOff[], const PetscInt uOff_x[],
     const PetscScalar u[], const PetscScalar u_t[],
     const PetscScalar u_x[], const PetscInt aOff[],
@@ -1772,7 +1820,7 @@ static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     }
 }
 
-static void g0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+[[maybe_unused]] static void g0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscInt uOff[], const PetscInt uOff_x[],
     const PetscScalar u[], const PetscScalar u_t[],
     const PetscScalar u_x[], const PetscInt aOff[],
@@ -2549,28 +2597,15 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Lagrange field volume callback: weak regularization is retained.
-        //
-        // docs/PYLITH_COMPATIBILITY.md Section B Option B specifies removal
-        // of these volume callbacks. Empirically, in PETSc 3.25 removing
-        // them regresses Integration.DynamicRuptureSolve.LockedFaultElastodynamic
-        // (the Lagrange field is added on every cell via DMAddField with a
-        // null label and DMPlexTSComputeIFunctionFEM appears to require at
-        // least one volume callback per field for the BdResidual on cohesive
-        // cells to fire correctly).
-        //
-        // Section B's complementary mechanisms are still in place:
-        // addInteriorLagrangeResidual zeroes the residual at non-cohesive
-        // Lagrange DOFs after the volume callback writes its small
-        // (epsilon = 1e-4) contribution, and the disjoint interior loop
-        // inside addCohesivePenaltyToJacobian stamps the penalty-scaled
-        // diagonal on those same DOFs. The net effect at interior Lagrange
-        // DOFs is identical to a strict Section B implementation.
-        ierr = PetscDSSetResidual(prob, lagrange_field,
-            f0_weak_lagrange, nullptr); CHKERRQ(ierr);
-        ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
-            g0_weak_lagrange, nullptr,
-            nullptr, nullptr); CHKERRQ(ierr);
+        // Session 5: the volume regularization (f0_weak_lagrange /
+        // g0_weak_lagrange) is no longer registered. With the Lagrange field
+        // now constructed as a (dim-1) surface FE attached to the cohesive
+        // interface label, there are no interior Lagrange DOFs for the
+        // volume callback to act on. The hybrid-by-key driver provides the
+        // authoritative residual and Jacobian for the cohesive Lagrange
+        // rows. The static f0_weak_lagrange / g0_weak_lagrange definitions
+        // are retained for reference, superseded by the hybrid driver in
+        // Session 4.
 
         // Session 4: the cohesive residual / Jacobian for locked, prescribed
         // slip, and slipping modes now route through the PETSc hybrid driver
@@ -2601,22 +2636,48 @@ PetscErrorCode Simulator::setupPhysics() {
             // Hydrofrac pressure-balance still goes through BdResidual. The
             // Lagrange constraint in hydrofrac mode is distinct from the
             // displacement-jump constraint handled by the hybrid driver.
-            ierr = PetscDSSetBdResidual(prob, lagrange_field,
+            // Session 5: the Lagrange field lives on the cohesive-cell DS
+            // (fetched via DMGetCellDS at the first hybrid cell); register
+            // the BdResidual there.
+            PetscInt cMax_hf = 0, cEnd_hf = 0;
+            ierr = DMPlexGetSimplexOrBoxCells(dm, 0, NULL, &cMax_hf); CHKERRQ(ierr);
+            ierr = DMPlexGetHeightStratum(dm, 0, NULL, &cEnd_hf); CHKERRQ(ierr);
+            PetscDS hf_ds = prob;
+            if (cEnd_hf > cMax_hf) {
+                ierr = DMGetCellDS(dm, cMax_hf, &hf_ds, NULL); CHKERRQ(ierr);
+            }
+            ierr = PetscDSSetBdResidual(hf_ds, lagrange_field,
                 PetscFEHydrofrac::f0_lagrange_pressure_balance, nullptr); CHKERRQ(ierr);
-            ierr = PetscDSSetBdResidual(prob, disp_field,
+            ierr = PetscDSSetBdResidual(hf_ds, disp_field,
                 CohesiveFaultKernel::f0_displacement_cohesive, nullptr); CHKERRQ(ierr);
         } else {
-            // Register the hybrid-by-key weak forms used by
-            // DMPlexComputeResidualHybridByKey.
-            PetscWeakForm wf = nullptr;
-            ierr = PetscDSGetWeakForm(prob, &wf); CHKERRQ(ierr);
+            // Session 5: the Lagrange field is restricted to the cohesive
+            // interface label, so it does not live on the default PetscDS.
+            // Fetch the cohesive-cell DS via DMGetCellDS (see PETSc
+            // tests/ex5.c:1203) and register the hybrid weak forms on that
+            // DS. The weak form lookup in DMPlexComputeResidualHybridByKey
+            // consults this DS for each cohesive cell.
             DMLabel cohesive_key_label = interfaces_label_;
             if (!cohesive_key_label) {
                 ierr = DMGetLabel(dm, "cohesive interface", &cohesive_key_label); CHKERRQ(ierr);
             }
-            if (material_label_ && cohesive_key_label && wf) {
+
+            PetscInt cMax = 0, cEnd_h = 0;
+            ierr = DMPlexGetSimplexOrBoxCells(dm, 0, NULL, &cMax); CHKERRQ(ierr);
+            ierr = DMPlexGetHeightStratum(dm, 0, NULL, &cEnd_h); CHKERRQ(ierr);
+            PetscDS cohesive_ds = nullptr;
+            if (cEnd_h > cMax) {
+                ierr = DMGetCellDS(dm, cMax, &cohesive_ds, NULL); CHKERRQ(ierr);
+            }
+
+            PetscWeakForm wf = nullptr;
+            if (cohesive_ds) {
+                ierr = PetscDSGetWeakForm(cohesive_ds, &wf); CHKERRQ(ierr);
+            }
+
+            if (material_label_ && cohesive_key_label && wf && cohesive_ds) {
                 ierr = cohesive_kernel_->registerHybridWithDS(
-                    prob, wf, material_label_, cohesive_key_label,
+                    cohesive_ds, wf, material_label_, cohesive_key_label,
                     disp_field, lagrange_field); CHKERRQ(ierr);
                 if (rank == 0) {
                     PetscPrintf(comm,
@@ -2626,8 +2687,9 @@ PetscErrorCode Simulator::setupPhysics() {
             } else if (rank == 0) {
                 PetscPrintf(comm,
                             "WARNING: hybrid cohesive forms not registered "
-                            "(material_label=%p, cohesive_label=%p, weak_form=%p)\n",
-                            (void*)material_label_, (void*)cohesive_key_label, (void*)wf);
+                            "(material_label=%p, cohesive_label=%p, weak_form=%p, cohesive_ds=%p)\n",
+                            (void*)material_label_, (void*)cohesive_key_label,
+                            (void*)wf, (void*)cohesive_ds);
             }
         }
 
@@ -4408,14 +4470,11 @@ PetscErrorCode Simulator::zeroLagrangeDiagonalOnCohesive(Mat J)
 // =============================================================================
 // addInteriorLagrangeResidual
 //
-// Per docs/PYLITH_COMPATIBILITY.md Section B Option B.
-//
-// Walks the mesh and zeros the Lagrange residual at every vertex that is
-// not part of a cohesive cell closure. The cohesive BdResidual writes the
-// constraint equation at cohesive vertices; this routine guarantees that
-// no other contribution survives at interior Lagrange degrees of freedom
-// once the PetscDS volume regularization on the Lagrange field has been
-// removed.
+// DEPRECATED (Session 5): with the Lagrange field restricted to the
+// cohesive interface label via DMAddField(dm, interfaces_label_, fe),
+// there are no interior (non-cohesive) Lagrange DOFs to zero. The body
+// is retained for reference; the caller in FormFunction has been
+// removed. The function is now unreachable.
 // =============================================================================
 PetscErrorCode Simulator::addInteriorLagrangeResidual(Vec locF)
 {
@@ -4934,46 +4993,16 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
         }
     }
 
-    // Section B Option B: stamp a scaled-identity diagonal on every
-    // INTERIOR (non-cohesive) Lagrange degree of freedom so its row stays
-    // non-singular for LU. The scale is the average per-cohesive-cell
-    // canonical penalty (`10 * E / h_char_jac * coeff`) so the Lagrange
-    // row block has uniform conditioning with the cohesive vertex penalty
-    // diagonal. Cohesive vertices are intentionally skipped to preserve
-    // the existing per-pair penalty assembly.
-    {
-        PetscReal interior_diag = 0.0;
-        if (canonical_diag_count > 0)
-        {
-            interior_diag = canonical_diag_sum /
-                            static_cast<PetscReal>(canonical_diag_count);
-        }
-        else
-        {
-            interior_diag = youngs_modulus;
-        }
-        const PetscScalar interior_diag_scalar =
-            static_cast<PetscScalar>(interior_diag);
-
-        PetscInt pStart = 0;
-        PetscInt pEnd = 0;
-        ierr = PetscSectionGetChart(gsection, &pStart, &pEnd); CHKERRQ(ierr);
-        for (PetscInt p = pStart; p < pEnd; ++p)
-        {
-            if (cohesive_vertex_points.count(p) > 0) continue;
-            PetscInt lag_dof = 0;
-            ierr = PetscSectionGetFieldDof(gsection, p, lagrange_field, &lag_dof); CHKERRQ(ierr);
-            if (lag_dof <= 0) continue;
-            PetscInt lag_off = 0;
-            ierr = PetscSectionGetFieldOffset(gsection, p, lagrange_field, &lag_off); CHKERRQ(ierr);
-            if (lag_off < 0) continue;
-            for (PetscInt d = 0; d < lag_dof; ++d)
-            {
-                ierr = MatSetValue(J, lag_off + d, lag_off + d,
-                                   interior_diag_scalar, ADD_VALUES); CHKERRQ(ierr);
-            }
-        }
-    }
+    // Session 5: the disjoint interior-Lagrange diagonal loop is removed.
+    // With the Lagrange field restricted to the cohesive interface label,
+    // there are no interior (non-cohesive) Lagrange DOFs, so no fallback
+    // diagonal is needed. The per-cohesive-pair penalty block above (when
+    // penalty_scale > 0) is the only Lagrange Jacobian stamp emitted here;
+    // the hybrid driver in FormJacobian supplies the authoritative
+    // diagonal via g0_hybrid_lambda_lambda.
+    (void)cohesive_vertex_points;
+    (void)canonical_diag_sum;
+    (void)canonical_diag_count;
 
     ierr = VecRestoreArrayRead(coords, &coord_array); CHKERRQ(ierr);
     ierr = MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
@@ -5689,22 +5718,11 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
             ierr = sim->addFaultPressureToResidual(t, locF); CHKERRQ(ierr);
         }
 
-        // Cohesive fault constraint residual is now handled by PetscDS BdResidual
-        // callbacks registered in setupPhysics(). DMPlexTSComputeIFunctionFEM
-        // evaluates them on cohesive cells automatically (PETSc 3.25+).
-        // The manual Jacobian (addCohesivePenaltyToJacobian) remains in
-        // FormJacobian because BdJacobian is not functional in PETSc 3.25.
-
-        // Per docs/PYLITH_COMPATIBILITY.md Section B Option B: the volume
-        // residual on the Lagrange field has been removed from PetscDS,
-        // and the locked / prescribed slip modes assemble the cohesive
-        // constraint manually here because PetscDS BdResidual silently
-        // returns zero on the fault label in PETSc 3.25. The interior
-        // zeroing must run AFTER the cohesive manual assembly so that the
-        // cohesive vertex contributions are preserved.
-        if (sim->config.enable_faults && sim->cohesive_kernel_) {
-            ierr = sim->addInteriorLagrangeResidual(locF); CHKERRQ(ierr);
-        }
+        // Session 5: the cohesive fault constraint residual is driven by
+        // DMPlexComputeResidualHybridByKey on the cohesive cell IS above.
+        // With the Lagrange field restricted to the cohesive interface
+        // label, there are no interior (non-cohesive) Lagrange DOFs, so
+        // addInteriorLagrangeResidual is no longer needed.
 
         // Scatter local residual back to global (ADD_VALUES to accumulate)
         ierr = DMLocalToGlobal(dm, locF, ADD_VALUES, F); CHKERRQ(ierr);
