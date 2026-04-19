@@ -1667,6 +1667,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     if (config.enable_geomechanics || config.enable_elastodynamics) {
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
+        displacement_field_idx_ = static_cast<PetscInt>(fe_fields.size());
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
     }
@@ -1684,6 +1685,7 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe_lagrange); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe_lagrange, "lagrange_"); CHKERRQ(ierr);
         lagrange_field_idx = static_cast<PetscInt>(fe_fields.size());
+        lagrange_field_idx_ = lagrange_field_idx;
         ierr = DMAddField(dm, nullptr, (PetscObject)fe_lagrange); CHKERRQ(ierr);
         fe_fields.push_back(fe_lagrange);
         if (rank == 0) {
@@ -1701,6 +1703,20 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 
     // Create DS (required before adding boundaries in PETSc 3.25)
     ierr = DMCreateDS(dm); CHKERRQ(ierr);
+
+    // Session 4: mark the Lagrange field cohesive in the DS so
+    // DMPlexComputeResidualHybridByKey / ...JacobianHybridByKey and the
+    // backing DMPlexGetHybridCellFields / ...HybridFields helpers can read
+    // the hybrid DOF layout correctly (see PETSc plexfem.c:3864 and
+    // tests/ex5.c:795).
+    if (config.enable_faults && cohesive_kernel_ && lagrange_field_idx_ >= 0) {
+        PetscDS ds_for_cohesive = nullptr;
+        ierr = DMGetDS(dm, &ds_for_cohesive); CHKERRQ(ierr);
+        if (ds_for_cohesive) {
+            ierr = PetscDSSetCohesive(ds_for_cohesive,
+                                      lagrange_field_idx_, PETSC_TRUE); CHKERRQ(ierr);
+        }
+    }
 
     // Add boundary conditions to the DS
     ierr = setupBoundaryConditions(); CHKERRQ(ierr);
@@ -2556,25 +2572,68 @@ PetscErrorCode Simulator::setupPhysics() {
             g0_weak_lagrange, nullptr,
             nullptr, nullptr); CHKERRQ(ierr);
 
-        // Register BdResidual on cohesive cells. This works in PETSc 3.25+
-        // (verified by Physics.CohesiveBdResidual test). DMPlexTSComputeIFunctionFEM
-        // will evaluate these callbacks on the hybrid prism/tensor cells.
+        // Session 4: the cohesive residual / Jacobian for locked, prescribed
+        // slip, and slipping modes now route through the PETSc hybrid driver
+        // (DMPlexComputeResidualHybridByKey / ...JacobianHybridByKey) wired
+        // into Simulator::FormFunction and ::FormJacobian. The three weak
+        // forms are registered against (material_label, 1/2, disp_field) and
+        // (interfaces_label_, 1, lagrange_field) via
+        // CohesiveFaultKernel::registerHybridWithDS. The legacy
+        // PetscDSSetBdResidual registration below is left commented out so
+        // that the old BdResidual path cannot double-count during this
+        // session; it will be removed once the hybrid path is verified.
+        //
+        // Old code (Session 3 and earlier) retained for reference:
+        //
+        //   if (hydrofrac_fem_pressurized_mode_) {
+        //       ierr = PetscDSSetBdResidual(prob, lagrange_field,
+        //           PetscFEHydrofrac::f0_lagrange_pressure_balance, nullptr); CHKERRQ(ierr);
+        //   } else if (fault_mode_ == "prescribed_slip") {
+        //       ierr = PetscDSSetBdResidual(prob, lagrange_field,
+        //           CohesiveFaultKernel::f0_prescribed_slip, nullptr); CHKERRQ(ierr);
+        //   } else {
+        //       ierr = PetscDSSetBdResidual(prob, lagrange_field,
+        //           CohesiveFaultKernel::f0_lagrange_constraint, nullptr); CHKERRQ(ierr);
+        //   }
+        //   ierr = PetscDSSetBdResidual(prob, disp_field,
+        //       CohesiveFaultKernel::f0_displacement_cohesive, nullptr); CHKERRQ(ierr);
         if (hydrofrac_fem_pressurized_mode_) {
+            // Hydrofrac pressure-balance still goes through BdResidual. The
+            // Lagrange constraint in hydrofrac mode is distinct from the
+            // displacement-jump constraint handled by the hybrid driver.
             ierr = PetscDSSetBdResidual(prob, lagrange_field,
                 PetscFEHydrofrac::f0_lagrange_pressure_balance, nullptr); CHKERRQ(ierr);
-        } else if (fault_mode_ == "prescribed_slip") {
-            ierr = PetscDSSetBdResidual(prob, lagrange_field,
-                CohesiveFaultKernel::f0_prescribed_slip, nullptr); CHKERRQ(ierr);
+            ierr = PetscDSSetBdResidual(prob, disp_field,
+                CohesiveFaultKernel::f0_displacement_cohesive, nullptr); CHKERRQ(ierr);
         } else {
-            ierr = PetscDSSetBdResidual(prob, lagrange_field,
-                CohesiveFaultKernel::f0_lagrange_constraint, nullptr); CHKERRQ(ierr);
+            // Register the hybrid-by-key weak forms used by
+            // DMPlexComputeResidualHybridByKey.
+            PetscWeakForm wf = nullptr;
+            ierr = PetscDSGetWeakForm(prob, &wf); CHKERRQ(ierr);
+            DMLabel cohesive_key_label = interfaces_label_;
+            if (!cohesive_key_label) {
+                ierr = DMGetLabel(dm, "cohesive interface", &cohesive_key_label); CHKERRQ(ierr);
+            }
+            if (material_label_ && cohesive_key_label && wf) {
+                ierr = cohesive_kernel_->registerHybridWithDS(
+                    prob, wf, material_label_, cohesive_key_label,
+                    disp_field, lagrange_field); CHKERRQ(ierr);
+                if (rank == 0) {
+                    PetscPrintf(comm,
+                                "Registered hybrid cohesive weak forms on fields %d (disp), %d (lagrange)\n",
+                                (int)disp_field, (int)lagrange_field);
+                }
+            } else if (rank == 0) {
+                PetscPrintf(comm,
+                            "WARNING: hybrid cohesive forms not registered "
+                            "(material_label=%p, cohesive_label=%p, weak_form=%p)\n",
+                            (void*)material_label_, (void*)cohesive_key_label, (void*)wf);
+            }
         }
-        ierr = PetscDSSetBdResidual(prob, disp_field,
-            CohesiveFaultKernel::f0_displacement_cohesive, nullptr); CHKERRQ(ierr);
 
         if (rank == 0) {
             PetscPrintf(comm,
-                        "Registered BdResidual cohesive callbacks on fields %d (disp), %d (lagrange)\n",
+                        "Cohesive registration complete on fields %d (disp), %d (lagrange)\n",
                         disp_field, lagrange_field);
         }
     }
@@ -2658,20 +2717,27 @@ PetscErrorCode Simulator::setupPhysics() {
                                         CohesiveFaultKernel::g0_lagrange_lagrange, nullptr,
                                         nullptr, nullptr); CHKERRQ(ierr);
         } else {
-            // Non-hydrofrac fault modes: register BdResidual on fault_ds.
-            // PETSc 3.25 supports BdResidual on cohesive cells.
-            if (fault_mode_ == "prescribed_slip") {
-                ierr = PetscDSSetBdResidual(fault_ds, cohesive_lagrange_field,
-                                            CohesiveFaultKernel::f0_prescribed_slip,
-                                            nullptr); CHKERRQ(ierr);
-            } else {
-                ierr = PetscDSSetBdResidual(fault_ds, cohesive_lagrange_field,
-                                            CohesiveFaultKernel::f0_lagrange_constraint,
-                                            nullptr); CHKERRQ(ierr);
-            }
-            ierr = PetscDSSetBdResidual(fault_ds, cohesive_disp_field,
-                                        CohesiveFaultKernel::f0_displacement_cohesive,
-                                        nullptr); CHKERRQ(ierr);
+            // Session 4: the cohesive BdResidual calls below are superseded
+            // by the PETSc hybrid driver wired into FormFunction /
+            // FormJacobian. They are commented out so the old and new paths
+            // cannot double-count. The hybrid registration for the region
+            // DS split path is deferred to Session 5 cleanup; tests that
+            // exercise fault + absorbing BC coexistence may regress until
+            // then (documented in docs/SESSION_4_REPORT.md).
+            //
+            //   if (fault_mode_ == "prescribed_slip") {
+            //       ierr = PetscDSSetBdResidual(fault_ds, cohesive_lagrange_field,
+            //                                   CohesiveFaultKernel::f0_prescribed_slip,
+            //                                   nullptr); CHKERRQ(ierr);
+            //   } else {
+            //       ierr = PetscDSSetBdResidual(fault_ds, cohesive_lagrange_field,
+            //                                   CohesiveFaultKernel::f0_lagrange_constraint,
+            //                                   nullptr); CHKERRQ(ierr);
+            //   }
+            //   ierr = PetscDSSetBdResidual(fault_ds, cohesive_disp_field,
+            //                               CohesiveFaultKernel::f0_displacement_cohesive,
+            //                               nullptr); CHKERRQ(ierr);
+            (void)fault_ds;  // fault_ds is still used by absorbing below.
         }
 
         ierr = PetscDSSetBdResidual(absorbing_ds, absorbing_disp_field,
@@ -3558,7 +3624,104 @@ PetscErrorCode Simulator::setupFaultNetwork() {
     ierr = getOrCreateInterfacesLabel(&interfaces_label_); CHKERRQ(ierr);
     ierr = getOrCreateInterfaceFacetsLabel(&interface_facets_label_); CHKERRQ(ierr);
 
+    // Session 4: mark the regular cells adjacent to each cohesive prism with
+    // a DMLabel "material" (value 1 = negative side, value 2 = positive side)
+    // so DMPlexComputeResidualHybridByKey / ...JacobianHybridByKey can
+    // dispatch the per-side displacement weak forms.
+    ierr = createMaterialLabel(); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
+}
+
+// =============================================================================
+// createMaterialLabel
+//
+// Walks every cohesive prism cell (SEG_PRISM_TENSOR / TRI_PRISM_TENSOR /
+// QUAD_PRISM_TENSOR) in the current DM. For each cohesive cell `c`:
+//   cone(c)[0] = negative-side face of the cohesive prism
+//   cone(c)[1] = positive-side face
+// The support of cone(c)[i] is {c, regular_neighbor_i}; the non-cohesive
+// support entry is the regular cell on that side of the fault. The material
+// label gets value 1 on the negative-side regular cell and value 2 on the
+// positive-side regular cell. This is the PETSc ex5.c TestAssembly pattern
+// required by DMPlexComputeResidualHybridByKey for material-side weak-form
+// dispatch.
+// =============================================================================
+PetscErrorCode Simulator::createMaterialLabel()
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (!config.enable_faults) PetscFunctionReturn(PETSC_SUCCESS);
+
+    const char *labelName = "material";
+    PetscBool hasLabel = PETSC_FALSE;
+    ierr = DMHasLabel(dm, labelName, &hasLabel); CHKERRQ(ierr);
+    if (!hasLabel) {
+        ierr = DMCreateLabel(dm, labelName); CHKERRQ(ierr);
+    }
+    ierr = DMGetLabel(dm, labelName, &material_label_); CHKERRQ(ierr);
+
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    PetscInt n_neg = 0, n_pos = 0, n_cohesive = 0;
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        const bool is_cohesive = (ct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+                                  ct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+                                  ct == DM_POLYTOPE_QUAD_PRISM_TENSOR);
+        if (!is_cohesive) continue;
+        ++n_cohesive;
+
+        const PetscInt *cone = nullptr;
+        PetscInt cone_size = 0;
+        ierr = DMPlexGetConeSize(dm, c, &cone_size); CHKERRQ(ierr);
+        if (cone_size < 2) continue;
+        ierr = DMPlexGetCone(dm, c, &cone); CHKERRQ(ierr);
+
+        for (PetscInt side = 0; side < 2; ++side) {
+            const PetscInt face = cone[side];
+            const PetscInt label_value = (side == 0) ? 1 : 2;
+            const PetscInt *support = nullptr;
+            PetscInt support_size = 0;
+            ierr = DMPlexGetSupportSize(dm, face, &support_size); CHKERRQ(ierr);
+            if (support_size == 0) continue;
+            ierr = DMPlexGetSupport(dm, face, &support); CHKERRQ(ierr);
+
+            for (PetscInt s = 0; s < support_size; ++s) {
+                const PetscInt neighbor = support[s];
+                if (neighbor == c) continue;
+                DMPolytopeType nct;
+                ierr = DMPlexGetCellType(dm, neighbor, &nct); CHKERRQ(ierr);
+                if (nct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+                    nct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+                    nct == DM_POLYTOPE_QUAD_PRISM_TENSOR) {
+                    continue;
+                }
+                PetscInt existing = -1;
+                ierr = DMLabelGetValue(material_label_, neighbor, &existing); CHKERRQ(ierr);
+                if (existing == label_value) continue;
+                ierr = DMLabelSetValue(material_label_, neighbor, label_value); CHKERRQ(ierr);
+                if (side == 0) ++n_neg; else ++n_pos;
+            }
+        }
+    }
+
+    if (rank == 0) {
+        PetscPrintf(comm,
+                    "'material' label created: %d cohesive cells -> %d neg (value=1), %d pos (value=2)\n",
+                    (int)n_cohesive, (int)n_neg, (int)n_pos);
+        if (n_cohesive > 0 && (n_neg == 0 || n_pos == 0)) {
+            PetscPrintf(comm,
+                        "  WARNING: material label missing one side (neg=%d pos=%d); "
+                        "fault may be on the domain boundary.\n",
+                        (int)n_neg, (int)n_pos);
+        }
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 // =============================================================================
@@ -5459,6 +5622,50 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
         // Compute FEM residual on local vectors
         ierr = DMPlexTSComputeIFunctionFEM(dm, t, locU, locU_t, locF, ctx); CHKERRQ(ierr);
 
+        // Session 4: drive the cohesive residual with the PETSc hybrid-by-key
+        // integrator. This replaces the pre-Session-4 BdResidual path, which
+        // silently returned zero on the fault label under PETSc 3.25 because
+        // DMPlexTSComputeIFunctionFEM routes cohesive cells through the
+        // non-hybrid callback with the wrong DOF layout. The three weak forms
+        // were registered in setupPhysics via
+        // CohesiveFaultKernel::registerHybridWithDS against the "material"
+        // label (value 1 neg, value 2 pos) and the "cohesive interface"
+        // label (value 1).
+        if (sim->config.enable_faults && sim->interfaces_label_ &&
+            sim->material_label_ &&
+            sim->displacement_field_idx_ >= 0 &&
+            sim->lagrange_field_idx_ >= 0 &&
+            !sim->hydrofrac_fem_pressurized_mode_) {
+            PetscInt cMax = 0, cEnd_all = 0;
+            ierr = DMPlexGetSimplexOrBoxCells(dm, 0, NULL, &cMax); CHKERRQ(ierr);
+            ierr = DMPlexGetHeightStratum(dm, 0, NULL, &cEnd_all); CHKERRQ(ierr);
+            if (cEnd_all > cMax) {
+                IS cohesiveCellsIS = NULL;
+                ierr = ISCreateStride(PETSC_COMM_SELF,
+                                      cEnd_all - cMax, cMax, 1,
+                                      &cohesiveCellsIS); CHKERRQ(ierr);
+
+                PetscFormKey keys[3];
+                keys[0].label = sim->material_label_;
+                keys[0].value = 1;
+                keys[0].field = sim->displacement_field_idx_;
+                keys[0].part  = 0;
+                keys[1].label = sim->material_label_;
+                keys[1].value = 2;
+                keys[1].field = sim->displacement_field_idx_;
+                keys[1].part  = 0;
+                keys[2].label = sim->interfaces_label_;
+                keys[2].value = 1;
+                keys[2].field = sim->lagrange_field_idx_;
+                keys[2].part  = 0;
+
+                ierr = DMPlexComputeResidualHybridByKey(
+                    dm, keys, cohesiveCellsIS,
+                    t, locU, locU_t, t, locF, ctx); CHKERRQ(ierr);
+                ierr = ISDestroy(&cohesiveCellsIS); CHKERRQ(ierr);
+            }
+        }
+
         // Add injection source to the local residual (modifies pressure DOFs)
         if (sim->injection_enabled_ && sim->injection_cell_ >= 0) {
             PetscReal t_local = static_cast<double>(t);
@@ -5543,6 +5750,44 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
 
         ierr = DMPlexTSComputeIJacobianFEM(dm, t, locU, locU_t, a, J, P, ctx);
         CHKERRQ(ierr);
+
+        // Session 4: hybrid cohesive Jacobian. Matches the FormFunction hybrid
+        // residual call above.
+        if (sim->config.enable_faults && sim->interfaces_label_ &&
+            sim->material_label_ &&
+            sim->displacement_field_idx_ >= 0 &&
+            sim->lagrange_field_idx_ >= 0 &&
+            !sim->hydrofrac_fem_pressurized_mode_) {
+            PetscInt cMax = 0, cEnd_all = 0;
+            ierr = DMPlexGetSimplexOrBoxCells(dm, 0, NULL, &cMax); CHKERRQ(ierr);
+            ierr = DMPlexGetHeightStratum(dm, 0, NULL, &cEnd_all); CHKERRQ(ierr);
+            if (cEnd_all > cMax) {
+                IS cohesiveCellsIS = NULL;
+                ierr = ISCreateStride(PETSC_COMM_SELF,
+                                      cEnd_all - cMax, cMax, 1,
+                                      &cohesiveCellsIS); CHKERRQ(ierr);
+
+                PetscFormKey keys[3];
+                keys[0].label = sim->material_label_;
+                keys[0].value = 1;
+                keys[0].field = sim->displacement_field_idx_;
+                keys[0].part  = 0;
+                keys[1].label = sim->material_label_;
+                keys[1].value = 2;
+                keys[1].field = sim->displacement_field_idx_;
+                keys[1].part  = 0;
+                keys[2].label = sim->interfaces_label_;
+                keys[2].value = 1;
+                keys[2].field = sim->lagrange_field_idx_;
+                keys[2].part  = 0;
+
+                ierr = MatSetOption(P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
+                ierr = DMPlexComputeJacobianHybridByKey(
+                    dm, keys, cohesiveCellsIS, t, a, locU, locU_t,
+                    J, P, ctx); CHKERRQ(ierr);
+                ierr = ISDestroy(&cohesiveCellsIS); CHKERRQ(ierr);
+            }
+        }
 
         // The cohesive interface currently relies on finite-difference
         // coloring for the hybrid-cell coupling terms. Keep the placeholder

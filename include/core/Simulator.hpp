@@ -189,6 +189,14 @@ private:
     PetscErrorCode getOrCreateInterfacesLabel(DMLabel *interfacesLabel);
     PetscErrorCode getOrCreateInterfaceFacetsLabel(DMLabel *interfaceFacetsLabel);
 
+    // Session 4: material label that tags regular cells adjacent to cohesive
+    // prisms with value 1 (negative side) or value 2 (positive side). This is
+    // the PETSc hybrid-driver pattern (see dm/impls/plex/tests/ex5.c
+    // TestAssembly) required by DMPlexComputeResidualHybridByKey /
+    // DMPlexComputeJacobianHybridByKey to dispatch the per-side displacement
+    // weak forms.
+    PetscErrorCode createMaterialLabel();
+
     // PyLith-style "cohesive interface" label: cohesive cells plus their
     // closure faces, edges, and vertices on the negative side of the fault.
     // Populated by getOrCreateInterfacesLabel during setupFaultNetwork and
@@ -202,6 +210,17 @@ private:
     // cells and vertices into the kernel and yields NaN. This label contains
     // only the cohesive facets that are the correct target for BdResidual.
     DMLabel interface_facets_label_ = nullptr;
+
+    // Session 4: material label with value 1 on regular cells on the negative
+    // side of the fault and value 2 on regular cells on the positive side.
+    // Used as key[0].label / key[1].label in DMPlexComputeResidualHybridByKey.
+    DMLabel material_label_ = nullptr;
+
+    // Field indices cached during setupFields so FormFunction / FormJacobian
+    // can build PetscFormKey arrays without re-querying the DS on every call.
+    // -1 means the field is not present.
+    PetscInt displacement_field_idx_ = -1;
+    PetscInt lagrange_field_idx_ = -1;
     
     // Simulation state
     double current_time;

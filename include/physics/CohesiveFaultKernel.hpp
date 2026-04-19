@@ -154,6 +154,28 @@ public:
                                                  int lagrange_field);
 
     /**
+     * @brief Register the PetscWeakForm entries for the PETSc hybrid cohesive
+     *        driver (DMPlexComputeResidualHybridByKey / ...JacobianHybridByKey).
+     *
+     * This is the Session 4 replacement for @ref registerWithDS. It attaches
+     * three weak forms against explicit (label, value, field) keys instead of
+     * using PetscDSSetBdResidual:
+     *   - (material_label, 1, displacement_field) -> f0_hybrid_u_neg
+     *   - (material_label, 2, displacement_field) -> f0_hybrid_u_pos
+     *   - (cohesive_label, 1, lagrange_field)     -> f0_hybrid_lambda
+     * plus the corresponding g0 Jacobian entries.
+     *
+     * Modeled on PETSc main src/dm/impls/plex/tests/ex5.c TestAssembly
+     * (lines 1085-1235). See docs/SESSION_4_REPORT.md.
+     */
+    PetscErrorCode registerHybridWithDS(PetscDS prob,
+                                        PetscWeakForm wf,
+                                        DMLabel material_label,
+                                        DMLabel cohesive_label,
+                                        PetscInt displacement_field,
+                                        PetscInt lagrange_field);
+
+    /**
      * @brief Update auxiliary state data (friction state) before residual evaluation
      */
     PetscErrorCode updateAuxiliaryState(DM dm, FaultCohesiveDyn* fault);
@@ -274,6 +296,130 @@ public:
                                       PetscInt numConstants,
                                       const PetscScalar constants[],
                                       PetscScalar g0[]);
+
+    // =========================================================================
+    // PETSc hybrid-driver callbacks (Session 4 hybrid-by-key path)
+    //
+    // These replace f0_displacement_cohesive / f0_lagrange_constraint /
+    // f0_prescribed_slip / g0_displacement_lagrange / g0_lagrange_displacement
+    // / g0_lagrange_lagrange for the DMPlexComputeResidualHybridByKey route.
+    // Modeled on PETSc src/dm/impls/plex/tests/ex5.c.
+    // =========================================================================
+
+    // Displacement residual on the negative-side regular cell: f0[c] = -lambda[c]
+    static void f0_hybrid_u_neg(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                const PetscInt uOff[], const PetscInt uOff_x[],
+                                const PetscScalar u[], const PetscScalar u_t[],
+                                const PetscScalar u_x[],
+                                const PetscInt aOff[], const PetscInt aOff_x[],
+                                const PetscScalar a[], const PetscScalar a_t[],
+                                const PetscScalar a_x[],
+                                PetscReal t, const PetscReal x[],
+                                const PetscReal n[],
+                                PetscInt numConstants,
+                                const PetscScalar constants[],
+                                PetscScalar f0[]);
+
+    // Displacement residual on the positive-side regular cell: f0[c] = +lambda[c]
+    static void f0_hybrid_u_pos(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                const PetscInt uOff[], const PetscInt uOff_x[],
+                                const PetscScalar u[], const PetscScalar u_t[],
+                                const PetscScalar u_x[],
+                                const PetscInt aOff[], const PetscInt aOff_x[],
+                                const PetscScalar a[], const PetscScalar a_t[],
+                                const PetscScalar a_x[],
+                                PetscReal t, const PetscReal x[],
+                                const PetscReal n[],
+                                PetscInt numConstants,
+                                const PetscScalar constants[],
+                                PetscScalar f0[]);
+
+    // Lagrange-field residual on the cohesive cell. Layout (hybrid driver):
+    //   Nc       = uOff[2] - uOff[1] = displacement components = dim
+    //   u[c]     for c in [0, Nc)      = negative-side displacement component c
+    //   u[Nc+c]  for c in [0, Nc)      = positive-side displacement component c
+    //   u[uOff[1] + c]                 = Lagrange multiplier (traction) component c
+    //
+    // Branches on constants[COHESIVE_CONST_MODE]:
+    //   0 locked     : f0[c] = (u_pos - u_neg)
+    //   2 prescribed : f0[c] = (u_pos - u_neg) - delta_prescribed[c]
+    //   1 slipping   : Coulomb-friction semi-smooth constraint (tangential
+    //                  traction = mu_f * |sigma_n| * slip_hat, non-penetration
+    //                  on normal component).
+    static void f0_hybrid_lambda(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                 const PetscInt uOff[], const PetscInt uOff_x[],
+                                 const PetscScalar u[], const PetscScalar u_t[],
+                                 const PetscScalar u_x[],
+                                 const PetscInt aOff[], const PetscInt aOff_x[],
+                                 const PetscScalar a[], const PetscScalar a_t[],
+                                 const PetscScalar a_x[],
+                                 PetscReal t, const PetscReal x[],
+                                 const PetscReal n[],
+                                 PetscInt numConstants,
+                                 const PetscScalar constants[],
+                                 PetscScalar f0[]);
+
+    // Jacobian dR_u_neg / d_lambda = -I
+    static void g0_hybrid_u_lambda_neg(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                       const PetscInt uOff[], const PetscInt uOff_x[],
+                                       const PetscScalar u[], const PetscScalar u_t[],
+                                       const PetscScalar u_x[],
+                                       const PetscInt aOff[], const PetscInt aOff_x[],
+                                       const PetscScalar a[], const PetscScalar a_t[],
+                                       const PetscScalar a_x[],
+                                       PetscReal t, PetscReal u_tShift,
+                                       const PetscReal x[], const PetscReal n[],
+                                       PetscInt numConstants,
+                                       const PetscScalar constants[],
+                                       PetscScalar g0[]);
+
+    // Jacobian dR_u_pos / d_lambda = +I
+    static void g0_hybrid_u_lambda_pos(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                       const PetscInt uOff[], const PetscInt uOff_x[],
+                                       const PetscScalar u[], const PetscScalar u_t[],
+                                       const PetscScalar u_x[],
+                                       const PetscInt aOff[], const PetscInt aOff_x[],
+                                       const PetscScalar a[], const PetscScalar a_t[],
+                                       const PetscScalar a_x[],
+                                       PetscReal t, PetscReal u_tShift,
+                                       const PetscReal x[], const PetscReal n[],
+                                       PetscInt numConstants,
+                                       const PetscScalar constants[],
+                                       PetscScalar g0[]);
+
+    // Jacobian dR_lambda / d_u. Output layout (per PETSc hybrid convention):
+    //   first Nc*Nc block = dR_lambda/d_u_neg
+    //   second Nc*Nc block = dR_lambda/d_u_pos
+    // Nc = displacement components = dim.
+    static void g0_hybrid_lambda_u(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                   const PetscInt uOff[], const PetscInt uOff_x[],
+                                   const PetscScalar u[], const PetscScalar u_t[],
+                                   const PetscScalar u_x[],
+                                   const PetscInt aOff[], const PetscInt aOff_x[],
+                                   const PetscScalar a[], const PetscScalar a_t[],
+                                   const PetscScalar a_x[],
+                                   PetscReal t, PetscReal u_tShift,
+                                   const PetscReal x[], const PetscReal n[],
+                                   PetscInt numConstants,
+                                   const PetscScalar constants[],
+                                   PetscScalar g0[]);
+
+    // Jacobian dR_lambda / d_lambda on the cohesive cell. Locked / prescribed
+    // modes contribute zero; slipping mode contributes the friction-normal
+    // coupling (tangential projector + friction-derivative) ported from the
+    // existing g0_lagrange_lagrange.
+    static void g0_hybrid_lambda_lambda(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                                        const PetscInt uOff[], const PetscInt uOff_x[],
+                                        const PetscScalar u[], const PetscScalar u_t[],
+                                        const PetscScalar u_x[],
+                                        const PetscInt aOff[], const PetscInt aOff_x[],
+                                        const PetscScalar a[], const PetscScalar a_t[],
+                                        const PetscScalar a_x[],
+                                        PetscReal t, PetscReal u_tShift,
+                                        const PetscReal x[], const PetscReal n[],
+                                        PetscInt numConstants,
+                                        const PetscScalar constants[],
+                                        PetscScalar g0[]);
 
 private:
     bool locked_ = true;
