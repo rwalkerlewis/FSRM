@@ -318,6 +318,15 @@ protected:
     if (const char* dump = std::getenv("FSRM_DUMP_JAC")) {
         PetscOptionsSetValue(nullptr, "-ksp_view_mat", dump);
     }
+    // Session 9 diagnostic hook: FSRM_SNES_TEST_JAC=1 enables PETSc's
+    // -snes_test_jacobian / -snes_test_jacobian_view so the hand-coded
+    // Jacobian can be compared to the finite-difference Jacobian. Useful
+    // for investigating SNES DIVERGED_LINEAR_SOLVE on fault-enabled runs.
+    if (std::getenv("FSRM_SNES_TEST_JAC")) {
+        PetscOptionsSetValue(nullptr, "-snes_test_jacobian", nullptr);
+        PetscOptionsSetValue(nullptr, "-snes_test_jacobian_view", nullptr);
+        PetscOptionsSetValue(nullptr, "-snes_max_it", "1");
+    }
 
     ierr = sim.initializeFromConfigFile(config_path);
     if (ierr) return ierr;
