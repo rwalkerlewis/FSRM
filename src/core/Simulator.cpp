@@ -1703,9 +1703,9 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         }
 
         PetscFE fe_lagrange = nullptr;
-        ierr = PetscFECreateDefault(PETSC_COMM_SELF, dim - 1, dim, isSimplex,
-                                    "lagrange_", PETSC_DETERMINE,
-                                    &fe_lagrange); CHKERRQ(ierr);
+        ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim - 1, dim, isSimplex,
+                                     1 /* degree */, -1 /* qorder */,
+                                     &fe_lagrange); CHKERRQ(ierr);
         ierr = PetscObjectSetName((PetscObject)fe_lagrange,
                                   "lagrange_multiplier_fault"); CHKERRQ(ierr);
         lagrange_field_idx = static_cast<PetscInt>(fe_fields.size());
