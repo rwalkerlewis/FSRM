@@ -327,6 +327,15 @@ protected:
         PetscOptionsSetValue(nullptr, "-snes_test_jacobian_view", nullptr);
         PetscOptionsSetValue(nullptr, "-snes_max_it", "1");
     }
+    // Session 10 diagnostic hook: FSRM_SVD_DEBUG=1 swaps the LU PC for the
+    // SVD PC so PETSc reports the assembled saddle-point matrix's full
+    // singular-value spectrum and condition number. Used to verify the
+    // fault-edge Lagrange BC actually removes the rank deficiency.
+    if (std::getenv("FSRM_SVD_DEBUG")) {
+        PetscOptionsSetValue(nullptr, "-pc_type", "svd");
+        PetscOptionsSetValue(nullptr, "-pc_svd_monitor", nullptr);
+        PetscOptionsSetValue(nullptr, "-snes_max_it", "1");
+    }
 
     ierr = sim.initializeFromConfigFile(config_path);
     if (ierr) return ierr;
