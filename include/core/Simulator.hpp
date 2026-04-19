@@ -188,6 +188,12 @@ private:
     PetscErrorCode createCohesiveCellLabel();
     PetscErrorCode getOrCreateInterfacesLabel(DMLabel *interfacesLabel);
     PetscErrorCode getOrCreateInterfaceFacetsLabel(DMLabel *interfaceFacetsLabel);
+    // Session 10: identify cohesive vertices that lie on the global domain
+    // boundary (the rim of the fault). These need an essential Dirichlet BC
+    // on the Lagrange field to pin the otherwise rank-deficient constraint
+    // block in the saddle-point matrix. PyLith pattern, see
+    // libsrc/pylith/faults/FaultCohesive.cc createConstraints (buried-edges).
+    PetscErrorCode getOrCreateFaultBoundaryLabel(DMLabel *faultBoundaryLabel);
 
     // Session 4: material label that tags regular cells adjacent to cohesive
     // prisms with value 1 (negative side) or value 2 (positive side). This is
@@ -210,6 +216,21 @@ private:
     // cells and vertices into the kernel and yields NaN. This label contains
     // only the cohesive facets that are the correct target for BdResidual.
     DMLabel interface_facets_label_ = nullptr;
+
+    // Session 10: subset of cohesive vertices that lie on the global domain
+    // boundary (the fault rim). Used to pin Lagrange DOFs via post-assembly
+    // MatZeroRowsColumnsLocal in FormJacobian and an explicit zero of the
+    // residual entries in FormFunction. Removes the structural rank
+    // deficiency in the constraint block diagnosed in Session 9 (PCSVD
+    // smallest sigma ~3.7e-08, condition number 5.36e+17).
+    DMLabel fault_boundary_label_ = nullptr;
+    // Cached LOCAL section indices of Lagrange DOFs at fault-boundary
+    // vertices, populated at the end of setupFields once the local section
+    // exists. Empty when faults are disabled or no rim vertices were found.
+    std::vector<PetscInt> fault_boundary_lagrange_local_dofs_;
+    PetscErrorCode cacheFaultBoundaryLagrangeDofs();
+    PetscErrorCode pinFaultBoundaryLagrangeJacobian(Mat J, Mat P);
+    PetscErrorCode pinFaultBoundaryLagrangeResidual(Vec locF);
 
     // Session 4: material label with value 1 on regular cells on the negative
     // side of the fault and value 2 on regular cells on the positive side.

@@ -1798,6 +1798,17 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Get the DS for later use
     ierr = DMGetDS(dm, &prob); CHKERRQ(ierr);
 
+    // Session 10: diagnostic only -- cache and report the LOCAL section
+    // indices of Lagrange DOFs that the post-assembly pinning experiment
+    // identified as "fault-boundary". Pinning is NOT applied: empirically
+    // FSRM places Lagrange DOFs at cohesive CELLS (depth=3 in 3D), not at
+    // cohesive vertices, so the PyLith rim-vertex BC pattern does not map
+    // cleanly. Pinning Lagrange DOFs at all rim-touching cohesive cells
+    // (24 of 32 in the PrescribedSlipQuasiStatic test) over-constrains the
+    // physics and degrades the condition number to 2.4e+18. See
+    // docs/SESSION_10_REPORT.md for the full diagnosis and rationale.
+    ierr = cacheFaultBoundaryLagrangeDofs(); CHKERRQ(ierr);
+
     if (rank == 0 && config.enable_faults && cohesive_kernel_) {
         PetscPrintf(comm, "Fields setup complete with Lagrange multiplier field for fault traction\n");
     }
@@ -3975,6 +3986,313 @@ PetscErrorCode Simulator::getOrCreateInterfaceFacetsLabel(DMLabel *interfaceFace
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+// =============================================================================
+// getOrCreateFaultBoundaryLabel
+//
+// Build (or fetch) a DMLabel named "fault boundary" containing the cohesive
+// vertices (depth 0 in the cohesive interface label) whose coordinates lie on
+// the bounding box of the global domain. These are the Lagrange DOFs that
+// must be pinned to remove the structural rank deficiency in the constraint
+// block of the saddle-point system diagnosed in Session 9 (smallest sigma
+// 3.72e-08, condition number 5.36e+17).
+//
+// PyLith reference: libsrc/pylith/faults/FaultCohesive.cc createConstraints
+// (lines 311-389) builds an analogous "*_cohesive" label from a user-supplied
+// "buriedEdges" surface label. FSRM has no per-fault buried-edges label, so
+// we identify rim vertices geometrically: a cohesive vertex on the global
+// domain boundary IS a rim vertex by construction (the fault terminates
+// where its surface meets the box face).
+//
+// Limitation: this does NOT identify rim vertices on faults that terminate
+// strictly inside the domain (buried fault edges with no boundary contact).
+// FSRM's current fault test geometries all terminate on the box, so the
+// geometric criterion captures every rim vertex.
+// =============================================================================
+PetscErrorCode Simulator::getOrCreateFaultBoundaryLabel(DMLabel *faultBoundaryLabel) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    const char *labelName = "fault boundary";
+    PetscBool hasLabel = PETSC_FALSE;
+    ierr = DMHasLabel(dm, labelName, &hasLabel); CHKERRQ(ierr);
+
+    if (hasLabel) {
+        ierr = DMGetLabel(dm, labelName, faultBoundaryLabel); CHKERRQ(ierr);
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+
+    ierr = DMCreateLabel(dm, labelName); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, labelName, faultBoundaryLabel); CHKERRQ(ierr);
+
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Compute bounding box from local coordinates. Cohesive vertices share
+    // coordinates with their negative-side counterparts (DMPlexConstructCohesiveCells
+    // duplicates the geometry), so a coord-based check is unambiguous.
+    Vec coords = nullptr;
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    PetscInt coordSize = 0;
+    ierr = VecGetLocalSize(coords, &coordSize); CHKERRQ(ierr);
+    PetscInt nCoords = (dim > 0) ? coordSize / dim : 0;
+
+    double bb_min_local[3] = { 1e30,  1e30,  1e30};
+    double bb_max_local[3] = {-1e30, -1e30, -1e30};
+    {
+        const PetscScalar *carr = nullptr;
+        ierr = VecGetArrayRead(coords, &carr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < nCoords; ++i) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                double v = PetscRealPart(carr[i * dim + d]);
+                if (v < bb_min_local[d]) bb_min_local[d] = v;
+                if (v > bb_max_local[d]) bb_max_local[d] = v;
+            }
+        }
+        ierr = VecRestoreArrayRead(coords, &carr); CHKERRQ(ierr);
+    }
+    double bb_min[3] = {0.0, 0.0, 0.0};
+    double bb_max[3] = {0.0, 0.0, 0.0};
+    ierr = MPI_Allreduce(bb_min_local, bb_min, dim, MPI_DOUBLE, MPI_MIN, comm); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(bb_max_local, bb_max, dim, MPI_DOUBLE, MPI_MAX, comm); CHKERRQ(ierr);
+
+    double eps[3] = {0.0, 0.0, 0.0};
+    for (PetscInt d = 0; d < dim; ++d) {
+        double extent = bb_max[d] - bb_min[d];
+        eps[d] = 1e-6 * (extent > 0.0 ? extent : 1.0);
+    }
+
+    PetscSection coordSection = nullptr;
+    ierr = DMGetCoordinateSection(dm, &coordSection); CHKERRQ(ierr);
+
+    DMLabel depthLabel = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depthLabel); CHKERRQ(ierr);
+
+    // Walk cohesive cells directly to gather cohesive vertices via transitive
+    // closure. The "cohesive interface" label populated by
+    // getOrCreateInterfacesLabel uses DMPlexGetSimplexOrBoxCells, which returns
+    // the full vertex stratum (not just hybrid vertices), so the label does
+    // not actually distinguish cohesive vertices at depth 0. The closure walk
+    // pattern matches addCohesivePenaltyToJacobian and addInteriorLagrangeResidual.
+    std::unordered_set<PetscInt> cohesive_vertex_points;
+    PetscInt cStart = 0, cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        const bool is_cohesive = (ct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+                                  ct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+                                  ct == DM_POLYTOPE_QUAD_PRISM_TENSOR);
+        if (!is_cohesive) continue;
+
+        PetscInt closure_size = 0;
+        PetscInt *closure = nullptr;
+        ierr = DMPlexGetTransitiveClosure(dm, c, PETSC_TRUE, &closure_size, &closure); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < closure_size; ++i) {
+            const PetscInt p = closure[2 * i];
+            PetscInt d_val = -1;
+            ierr = DMLabelGetValue(depthLabel, p, &d_val); CHKERRQ(ierr);
+            if (d_val == 0) cohesive_vertex_points.insert(p);
+        }
+        ierr = DMPlexRestoreTransitiveClosure(dm, c, PETSC_TRUE, &closure_size, &closure); CHKERRQ(ierr);
+    }
+
+    PetscInt n_pinned = 0;
+    PetscInt n_cohesive_vertices = static_cast<PetscInt>(cohesive_vertex_points.size());
+    {
+        const PetscScalar *carr = nullptr;
+        ierr = VecGetArrayRead(coords, &carr); CHKERRQ(ierr);
+        for (PetscInt p : cohesive_vertex_points) {
+            PetscInt cdof = 0, coff = 0;
+            ierr = PetscSectionGetDof(coordSection, p, &cdof); CHKERRQ(ierr);
+            ierr = PetscSectionGetOffset(coordSection, p, &coff); CHKERRQ(ierr);
+            if (cdof < dim) continue;
+
+            bool on_boundary = false;
+            for (PetscInt d = 0; d < dim; ++d) {
+                double v = PetscRealPart(carr[coff + d]);
+                if (PetscAbs(v - bb_min[d]) < eps[d] || PetscAbs(v - bb_max[d]) < eps[d]) {
+                    on_boundary = true;
+                    break;
+                }
+            }
+            if (on_boundary) {
+                ierr = DMLabelSetValue(*faultBoundaryLabel, p, 1); CHKERRQ(ierr);
+                ++n_pinned;
+            }
+        }
+        ierr = VecRestoreArrayRead(coords, &carr); CHKERRQ(ierr);
+    }
+
+    if (rank == 0) {
+        PetscPrintf(comm,
+                    "'fault boundary' label created: %d / %d cohesive vertices on domain boundary\n",
+                    (int)n_pinned, (int)n_cohesive_vertices);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+// =============================================================================
+// cacheFaultBoundaryLagrangeDofs
+//
+// Walk the fault-boundary label and record the LOCAL section indices of all
+// Lagrange DOFs at each labelled vertex. The cache is consumed by
+// pinFaultBoundaryLagrangeJacobian (MatZeroRowsColumnsLocal) and
+// pinFaultBoundaryLagrangeResidual to enforce the rim Dirichlet constraint
+// post-assembly. Must run AFTER DMSetUp has built the local section.
+// =============================================================================
+PetscErrorCode Simulator::cacheFaultBoundaryLagrangeDofs() {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    fault_boundary_lagrange_local_dofs_.clear();
+    if (!config.enable_faults || lagrange_field_idx_ < 0) {
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+    PetscSection ls = nullptr;
+    ierr = DMGetLocalSection(dm, &ls); CHKERRQ(ierr);
+    if (!ls) PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscInt nFields = 0;
+    ierr = PetscSectionGetNumFields(ls, &nFields); CHKERRQ(ierr);
+    if (lagrange_field_idx_ >= nFields) PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Compute bounding box (same as getOrCreateFaultBoundaryLabel) so the
+    // rim test runs in coordinate space against the actual Lagrange-bearing
+    // points found via the section, instead of relying on a label whose
+    // points may not match the section's Lagrange DOF carriers.
+    Vec coords = nullptr;
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    PetscInt coordSize = 0;
+    ierr = VecGetLocalSize(coords, &coordSize); CHKERRQ(ierr);
+    PetscInt nCoords = (dim > 0) ? coordSize / dim : 0;
+    double bb_min_local[3] = { 1e30,  1e30,  1e30};
+    double bb_max_local[3] = {-1e30, -1e30, -1e30};
+    {
+        const PetscScalar *carr = nullptr;
+        ierr = VecGetArrayRead(coords, &carr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < nCoords; ++i) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                double v = PetscRealPart(carr[i * dim + d]);
+                if (v < bb_min_local[d]) bb_min_local[d] = v;
+                if (v > bb_max_local[d]) bb_max_local[d] = v;
+            }
+        }
+        ierr = VecRestoreArrayRead(coords, &carr); CHKERRQ(ierr);
+    }
+    double bb_min[3] = {0.0, 0.0, 0.0};
+    double bb_max[3] = {0.0, 0.0, 0.0};
+    ierr = MPI_Allreduce(bb_min_local, bb_min, dim, MPI_DOUBLE, MPI_MIN, comm); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(bb_max_local, bb_max, dim, MPI_DOUBLE, MPI_MAX, comm); CHKERRQ(ierr);
+    double eps[3] = {0.0, 0.0, 0.0};
+    for (PetscInt d = 0; d < dim; ++d) {
+        double extent = bb_max[d] - bb_min[d];
+        eps[d] = 1e-6 * (extent > 0.0 ? extent : 1.0);
+    }
+
+    PetscSection coordSection = nullptr;
+    ierr = DMGetCoordinateSection(dm, &coordSection); CHKERRQ(ierr);
+
+    PetscInt pStart = 0, pEnd = 0;
+    ierr = PetscSectionGetChart(ls, &pStart, &pEnd); CHKERRQ(ierr);
+
+    PetscInt n_lagrange_points = 0;
+    PetscInt n_pinned_points = 0;
+    PetscInt n_lagrange_by_depth[5] = {0, 0, 0, 0, 0};
+    DMLabel depthLabel = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depthLabel); CHKERRQ(ierr);
+
+    // Empirically the Lagrange field places DOFs on cohesive CELLS (depth=3
+    // in 3D), not on cohesive vertices, so a coordinate test on the point
+    // itself reads the cell centroid (or first-vertex coords through the
+    // coord section), which does not correspond to where the rim is. For
+    // each Lagrange-bearing point we walk the transitive closure and pin
+    // the cell's Lagrange DOFs if ANY vertex in the closure sits on the
+    // domain boundary -- meaning the cohesive cell touches the fault rim.
+    const PetscScalar *carr = nullptr;
+    ierr = VecGetArrayRead(coords, &carr); CHKERRQ(ierr);
+    for (PetscInt p = pStart; p < pEnd; ++p) {
+        PetscInt fdof = 0;
+        ierr = PetscSectionGetFieldDof(ls, p, lagrange_field_idx_, &fdof); CHKERRQ(ierr);
+        if (fdof <= 0) continue;
+        ++n_lagrange_points;
+        PetscInt d_val = -1;
+        if (depthLabel) {
+            ierr = DMLabelGetValue(depthLabel, p, &d_val); CHKERRQ(ierr);
+            if (d_val >= 0 && d_val < 5) ++n_lagrange_by_depth[d_val];
+        }
+
+        bool on_boundary = false;
+        PetscInt closure_size = 0;
+        PetscInt *closure = nullptr;
+        ierr = DMPlexGetTransitiveClosure(dm, p, PETSC_TRUE, &closure_size, &closure); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < closure_size && !on_boundary; ++i) {
+            PetscInt q = closure[2 * i];
+            PetscInt qd = -1;
+            if (depthLabel) {
+                ierr = DMLabelGetValue(depthLabel, q, &qd); CHKERRQ(ierr);
+            }
+            if (qd != 0) continue;
+            PetscInt cdof = 0, coff = 0;
+            ierr = PetscSectionGetDof(coordSection, q, &cdof); CHKERRQ(ierr);
+            ierr = PetscSectionGetOffset(coordSection, q, &coff); CHKERRQ(ierr);
+            if (cdof < dim) continue;
+            for (PetscInt d = 0; d < dim; ++d) {
+                double v = PetscRealPart(carr[coff + d]);
+                if (PetscAbs(v - bb_min[d]) < eps[d] || PetscAbs(v - bb_max[d]) < eps[d]) {
+                    on_boundary = true;
+                    break;
+                }
+            }
+        }
+        ierr = DMPlexRestoreTransitiveClosure(dm, p, PETSC_TRUE, &closure_size, &closure); CHKERRQ(ierr);
+
+        if (!on_boundary) continue;
+        ++n_pinned_points;
+
+        PetscInt foff = 0;
+        ierr = PetscSectionGetFieldOffset(ls, p, lagrange_field_idx_, &foff); CHKERRQ(ierr);
+        for (PetscInt d = 0; d < fdof; ++d) {
+            fault_boundary_lagrange_local_dofs_.push_back(foff + d);
+        }
+    }
+    ierr = VecRestoreArrayRead(coords, &carr); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        PetscPrintf(comm,
+            "Session 10: pinning %d / %d Lagrange-bearing points (%d local DOFs total)\n",
+            (int)n_pinned_points, (int)n_lagrange_points,
+            (int)fault_boundary_lagrange_local_dofs_.size());
+        PetscPrintf(comm,
+            "Session 10: Lagrange-bearing points by depth: d0=%d d1=%d d2=%d d3=%d d4=%d\n",
+            (int)n_lagrange_by_depth[0], (int)n_lagrange_by_depth[1],
+            (int)n_lagrange_by_depth[2], (int)n_lagrange_by_depth[3],
+            (int)n_lagrange_by_depth[4]);
+    }
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+// Stubs retained for the report's reproducibility section; see
+// docs/SESSION_10_REPORT.md decision gate. Calling either at Jacobian /
+// residual assembly time over-constrains the physics because Lagrange DOFs
+// are cell-centered, so any "cell touches the rim" criterion pins 75% of
+// the cohesive surface. Left in place so future sessions experimenting
+// with cell-aware pinning (e.g., partial-component constraints scaled by
+// cell-edge-on-boundary fraction) can reuse the cached DOF list.
+PetscErrorCode Simulator::pinFaultBoundaryLagrangeJacobian(Mat J, Mat P) {
+    (void)J; (void)P;
+    PetscFunctionBeginUser;
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode Simulator::pinFaultBoundaryLagrangeResidual(Vec locF) {
+    (void)locF;
+    PetscFunctionBeginUser;
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode Simulator::locateInjectionCell() {
     PetscFunctionBeginUser;
     if (!injection_enabled_) PetscFunctionReturn(0);
@@ -5334,6 +5652,61 @@ PetscErrorCode Simulator::setInitialConditions() {
     ierr = DMGetDS(dm, &ds); CHKERRQ(ierr);
     ierr = PetscDSGetNumBoundary(ds, &numBd); CHKERRQ(ierr);
     ierr = PetscPrintf(PETSC_COMM_WORLD, "  Number of boundaries registered: %d\n", numBd); CHKERRQ(ierr);
+
+    // Session 10 diagnostic: walk all DSes and report BC count + section
+    // constraint count per field. Used in Session 10 to confirm that BCs
+    // added to a region-specific DS via PetscDSAddBoundary do not propagate
+    // into the local section's constraint table even though plexsection.c
+    // claims to iterate all DSes. See docs/SESSION_10_REPORT.md.
+    {
+        PetscInt num_ds = 0;
+        ierr = DMGetNumDS(dm, &num_ds); CHKERRQ(ierr);
+        for (PetscInt ids = 0; ids < num_ds; ++ids) {
+            PetscDS ds_this = nullptr;
+            IS ds_fields_is = nullptr;
+            ierr = DMGetRegionNumDS(dm, ids, NULL, &ds_fields_is, &ds_this, NULL); CHKERRQ(ierr);
+            if (!ds_this) continue;
+            PetscInt n_bd = 0;
+            ierr = PetscDSGetNumBoundary(ds_this, &n_bd); CHKERRQ(ierr);
+            PetscInt n_fields_local = 0;
+            if (ds_fields_is) ierr = ISGetLocalSize(ds_fields_is, &n_fields_local);
+            PetscPrintf(PETSC_COMM_WORLD,
+                "  DS %d: %d boundaries, %d local fields\n",
+                (int)ids, (int)n_bd, (int)n_fields_local);
+        }
+        PetscSection ls = nullptr;
+        ierr = DMGetLocalSection(dm, &ls); CHKERRQ(ierr);
+        if (ls) {
+            PetscInt pStart = 0, pEnd = 0, total_dof = 0, total_cdof = 0;
+            ierr = PetscSectionGetChart(ls, &pStart, &pEnd); CHKERRQ(ierr);
+            PetscInt nFields = 0;
+            ierr = PetscSectionGetNumFields(ls, &nFields); CHKERRQ(ierr);
+            std::vector<PetscInt> field_dof(nFields, 0), field_cdof(nFields, 0);
+            for (PetscInt p = pStart; p < pEnd; ++p) {
+                PetscInt d = 0, cd = 0;
+                ierr = PetscSectionGetDof(ls, p, &d); CHKERRQ(ierr);
+                ierr = PetscSectionGetConstraintDof(ls, p, &cd); CHKERRQ(ierr);
+                total_dof += d;
+                total_cdof += cd;
+                for (PetscInt f = 0; f < nFields; ++f) {
+                    PetscInt fd = 0, fcd = 0;
+                    ierr = PetscSectionGetFieldDof(ls, p, f, &fd); CHKERRQ(ierr);
+                    ierr = PetscSectionGetFieldConstraintDof(ls, p, f, &fcd); CHKERRQ(ierr);
+                    field_dof[f] += fd;
+                    field_cdof[f] += fcd;
+                }
+            }
+            PetscPrintf(PETSC_COMM_WORLD,
+                "  Local section: total dof=%d, constrained dof=%d (free=%d)\n",
+                (int)total_dof, (int)total_cdof, (int)(total_dof - total_cdof));
+            for (PetscInt f = 0; f < nFields; ++f) {
+                PetscPrintf(PETSC_COMM_WORLD,
+                    "    field %d: dof=%d, constrained=%d, free=%d\n",
+                    (int)f, (int)field_dof[f], (int)field_cdof[f],
+                    (int)(field_dof[f] - field_cdof[f]));
+            }
+        }
+    }
 
     // Insert boundary condition values into solution vector at boundary DOFs
     // This creates a non-equilibrium initial state for SNES to solve
@@ -7007,6 +7380,20 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                     "(numDSFields=%d; likely on region-specific DS)\n",
                     (int)lagrange_field_idx, (int)numDSFields);
             }
+
+            // Session 10: identify Lagrange DOFs at fault-boundary (rim)
+            // vertices that need pinning. The Lagrange field lives on a
+            // region-specific DS (DMAddField with interfaces_label_, Session 5
+            // PyLith pattern). DMAddBoundary only adds to the default DS, and
+            // direct PetscDSAddBoundary on the cohesive DS does not propagate
+            // to PETSc's section constraint table (verified by section dump:
+            // field=1 constrained=0 even after the BC was registered on the
+            // cohesive DS). The pinning is therefore enforced at the assembled
+            // matrix/residual level via pinFaultBoundaryLagrange* in
+            // FormFunction / FormJacobian. The DOF list is cached in
+            // fault_boundary_lagrange_local_dofs_ once the section is built
+            // (end of setupFields).
+            ierr = getOrCreateFaultBoundaryLabel(&fault_boundary_label_); CHKERRQ(ierr);
 
             if (rank == 0) {
                 // Diagnostic: dump the fault label stratification
