@@ -3438,10 +3438,130 @@ PetscErrorCode Simulator::setupSolvers() {
     // Get preconditioner
     ierr = KSPGetPC(ksp, &pc); CHKERRQ(ierr);
 
-    // For elastodynamics with TSALPHA2, the system matrix is K + shift*M.
-    // Use direct LU solver for robustness. For larger problems, can be overridden
-    // with command-line options: -ksp_type cg -pc_type gamg
-    if (config.enable_elastodynamics) {
+    // Session 14: saddle-point solver configuration for fault-enabled problems.
+    //
+    // Direct LU on the [A B^T; B 0] cohesive system hits zero pivots on the
+    // rank-deficient Lagrange block (PCSVD condition number ~2.5e+17, see
+    // docs/SESSION_13_REPORT.md). PyLith's production solver for pure
+    // elasticity + fault uses GAMG on the whole system with rigid-body
+    // near-null-space attached to the displacement field
+    // (libsrc/pylith/materials/Elasticity.cc:getSolverDefaults,
+    // libsrc/pylith/problems/Problem.cc:701-706). The near-null-space lets
+    // GAMG build smoothers that ignore the Lagrange-block rank deficiency.
+    //
+    // Path A + Path B: Schur fieldsplit with GAMG on the displacement block.
+    //
+    // Path A (GAMG + rigid-body near-null-space on the full system) does not
+    // resolve the Lagrange-block rank deficiency in PETSc 3.25: the Schur
+    // block [0] is exactly zero for the non-cohesive Lagrange DOFs, and the
+    // combined smoother cannot treat the mixed block as if it were SPD.
+    // Path B (Schur fieldsplit) tried to solve the saddle-point structure
+    // directly by treating displacement and Lagrange DOFs as two blocks; it
+    // fails with KSPConvergedReason DIVERGED_DTOL because the Schur
+    // complement S = -B A^{-1} B^T on the Lagrange block is zero at the
+    // non-cohesive Lagrange DOFs (B is zero there) and the "selfp" pre is
+    // singular. See docs/SESSION_14_REPORT.md for the SNES/KSP traces.
+    //
+    // Field names (from PetscSectionGetFieldName):
+    //   field 0 -> "displacement_" (note trailing underscore)
+    //   field 1 -> "lagrange_multiplier_fault"
+    //
+    // Per the prompt's Step C fallback: when neither Path A nor Path B
+    // restores the Session 12 passing tests, restore Session 12's geometric
+    // rim-pin so Locked* and TimeDependentSlip keep working under the
+    // default direct-LU solver. The opt-in env var FSRM_SADDLE_SOLVER
+    // (values "gamg" or "fieldsplit") lets future investigation re-enable
+    // Path A or Path B without reverting the rim-pin fallback.
+    if (config.enable_faults && cohesive_kernel_) {
+        const char *saddle = getenv("FSRM_SADDLE_SOLVER");
+
+        // Always attach rigid-body near-null-space to a sub-DM for the
+        // displacement field. For direct LU this is ignored; GAMG picks it
+        // up automatically. The sub-DM path ensures the null-space vectors
+        // match the fieldsplit displacement-block size (222 rather than the
+        // full 297) so enabling Path B later does not regress the PCSetData
+        // size check.
+        if (displacement_field_idx_ >= 0) {
+            DM sub_dm = NULL;
+            PetscInt disp_idx_array[1] = {displacement_field_idx_};
+            ierr = DMCreateSubDM(dm, 1, disp_idx_array, NULL, &sub_dm); CHKERRQ(ierr);
+
+            MatNullSpace near_null_space = NULL;
+            ierr = DMPlexCreateRigidBody(sub_dm, 0,
+                                         &near_null_space); CHKERRQ(ierr);
+            PetscObject disp_field = NULL;
+            ierr = DMGetField(dm, displacement_field_idx_, NULL,
+                              &disp_field); CHKERRQ(ierr);
+            ierr = PetscObjectCompose(disp_field, "nearnullspace",
+                                      (PetscObject)near_null_space); CHKERRQ(ierr);
+            ierr = MatNullSpaceDestroy(&near_null_space); CHKERRQ(ierr);
+            ierr = DMDestroy(&sub_dm); CHKERRQ(ierr);
+
+            if (rank == 0) {
+                const char *disp_name = NULL;
+                PetscSection section = NULL;
+                ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+                if (section) {
+                    ierr = PetscSectionGetFieldName(section, displacement_field_idx_,
+                                                   &disp_name); CHKERRQ(ierr);
+                }
+                PetscPrintf(comm,
+                            "Session 14: attached rigid-body near-null-space to field %d ('%s') via sub-DM\n",
+                            (int)displacement_field_idx_,
+                            disp_name ? disp_name : "(unnamed)");
+                if (lagrange_field_idx_ >= 0 && section) {
+                    const char *lag_name = NULL;
+                    ierr = PetscSectionGetFieldName(section, lagrange_field_idx_,
+                                                   &lag_name); CHKERRQ(ierr);
+                    PetscPrintf(comm,
+                                "Session 14: lagrange field %d name: '%s'\n",
+                                (int)lagrange_field_idx_,
+                                lag_name ? lag_name : "(unnamed)");
+                }
+            }
+        }
+
+        if (saddle && std::string(saddle) == "gamg") {
+            // Path A: GAMG on the full system with near-null-space.
+            ierr = PetscOptionsSetValue(NULL, "-pc_type", "gamg"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_type", "gmres"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-mg_fine_ksp_max_it", "5"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-mg_fine_pc_type", "vpbjacobi"); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "Session 14: Path A (GAMG + near-null-space) enabled via FSRM_SADDLE_SOLVER=gamg\n");
+            }
+        } else if (saddle && std::string(saddle) == "fieldsplit") {
+            // Path B: Schur fieldsplit.
+            ierr = PetscOptionsSetValue(NULL, "-pc_type", "fieldsplit"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_type", "schur"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_schur_fact_type", "full"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_schur_precondition", "selfp"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_displacement__ksp_type", "preonly"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_displacement__pc_type", "gamg"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_lagrange_multiplier_fault_ksp_type", "preonly"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_lagrange_multiplier_fault_pc_type", "jacobi"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_type", "gmres"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm, "Session 14: Path B (Schur fieldsplit) enabled via FSRM_SADDLE_SOLVER=fieldsplit\n");
+            }
+        } else if (rank == 0) {
+            PetscPrintf(comm,
+                        "Session 14: default solver (test-provided or direct LU) with Session 12 rim-pin fallback\n");
+        }
+
+        if (getenv("FSRM_KSP_VIEW")) {
+            ierr = PetscOptionsSetValue(NULL, "-ksp_view", NULL); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_error_if_not_converged", NULL); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_converged_reason", NULL); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_monitor", NULL); CHKERRQ(ierr);
+            if (rank == 0) PetscPrintf(comm, "Session 14: FSRM_KSP_VIEW enabled\n");
+        }
+    } else if (config.enable_elastodynamics) {
+        // For elastodynamics with TSALPHA2, the system matrix is K + shift*M.
+        // Use direct LU solver for robustness. For larger problems, can be
+        // overridden with command-line options: -ksp_type cg -pc_type gamg
         ierr = KSPSetType(ksp, KSPPREONLY); CHKERRQ(ierr);
         ierr = PCSetType(pc, PCLU); CHKERRQ(ierr);
     }
@@ -3450,7 +3570,7 @@ PetscErrorCode Simulator::setupSolvers() {
     ierr = SNESSetFromOptions(snes); CHKERRQ(ierr);
     ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
     ierr = PCSetFromOptions(pc); CHKERRQ(ierr);
-    
+
     PetscFunctionReturn(0);
 }
 
@@ -4141,111 +4261,250 @@ PetscErrorCode Simulator::getOrCreateFaultBoundaryLabel(DMLabel *faultBoundaryLa
 // =============================================================================
 // getOrCreateBuriedCohesiveLabel
 //
-// Session 13: match PyLith semantics. A buried-edges label is a user-supplied
-// or mesh-generator-supplied input, not auto-detected geometrically. If the
-// DM has no `buried_edges` label the function returns a null output label,
-// and setupBoundaryConditions skips the Lagrange rim-pin BC. This mirrors
-// PyLith's FaultCohesive::createConstraints (libsrc/pylith/faults/
-// FaultCohesive.cc:416-423), which returns an empty constraint array when
-// no buried-edges label name is provided. For faults that cut the full
-// domain (no buried tips) the prescribed-slip or locked constraint itself
-// regularizes the Lagrange block.
-//
-// When a `buried_edges` label is present on the DM, its points are the
-// buried-tip mesh entities carried through from the mesh generator. We walk
-// each labeled point's support and label any cohesive SEG_PRISM_TENSOR or
-// POINT_PRISM_TENSOR whose cone touches a labeled point as a rim prism
-// (value 1 in the output `buried_cohesive` label). Those prism points are
-// the ones that carry Lagrange DOFs in PETSc's hybrid numbering.
+// Session 14: hybrid approach. Prefer PyLith-semantic `buried_edges` input
+// label when present (Session 13 path). When absent, fall back to Session
+// 12's geometric auto-detection: walk `interfaces_label_`, filter for
+// cohesive prism cell types, and label any prism whose cone midpoint lies
+// on the global bounding box as a rim prism. This is semantically
+// over-aggressive (PyLith's convention requires a user-supplied label), but
+// it is empirically necessary to make Locked* and TimeDependentSlip
+// converge with the direct-LU saddle-point solver; the prompt's Step C
+// authorizes restoring it when neither Path A (GAMG + near-null-space) nor
+// Path B (Schur fieldsplit) resolve the Lagrange-block rank deficiency.
 // =============================================================================
 PetscErrorCode Simulator::getOrCreateBuriedCohesiveLabel(DMLabel *buriedCohesiveLabel) {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
 
-    *buriedCohesiveLabel = nullptr;
+    const char *outLabelName = "buried_cohesive";
+    PetscBool hasOut = PETSC_FALSE;
+    ierr = DMHasLabel(dm, outLabelName, &hasOut); CHKERRQ(ierr);
+    if (hasOut) {
+        ierr = DMGetLabel(dm, outLabelName, buriedCohesiveLabel); CHKERRQ(ierr);
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+    ierr = DMCreateLabel(dm, outLabelName); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, outLabelName, buriedCohesiveLabel); CHKERRQ(ierr);
 
+    // Prefer the PyLith-semantic `buried_edges` input label when the mesh
+    // generator provides it.
     const char *inputLabelName = "buried_edges";
     PetscBool hasInputLabel = PETSC_FALSE;
     ierr = DMHasLabel(dm, inputLabelName, &hasInputLabel); CHKERRQ(ierr);
 
-    if (!hasInputLabel) {
-        if (rank == 0) {
-            PetscPrintf(comm,
-                "Session 13: no '%s' label on DM; skipping Lagrange rim-pin BC "
-                "(PyLith default for faults that cut the full domain)\n",
-                inputLabelName);
+    if (hasInputLabel) {
+        DMLabel inputLabel = nullptr;
+        ierr = DMGetLabel(dm, inputLabelName, &inputLabel); CHKERRQ(ierr);
+
+        IS inputIS = nullptr;
+        ierr = DMLabelGetStratumIS(inputLabel, 1, &inputIS); CHKERRQ(ierr);
+        if (!inputIS) {
+            if (rank == 0) {
+                PetscPrintf(comm,
+                    "Session 14: '%s' label exists but has no stratum-1 points; "
+                    "skipping rim-pin BC\n", inputLabelName);
+            }
+            PetscFunctionReturn(PETSC_SUCCESS);
         }
-        PetscFunctionReturn(PETSC_SUCCESS);
-    }
 
-    const char *outLabelName = "buried_cohesive";
-    PetscBool hasOut = PETSC_FALSE;
-    ierr = DMHasLabel(dm, outLabelName, &hasOut); CHKERRQ(ierr);
-    if (!hasOut) {
-        ierr = DMCreateLabel(dm, outLabelName); CHKERRQ(ierr);
-    }
-    ierr = DMGetLabel(dm, outLabelName, buriedCohesiveLabel); CHKERRQ(ierr);
+        const PetscInt *inputPts = nullptr;
+        PetscInt nInput = 0;
+        ierr = ISGetLocalSize(inputIS, &nInput); CHKERRQ(ierr);
+        ierr = ISGetIndices(inputIS, &inputPts); CHKERRQ(ierr);
 
-    DMLabel inputLabel = nullptr;
-    ierr = DMGetLabel(dm, inputLabelName, &inputLabel); CHKERRQ(ierr);
+        PetscInt nLabeled = 0;
+        for (PetscInt i = 0; i < nInput; ++i) {
+            const PetscInt pt = inputPts[i];
+            const PetscInt *support = nullptr;
+            PetscInt nSupport = 0;
+            ierr = DMPlexGetSupportSize(dm, pt, &nSupport); CHKERRQ(ierr);
+            ierr = DMPlexGetSupport(dm, pt, &support); CHKERRQ(ierr);
+            for (PetscInt s = 0; s < nSupport; ++s) {
+                const PetscInt spt = support[s];
+                DMPolytopeType ct;
+                ierr = DMPlexGetCellType(dm, spt, &ct); CHKERRQ(ierr);
+                if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
+                    ct != DM_POLYTOPE_POINT_PRISM_TENSOR) continue;
 
-    IS inputIS = nullptr;
-    ierr = DMLabelGetStratumIS(inputLabel, 1, &inputIS); CHKERRQ(ierr);
-    if (!inputIS) {
-        if (rank == 0) {
-            PetscPrintf(comm,
-                "Session 13: '%s' label exists but has no stratum-1 points; "
-                "skipping rim-pin BC\n", inputLabelName);
-        }
-        PetscFunctionReturn(PETSC_SUCCESS);
-    }
-
-    const PetscInt *inputPts = nullptr;
-    PetscInt nInput = 0;
-    ierr = ISGetLocalSize(inputIS, &nInput); CHKERRQ(ierr);
-    ierr = ISGetIndices(inputIS, &inputPts); CHKERRQ(ierr);
-
-    PetscInt nLabeled = 0;
-    for (PetscInt i = 0; i < nInput; ++i) {
-        const PetscInt pt = inputPts[i];
-        const PetscInt *support = nullptr;
-        PetscInt nSupport = 0;
-        ierr = DMPlexGetSupportSize(dm, pt, &nSupport); CHKERRQ(ierr);
-        ierr = DMPlexGetSupport(dm, pt, &support); CHKERRQ(ierr);
-        for (PetscInt s = 0; s < nSupport; ++s) {
-            const PetscInt spt = support[s];
-            DMPolytopeType ct;
-            ierr = DMPlexGetCellType(dm, spt, &ct); CHKERRQ(ierr);
-            if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
-                ct != DM_POLYTOPE_POINT_PRISM_TENSOR) continue;
-
-            const PetscInt *cone = nullptr;
-            PetscInt coneSize = 0;
-            ierr = DMPlexGetConeSize(dm, spt, &coneSize); CHKERRQ(ierr);
-            ierr = DMPlexGetCone(dm, spt, &cone); CHKERRQ(ierr);
-            for (PetscInt c = 0; c < coneSize; ++c) {
-                PetscInt v = -1;
-                ierr = DMLabelGetValue(inputLabel, cone[c], &v); CHKERRQ(ierr);
-                if (v >= 0) {
-                    PetscInt already = -1;
-                    ierr = DMLabelGetValue(*buriedCohesiveLabel, spt, &already); CHKERRQ(ierr);
-                    if (already < 0) {
-                        ierr = DMLabelSetValue(*buriedCohesiveLabel, spt, 1); CHKERRQ(ierr);
-                        ++nLabeled;
+                const PetscInt *cone = nullptr;
+                PetscInt coneSize = 0;
+                ierr = DMPlexGetConeSize(dm, spt, &coneSize); CHKERRQ(ierr);
+                ierr = DMPlexGetCone(dm, spt, &cone); CHKERRQ(ierr);
+                for (PetscInt c = 0; c < coneSize; ++c) {
+                    PetscInt v = -1;
+                    ierr = DMLabelGetValue(inputLabel, cone[c], &v); CHKERRQ(ierr);
+                    if (v >= 0) {
+                        PetscInt already = -1;
+                        ierr = DMLabelGetValue(*buriedCohesiveLabel, spt, &already); CHKERRQ(ierr);
+                        if (already < 0) {
+                            ierr = DMLabelSetValue(*buriedCohesiveLabel, spt, 1); CHKERRQ(ierr);
+                            ++nLabeled;
+                        }
+                        break;
                     }
-                    break;
                 }
             }
         }
+        ierr = ISRestoreIndices(inputIS, &inputPts); CHKERRQ(ierr);
+        ierr = ISDestroy(&inputIS); CHKERRQ(ierr);
+
+        if (rank == 0) {
+            PetscPrintf(comm,
+                "Session 14: buried_cohesive label: %d points labeled "
+                "(from user-supplied '%s' label with %d points)\n",
+                (int)nLabeled, inputLabelName, (int)nInput);
+        }
+        PetscFunctionReturn(PETSC_SUCCESS);
     }
-    ierr = ISRestoreIndices(inputIS, &inputPts); CHKERRQ(ierr);
-    ierr = ISDestroy(&inputIS); CHKERRQ(ierr);
+
+    // Session 14 fallback: geometric auto-detection of rim prisms on the
+    // global bounding box. Restored from Session 12 per prompt Step C.
+    if (rank == 0) {
+        PetscPrintf(comm,
+            "Session 14: no '%s' label on DM; falling back to geometric "
+            "rim-prism detection (Session 12 pattern) because the Session 13 "
+            "pure-PyLith gating leaves the Lagrange block rank-deficient "
+            "under direct LU\n", inputLabelName);
+    }
+
+    if (!interfaces_label_) {
+        if (rank == 0) {
+            PetscPrintf(comm,
+                "Session 14: buried_cohesive label: interfaces_label_ is null, skipping\n");
+        }
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    Vec coords = nullptr;
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    PetscInt coordSize = 0;
+    ierr = VecGetLocalSize(coords, &coordSize); CHKERRQ(ierr);
+    PetscInt nCoords = (dim > 0) ? coordSize / dim : 0;
+    double bb_min_local[3] = { 1e30,  1e30,  1e30};
+    double bb_max_local[3] = {-1e30, -1e30, -1e30};
+    {
+        const PetscScalar *carr = nullptr;
+        ierr = VecGetArrayRead(coords, &carr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < nCoords; ++i) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                double v = PetscRealPart(carr[i * dim + d]);
+                if (v < bb_min_local[d]) bb_min_local[d] = v;
+                if (v > bb_max_local[d]) bb_max_local[d] = v;
+            }
+        }
+        ierr = VecRestoreArrayRead(coords, &carr); CHKERRQ(ierr);
+    }
+    double bb_min[3] = {0.0, 0.0, 0.0};
+    double bb_max[3] = {0.0, 0.0, 0.0};
+    ierr = MPI_Allreduce(bb_min_local, bb_min, dim, MPI_DOUBLE, MPI_MIN, comm); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(bb_max_local, bb_max, dim, MPI_DOUBLE, MPI_MAX, comm); CHKERRQ(ierr);
+    double eps[3] = {0.0, 0.0, 0.0};
+    for (PetscInt d = 0; d < dim; ++d) {
+        double extent = bb_max[d] - bb_min[d];
+        eps[d] = 1e-6 * (extent > 0.0 ? extent : 1.0);
+    }
+
+    PetscSection coordSection = nullptr;
+    ierr = DMGetCoordinateSection(dm, &coordSection); CHKERRQ(ierr);
+
+    DMLabel depthLabel = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depthLabel); CHKERRQ(ierr);
+
+    auto pointMeanCoord = [&](PetscInt p, double xyz[3]) -> PetscErrorCode {
+        const PetscScalar *carr = nullptr;
+        PetscErrorCode lerr = VecGetArrayRead(coords, &carr);
+        if (lerr) return lerr;
+        PetscInt closure_size = 0;
+        PetscInt *closure = nullptr;
+        lerr = DMPlexGetTransitiveClosure(dm, p, PETSC_TRUE, &closure_size, &closure);
+        if (lerr) { VecRestoreArrayRead(coords, &carr); return lerr; }
+        double sum[3] = {0.0, 0.0, 0.0};
+        PetscInt nv = 0;
+        for (PetscInt i = 0; i < closure_size; ++i) {
+            PetscInt q = closure[2 * i];
+            PetscInt qd = -1;
+            if (depthLabel) {
+                lerr = DMLabelGetValue(depthLabel, q, &qd);
+                if (lerr) break;
+            }
+            if (qd != 0) continue;
+            PetscInt cdof = 0, coff = 0;
+            lerr = PetscSectionGetDof(coordSection, q, &cdof);
+            if (lerr) break;
+            lerr = PetscSectionGetOffset(coordSection, q, &coff);
+            if (lerr) break;
+            if (cdof < dim) continue;
+            for (PetscInt d = 0; d < dim; ++d) {
+                sum[d] += PetscRealPart(carr[coff + d]);
+            }
+            ++nv;
+        }
+        DMPlexRestoreTransitiveClosure(dm, p, PETSC_TRUE, &closure_size, &closure);
+        VecRestoreArrayRead(coords, &carr);
+        if (nv == 0) return PETSC_SUCCESS;
+        for (PetscInt d = 0; d < dim; ++d) xyz[d] = sum[d] / (double)nv;
+        return PETSC_SUCCESS;
+    };
+
+    PetscInt n_candidates = 0;
+    PetscInt n_seg_prism = 0;
+    PetscInt n_point_prism = 0;
+    PetscInt n_labeled = 0;
+
+    IS stratumIS = nullptr;
+    ierr = DMLabelGetStratumIS(interfaces_label_, 1, &stratumIS); CHKERRQ(ierr);
+    if (stratumIS) {
+        const PetscInt *pts = nullptr;
+        PetscInt npts = 0;
+        ierr = ISGetLocalSize(stratumIS, &npts); CHKERRQ(ierr);
+        ierr = ISGetIndices(stratumIS, &pts); CHKERRQ(ierr);
+
+        for (PetscInt i = 0; i < npts; ++i) {
+            const PetscInt p = pts[i];
+
+            DMPolytopeType ct;
+            ierr = DMPlexGetCellType(dm, p, &ct); CHKERRQ(ierr);
+            if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
+                ct != DM_POLYTOPE_POINT_PRISM_TENSOR) continue;
+            ++n_candidates;
+            if (ct == DM_POLYTOPE_SEG_PRISM_TENSOR) ++n_seg_prism;
+            else ++n_point_prism;
+
+            const PetscInt *cone = nullptr;
+            PetscInt coneSize = 0;
+            ierr = DMPlexGetConeSize(dm, p, &coneSize); CHKERRQ(ierr);
+            ierr = DMPlexGetCone(dm, p, &cone); CHKERRQ(ierr);
+
+            bool on_boundary = false;
+            for (PetscInt c = 0; c < coneSize && !on_boundary; ++c) {
+                double xyz[3] = {0.0, 0.0, 0.0};
+                ierr = pointMeanCoord(cone[c], xyz); CHKERRQ(ierr);
+                for (PetscInt d = 0; d < dim; ++d) {
+                    if (PetscAbs(xyz[d] - bb_min[d]) < eps[d] ||
+                        PetscAbs(xyz[d] - bb_max[d]) < eps[d]) {
+                        on_boundary = true;
+                        break;
+                    }
+                }
+            }
+            if (on_boundary) {
+                ierr = DMLabelSetValue(*buriedCohesiveLabel, p, 1); CHKERRQ(ierr);
+                ++n_labeled;
+            }
+        }
+        ierr = ISRestoreIndices(stratumIS, &pts); CHKERRQ(ierr);
+        ierr = ISDestroy(&stratumIS); CHKERRQ(ierr);
+    }
 
     if (rank == 0) {
         PetscPrintf(comm,
-            "Session 13: buried_cohesive label: %d points labeled "
-            "(from user-supplied '%s' label with %d points)\n",
-            (int)nLabeled, inputLabelName, (int)nInput);
+            "Session 14: buried_cohesive label (geometric fallback): "
+            "%d points labeled (candidates %d: seg_prism=%d, point_prism=%d)\n",
+            (int)n_labeled, (int)n_candidates,
+            (int)n_seg_prism, (int)n_point_prism);
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
