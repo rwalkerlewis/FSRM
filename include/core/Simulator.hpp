@@ -195,6 +195,16 @@ private:
     // libsrc/pylith/faults/FaultCohesive.cc createConstraints (buried-edges).
     PetscErrorCode getOrCreateFaultBoundaryLabel(DMLabel *faultBoundaryLabel);
 
+    // Session 12: PyLith "buried_cohesive" label. Contains cohesive
+    // edge-prisms (DM_POLYTOPE_SEG_PRISM_TENSOR) and cohesive vertex-prisms
+    // (DM_POLYTOPE_POINT_PRISM_TENSOR) whose cone touches the domain bounding
+    // box (fault rim). These are the points that carry Lagrange DOFs in
+    // PETSc's hybrid numbering (Session 11 found d1=25 for the 4x4x4 test).
+    // Pinning them with a zero Dirichlet on the Lagrange field removes the
+    // structural rank deficiency in the saddle-point constraint block.
+    // PyLith reference: libsrc/pylith/faults/FaultCohesive.cc:444-480.
+    PetscErrorCode getOrCreateBuriedCohesiveLabel(DMLabel *buriedCohesiveLabel);
+
     // Session 4: material label that tags regular cells adjacent to cohesive
     // prisms with value 1 (negative side) or value 2 (positive side). This is
     // the PETSc hybrid-driver pattern (see dm/impls/plex/tests/ex5.c
@@ -224,6 +234,11 @@ private:
     // deficiency in the constraint block diagnosed in Session 9 (PCSVD
     // smallest sigma ~3.7e-08, condition number 5.36e+17).
     DMLabel fault_boundary_label_ = nullptr;
+    // Session 12: label built by getOrCreateBuriedCohesiveLabel containing
+    // cohesive edge/vertex prisms at the fault rim. Used to register a
+    // PetscDSAddBoundary essential BC on the region DS that owns the
+    // Lagrange field.
+    DMLabel buried_cohesive_label_ = nullptr;
     // Cached LOCAL section indices of Lagrange DOFs at fault-boundary
     // vertices, populated at the end of setupFields once the local section
     // exists. Empty when faults are disabled or no rim vertices were found.
