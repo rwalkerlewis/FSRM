@@ -94,6 +94,18 @@ public:
     void setPrescribedSlip(double sx, double sy, double sz);
 
     /**
+     * @brief Read the configured prescribed slip vector.
+     * @param[out] sx X component (Cartesian).
+     * @param[out] sy Y component (Cartesian).
+     * @param[out] sz Z component (Cartesian).
+     */
+    void getPrescribedSlip(double& sx, double& sy, double& sz) const {
+        sx = prescribed_slip_[0];
+        sy = prescribed_slip_[1];
+        sz = prescribed_slip_[2];
+    }
+
+    /**
      * @brief Set slip-weakening friction parameters
      * @param mu_s Static friction coefficient
      * @param mu_d Dynamic friction coefficient

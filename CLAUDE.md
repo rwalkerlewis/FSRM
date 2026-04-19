@@ -20,19 +20,28 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. 115 pass, 1 fail honestly (no fake skips).
+116 registered tests. 110 pass, 6 fail honestly (no fake skips).
 
-Known failure:
-- Integration.DynamicRuptureSolve.PrescribedSlipQuasiStatic: prescribed slip produces
-  near-zero displacement jump on coarse mesh. The penalty-scaled Lagrange diagonal in
-  addCohesivePenaltyToJacobian slows lambda convergence for prescribed slip mode.
+Known failures (all fault-related, present in baseline `local_fix` tip):
+- Physics.LockedFaultTransparency: SNES does not produce displacement under
+  the compression top BC; `fault_norm = 0`.
+- Integration.DynamicRuptureSolve.LockedQuasiStatic: same SNES failure mode
+  as the transparency test under quasi-static stepping.
+- Integration.DynamicRuptureSolve.PrescribedSlip
+  (gtest `DynamicRuptureSolveTest.PrescribedSlipQuasiStatic`): the PetscDS
+  BdResidual on the Lagrange field returns zero on the cohesive geometry in
+  PETSc 3.25 (the fault label has no cohesive cells, only depth less than dim
+  points), so the prescribed jump is not driven and `max_fault_slip = 0`.
+- Integration.TimeDependentSlip
+- Integration.SlippingFaultSolve
+- Integration.SlipWeakeningFault
 
-The quasi-static locked fault tests (LockedFaultTransparency, LockedQuasiStatic) were
-fixed by replacing the old f=lambda (epsilon=1) volume regularization with weak
-regularization f=epsilon*lambda, g=epsilon*I where epsilon=1e-4. The weak regularization
-is negligible compared to the BdResidual constraint on cohesive faces. A penalty-scaled
-Lagrange diagonal (penalty*coeff) is added manually at cohesive vertices in
-addCohesivePenaltyToJacobian to keep the LU factorization well-conditioned.
+The previously-claimed Section B fix for `LockedFaultTransparency` and
+`LockedFaultQuasiStatic` (epsilon = 1e-4 weak regularization plus penalty-scaled
+diagonal) is in place in the source but the tests fail anyway, indicating either
+a deeper PETSc 3.25 BdResidual issue on the cohesive geometry or a separate
+regression introduced by other commits on `local_fix`. See
+`docs/LAGRANGE_FIX_STATUS.md`.
 
 Physics.SCEC.TPV5 was fixed by adding the displacement field for elastodynamics
 (previously only added for geomechanics, causing error 63 when faults were enabled
@@ -137,6 +146,26 @@ in addCohesivePenaltyToJacobian to match the displacement stiffness scale.
 Restricting the Lagrange field to cohesive cells via `DMAddField(dm, label, ...)`
 was investigated but PETSc 3.25 region DS does not support volume assembly via
 DMPlexTSComputeIFunctionFEM. See docs/LAGRANGE_FIX_STATUS.md for details.
+
+Section B Option B from `docs/PYLITH_COMPATIBILITY.md` is partially landed:
+`addInteriorLagrangeResidual` (`src/core/Simulator.cpp:4180-4271`) zeros the Lagrange
+residual at non-cohesive DOFs after `DMPlexTSComputeIFunctionFEM`, and the disjoint
+loop inside `addCohesivePenaltyToJacobian` (`src/core/Simulator.cpp:4677-4720`) stamps
+a canonical penalty-scaled diagonal on every interior (non-cohesive) Lagrange DOF.
+The strict spec also calls for removing the PetscDS volume callback, but the volume
+callback remains registered: empirically PETSc 3.25 needs at least one volume residual
+on the Lagrange field for the BdResidual on cohesive cells to fire reliably, and
+removing it regresses `Integration.DynamicRuptureSolve.LockedFaultElastodynamic`. The
+manual residual zeroing overrides the small epsilon contribution at interior DOFs, so
+the net interior behaviour matches the strict Section B form.
+
+The prescribed-slip Cartesian vector is now copied from `cohesive_kernel_` into the
+unified constants array in `setupPhysics` (`src/core/Simulator.cpp:2234-2249`). The
+original code allocated `COHESIVE_CONST_PRESCRIBED_SLIP_X..Z` slots but never wrote
+them, so `f0_prescribed_slip` always read a zero target jump. The push is gated on
+`fault_mode_ == "prescribed_slip"` and uses the new
+`CohesiveFaultKernel::getPrescribedSlip` accessor in
+`include/physics/CohesiveFaultKernel.hpp`.
 
 ### PDE Assembly
 
@@ -352,6 +381,7 @@ a starting point but must be rewritten to use the PetscDS callback pattern.
 13. Verification tests must have quantitative pass/fail criteria with numerical tolerances.
 14. Update CLAUDE.md and README.md after every session to reflect actual code state. Every claim must be backed by a specific test name or code reference.
 15. GTEST_SKIP is ONLY for hardware-dependent tests (GPU, MPI rank count) or genuine crash bugs that would kill the test runner. A test that produces a zero solution is a FAILURE, not a skip. If SNES converges to zero, the physics setup is wrong -- fix it, do not hide it behind GTEST_SKIP.
+16. Never truncate terminal output. Do not pipe `make`, `ctest`, `docker run`, `cmake`, or any other build / test / run command through `head`, `tail`, `grep`, `awk`, `sed`, or `cut`. Capture the full stdout / stderr stream to a log file (for example `... 2>&1 | tee /tmp/full.log`) and inspect the saved log directly with the `Read` tool when results are needed. Truncating output in-line hides build warnings, test names, SNES iterations, and stack traces that are diagnostic for failures.
 
 ## Parallel Development and Execution
 

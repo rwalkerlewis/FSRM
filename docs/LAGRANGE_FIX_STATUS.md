@@ -1,5 +1,45 @@
 # Lagrange Field Fix -- Status Report
 
+## Phase: Partial resolution via Option B (interior assembly only)
+
+A scoped subset of `docs/PYLITH_COMPATIBILITY.md` Section B Option B has landed.
+Interior (non-cohesive) Lagrange degrees of freedom are now managed entirely by
+manual assembly: `addInteriorLagrangeResidual` in `src/core/Simulator.cpp:4180-4271`
+zeros the residual at every non-cohesive Lagrange DOF after the FEM volume residual
+runs, and the disjoint loop inside `addCohesivePenaltyToJacobian`
+(`src/core/Simulator.cpp:4677-4720`) stamps a canonical penalty-scaled diagonal on
+those DOFs so the LU factorization stays non-singular. The PetscDS weak volume
+callback is RETAINED (the strict spec called for removal but PETSc 3.25 in this
+configuration regresses `LockedFaultElastodynamic` when the Lagrange field has no
+volume residual; the manual zeroing overrides the small epsilon = 1e-4 contribution
+at interior DOFs). The cohesive vertex Jacobian and PetscDS BdResidual paths for
+locked, prescribed slip, and slipping modes are unchanged.
+
+Separately, the prescribed-slip Cartesian vector is now copied from
+`cohesive_kernel_->prescribed_slip_` into the unified constants array in
+`setupPhysics` (`src/core/Simulator.cpp:2234-2249`). The previous code allocated the
+COHESIVE_CONST_PRESCRIBED_SLIP_* slots in CohesiveFaultKernel::COHESIVE_CONST_COUNT
+but never wrote them, so `f0_prescribed_slip` always read a zero target jump.
+
+## Outstanding
+
+Options A, C, and D as described below remain rejected.
+
+`Integration.DynamicRuptureSolve.PrescribedSlip` (the
+`DynamicRuptureSolveTest.PrescribedSlipQuasiStatic` test) is still failing in this
+state. The PetscDS BdResidual on the Lagrange field does not produce a non-zero
+constraint contribution on the 4x4x4 quasi-static configuration even after the
+prescribed-slip constants are pushed correctly, indicating the failure is not in
+the constants path. The fault label registered for the Lagrange-field
+`DM_BC_NATURAL` boundary contains only depth less than dim points, so
+`DMPlexComputeBdResidual` has no cohesive cells to integrate over for that field.
+A full Option B implementation (manual cohesive Lagrange residual that bypasses
+PetscDS BdResidual entirely for prescribed slip, paired with `penalty_scale = 0`
+in the cohesive penalty so the Newton step is not damped) was prototyped but
+introduced separate convergence failures in PETSc 3.25 LU and was reverted. A
+follow-up session should either reformulate the prescribed-slip residual against
+the displacement equation directly or pursue Option A (PETSc upgrade).
+
 ## Phase: Debugging (between Phase 5 and Phase 6)
 
 ## What was attempted

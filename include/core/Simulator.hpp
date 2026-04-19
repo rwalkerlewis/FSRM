@@ -213,6 +213,27 @@ private:
     PetscErrorCode zeroLagrangeDiagonalOnCohesive(Mat J);
     PetscErrorCode addCohesivePenaltyToJacobian(Mat J, Vec locU = nullptr);
 
+    /**
+     * @brief Zero the Lagrange residual at interior (non-cohesive) DOFs.
+     *
+     * Per docs/PYLITH_COMPATIBILITY.md Section B Option B, interior
+     * Lagrange degrees of freedom are not driven by the cohesive
+     * constraint and must not retain any residual contribution. PETSc
+     * 3.25 requires the weak volume callback (f0_weak_lagrange) to stay
+     * registered for the BdResidual on cohesive cells to fire reliably;
+     * this routine overwrites the small epsilon = 1e-4 contribution
+     * that callback leaves at non-cohesive Lagrange DOFs so the manual
+     * diagonal in addCohesivePenaltyToJacobian is the sole driver
+     * there. Cohesive vertex contributions are intentionally preserved.
+     *
+     * Called from FormFunction after DMPlexTSComputeIFunctionFEM and the
+     * other manual residual additions.
+     *
+     * @param locF Local residual vector to update in place.
+     * @return PETSC_SUCCESS or a PETSc error code.
+     */
+    PetscErrorCode addInteriorLagrangeResidual(Vec locF);
+
     // Hydraulic fracture model (Phase 3)
     std::unique_ptr<HydraulicFractureModel> hydrofrac_;
     bool hydrofrac_initiated_ = false;
