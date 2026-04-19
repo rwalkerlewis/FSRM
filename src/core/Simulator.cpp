@@ -2686,6 +2686,29 @@ PetscErrorCode Simulator::setupPhysics() {
                 ierr = DMGetCellDS(dm, cMax, &cohesive_ds, NULL); CHKERRQ(ierr);
             }
 
+            // Session 9: copy unified constants (lambda, mu, ...) from the
+            // default DS to the cohesive DS so f0_hybrid_lambda / g0_hybrid_lambda_u
+            // can read lambda = constants[0] and mu = constants[1] for
+            // Lagrange-row scaling. Without this copy the cohesive DS
+            // constants stay at zero, the scaling falls back to 1, and the
+            // saddle-point matrix keeps its 1e+11 scale split between
+            // elasticity and coupling entries (condition number > 1/eps).
+            if (cohesive_ds) {
+                PetscDS default_ds = nullptr;
+                ierr = DMGetDS(dm, &default_ds); CHKERRQ(ierr);
+                if (default_ds) {
+                    PetscInt nconst_default = 0;
+                    const PetscScalar *consts_default = nullptr;
+                    ierr = PetscDSGetConstants(default_ds, &nconst_default,
+                                               &consts_default); CHKERRQ(ierr);
+                    if (nconst_default > 0 && consts_default) {
+                        ierr = PetscDSSetConstants(cohesive_ds, nconst_default,
+                                                   const_cast<PetscScalar*>(consts_default));
+                        CHKERRQ(ierr);
+                    }
+                }
+            }
+
             PetscWeakForm wf = nullptr;
             if (cohesive_ds) {
                 ierr = PetscDSGetWeakForm(cohesive_ds, &wf); CHKERRQ(ierr);
@@ -5745,6 +5768,16 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
             }
             ierr = ISDestroy(&volumeCellsIS); CHKERRQ(ierr);
         }
+
+        // Session 9: DMPlexComputeResidualByKey writes uninitialized scratch
+        // entries (~1e-300 subnormals) into locF at DOFs whose closure touches
+        // cohesive cells but are not written by the non-cohesive volume
+        // integrator. VecChop zeros out any entry with absolute value below the
+        // tolerance, matching PyLith's approach of filtering near-zero residual
+        // noise before passing the vector to KSP. Tolerance 1e-20 is well
+        // below any physically meaningful residual contribution (O(1e-5) for
+        // elasticity at u=0) but far above the subnormal garbage band.
+        ierr = VecFilter(locF, 1e-20); CHKERRQ(ierr);
 
         // Session 4: drive the cohesive residual with the PETSc hybrid-by-key
         // integrator. This replaces the pre-Session-4 BdResidual path, which
