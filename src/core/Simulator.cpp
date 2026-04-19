@@ -3736,6 +3736,12 @@ PetscErrorCode Simulator::setupFaultNetwork() {
     ierr = getOrCreateInterfacesLabel(&interfaces_label_); CHKERRQ(ierr);
     ierr = getOrCreateInterfaceFacetsLabel(&interface_facets_label_); CHKERRQ(ierr);
 
+    // Session 12: build the PyLith-style buried_cohesive label that flags
+    // cohesive edge/vertex prisms at the fault rim. This must be built
+    // before setupFields runs so that the BC registered in
+    // setupBoundaryConditions picks up a non-empty label.
+    ierr = getOrCreateBuriedCohesiveLabel(&buried_cohesive_label_); CHKERRQ(ierr);
+
     // Session 4: mark the regular cells adjacent to each cohesive prism with
     // a DMLabel "material" (value 1 = negative side, value 2 = positive side)
     // so DMPlexComputeResidualHybridByKey / ...JacobianHybridByKey can
@@ -4127,6 +4133,192 @@ PetscErrorCode Simulator::getOrCreateFaultBoundaryLabel(DMLabel *faultBoundaryLa
         PetscPrintf(comm,
                     "'fault boundary' label created: %d / %d cohesive vertices on domain boundary\n",
                     (int)n_pinned, (int)n_cohesive_vertices);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+// =============================================================================
+// getOrCreateBuriedCohesiveLabel
+//
+// Session 12: port PyLith's FaultCohesive::createConstraints buried-edge
+// labelling (libsrc/pylith/faults/FaultCohesive.cc:444-480). PyLith walks the
+// buried-edge points on the original (pre-split) mesh, then for each point's
+// support in the full DM it checks the cell type: DM_POLYTOPE_SEG_PRISM_TENSOR
+// or DM_POLYTOPE_POINT_PRISM_TENSOR prisms whose cone touches a buried-edge
+// point are added to a "<buriedEdgesLabel>_cohesive" label with value 1.
+// Those prism points are the ones that carry Lagrange DOFs in PETSc's hybrid
+// numbering.
+//
+// FSRM does not preserve the submesh buried-edge information (FaultMeshManager
+// destroys the source label after splitting), so the rim is detected
+// geometrically: for each point in interfaces_label_ at depth 1 (cohesive
+// edge) or depth 0 (cohesive vertex-prism) with a prism cell type, take the
+// midpoint of its cone's vertex coordinates. If the midpoint lies on the
+// global bounding box within tolerance, label the point with value 1.
+// =============================================================================
+PetscErrorCode Simulator::getOrCreateBuriedCohesiveLabel(DMLabel *buriedCohesiveLabel) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    const char *labelName = "buried_cohesive";
+    PetscBool hasLabel = PETSC_FALSE;
+    ierr = DMHasLabel(dm, labelName, &hasLabel); CHKERRQ(ierr);
+    if (hasLabel) {
+        ierr = DMGetLabel(dm, labelName, buriedCohesiveLabel); CHKERRQ(ierr);
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+
+    ierr = DMCreateLabel(dm, labelName); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, labelName, buriedCohesiveLabel); CHKERRQ(ierr);
+
+    if (!interfaces_label_) {
+        if (rank == 0) {
+            PetscPrintf(comm,
+                "Session 12: buried_cohesive label: interfaces_label_ is null, skipping\n");
+        }
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+
+    PetscInt dim = 0;
+    ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
+
+    // Global bounding box (coordinates may be partitioned across ranks).
+    Vec coords = nullptr;
+    ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+    PetscInt coordSize = 0;
+    ierr = VecGetLocalSize(coords, &coordSize); CHKERRQ(ierr);
+    PetscInt nCoords = (dim > 0) ? coordSize / dim : 0;
+    double bb_min_local[3] = { 1e30,  1e30,  1e30};
+    double bb_max_local[3] = {-1e30, -1e30, -1e30};
+    {
+        const PetscScalar *carr = nullptr;
+        ierr = VecGetArrayRead(coords, &carr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < nCoords; ++i) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                double v = PetscRealPart(carr[i * dim + d]);
+                if (v < bb_min_local[d]) bb_min_local[d] = v;
+                if (v > bb_max_local[d]) bb_max_local[d] = v;
+            }
+        }
+        ierr = VecRestoreArrayRead(coords, &carr); CHKERRQ(ierr);
+    }
+    double bb_min[3] = {0.0, 0.0, 0.0};
+    double bb_max[3] = {0.0, 0.0, 0.0};
+    ierr = MPI_Allreduce(bb_min_local, bb_min, dim, MPI_DOUBLE, MPI_MIN, comm); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(bb_max_local, bb_max, dim, MPI_DOUBLE, MPI_MAX, comm); CHKERRQ(ierr);
+    double eps[3] = {0.0, 0.0, 0.0};
+    for (PetscInt d = 0; d < dim; ++d) {
+        double extent = bb_max[d] - bb_min[d];
+        eps[d] = 1e-6 * (extent > 0.0 ? extent : 1.0);
+    }
+
+    PetscSection coordSection = nullptr;
+    ierr = DMGetCoordinateSection(dm, &coordSection); CHKERRQ(ierr);
+
+    DMLabel depthLabel = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depthLabel); CHKERRQ(ierr);
+
+    // Helper: read the mean vertex coordinate of a plex point by walking its
+    // downward closure to depth 0 and averaging the coords. Returns PETSC_FALSE
+    // if no vertices are found (should not happen for a cohesive prism).
+    auto pointMeanCoord = [&](PetscInt p, double xyz[3]) -> PetscErrorCode {
+        const PetscScalar *carr = nullptr;
+        PetscErrorCode lerr = VecGetArrayRead(coords, &carr);
+        if (lerr) return lerr;
+        PetscInt closure_size = 0;
+        PetscInt *closure = nullptr;
+        lerr = DMPlexGetTransitiveClosure(dm, p, PETSC_TRUE, &closure_size, &closure);
+        if (lerr) { VecRestoreArrayRead(coords, &carr); return lerr; }
+        double sum[3] = {0.0, 0.0, 0.0};
+        PetscInt nv = 0;
+        for (PetscInt i = 0; i < closure_size; ++i) {
+            PetscInt q = closure[2 * i];
+            PetscInt qd = -1;
+            if (depthLabel) {
+                lerr = DMLabelGetValue(depthLabel, q, &qd);
+                if (lerr) break;
+            }
+            if (qd != 0) continue;
+            PetscInt cdof = 0, coff = 0;
+            lerr = PetscSectionGetDof(coordSection, q, &cdof);
+            if (lerr) break;
+            lerr = PetscSectionGetOffset(coordSection, q, &coff);
+            if (lerr) break;
+            if (cdof < dim) continue;
+            for (PetscInt d = 0; d < dim; ++d) {
+                sum[d] += PetscRealPart(carr[coff + d]);
+            }
+            ++nv;
+        }
+        DMPlexRestoreTransitiveClosure(dm, p, PETSC_TRUE, &closure_size, &closure);
+        VecRestoreArrayRead(coords, &carr);
+        if (nv == 0) return PETSC_SUCCESS;
+        for (PetscInt d = 0; d < dim; ++d) xyz[d] = sum[d] / (double)nv;
+        return PETSC_SUCCESS;
+    };
+
+    // Walk every point in interfaces_label_. Filter by cell type: only
+    // SEG_PRISM_TENSOR (cohesive edge) and POINT_PRISM_TENSOR (cohesive
+    // vertex-prism) carry Lagrange DOFs. For each candidate, inspect the cone.
+    // If any cone entry's midpoint lies on the bounding box, the prism sits
+    // at the fault rim and must be pinned.
+    PetscInt n_candidates = 0;
+    PetscInt n_seg_prism = 0;
+    PetscInt n_point_prism = 0;
+    PetscInt n_labeled = 0;
+
+    IS stratumIS = nullptr;
+    ierr = DMLabelGetStratumIS(interfaces_label_, 1, &stratumIS); CHKERRQ(ierr);
+    if (stratumIS) {
+        const PetscInt *pts = nullptr;
+        PetscInt npts = 0;
+        ierr = ISGetLocalSize(stratumIS, &npts); CHKERRQ(ierr);
+        ierr = ISGetIndices(stratumIS, &pts); CHKERRQ(ierr);
+
+        for (PetscInt i = 0; i < npts; ++i) {
+            const PetscInt p = pts[i];
+
+            DMPolytopeType ct;
+            ierr = DMPlexGetCellType(dm, p, &ct); CHKERRQ(ierr);
+            if (ct != DM_POLYTOPE_SEG_PRISM_TENSOR &&
+                ct != DM_POLYTOPE_POINT_PRISM_TENSOR) continue;
+            ++n_candidates;
+            if (ct == DM_POLYTOPE_SEG_PRISM_TENSOR) ++n_seg_prism;
+            else ++n_point_prism;
+
+            const PetscInt *cone = nullptr;
+            PetscInt coneSize = 0;
+            ierr = DMPlexGetConeSize(dm, p, &coneSize); CHKERRQ(ierr);
+            ierr = DMPlexGetCone(dm, p, &cone); CHKERRQ(ierr);
+
+            bool on_boundary = false;
+            for (PetscInt c = 0; c < coneSize && !on_boundary; ++c) {
+                double xyz[3] = {0.0, 0.0, 0.0};
+                ierr = pointMeanCoord(cone[c], xyz); CHKERRQ(ierr);
+                for (PetscInt d = 0; d < dim; ++d) {
+                    if (PetscAbs(xyz[d] - bb_min[d]) < eps[d] ||
+                        PetscAbs(xyz[d] - bb_max[d]) < eps[d]) {
+                        on_boundary = true;
+                        break;
+                    }
+                }
+            }
+            if (on_boundary) {
+                ierr = DMLabelSetValue(*buriedCohesiveLabel, p, 1); CHKERRQ(ierr);
+                ++n_labeled;
+            }
+        }
+        ierr = ISRestoreIndices(stratumIS, &pts); CHKERRQ(ierr);
+        ierr = ISDestroy(&stratumIS); CHKERRQ(ierr);
+    }
+
+    if (rank == 0) {
+        PetscPrintf(comm,
+            "Session 12: buried_cohesive label: %d points labeled "
+            "(candidates %d: seg_prism=%d, point_prism=%d)\n",
+            (int)n_labeled, (int)n_candidates,
+            (int)n_seg_prism, (int)n_point_prism);
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -7454,6 +7646,86 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                 PetscPrintf(comm,
                     "  Applied BC: fault natural BCs for traction (field %d) and constraint (field %d)\n",
                     displacement_field, lagrange_field_idx);
+            }
+
+            // Session 12: pin the Lagrange DOFs on cohesive edge/vertex
+            // prisms at the fault rim by registering an essential (Dirichlet)
+            // BC on the region DS that owns the Lagrange field. PyLith
+            // pattern: libsrc/pylith/feassemble/ConstraintSimple.cc:57-138.
+            //
+            // The Lagrange field lives on a region-specific DS attached to
+            // interfaces_label_ (Session 5). DMAddBoundary only registers BCs
+            // on the default DS, so here we walk the DS list and call
+            // PetscDSAddBoundary on the region DS that actually contains the
+            // Lagrange subfield. The PETSc section builder
+            // (plexsection.c:509-582) walks every DS and picks up BCs from
+            // each one, as long as the labeled points are NOT in
+            // [cStart, cEnd). Cohesive edges (height 2) are outside that
+            // range, so the filter keeps them.
+            if (buried_cohesive_label_ && lagrange_field_idx_ >= 0) {
+                // Find the region DS that owns the Lagrange field.
+                PetscDS lagrange_ds = nullptr;
+                PetscInt lagrange_ds_field = -1;
+                PetscInt num_ds = 0;
+                ierr = DMGetNumDS(dm, &num_ds); CHKERRQ(ierr);
+                for (PetscInt ids = 0; ids < num_ds && !lagrange_ds; ++ids) {
+                    DMLabel ds_label = nullptr;
+                    IS ds_fields_is = nullptr;
+                    PetscDS ds_this = nullptr;
+                    ierr = DMGetRegionNumDS(dm, ids, &ds_label, &ds_fields_is,
+                                            &ds_this, NULL); CHKERRQ(ierr);
+                    if (!ds_this || !ds_fields_is) continue;
+                    const PetscInt *fields_arr = nullptr;
+                    PetscInt n_fields = 0;
+                    ierr = ISGetLocalSize(ds_fields_is, &n_fields); CHKERRQ(ierr);
+                    ierr = ISGetIndices(ds_fields_is, &fields_arr); CHKERRQ(ierr);
+                    for (PetscInt k = 0; k < n_fields; ++k) {
+                        if (fields_arr[k] == lagrange_field_idx_) {
+                            lagrange_ds = ds_this;
+                            lagrange_ds_field = k;
+                            if (rank == 0) {
+                                PetscPrintf(comm,
+                                    "Session 12: Lagrange field owned by "
+                                    "region DS %d, ds-local field %d\n",
+                                    (int)ids, (int)lagrange_ds_field);
+                            }
+                            break;
+                        }
+                    }
+                    ierr = ISRestoreIndices(ds_fields_is, &fields_arr); CHKERRQ(ierr);
+                }
+
+                if (lagrange_ds && lagrange_ds_field >= 0) {
+                    PetscInt mesh_dim = 0;
+                    ierr = DMGetDimension(dm, &mesh_dim); CHKERRQ(ierr);
+                    PetscInt label_value = 1;
+                    PetscInt constrained_dof[3] = {0, 1, 2};
+                    ierr = PetscDSAddBoundary(
+                        lagrange_ds, DM_BC_ESSENTIAL,
+                        "lagrange_fault_rim", buried_cohesive_label_,
+                        1, &label_value, lagrange_ds_field,
+                        mesh_dim, constrained_dof,
+                        (void (*)(void))bc_zero, nullptr, nullptr, nullptr); CHKERRQ(ierr);
+                    if (rank == 0) {
+                        IS bc_is = nullptr;
+                        PetscInt nbc = 0;
+                        ierr = DMLabelGetStratumIS(buried_cohesive_label_, 1, &bc_is); CHKERRQ(ierr);
+                        if (bc_is) {
+                            ierr = ISGetLocalSize(bc_is, &nbc); CHKERRQ(ierr);
+                            ierr = ISDestroy(&bc_is); CHKERRQ(ierr);
+                        }
+                        PetscPrintf(comm,
+                            "Session 12: registered lagrange_fault_rim BC "
+                            "on region DS (field %d, dim=%d, label has %d points)\n",
+                            (int)lagrange_ds_field, (int)mesh_dim, (int)nbc);
+                    }
+                } else if (rank == 0) {
+                    PetscPrintf(comm,
+                        "Session 12: WARNING -- no region DS owns the "
+                        "Lagrange field (global idx %d); "
+                        "lagrange_fault_rim BC not registered\n",
+                        (int)lagrange_field_idx_);
+                }
             }
         }
     }
