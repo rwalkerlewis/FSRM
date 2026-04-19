@@ -187,6 +187,7 @@ private:
     PetscErrorCode applyExplosionDamageToAuxFields();
     PetscErrorCode createCohesiveCellLabel();
     PetscErrorCode getOrCreateInterfacesLabel(DMLabel *interfacesLabel);
+    PetscErrorCode getOrCreateInterfaceFacetsLabel(DMLabel *interfaceFacetsLabel);
 
     // PyLith-style "cohesive interface" label: cohesive cells plus their
     // closure faces, edges, and vertices on the negative side of the fault.
@@ -194,6 +195,13 @@ private:
     // consumed by setupBoundaryConditions to register the Lagrange
     // fault_constraint Neumann BC on the cohesive geometry.
     DMLabel interfaces_label_ = nullptr;
+
+    // Facets-only ("cohesive interface facets") label: height-1 subset of
+    // interfaces_label_. DMAddBoundary dispatches BdResidual on every labeled
+    // point, so passing the full-stratum interfaces_label_ feeds cohesive
+    // cells and vertices into the kernel and yields NaN. This label contains
+    // only the cohesive facets that are the correct target for BdResidual.
+    DMLabel interface_facets_label_ = nullptr;
     
     // Simulation state
     double current_time;

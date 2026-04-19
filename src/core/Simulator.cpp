@@ -3556,6 +3556,7 @@ PetscErrorCode Simulator::setupFaultNetwork() {
     // ierr = createCohesiveCellLabel(); CHKERRQ(ierr);
 
     ierr = getOrCreateInterfacesLabel(&interfaces_label_); CHKERRQ(ierr);
+    ierr = getOrCreateInterfaceFacetsLabel(&interface_facets_label_); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -3656,6 +3657,55 @@ PetscErrorCode Simulator::getOrCreateInterfacesLabel(DMLabel *interfacesLabel) {
             ierr = ISDestroy(&stratumIS); CHKERRQ(ierr);
         }
         PetscPrintf(comm, "'cohesive interface' label created: %d hybrid points\n", (int)n_total);
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+// getOrCreateInterfaceFacetsLabel
+//
+// Build (or fetch) a DMLabel named "cohesive interface facets" that contains
+// ONLY the height-1 points (cohesive facets) of the cohesive interface. This
+// is the subset of the full-stratum getOrCreateInterfacesLabel walk that is
+// valid as the label argument to DMAddBoundary for a DM_BC_NATURAL BdResidual
+// kernel on cohesive faces. PETSc dispatches the BdResidual on every labeled
+// point, so including cohesive cells (height 0) or vertices (height dim)
+// drives non-geometric quadrature and produces NaN (Session 2 regression).
+PetscErrorCode Simulator::getOrCreateInterfaceFacetsLabel(DMLabel *interfaceFacetsLabel) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    const char *labelName = "cohesive interface facets";
+    PetscBool hasLabel = PETSC_FALSE;
+    ierr = DMHasLabel(dm, labelName, &hasLabel); CHKERRQ(ierr);
+
+    if (hasLabel) {
+        ierr = DMGetLabel(dm, labelName, interfaceFacetsLabel); CHKERRQ(ierr);
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+
+    ierr = DMCreateLabel(dm, labelName); CHKERRQ(ierr);
+    ierr = DMGetLabel(dm, labelName, interfaceFacetsLabel); CHKERRQ(ierr);
+
+    // Facets are at height 1 (PyLith TopologyOps.cc:456-462 convention).
+    // DMPlexGetSimplexOrBoxCells(dm, 1, NULL, &pMax) returns the first hybrid
+    // face; [pMax, pEnd) is the cohesive-facet stratum.
+    PetscInt pStart = 0, pEnd = 0, pMax = 0;
+    ierr = DMPlexGetHeightStratum(dm, 1, &pStart, &pEnd); CHKERRQ(ierr);
+    ierr = DMPlexGetSimplexOrBoxCells(dm, 1, NULL, &pMax); CHKERRQ(ierr);
+    for (PetscInt p = pMax; p < pEnd; ++p) {
+        ierr = DMLabelSetValue(*interfaceFacetsLabel, p, 1); CHKERRQ(ierr);
+    }
+
+    if (rank == 0) {
+        PetscInt n_total = 0;
+        IS stratumIS = NULL;
+        ierr = DMLabelGetStratumIS(*interfaceFacetsLabel, 1, &stratumIS); CHKERRQ(ierr);
+        if (stratumIS) {
+            ierr = ISGetLocalSize(stratumIS, &n_total); CHKERRQ(ierr);
+            ierr = ISDestroy(&stratumIS); CHKERRQ(ierr);
+        }
+        PetscPrintf(comm, "'cohesive interface facets' label created: %d facets\n", (int)n_total);
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -6468,13 +6518,19 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                 NULL, NULL, NULL, NULL); CHKERRQ(ierr);
 
             if (lagrange_field_idx < numDSFields) {
-                // Use the cohesive-complete "cohesive interface" label populated
-                // by getOrCreateInterfacesLabel during setupFaultNetwork. The
-                // "fault" label is face-only and so the BdResidual on cohesive
-                // cells does not fire reliably under PETSc's per-stratum
-                // dispatch. See docs/FAULT_TEST_REGRESSION_AUDIT.md
-                // "PrescribedSlipQuasiStatic Label Topology Diagnosis".
-                DMLabel constraint_label = interfaces_label_ ? interfaces_label_ : fault_label;
+                // Use the facets-only "cohesive interface facets" label
+                // populated by getOrCreateInterfaceFacetsLabel during
+                // setupFaultNetwork. DMAddBoundary dispatches the BdResidual
+                // on every labeled point; the full-stratum interfaces_label_
+                // (Session 2) included cohesive cells and vertices as well
+                // as facets, which caused the kernel to be invoked on
+                // non-facet geometry and returned NaN (regression of
+                // Physics.CohesiveBdResidual). The facets-only label
+                // restricts dispatch to height-1 cohesive faces, which is
+                // the geometry BdResidual expects. See
+                // docs/SESSION_2_REPORT.md Section 8.1 and
+                // docs/FAULT_TEST_REGRESSION_AUDIT.md sections 2-4.
+                DMLabel constraint_label = interface_facets_label_ ? interface_facets_label_ : fault_label;
                 ierr = DMAddBoundary(dm, DM_BC_NATURAL, "fault_constraint",
                     constraint_label, 1, &label_value, lagrange_field_idx, 0, NULL,
                     NULL, NULL, NULL, NULL); CHKERRQ(ierr);
