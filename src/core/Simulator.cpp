@@ -1777,6 +1777,22 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 
     // Force PETSc to rebuild the local section with BC constraints
     ierr = DMSetLocalSection(dm, nullptr); CHKERRQ(ierr);
+
+    // Session 8: for fault-enabled runs, apply PETSc's cohesive section
+    // reordering so the Lagrange DOFs are ordered at the end of the section.
+    // This matches PyLith's production setup (libsrc/pylith/materials/Elasticity.cc
+    // getSolverDefaults) and the PETSc cohesive tests (src/dm/impls/plex/tests/ex5.c
+    // lines 1289-1298). Without this, the saddle-point [A B^T; B 0] system has
+    // zero diagonals interleaved with stiffness rows and PETSc's direct LU
+    // fails at the zero pivot during factorization.
+    if (config.enable_faults && cohesive_kernel_) {
+        ierr = DMReorderSectionSetDefault(dm, DM_REORDER_DEFAULT_TRUE); CHKERRQ(ierr);
+        ierr = DMReorderSectionSetType(dm, "cohesive"); CHKERRQ(ierr);
+        if (rank == 0) {
+            PetscPrintf(comm, "Session 8: applied cohesive section reorder\n");
+        }
+    }
+
     ierr = DMSetUp(dm); CHKERRQ(ierr);
 
     // Get the DS for later use
@@ -3395,7 +3411,7 @@ PetscErrorCode Simulator::setupSolvers() {
         ierr = KSPSetType(ksp, KSPPREONLY); CHKERRQ(ierr);
         ierr = PCSetType(pc, PCLU); CHKERRQ(ierr);
     }
-    
+
     // Set solver options from command line (override programmatic defaults)
     ierr = SNESSetFromOptions(snes); CHKERRQ(ierr);
     ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
