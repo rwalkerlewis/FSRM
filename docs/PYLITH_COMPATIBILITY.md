@@ -163,7 +163,7 @@ labeling because it changes the mesh topology.
 | Configuration | INI-style `.config` files | `.cfg` files with Pyre framework |
 | Mesh | Built-in hex + Gmsh import | Gmsh, CUBIT, LaGriT |
 | Time function | Linear ramp only (obsolete, superseded by section A) | Step, constant rate, Liu cosine, time history |
-| Fault friction | Coulomb (manual assembly) (obsolete, superseded by section A: FSRM also implements linear slip-weakening in src/physics/CohesiveFaultKernel.cpp:256-273) | Rate-and-state, slip weakening |
+| Fault friction | Coulomb plus linear slip-weakening (src/physics/CohesiveFaultKernel.cpp:256-273, verified by Physics.SCEC.TPV5); rate-state planned (Section C) | Kinematic rupture only; no friction laws in v4 (friction subsystem removed in v3/v4 rewrite, only libsrc/pylith/friction/frictionfwd.hh stub remains) |
 | Output | HDF5, VTK, SAC | HDF5/Xdmf |
 | Parallelism | MPI + optional GPU (PETSc CUDA) | MPI only |
 
@@ -309,6 +309,26 @@ load-bearing precondition for Section C.
 
 Only actionable after Section B.
 
+### C.0 Reference Implementations
+
+PyLith v4 does not implement rate-and-state friction. The friction subsystem was removed
+in the v3/v4 rewrite. Only the forward-declaration stub at
+`/home/dockimble/Projects/pylith/libsrc/pylith/friction/frictionfwd.hh` remains, declaring
+`FrictionModel`, `StaticFriction`, `SlipWeakening`, `SlipWeakeningTime`,
+`SlipWeakeningTimeStable`, `RateStateAgeing`, and `TimeWeakening` without implementation
+files. Authoritative references for the FSRM rate-state implementation, in priority order:
+
+- PyLith 2.x `libsrc/pylith/friction/RateStateAgeing.cc`, if available in a local
+  archival clone. Closest match to the PETSc DMPlex infrastructure used by FSRM.
+- Tandem (github.com/TEAR-ERC/tandem), a PETSc-based quasi-static and SEAS rate-state
+  implementation.
+- SeisSol friction kernels for the regularized asinh form and flash heating extensions.
+- Dieterich 1979 for the aging law.
+- Ruina 1983 for the slip law.
+- Rice and Ben-Zion 1996 for the regularized asinh formulation that avoids the log
+  singularity at V=0.
+- Liu and Rice 2005 for nucleation length scaling.
+
 ### C.1 Constant slot allocation
 
 The existing constant slots that must not be collided with are documented in CLAUDE.md
@@ -339,6 +359,13 @@ Propose allocating slots 79 for rate-state model selector and extending
 - Slots 86-91 are reserved for thermal-pressurization coupling (Section E).
 - Slots 92-95 are free scratch for nucleation perturbation.
 
+Scalar constants are a first-version simplification valid only for spatially uniform
+rate-state parameters. Heterogeneous rate-state benchmarks (TPV101 nucleation patch,
+TPV205 thermal pressurization, SEAS BP-1) require promotion of a, b, Dc, f0, V0 to
+auxiliary subfields on the cohesive interface, following the theta aux field pattern
+in C.2. This promotion is a follow-up session after the scalar-constant implementation
+is verified against a spring-slider analytical solution.
+
 The new block strictly follows the existing "disjoint contiguous band" pattern so no
 existing callback or constant writer collides.
 
@@ -351,6 +378,11 @@ variable. PyLith uses an auxiliary subfield on the cohesive interface for fault 
 for the analogous pattern used for slip, plus
 `/home/dockimble/Projects/pylith/libsrc/pylith/faults/AuxiliaryFieldFactory.cc` which is
 referenced for subfield registration).
+
+PyLith v4 does not implement rate-state friction. The friction subsystem was removed
+in the v3/v4 rewrite. The cited createAuxiliaryField pattern is a valid reference for
+the aux-subfield-on-cohesive-interface machinery, but it is not a reference for
+rate-state itself. See Section C.0.
 
 Proposed FSRM approach that stays within rule 4 and rule 6:
 
@@ -417,6 +449,11 @@ Justification for the TSPostStep choice:
   reads theta as constant within a step, avoiding a nonlinear bootstrap problem on
   the first Newton iteration.
 - Does not require modifying any file prohibited by rule 5 or rule 6.
+
+PyLith v4 updateAuxiliaryField is invoked per step for kinematic slip update, not for
+rate-state theta evolution. The pattern is a valid analogy for the TSPostStep hook
+proposed here, but PyLith v4 has no rate-state implementation to cite for the theta
+evolution law itself. See Section C.0.
 
 ## D. Kinematic Slip Time Function Wiring Plan
 
@@ -518,8 +555,14 @@ The same penalty damping that currently misbehaves for prescribed slip (Section 
 "Why PrescribedSlipQuasiStatic fails") will misbehave for the flow Lagrange
 multiplier. Adding Option F1 before committing to Section B Option B produces a
 second failing test with the same root cause and no independent progress. The
-correct ordering is: Section B Option B, then rate-state (Section C), then
-poroelastic coupling (this section).
+correct ordering is: Section B Option B, then kinematic slip time functions
+(Section D), then rate-state (Section C), then poroelastic coupling (this section).
+Section D is ordered before Section C because PyLith v4 provides direct reference
+implementations for all six kinematic time functions at
+`libsrc/pylith/faults/KinSrc*.{hh,cc}` (KinSrcStep, KinSrcRamp, KinSrcBrune,
+KinSrcConstRate, KinSrcLiuCos, KinSrcTimeHistory), while rate-state has no PyLith v4
+reference. Section D also exercises the aux DM machinery that Section C will reuse,
+and is lower architectural risk.
 
 ## F. Known Failure: PrescribedSlipQuasiStatic
 
@@ -585,3 +628,9 @@ each rule as follows:
   Section F diagnoses `PrescribedSlipQuasiStatic` without proposing GTEST_SKIP.
   The failure is a physics setup issue traceable to the Lagrange architecture
   choice in Section B, and must be fixed, not hidden.
+- Reading list integrity. When a reference file cited in a reading list does not
+  exist on disk, the implementing session must stop and report the missing file
+  before proceeding. Silent skipping of nonexistent cited files is prohibited.
+  Session 0 violated this when RateStateAgeing.cc and SlipWeakening.cc were listed
+  but do not exist in PyLith v4; the violation was caught post-hoc by manual
+  verification and triggered this Session 0.5 correction.

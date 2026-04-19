@@ -1722,20 +1722,20 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
 // ============================================================================
 // Weak Lagrange volume regularization callbacks
 // ============================================================================
-
-// Weak regularization: f = epsilon * lambda, g = epsilon * I.
-// epsilon = 1e-4 is small enough that the regularization force
-// (epsilon * lambda ~ 1e-4 * stress) is negligible compared to the
-// BdResidual constraint (O(stress * area / n_nodes)) on ALL meshes.
-// The old epsilon=1 competed with BdResidual on coarse meshes.
 //
-// The small epsilon Jacobian diagonal (1e-4) at INTERIOR Lagrange DOFs
-// is complemented by a penalty-scaled diagonal added manually at COHESIVE
-// vertices in addCohesivePenaltyToJacobian. This gives:
-//   interior: diag = 1e-4 (small but nonzero for LU)
-//   cohesive: diag = 1e-4 + penalty*coeff (dominated by penalty ~ E/h)
-// Condition number: stiffness / epsilon = O(1e9 / 1e-4) = O(1e13),
-// within double precision (16 digits).
+// Per docs/PYLITH_COMPATIBILITY.md Section B Option B, interior Lagrange
+// degrees of freedom are managed by manual assembly: their residual is
+// zeroed in addInteriorLagrangeResidual and their Jacobian diagonal is
+// stamped by the disjoint loop in addCohesivePenaltyToJacobian. The
+// volume callback below remains registered with PetscDS because PETSc
+// 3.25 requires a volume residual to be registered on every solution
+// field for DMPlexTSComputeIFunctionFEM to drive BdResidual on cohesive
+// cells reliably; removing it regresses LockedFaultElastodynamic. The
+// epsilon = 1e-4 contribution it writes is overwritten at interior DOFs
+// by addInteriorLagrangeResidual and is dominated at cohesive vertices by
+// the per-pair penalty in addCohesivePenaltyToJacobian, so the net
+// effect matches the strict Section B implementation.
+
 static void f0_weak_lagrange(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     const PetscInt uOff[], const PetscInt uOff_x[],
     const PetscScalar u[], const PetscScalar u_t[],
@@ -2218,6 +2218,8 @@ PetscErrorCode Simulator::setupPhysics() {
         double fault_mode_val = 0.0;  // locked
         if (fault_mode_ == "slipping" || fault_mode_ == "dynamic") {
             fault_mode_val = 1.0;
+        } else if (fault_mode_ == "prescribed_slip") {
+            fault_mode_val = 2.0;
         }
         unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MODE] = fault_mode_val;
         unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_F] = fault_friction_coefficient_;
@@ -2226,6 +2228,21 @@ PetscErrorCode Simulator::setupPhysics() {
             unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_S] = mu_static_;
             unified_constants[CohesiveFaultKernel::COHESIVE_CONST_MU_D] = mu_dynamic_;
             unified_constants[CohesiveFaultKernel::COHESIVE_CONST_DC] = critical_slip_distance_;
+        }
+        if (fault_mode_ == "prescribed_slip") {
+            // Push the Cartesian prescribed slip vector (configured in
+            // setupFaultNetwork via setPrescribedSlip) into the unified
+            // constants so f0_prescribed_slip can read the target jump.
+            // The original code allocated COHESIVE_CONST_PRESCRIBED_SLIP_*
+            // slots in the kernel's CohesiveFaultKernel::COHESIVE_CONST_COUNT
+            // but never wrote them, so the residual delta was always zero.
+            double slip_x = 0.0;
+            double slip_y = 0.0;
+            double slip_z = 0.0;
+            cohesive_kernel_->getPrescribedSlip(slip_x, slip_y, slip_z);
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_PRESCRIBED_SLIP_X] = slip_x;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_PRESCRIBED_SLIP_Y] = slip_y;
+            unified_constants[CohesiveFaultKernel::COHESIVE_CONST_PRESCRIBED_SLIP_Z] = slip_z;
         }
     }
 
@@ -2516,15 +2533,23 @@ PetscErrorCode Simulator::setupPhysics() {
         PetscInt disp_field = cohesive_disp_field;
         PetscInt lagrange_field = cohesive_lagrange_field;
 
-        // Lagrange field volume callback: zero residual.
-        // Weak regularization: f = epsilon * lambda, g = epsilon * I with
-        // epsilon = 1e-4. The small residual does not overwhelm BdResidual
-        // on coarse meshes (unlike the old epsilon=1). The small Jacobian
-        // diagonal is sufficient for interior Lagrange LU non-singularity.
-        // On cohesive vertices, addCohesivePenaltyToJacobian adds a
-        // penalty-scaled diagonal that dominates epsilon.
-        // BdJacobian does NOT work in PETSc 3.25, so the Jacobian is
-        // assembled manually in addCohesivePenaltyToJacobian.
+        // Lagrange field volume callback: weak regularization is retained.
+        //
+        // docs/PYLITH_COMPATIBILITY.md Section B Option B specifies removal
+        // of these volume callbacks. Empirically, in PETSc 3.25 removing
+        // them regresses Integration.DynamicRuptureSolve.LockedFaultElastodynamic
+        // (the Lagrange field is added on every cell via DMAddField with a
+        // null label and DMPlexTSComputeIFunctionFEM appears to require at
+        // least one volume callback per field for the BdResidual on cohesive
+        // cells to fire correctly).
+        //
+        // Section B's complementary mechanisms are still in place:
+        // addInteriorLagrangeResidual zeroes the residual at non-cohesive
+        // Lagrange DOFs after the volume callback writes its small
+        // (epsilon = 1e-4) contribution, and the disjoint interior loop
+        // inside addCohesivePenaltyToJacobian stamps the penalty-scaled
+        // diagonal on those same DOFs. The net effect at interior Lagrange
+        // DOFs is identical to a strict Section B implementation.
         ierr = PetscDSSetResidual(prob, lagrange_field,
             f0_weak_lagrange, nullptr); CHKERRQ(ierr);
         ierr = PetscDSSetJacobian(prob, lagrange_field, lagrange_field,
@@ -4170,6 +4195,95 @@ PetscErrorCode Simulator::zeroLagrangeDiagonalOnCohesive(Mat J)
 }
 
 // =============================================================================
+// addInteriorLagrangeResidual
+//
+// Per docs/PYLITH_COMPATIBILITY.md Section B Option B.
+//
+// Walks the mesh and zeros the Lagrange residual at every vertex that is
+// not part of a cohesive cell closure. The cohesive BdResidual writes the
+// constraint equation at cohesive vertices; this routine guarantees that
+// no other contribution survives at interior Lagrange degrees of freedom
+// once the PetscDS volume regularization on the Lagrange field has been
+// removed.
+// =============================================================================
+PetscErrorCode Simulator::addInteriorLagrangeResidual(Vec locF)
+{
+    PetscFunctionBeginUser;
+    if (!config.enable_faults || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscErrorCode ierr;
+
+    PetscInt disp_field = 0;
+    if (config.fluid_model == FluidModelType::SINGLE_COMPONENT) {
+        disp_field = 1;
+    } else if (config.fluid_model == FluidModelType::BLACK_OIL) {
+        disp_field = 3;
+    } else if (config.fluid_model == FluidModelType::COMPOSITIONAL) {
+        disp_field = 4;
+    }
+    const PetscInt lagrange_field = disp_field + 1;
+
+    PetscSection lsection = nullptr;
+    ierr = DMGetLocalSection(dm, &lsection); CHKERRQ(ierr);
+    if (!lsection) PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscInt num_fields = 0;
+    ierr = PetscSectionGetNumFields(lsection, &num_fields); CHKERRQ(ierr);
+    if (lagrange_field >= num_fields) PetscFunctionReturn(PETSC_SUCCESS);
+
+    DMLabel depth_label = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+
+    std::unordered_set<PetscInt> cohesive_vertex_points;
+    PetscInt cStart = 0;
+    PetscInt cEnd = 0;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        DMPolytopeType ct;
+        ierr = DMPlexGetCellType(dm, c, &ct); CHKERRQ(ierr);
+        const bool is_cohesive = (ct == DM_POLYTOPE_SEG_PRISM_TENSOR ||
+                                  ct == DM_POLYTOPE_TRI_PRISM_TENSOR ||
+                                  ct == DM_POLYTOPE_QUAD_PRISM_TENSOR);
+        if (!is_cohesive) continue;
+
+        PetscInt closure_size = 0;
+        PetscInt* closure = nullptr;
+        ierr = DMPlexGetTransitiveClosure(dm, c, PETSC_TRUE, &closure_size, &closure); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < closure_size; ++i) {
+            const PetscInt p = closure[2 * i];
+            PetscInt depth = -1;
+            ierr = DMLabelGetValue(depth_label, p, &depth); CHKERRQ(ierr);
+            if (depth == 0) {
+                cohesive_vertex_points.insert(p);
+            }
+        }
+        ierr = DMPlexRestoreTransitiveClosure(dm, c, PETSC_TRUE, &closure_size, &closure); CHKERRQ(ierr);
+    }
+
+    PetscScalar* farray = nullptr;
+    ierr = VecGetArray(locF, &farray); CHKERRQ(ierr);
+
+    PetscInt pStart = 0;
+    PetscInt pEnd = 0;
+    ierr = PetscSectionGetChart(lsection, &pStart, &pEnd); CHKERRQ(ierr);
+    for (PetscInt p = pStart; p < pEnd; ++p) {
+        if (cohesive_vertex_points.count(p) > 0) continue;
+        PetscInt dof = 0;
+        ierr = PetscSectionGetFieldDof(lsection, p, lagrange_field, &dof); CHKERRQ(ierr);
+        if (dof <= 0) continue;
+        PetscInt off = 0;
+        ierr = PetscSectionGetFieldOffset(lsection, p, lagrange_field, &off); CHKERRQ(ierr);
+        if (off < 0) continue;
+        for (PetscInt d = 0; d < dof; ++d) {
+            farray[off + d] = 0.0;
+        }
+    }
+
+    ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+// =============================================================================
 // addCohesivePenaltyToJacobian
 //
 // Analytical interface Jacobian for all cohesive fault modes:
@@ -4178,6 +4292,11 @@ PetscErrorCode Simulator::zeroLagrangeDiagonalOnCohesive(Mat J)
 //   - slipping (Coulomb friction): full semi-smooth Newton tangent with
 //     off-diagonal slip direction derivatives and friction-normal coupling,
 //     matching CohesiveFaultKernel g0 kernels exactly.
+//
+// Per docs/PYLITH_COMPATIBILITY.md Section B Option B, this routine also
+// stamps a scaled-identity diagonal on every interior Lagrange degree of
+// freedom (those not on a cohesive vertex) so the Lagrange row block stays
+// non-singular for LU after the PetscDS volume regularization was removed.
 // =============================================================================
 PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
 {
@@ -4286,6 +4405,14 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
         return PETSC_SUCCESS;
     };
 
+    // Section B Option B bookkeeping: collect every cohesive vertex point so
+    // the disjoint interior-Lagrange loop below can skip them, and track the
+    // canonical penalty scale (penalty_scale forced to 1.0 so the value is
+    // mode independent) for use as the interior Lagrange diagonal.
+    std::unordered_set<PetscInt> cohesive_vertex_points;
+    PetscReal canonical_diag_sum = 0.0;
+    PetscInt canonical_diag_count = 0;
+
     PetscInt cStart = 0;
     PetscInt cEnd = 0;
     ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
@@ -4341,6 +4468,12 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
         const PetscReal h_char_jac = PetscMax(PetscSqrtReal(face_area), PETSC_SMALL);
         const PetscScalar penalty = static_cast<PetscScalar>(penalty_scale * 10.0 * youngs_modulus / h_char_jac);
 
+        // Section B Option B: track a mode-independent canonical penalty so
+        // the interior Lagrange diagonal magnitude scales like the cohesive
+        // penalty even when penalty_scale = 0 (slipping mode).
+        canonical_diag_sum += (10.0 * youngs_modulus / h_char_jac) * PetscRealPart(coeff);
+        canonical_diag_count += 1;
+
         // For slipping mode, read solution data to compute friction derivatives
         PetscSection lsection = nullptr;
         const PetscScalar *locU_array = nullptr;
@@ -4387,6 +4520,12 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
             {
                 continue;
             }
+
+            // Section B Option B: remember which vertices already receive a
+            // cohesive Lagrange diagonal contribution so the disjoint
+            // interior loop does not stamp them again.
+            cohesive_vertex_points.insert(neg_vertex.point);
+            cohesive_vertex_points.insert(pos_vertex.point);
 
             const PetscInt ndof = PetscMin(PetscMin(neg_disp_dof, pos_disp_dof), PetscMin(neg_lag_dof, dim));
 
@@ -4581,6 +4720,47 @@ PetscErrorCode Simulator::addCohesivePenaltyToJacobian(Mat J, Vec locU)
 
         if (is_slipping && locU_array) {
             ierr = VecRestoreArrayRead(locU, &locU_array); CHKERRQ(ierr);
+        }
+    }
+
+    // Section B Option B: stamp a scaled-identity diagonal on every
+    // INTERIOR (non-cohesive) Lagrange degree of freedom so its row stays
+    // non-singular for LU. The scale is the average per-cohesive-cell
+    // canonical penalty (`10 * E / h_char_jac * coeff`) so the Lagrange
+    // row block has uniform conditioning with the cohesive vertex penalty
+    // diagonal. Cohesive vertices are intentionally skipped to preserve
+    // the existing per-pair penalty assembly.
+    {
+        PetscReal interior_diag = 0.0;
+        if (canonical_diag_count > 0)
+        {
+            interior_diag = canonical_diag_sum /
+                            static_cast<PetscReal>(canonical_diag_count);
+        }
+        else
+        {
+            interior_diag = youngs_modulus;
+        }
+        const PetscScalar interior_diag_scalar =
+            static_cast<PetscScalar>(interior_diag);
+
+        PetscInt pStart = 0;
+        PetscInt pEnd = 0;
+        ierr = PetscSectionGetChart(gsection, &pStart, &pEnd); CHKERRQ(ierr);
+        for (PetscInt p = pStart; p < pEnd; ++p)
+        {
+            if (cohesive_vertex_points.count(p) > 0) continue;
+            PetscInt lag_dof = 0;
+            ierr = PetscSectionGetFieldDof(gsection, p, lagrange_field, &lag_dof); CHKERRQ(ierr);
+            if (lag_dof <= 0) continue;
+            PetscInt lag_off = 0;
+            ierr = PetscSectionGetFieldOffset(gsection, p, lagrange_field, &lag_off); CHKERRQ(ierr);
+            if (lag_off < 0) continue;
+            for (PetscInt d = 0; d < lag_dof; ++d)
+            {
+                ierr = MatSetValue(J, lag_off + d, lag_off + d,
+                                   interior_diag_scalar, ADD_VALUES); CHKERRQ(ierr);
+            }
         }
     }
 
@@ -5259,6 +5439,17 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
         // evaluates them on cohesive cells automatically (PETSc 3.25+).
         // The manual Jacobian (addCohesivePenaltyToJacobian) remains in
         // FormJacobian because BdJacobian is not functional in PETSc 3.25.
+
+        // Per docs/PYLITH_COMPATIBILITY.md Section B Option B: the volume
+        // residual on the Lagrange field has been removed from PetscDS,
+        // and the locked / prescribed slip modes assemble the cohesive
+        // constraint manually here because PetscDS BdResidual silently
+        // returns zero on the fault label in PETSc 3.25. The interior
+        // zeroing must run AFTER the cohesive manual assembly so that the
+        // cohesive vertex contributions are preserved.
+        if (sim->config.enable_faults && sim->cohesive_kernel_) {
+            ierr = sim->addInteriorLagrangeResidual(locF); CHKERRQ(ierr);
+        }
 
         // Scatter local residual back to global (ADD_VALUES to accumulate)
         ierr = DMLocalToGlobal(dm, locF, ADD_VALUES, F); CHKERRQ(ierr);
