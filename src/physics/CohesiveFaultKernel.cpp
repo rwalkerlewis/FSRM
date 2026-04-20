@@ -804,31 +804,80 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
             f0[c] = u[Nc + c] - u[c];
         }
     } else if (mode > 1.5) {
-        // PRESCRIBED SLIP. Session 16 attempted the PyLith f0l_slip
-        // pattern (read slip from auxiliary field a[aOff[0]..aOff[0]+2]
-        // in fault-local coordinates and rotate via refDir1/refDir2 to
-        // global XYZ) but PETSc 3.25's hybrid driver (plexfem.c:5644 ff.)
-        // enforces closure-vs-DS totDim / tabulation point consistency
-        // between the main Lagrange field and any cohesive-key aux field
-        // that this session could not satisfy with a single shared aux
-        // DM. Cell-constant degree-0 slip avoids the totDim check but
-        // triggers the tabulation-point-count mismatch in
-        // PetscFEIntegrateHybridResidual_Basic; label-restricted surface
-        // FE avoids the tabulation mismatch but the section closure on
-        // cohesive prism cells does not match the FE totDim.
+        // PRESCRIBED SLIP -- PyLith f0l_slip pattern
+        // (libsrc/pylith/fekernels/FaultCohesiveKin.hh, 3D case).
         //
-        // The prescribed-slip branch therefore retains the constants
-        // array path for Session 16. The aux-field plumbing
-        // (faultAuxDM_/faultAuxVec_/updateFaultAuxiliary) stays in tree
-        // as groundwork for a future session that reconstructs the aux
-        // as a PyLith-style shared Field on the main DM instead of a
-        // clone. refDir1/refDir2 slots (80..85) are populated by
-        // setupPhysics so the rotation is ready when the aux path lands.
-        for (PetscInt c = 0; c < Nc; ++c) {
-            PetscScalar delta =
-                (numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + c)
-                ? constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + c] : 0.0;
-            f0[c] = u[Nc + c] - u[c] - delta;
+        // Session 17: read fault-local slip triple from the auxiliary
+        // field (slot 0, Nc components) and rotate into Cartesian using
+        // the PyLith tangent basis
+        //   tanDir1 = normalize(refDir2 x n)
+        //   tanDir2 = normalize(n x tanDir1)
+        // with refDir1 / refDir2 sourced from constants slots 80..85.
+        // The aux vec is attached at (interfaces_label_, 1, 0) in
+        // Simulator::FormFunction / FormJacobian. The aux FE is built
+        // with matching quadOrder to the main Lagrange FE (PyLith
+        // FieldOps::createFE pattern) so the hybrid driver's
+        // tabulation-point count check at febasic.c:660 passes.
+        const PetscInt i_slip = 0;
+        const PetscScalar *slip =
+            (NfAux > 0 && aOff && a) ? &a[aOff[i_slip]] : nullptr;
+
+        const PetscScalar *refDir1 =
+            (numConstants > COHESIVE_CONST_REF_DIR1_Z)
+            ? &constants[COHESIVE_CONST_REF_DIR1_X] : nullptr;
+        const PetscScalar *refDir2 =
+            (numConstants > COHESIVE_CONST_REF_DIR2_Z)
+            ? &constants[COHESIVE_CONST_REF_DIR2_X] : nullptr;
+
+        if (!slip || !refDir2) {
+            // Fall back to constants path if aux or refDirs are missing
+            // (should not happen once Session 17 plumbing is live).
+            for (PetscInt c = 0; c < Nc; ++c) {
+                PetscScalar delta =
+                    (numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + c)
+                    ? constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + c] : 0.0;
+                f0[c] = u[Nc + c] - u[c] - delta;
+            }
+        } else {
+            PetscScalar tanDir1[3] = {0.0, 0.0, 0.0};
+            PetscScalar tanDir2[3] = {0.0, 0.0, 0.0};
+            // tanDir1 = refDir2 x n (before normalize)
+            tanDir1[0] = refDir2[1]*n[2] - refDir2[2]*n[1];
+            tanDir1[1] = refDir2[2]*n[0] - refDir2[0]*n[2];
+            tanDir1[2] = refDir2[0]*n[1] - refDir2[1]*n[0];
+            const PetscReal mag1 = PetscSqrtReal(PetscRealPart(
+                tanDir1[0]*tanDir1[0] + tanDir1[1]*tanDir1[1] + tanDir1[2]*tanDir1[2]));
+            if (mag1 > 1e-12) {
+                tanDir1[0] /= mag1; tanDir1[1] /= mag1; tanDir1[2] /= mag1;
+            }
+            // tanDir2 = n x tanDir1 (unit since n and tanDir1 are orthonormal)
+            tanDir2[0] = n[1]*tanDir1[2] - n[2]*tanDir1[1];
+            tanDir2[1] = n[2]*tanDir1[0] - n[0]*tanDir1[2];
+            tanDir2[2] = n[0]*tanDir1[1] - n[1]*tanDir1[0];
+
+            (void)refDir1;  // tanDir1/tanDir2 computed directly from refDir2 and n
+
+            if (getenv("FSRM_SESSION17_DEBUG")) {
+                static int printed = 0;
+                if (!printed) {
+                    printf("Session 17: kernel sees slip=[%g %g %g] "
+                           "n=[%g %g %g] refDir2=[%g %g %g]\n",
+                           (double)PetscRealPart(slip[0]),
+                           (double)PetscRealPart(slip[1]),
+                           (double)PetscRealPart(slip[2]),
+                           (double)n[0], (double)n[1], (double)n[2],
+                           (double)PetscRealPart(refDir2[0]),
+                           (double)PetscRealPart(refDir2[1]),
+                           (double)PetscRealPart(refDir2[2]));
+                    printed = 1;
+                }
+            }
+
+            for (PetscInt c = 0; c < Nc; ++c) {
+                const PetscScalar slipXYZ =
+                    n[c]*slip[0] + tanDir1[c]*slip[1] + tanDir2[c]*slip[2];
+                f0[c] = u[Nc + c] - u[c] - slipXYZ;
+            }
         }
     } else {
         // SLIPPING (Coulomb friction, semi-smooth Newton). Ported from the

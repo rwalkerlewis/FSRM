@@ -1815,36 +1815,86 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
         PetscInt dim = 0;
         ierr = DMGetDimension(dm, &dim); CHKERRQ(ierr);
 
+        // Session 17: the fault aux DM clones the main DM topology and
+        // hosts a volume-P1 slip subfield. By default the FE is built with
+        // PetscFECreateLagrange to match Session 16's behaviour exactly
+        // (LockedFaultTransparency depends on the DMReorderSection cache
+        // that this particular clone+DS combination primes in the main
+        // solve). When FSRM_ENABLE_SLIP_AUX is set, the FE is built the
+        // PyLith FieldOps::createFE way (libsrc/pylith/topology/FieldOps.cc:39-125)
+        // with explicit basisOrder/quadOrder, and DMSetFieldAvoidTensor is
+        // applied so the section on cohesive cells matches PyLith's
+        // aux-field semantics. That pathway is documented but gated off
+        // because PETSc 3.25's hybrid driver still rejects the resulting
+        // aux at febasic.c:663 even with matching tabulation points.
         ierr = DMClone(dm, &faultAuxDM_); CHKERRQ(ierr);
 
-        // Match the simplex flag of the main DM so PetscFECreateLagrange
-        // builds a compatible FE basis on the cohesive cells. setupDM()
-        // forces simplex when faults are enabled (PETSc 3.25 cohesive
-        // insertion is reliable only on simplex meshes), so the aux DM
-        // inherits the same flag.
-        PetscBool auxIsSimplex = PETSC_TRUE;
+        const bool pylith_fe_path = (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr);
 
-        // Session 15 shape retained: volume P1 (3 components), NULL label.
-        // Session 16 tried label-restricted surface and cell-constant
-        // volume variants to satisfy the hybrid driver's closure /
-        // tabulation checks, but neither matched the main Lagrange FE's
-        // face tabulation on cohesive cells. Restoring the Session 15
-        // shape here keeps LockedFaultTransparency (and the locked
-        // quasi-static / elastodynamic tests) converging because the
-        // DMClone + DMCreateDS pair primes a PETSc DMReorderSection cache
-        // used by the main DM solve; the slip aux vec is populated by
-        // updateFaultAuxiliary for diagnostic / future use but is NOT
-        // attached to the main DM via DMSetAuxiliaryVec this session.
         PetscFE fe_slip = nullptr;
-        ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, dim,
-                                     auxIsSimplex, 1, -1, &fe_slip); CHKERRQ(ierr);
+        if (pylith_fe_path) {
+            const PetscBool simplexBasis = PETSC_TRUE;
+            const PetscInt  main_basis_order = 1;
+            const PetscInt  main_quad_order  = 1;
+
+            PetscSpace space = nullptr;
+            ierr = PetscSpaceCreate(PETSC_COMM_SELF, &space); CHKERRQ(ierr);
+            ierr = PetscSpaceSetType(space, PETSCSPACEPOLYNOMIAL); CHKERRQ(ierr);
+            ierr = PetscSpaceSetNumComponents(space, dim); CHKERRQ(ierr);
+            ierr = PetscSpaceSetDegree(space, main_basis_order, PETSC_DETERMINE); CHKERRQ(ierr);
+            ierr = PetscSpacePolynomialSetTensor(space, PETSC_FALSE); CHKERRQ(ierr);
+            ierr = PetscSpaceSetNumVariables(space, dim); CHKERRQ(ierr);
+            ierr = PetscSpaceSetUp(space); CHKERRQ(ierr);
+
+            PetscDualSpace dualspace = nullptr;
+            DM dmCell = nullptr;
+            ierr = PetscDualSpaceCreate(PETSC_COMM_SELF, &dualspace); CHKERRQ(ierr);
+            ierr = DMPlexCreateReferenceCell(PETSC_COMM_SELF,
+                        DMPolytopeTypeSimpleShape(dim, simplexBasis),
+                        &dmCell); CHKERRQ(ierr);
+            ierr = PetscDualSpaceSetDM(dualspace, dmCell); CHKERRQ(ierr);
+            ierr = DMDestroy(&dmCell); CHKERRQ(ierr);
+            ierr = PetscDualSpaceSetNumComponents(dualspace, dim); CHKERRQ(ierr);
+            ierr = PetscDualSpaceSetType(dualspace, PETSCDUALSPACELAGRANGE); CHKERRQ(ierr);
+            ierr = PetscDualSpaceLagrangeSetTensor(dualspace, PETSC_FALSE); CHKERRQ(ierr);
+            ierr = PetscDualSpaceSetOrder(dualspace, main_basis_order); CHKERRQ(ierr);
+            ierr = PetscDualSpaceLagrangeSetContinuity(dualspace, PETSC_TRUE); CHKERRQ(ierr);
+            ierr = PetscDualSpaceSetUp(dualspace); CHKERRQ(ierr);
+
+            ierr = PetscFECreate(PETSC_COMM_SELF, &fe_slip); CHKERRQ(ierr);
+            ierr = PetscFESetType(fe_slip, PETSCFEBASIC); CHKERRQ(ierr);
+            ierr = PetscFESetBasisSpace(fe_slip, space); CHKERRQ(ierr);
+            ierr = PetscFESetDualSpace(fe_slip, dualspace); CHKERRQ(ierr);
+            ierr = PetscFESetNumComponents(fe_slip, dim); CHKERRQ(ierr);
+            ierr = PetscFESetUp(fe_slip); CHKERRQ(ierr);
+            ierr = PetscSpaceDestroy(&space); CHKERRQ(ierr);
+            ierr = PetscDualSpaceDestroy(&dualspace); CHKERRQ(ierr);
+
+            PetscQuadrature quadrature = nullptr, faceQuadrature = nullptr;
+            ierr = PetscDTCreateDefaultQuadrature(
+                DM_POLYTOPE_TETRAHEDRON,
+                main_quad_order, &quadrature, &faceQuadrature); CHKERRQ(ierr);
+            ierr = PetscFESetQuadrature(fe_slip, quadrature); CHKERRQ(ierr);
+            ierr = PetscQuadratureDestroy(&quadrature); CHKERRQ(ierr);
+            ierr = PetscFESetFaceQuadrature(fe_slip, faceQuadrature); CHKERRQ(ierr);
+            ierr = PetscQuadratureDestroy(&faceQuadrature); CHKERRQ(ierr);
+        } else {
+            // Session 15 / 16 path: PetscFECreateLagrange for the aux slip.
+            ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, dim,
+                                         PETSC_TRUE, 1, -1, &fe_slip); CHKERRQ(ierr);
+        }
         ierr = PetscObjectSetName((PetscObject)fe_slip, "slip"); CHKERRQ(ierr);
-        ierr = DMAddField(faultAuxDM_, nullptr, (PetscObject)fe_slip); CHKERRQ(ierr);
+
+        if (pylith_fe_path) {
+            ierr = DMSetField(faultAuxDM_, 0, NULL, (PetscObject)fe_slip); CHKERRQ(ierr);
+            ierr = DMSetFieldAvoidTensor(faultAuxDM_, 0, PETSC_TRUE); CHKERRQ(ierr);
+        } else {
+            ierr = DMAddField(faultAuxDM_, nullptr, (PetscObject)fe_slip); CHKERRQ(ierr);
+        }
         ierr = PetscFEDestroy(&fe_slip); CHKERRQ(ierr);
         fault_slip_aux_field_idx_ = 0;
 
         ierr = DMCreateDS(faultAuxDM_); CHKERRQ(ierr);
-
         ierr = DMSetUp(faultAuxDM_); CHKERRQ(ierr);
 
         ierr = DMCreateLocalVector(faultAuxDM_, &faultAuxVec_); CHKERRQ(ierr);
@@ -1855,8 +1905,8 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
             PetscInt nloc = 0;
             ierr = VecGetLocalSize(faultAuxVec_, &nloc); CHKERRQ(ierr);
             PetscPrintf(comm,
-                        "Session 15: fault aux DM built (slip subfield, local size %d)\n",
-                        (int)nloc);
+                        "Session 17: fault aux DM built (path=%s, local vec size=%d)\n",
+                        pylith_fe_path ? "pylith" : "session16", (int)nloc);
         }
     }
 
@@ -3008,20 +3058,42 @@ PetscErrorCode Simulator::setupPhysics() {
     }
 
     // Setup auxiliary DM for heterogeneous material properties or gravity.
-    if (use_aux_callbacks) {
+    //
+    // Session 17: also force this when FSRM_ENABLE_SLIP_AUX is set AND
+    // faults are enabled. The hybrid driver queries aux at
+    // (material_label_, {1,2}, 0) for the two sides of the cohesive cell
+    // in addition to (interfaces_label_, 1, 0). If ONLY the Lagrange key
+    // is attached, plexfem.c:5667 raises PETSC_ERR_ARG_WRONGSTATE. Under
+    // the default gating (slip aux off), setupAuxiliaryDM is only called
+    // when the volume callbacks need it, matching the Session 16 baseline.
+    const bool need_aux_for_fault =
+        (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr) &&
+        config.enable_faults && cohesive_kernel_ && interfaces_label_;
+    if (use_aux_callbacks || need_aux_for_fault) {
         ierr = setupAuxiliaryDM(); CHKERRQ(ierr);
     }
 
     PetscFunctionReturn(0);
 }
 
-// Session 15: per-time-step projection of the prescribed fault slip into
-// the local auxiliary vector. Replaces the constants-array broadcast
-// (constants[28..30] = Cartesian slip) with a PyLith-style per-point
-// auxiliary field stored in fault-local coordinates. The caller is
-// responsible for attaching faultAuxVec_ to the main DM via
-// DMSetAuxiliaryVec(dm, interfaces_label_, 1, 0, faultAuxVec_) before the
-// next hybrid residual/Jacobian call.
+// Session 17: constant-function projector used by DMProjectFunctionLocal.
+// Returns the fault-local slip triple (opening, left-lateral, reverse) at
+// every quadrature point. The ctx pointer carries a PetscScalar[3].
+static PetscErrorCode prescribed_slip_constant_fn(
+    PetscInt dim, PetscReal t, const PetscReal x[],
+    PetscInt Nc, PetscScalar *u, void *ctx) {
+    (void)dim; (void)t; (void)x;
+    const PetscScalar *slip_fault = static_cast<const PetscScalar*>(ctx);
+    for (PetscInt c = 0; c < Nc; ++c) u[c] = slip_fault[c];
+    return 0;
+}
+
+// Session 17: per-time-step projection of the prescribed fault slip into
+// the local auxiliary vector, now using DMProjectFunctionLocal on the
+// PyLith-matching volume-P1 aux DM built in setupFields. The aux vec is
+// attached to the main DM at (interfaces_label_, 1, 0) in FormFunction and
+// FormJacobian so f0_hybrid_lambda reads slip from a[aOff[0]..+2] and
+// rotates fault-local components into Cartesian via refDir1/refDir2.
 //
 // Slip layout (fault-local, matching PyLith's AuxiliaryFieldFactory.cc::addSlip):
 //   slip[0] = opening          (applied along fault normal n)
@@ -3031,7 +3103,9 @@ PetscErrorCode Simulator::setupPhysics() {
 // With refDir2 = (0, 0, -1) the kernel reconstructs
 //   tanDir1 = strike_dir = (cos strike, sin strike, 0)
 //   tanDir2 = dip_dir    = (cos dip sin strike, -cos dip cos strike, -sin dip)
-// which matches FSRM's existing strike/dip convention.
+// which matches FSRM's existing strike/dip convention. FSRM stores
+// fault_slip_opening_, fault_slip_strike_, fault_slip_dip_ directly as
+// the fault-local triple so no Cartesian rotation is needed here.
 //
 // Ramp support: fault_slip_onset_time_ and fault_slip_rise_time_ (both in
 // seconds) implement a linear ramp from 0 to the configured slip over
@@ -3042,9 +3116,11 @@ PetscErrorCode Simulator::updateFaultAuxiliary(PetscReal t) {
     PetscErrorCode ierr;
 
     if (!faultAuxDM_ || !faultAuxVec_ || !cohesive_kernel_) PetscFunctionReturn(PETSC_SUCCESS);
+
+    ierr = VecZeroEntries(faultAuxVec_); CHKERRQ(ierr);
+
     if (fault_mode_ != "prescribed_slip" && fault_mode_ != "time_dependent_slip") {
         // Locked / slipping / dynamic modes leave slip = 0 on the aux field.
-        ierr = VecZeroEntries(faultAuxVec_); CHKERRQ(ierr);
         PetscFunctionReturn(PETSC_SUCCESS);
     }
 
@@ -3064,65 +3140,32 @@ PetscErrorCode Simulator::updateFaultAuxiliary(PetscReal t) {
         }
     }
 
-    // Fault-local slip values (opening, left-lateral, reverse). FSRM stores
-    // these as fault_slip_opening_, fault_slip_strike_, fault_slip_dip_;
-    // the mapping matches the aux-field layout because refDir2 = (0, 0, -1)
-    // makes tanDir1 = strike_dir and tanDir2 = dip_dir.
-    const PetscScalar slip_fault[3] = {
+    PetscScalar slip_fault[3] = {
         static_cast<PetscScalar>(amp * fault_slip_opening_),
         static_cast<PetscScalar>(amp * fault_slip_strike_),
         static_cast<PetscScalar>(amp * fault_slip_dip_)
     };
 
-    // Session 16: the aux DM hosts a volume P1 Lagrange field (3 components)
-    // defined on every cell (Session 15 alternate wiring), so its section
-    // assigns dof=3 at every vertex of the cloned DM. The hybrid driver
-    // reads the slip aux at cohesive cell quadrature points, which PETSc
-    // interpolates from the cohesive vertex dofs via the P1 basis. Writing
-    // the fault-local slip triple at every dof-bearing point in the aux
-    // section is correct: cohesive cell integration sees slip_fault at
-    // every quadrature point, and no volume callback queries this vec
-    // (material aux is a separate vec keyed at material_label_). Walking
-    // only interfaces_label_ stratum-1 points is insufficient because the
-    // cloned DM's section may have dof=0 at cohesive vertices when the
-    // non-cohesive volume P1 field is built on a mesh that already contains
-    // cohesive cells.
-    ierr = VecZeroEntries(faultAuxVec_); CHKERRQ(ierr);
+    PetscErrorCode (*funcs[1])(PetscInt, PetscReal, const PetscReal[],
+                               PetscInt, PetscScalar*, void*) =
+        {prescribed_slip_constant_fn};
+    void *ctxs[1] = {slip_fault};
 
-    PetscSection section = nullptr;
-    ierr = DMGetLocalSection(faultAuxDM_, &section); CHKERRQ(ierr);
-    if (!section) PetscFunctionReturn(PETSC_SUCCESS);
+    ierr = DMProjectFunctionLocal(faultAuxDM_, t, funcs, ctxs,
+                                  INSERT_VALUES, faultAuxVec_); CHKERRQ(ierr);
 
-    PetscInt pStart = 0, pEnd = 0;
-    ierr = PetscSectionGetChart(section, &pStart, &pEnd); CHKERRQ(ierr);
-
-    PetscScalar *vec_arr = nullptr;
-    ierr = VecGetArray(faultAuxVec_, &vec_arr); CHKERRQ(ierr);
-    PetscInt n_written = 0;
-    for (PetscInt p = pStart; p < pEnd; ++p) {
-        PetscInt dof = 0, off = 0;
-        ierr = PetscSectionGetDof(section, p, &dof); CHKERRQ(ierr);
-        if (dof <= 0) continue;
-        ierr = PetscSectionGetOffset(section, p, &off); CHKERRQ(ierr);
-        for (PetscInt d0 = 0; d0 < dof; d0 += 3) {
-            for (PetscInt c = 0; c < 3 && d0 + c < dof; ++c) {
-                vec_arr[off + d0 + c] = slip_fault[c];
-            }
-        }
-        ++n_written;
-    }
-    ierr = VecRestoreArray(faultAuxVec_, &vec_arr); CHKERRQ(ierr);
-
-    if (getenv("FSRM_SESSION16_DEBUG")) {
+    if (getenv("FSRM_SESSION17_DEBUG")) {
         static int reported = 0;
         if (!reported && rank == 0) {
+            PetscReal vec_norm = 0.0;
+            ierr = VecNorm(faultAuxVec_, NORM_2, &vec_norm); CHKERRQ(ierr);
             PetscPrintf(comm,
-                        "Session 16: updateFaultAuxiliary wrote slip at %d / %d section points "
-                        "(slip_fault=[%g %g %g])\n",
-                        (int)n_written, (int)(pEnd - pStart),
+                        "Session 17: updateFaultAuxiliary projected slip_fault=[%g %g %g] "
+                        "-> VecNorm(faultAuxVec_)=%g at t=%g\n",
                         (double)PetscRealPart(slip_fault[0]),
                         (double)PetscRealPart(slip_fault[1]),
-                        (double)PetscRealPart(slip_fault[2]));
+                        (double)PetscRealPart(slip_fault[2]),
+                        (double)vec_norm, (double)t);
             reported = 1;
         }
     }
@@ -6601,7 +6644,14 @@ PetscErrorCode Simulator::run() {
     }
     
     // Solve
-    ierr = TSSolve(ts, solution); CHKERRQ(ierr);
+    if (getenv("FSRM_SESSION17_DEBUG")) {
+        PetscPushErrorHandler(PetscTraceBackErrorHandler, nullptr);
+    }
+    ierr = TSSolve(ts, solution);
+    if (getenv("FSRM_SESSION17_DEBUG")) {
+        PetscPopErrorHandler();
+    }
+    CHKERRQ(ierr);
 
     // Compute and write derived fields (stress, strain, CFS) if requested
     if (config.output_stress || config.output_cfs)
@@ -6812,29 +6862,62 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
                 keys[2].field = sim->lagrange_field_idx_;
                 keys[2].part  = 0;
 
-                // Session 16: project the fault-local prescribed slip
-                // into faultAuxVec_ each Newton step (groundwork). The
-                // DMSetAuxiliaryVec(..., interfaces_label_, 1, 0, ...)
-                // attachment has been rolled back because PETSc 3.25's
-                // hybrid driver requires closure-vs-DS totDim matching
-                // and tabulation-point matching between the main
-                // Lagrange field and the cohesive-key aux that a clone
-                // of the main DM cannot satisfy without a PyLith-style
-                // shared Field construction (TODO for a follow-up
-                // session). The kernel therefore reads prescribed slip
-                // from constants for now.
+                // Session 17: project the fault-local prescribed slip
+                // into faultAuxVec_ and (optionally) attach it at the
+                // cohesive key. The aux FE built in setupFields uses
+                // PyLith's FieldOps::createFE quadOrder convention; the
+                // projection writes the fault-local slip triple at
+                // cohesive vertices. However, PETSc 3.25's hybrid
+                // driver (febasic.c:663) still reports a mismatch in
+                // auxiliary tabulation point count between the main
+                // Lagrange FE and the label-restricted aux FE on cohesive
+                // cells, so attaching the aux vec at the cohesive key
+                // triggers PETSC_ERR_ARG_INCOMP (62). The attachment is
+                // therefore gated behind FSRM_ENABLE_SLIP_AUX=1 so the
+                // Session 16 baseline (constants-array prescribed slip)
+                // remains the default. The plumbing stays in tree for
+                // a future session that restructures the aux into a
+                // shared Field pattern.
                 ierr = sim->updateFaultAuxiliary(t); CHKERRQ(ierr);
-                if (sim->faultAuxVec_ && getenv("FSRM_SESSION16_DEBUG")) {
+                const bool enable_slip_aux =
+                    (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr);
+                if (enable_slip_aux && sim->faultAuxVec_ && sim->interfaces_label_) {
+                    ierr = DMSetAuxiliaryVec(
+                        dm, sim->interfaces_label_, 1, 0,
+                        sim->faultAuxVec_); CHKERRQ(ierr);
+                }
+                if (sim->faultAuxVec_ && getenv("FSRM_SESSION17_DEBUG")) {
                     PetscReal aux_norm = 0.0;
                     ierr = VecNorm(sim->faultAuxVec_, NORM_2, &aux_norm); CHKERRQ(ierr);
                     PetscPrintf(sim->comm,
-                                "Session 16: VecNorm(faultAuxVec_) = %g at t=%g\n",
+                                "Session 17: VecNorm(faultAuxVec_) = %g at t=%g\n",
                                 (double)aux_norm, (double)t);
                 }
 
-                ierr = DMPlexComputeResidualHybridByKey(
-                    dm, keys, cohesiveCellsIS,
-                    t, locU, locU_t, t, locF, ctx); CHKERRQ(ierr);
+                {
+                    // Pop any caller-pushed error handler so PETSc prints the
+                    // full stack trace for the hybrid residual call, then
+                    // restore. The test harness pushes PetscReturnErrorHandler
+                    // which otherwise hides the true error site.
+                    if (getenv("FSRM_SESSION17_DEBUG")) {
+                        PetscPushErrorHandler(PetscTraceBackErrorHandler, nullptr);
+                    }
+                    PetscErrorCode ierr_hyb = DMPlexComputeResidualHybridByKey(
+                        dm, keys, cohesiveCellsIS,
+                        t, locU, locU_t, t, locF, ctx);
+                    if (getenv("FSRM_SESSION17_DEBUG")) {
+                        PetscPopErrorHandler();
+                        if (ierr_hyb) {
+                            const char *errstr = nullptr;
+                            PetscErrorMessage(ierr_hyb, &errstr, nullptr);
+                            PetscPrintf(sim->comm,
+                                        "Session 17: DMPlexComputeResidualHybridByKey "
+                                        "returned %d (%s)\n",
+                                        (int)ierr_hyb, errstr ? errstr : "(none)");
+                        }
+                    }
+                    ierr = ierr_hyb; CHKERRQ(ierr);
+                }
                 ierr = ISDestroy(&cohesiveCellsIS); CHKERRQ(ierr);
             }
         }
@@ -7012,10 +7095,15 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                     ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
                 }
 
-                // Session 16: see FormFunction above for rationale.
-                // The cohesive-key attachment is rolled back; the
-                // kernel reads prescribed slip from constants.
+                // Session 17: match residual-path gating (see FormFunction).
                 ierr = sim->updateFaultAuxiliary(t); CHKERRQ(ierr);
+                const bool enable_slip_aux_j =
+                    (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr);
+                if (enable_slip_aux_j && sim->faultAuxVec_ && sim->interfaces_label_) {
+                    ierr = DMSetAuxiliaryVec(
+                        dm, sim->interfaces_label_, 1, 0,
+                        sim->faultAuxVec_); CHKERRQ(ierr);
+                }
 
                 ierr = DMPlexComputeJacobianHybridByKey(
                     dm, keys, cohesiveCellsIS, t, a, locU, locU_t,
@@ -8105,23 +8193,15 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                     displacement_field, lagrange_field_idx);
             }
 
-            // Session 12/14: pin Lagrange DOFs at the fault rim by
-            // registering an essential (Dirichlet) BC on the region DS that
-            // owns the Lagrange field. Without this pin, the saddle-point
-            // [A B^T; B 0] matrix is rank-deficient on the Lagrange block
-            // and direct LU trips DIVERGED_LINEAR_SOLVE iterations 0.
-            //
-            // Session 16: attempted to remove the pin by driving the
-            // prescribed slip through a cohesive-key aux vec in the
-            // PyLith f0l_slip pattern. PETSc 3.25's hybrid driver requires
-            // matching closure / totDim / tabulation points between the
-            // main Lagrange FE and the cohesive-key aux FE that this
-            // session could not satisfy with a DM clone -- a full
-            // PyLith-style shared Field construction on the main DM is
-            // required. The pin therefore stays in place by default;
-            // set FSRM_DISABLE_RIM_PIN=1 to try running without it (not
-            // currently supported for prescribed slip). See
-            // docs/SESSION_16_REPORT.md.
+            // Session 17: the aux-field slip path is in tree but the
+            // cohesive-key attachment is gated behind FSRM_ENABLE_SLIP_AUX
+            // because PETSc 3.25's hybrid driver still rejects the
+            // label-restricted aux FE (tabulation-point count mismatch at
+            // febasic.c:663). The rim-pin therefore remains ON by default
+            // to keep Locked*, TimeDependentSlip, and the other fault
+            // tests converging; set FSRM_DISABLE_RIM_PIN=1 to opt out
+            // (only useful when FSRM_ENABLE_SLIP_AUX is also set and the
+            // hybrid-driver issue has been resolved).
             const bool rim_pin_disabled = (getenv("FSRM_DISABLE_RIM_PIN") != nullptr);
             if (!rim_pin_disabled && buried_cohesive_label_ && lagrange_field_idx_ >= 0) {
                 PetscDS lagrange_ds = nullptr;
@@ -8169,8 +8249,9 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                             ierr = ISDestroy(&bc_is); CHKERRQ(ierr);
                         }
                         PetscPrintf(comm,
-                            "Session 12 (kept in 16): registered lagrange_fault_rim BC "
-                            "on region DS (field %d, dim=%d, label has %d points)\n",
+                            "Session 17 (opt-in via FSRM_ENABLE_RIM_PIN): registered "
+                            "lagrange_fault_rim BC on region DS (field %d, dim=%d, "
+                            "label has %d points)\n",
                             (int)lagrange_ds_field, (int)mesh_dim, (int)nbc);
                     }
                 }
