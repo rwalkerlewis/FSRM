@@ -15,6 +15,7 @@
 #include "domain/geomechanics/PyLithFault.hpp"
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace FSRM {
@@ -786,8 +787,8 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
     const PetscScalar constants[],
     PetscScalar f0[]) {
 
-    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
-    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)Nf; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff_x; (void)a_t; (void)a_x;
     (void)t; (void)x;
 
     const PetscInt Nc = uOff[2] - uOff[1];
@@ -803,22 +804,26 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
             f0[c] = u[Nc + c] - u[c];
         }
     } else if (mode > 1.5) {
-        // PRESCRIBED SLIP. Session 15 attempted to read slip from the aux
-        // vector (a[aOff[0]+0..2] in fault-local coordinates rotated via
-        // refDir2 cross n) following PyLith's f0l_slip pattern. The aux
-        // vector / DMSetAuxiliaryVec wiring on PETSc 3.25's hybrid driver
-        // requires aux vectors at the negative- and positive-side keys
-        // too (plexfem.c:5644-5670, PETSC_ERR_ARG_WRONGSTATE if absent),
-        // and constructing a single shared aux vec defined on both
-        // cohesive and bulk cells without segfaulting in PETSc proved to
-        // be more involved than this session could accommodate. As a
-        // pragmatic intermediate, the prescribed-slip branch keeps using
-        // the constants-array Cartesian slip (filled in setupPhysics from
-        // CohesiveFaultKernel::getPrescribedSlip()). The aux-field
-        // plumbing (faultAuxDM_/faultAuxVec_/updateFaultAuxiliary, the
-        // Simulator-side DMSetAuxiliaryVec call sites, and the fault-local
-        // refDir1/refDir2 constants slots) stays in tree as Session 16
-        // groundwork.
+        // PRESCRIBED SLIP. Session 16 attempted the PyLith f0l_slip
+        // pattern (read slip from auxiliary field a[aOff[0]..aOff[0]+2]
+        // in fault-local coordinates and rotate via refDir1/refDir2 to
+        // global XYZ) but PETSc 3.25's hybrid driver (plexfem.c:5644 ff.)
+        // enforces closure-vs-DS totDim / tabulation point consistency
+        // between the main Lagrange field and any cohesive-key aux field
+        // that this session could not satisfy with a single shared aux
+        // DM. Cell-constant degree-0 slip avoids the totDim check but
+        // triggers the tabulation-point-count mismatch in
+        // PetscFEIntegrateHybridResidual_Basic; label-restricted surface
+        // FE avoids the tabulation mismatch but the section closure on
+        // cohesive prism cells does not match the FE totDim.
+        //
+        // The prescribed-slip branch therefore retains the constants
+        // array path for Session 16. The aux-field plumbing
+        // (faultAuxDM_/faultAuxVec_/updateFaultAuxiliary) stays in tree
+        // as groundwork for a future session that reconstructs the aux
+        // as a PyLith-style shared Field on the main DM instead of a
+        // clone. refDir1/refDir2 slots (80..85) are populated by
+        // setupPhysics so the rotation is ready when the aux path lands.
         for (PetscInt c = 0; c < Nc; ++c) {
             PetscScalar delta =
                 (numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + c)
