@@ -1669,7 +1669,12 @@ PetscErrorCode Simulator::createFieldsFromConfig() {
     // Add displacement field if geomechanics or elastodynamics is enabled
     if (config.enable_geomechanics || config.enable_elastodynamics) {
         ierr = PetscFECreateLagrange(comm, 3, 3, isSimplex, 1, -1, &fe); CHKERRQ(ierr);
-        ierr = PetscObjectSetName((PetscObject)fe, "displacement_"); CHKERRQ(ierr);
+        // Session 23: name the displacement FE "displacement" (no trailing
+        // underscore) to match PyLith. Fieldsplit option keys are derived from
+        // the FE name, so the trailing underscore would produce
+        // -fieldsplit_displacement__pc_type (double underscore) and miss
+        // PyLith's -fieldsplit_displacement_pc_type keys.
+        ierr = PetscObjectSetName((PetscObject)fe, "displacement"); CHKERRQ(ierr);
         displacement_field_idx_ = static_cast<PetscInt>(fe_fields.size());
         ierr = DMAddField(dm, nullptr, (PetscObject)fe); CHKERRQ(ierr);
         fe_fields.push_back(fe);
@@ -3816,7 +3821,9 @@ PetscErrorCode Simulator::setupSolvers() {
     // singular. See docs/SESSION_14_REPORT.md for the SNES/KSP traces.
     //
     // Field names (from PetscSectionGetFieldName):
-    //   field 0 -> "displacement_" (note trailing underscore)
+    //   field 0 -> "displacement" (Session 23 dropped the trailing underscore
+    //               so fieldsplit option keys match PyLith's
+    //               solver_fault_fieldsplit.cfg)
     //   field 1 -> "lagrange_multiplier_fault"
     //
     // Per the prompt's Step C fallback: when neither Path A nor Path B
@@ -3845,11 +3852,27 @@ PetscErrorCode Simulator::setupSolvers() {
             // PyLith also composes the null-space on the displacement field
             // object so fieldsplit paths (FSRM_SADDLE_SOLVER=fieldsplit)
             // can pull it at MatCreateSubMatrix time.
-            PetscObject disp_field = NULL;
-            ierr = DMGetField(dm, displacement_field_idx_, NULL,
-                              &disp_field); CHKERRQ(ierr);
-            ierr = PetscObjectCompose(disp_field, "nearnullspace",
-                                      (PetscObject)rigidBodyNullSpace_); CHKERRQ(ierr);
+            //
+            // Session 23: skip the compose when FSRM_SADDLE_SOLVER=fieldsplit.
+            // DMPlexCreateRigidBody(dm, field) returns vectors sized for the
+            // full DM (free local size 297 on the canonical PrescribedSlip
+            // mesh) with only the displacement-field rows populated. When
+            // fieldsplit pulls the composed null-space and feeds it to PCGAMG
+            // on the displacement sub-block (free local size 222), PCSetData_AGG
+            // errors with "Attached null space vector size 297 != matrix size
+            // 222". Building a properly-sized sub-DM null-space is left to a
+            // follow-up session; for now skip the compose so fieldsplit's
+            // displacement sub-solve runs without an attached near-null-space.
+            const char *saddle_compose = getenv("FSRM_SADDLE_SOLVER");
+            const bool fieldsplit_compose =
+                (saddle_compose && std::string(saddle_compose) == "fieldsplit");
+            if (!fieldsplit_compose) {
+                PetscObject disp_field = NULL;
+                ierr = DMGetField(dm, displacement_field_idx_, NULL,
+                                  &disp_field); CHKERRQ(ierr);
+                ierr = PetscObjectCompose(disp_field, "nearnullspace",
+                                          (PetscObject)rigidBodyNullSpace_); CHKERRQ(ierr);
+            }
 
             if (rank == 0) {
                 const char *disp_name = NULL;
@@ -3897,18 +3920,44 @@ PetscErrorCode Simulator::setupSolvers() {
         PetscBool pc_already_set = PETSC_FALSE;
         ierr = PetscOptionsHasName(NULL, NULL, "-pc_type", &pc_already_set); CHKERRQ(ierr);
         if (saddle && std::string(saddle) == "fieldsplit") {
+            // Session 23: PyLith's production fault-test solver options
+            // (verbatim from tests/fullscale/linearelasticity/faults-3d/
+            // solver_fault_fieldsplit.cfg). The test PyLith uses for
+            // prescribed-slip problems with mesh/geometry analogous to FSRM's
+            // PrescribedSlipQuasiStatic.
             ierr = PetscOptionsSetValue(NULL, "-pc_type", "fieldsplit"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-pc_use_amat", "true"); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_type", "schur"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_schur_fact_type", "full"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_schur_factorization_type", "lower"); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_schur_precondition", "selfp"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_displacement__ksp_type", "preonly"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_displacement__pc_type", "gamg"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-pc_fieldsplit_schur_scale", "1.0"); CHKERRQ(ierr);
+
+            // PyLith uses ml (Trilinos) for both sub-blocks. ML requires PETSc
+            // built with Trilinos, which is not standard. Substitute gamg, which
+            // is the closest native PETSc equivalent. If PETSc has ml compiled in
+            // (PetscHasExternalPackage returns TRUE for "ml"), prefer it.
+            const char *disp_pc = "gamg";
+            const char *lag_pc = "gamg";
+            PetscBool has_ml = PETSC_FALSE;
+            PetscHasExternalPackage("ml", &has_ml);
+            if (has_ml) {
+                disp_pc = "ml";
+                lag_pc = "ml";
+            }
+
+            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_displacement_ksp_type", "preonly"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_displacement_pc_type", disp_pc); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-fieldsplit_lagrange_multiplier_fault_ksp_type", "preonly"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_lagrange_multiplier_fault_pc_type", "jacobi"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-fieldsplit_lagrange_multiplier_fault_pc_type", lag_pc); CHKERRQ(ierr);
+
             ierr = PetscOptionsSetValue(NULL, "-ksp_type", "gmres"); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
+
             if (rank == 0) {
-                PetscPrintf(comm, "Session 15: Schur fieldsplit enabled via FSRM_SADDLE_SOLVER=fieldsplit\n");
+                PetscPrintf(comm,
+                            "Session 23: fieldsplit Schur with PyLith options "
+                            "(factorization=lower, precondition=selfp, sub=%s)\n",
+                            disp_pc);
             }
         } else if (saddle && std::string(saddle) == "gamg") {
             // Session 22: use PyLith's exact GAMG options (Elasticity.cc:309-316)
@@ -7222,7 +7271,18 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                 // MatSetNearNullSpace is required. MatZeroEntries above
                 // preserves the attachment, so re-attaching every call is
                 // idempotent (PCGAMG caches by matrix state).
-                if (sim->rigidBodyNullSpace_) {
+                //
+                // Session 23: gate this attachment off when
+                // FSRM_SADDLE_SOLVER=fieldsplit. For fieldsplit Schur the
+                // near-null-space belongs on the displacement sub-block's
+                // KSP, which PyLith propagates via PetscObjectCompose on the
+                // displacement field object (done in setupSolvers). Setting
+                // it on the parent monolithic matrix would just confuse the
+                // Schur sub-solve.
+                const char *saddle_j = getenv("FSRM_SADDLE_SOLVER");
+                const bool fieldsplit_active =
+                    (saddle_j && std::string(saddle_j) == "fieldsplit");
+                if (sim->rigidBodyNullSpace_ && !fieldsplit_active) {
                     ierr = MatSetNearNullSpace(P, sim->rigidBodyNullSpace_); CHKERRQ(ierr);
                     if (J != P) {
                         ierr = MatSetNearNullSpace(J, sim->rigidBodyNullSpace_); CHKERRQ(ierr);
