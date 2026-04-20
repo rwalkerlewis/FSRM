@@ -36,11 +36,16 @@ Known failures (all fault-related, present in baseline `local_fix` tip):
   PETSc 3.25 (the fault label has no cohesive cells, only depth less than dim
   points), so the prescribed jump is not driven. Session 18 plumbed a
   slip-only aux DM (`slipAuxDM_` / `slipAuxVec_`) gated behind
-  `FSRM_ENABLE_SLIP_AUX=1`; it clears the closure-size check at
-  `plexfem.c:3982` but trips a tabulation-point mismatch at `febasic.c:663`
-  (dim-1 aux FE falls into the face-tabulation code path). Default path is
-  still the Session 16 constants-array baseline, which converges SNES but
-  produces `max_fault_slip ≈ 11` instead of the configured 1 mm.
+  `FSRM_ENABLE_SLIP_AUX=1`; Session 19 verified that the
+  `febasic.c:663` mismatch is actually driven by the *material* aux's
+  Np = 1 vs the displacement FE's Np = 3 on the bulk-side hybrid keys
+  (`dim` in febasic comes from the cohesive-side Lagrange FE
+  `dim - 1 == 2`, so `auxOnBd` is already TRUE for a dim-1 surface aux).
+  Switching to a dim volume aux FE per the Session 19 prompt only
+  inverts the failure to the closure-size guard at `plexfem.c:3982`
+  (`closure 9 != DS 12`). The default path remains the Session 16
+  constants-array baseline; it converges SNES but produces
+  `max_fault_slip = 263.0` (the Session 18 figure of 11.7 was stale).
 - Integration.TimeDependentSlip
 - Integration.SlippingFaultSolve
 - Integration.SlipWeakeningFault
