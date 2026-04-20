@@ -3911,17 +3911,20 @@ PetscErrorCode Simulator::setupSolvers() {
                 PetscPrintf(comm, "Session 15: Schur fieldsplit enabled via FSRM_SADDLE_SOLVER=fieldsplit\n");
             }
         } else if (saddle && std::string(saddle) == "gamg") {
-            // Explicit aux-slip + GAMG experimental path (Session 21 infra).
-            // Overrides any test-harness preset.
+            // Session 22: use PyLith's exact GAMG options (Elasticity.cc:309-316)
+            // instead of Session 21's richardson/jacobi smoother. The key setting
+            // is -mg_fine_pc_type vpbjacobi, which handles the saddle-point
+            // structure via per-node block inverse. Scalar jacobi on zero-diagonal
+            // Lagrange rows produces unusable coarse corrections.
             ierr = PetscOptionsSetValue(NULL, "-pc_type", "gamg"); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-ksp_type", "gmres"); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-mg_levels_ksp_type", "richardson"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-mg_levels_pc_type", "jacobi"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-mg_levels_ksp_max_it", "5"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-mg_fine_ksp_max_it", "5"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-mg_fine_pc_type", "vpbjacobi"); CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm,
-                            "Session 21: FSRM_SADDLE_SOLVER=gamg explicit; PyLith defaults (GAMG + GMRES + near-null-space)\n");
+                            "Session 22: FSRM_SADDLE_SOLVER=gamg with PyLith options "
+                            "(vpbjacobi on fine level, GAMG defaults on coarse)\n");
             }
         } else if (!pc_already_set) {
             // Default: PyLith elastic + fault solver (GAMG + GMRES with near-null-space).
