@@ -807,17 +807,13 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
         // PRESCRIBED SLIP -- PyLith f0l_slip pattern
         // (libsrc/pylith/fekernels/FaultCohesiveKin.hh, 3D case).
         //
-        // Session 17: read fault-local slip triple from the auxiliary
-        // field (slot 0, Nc components) and rotate into Cartesian using
-        // the PyLith tangent basis
+        // Session 18: slip is the sole aux field on Simulator::slipAuxDM_
+        // when FSRM_ENABLE_SLIP_AUX is set, so aOff[0] points at the slip
+        // triple. refDir1 / refDir2 come from constants slots 80..85; the
+        // kernel rotates fault-local components into Cartesian via the
+        // PyLith tangent basis
         //   tanDir1 = normalize(refDir2 x n)
-        //   tanDir2 = normalize(n x tanDir1)
-        // with refDir1 / refDir2 sourced from constants slots 80..85.
-        // The aux vec is attached at (interfaces_label_, 1, 0) in
-        // Simulator::FormFunction / FormJacobian. The aux FE is built
-        // with matching quadOrder to the main Lagrange FE (PyLith
-        // FieldOps::createFE pattern) so the hybrid driver's
-        // tabulation-point count check at febasic.c:660 passes.
+        //   tanDir2 = normalize(n x tanDir1).
         const PetscInt i_slip = 0;
         const PetscScalar *slip =
             (NfAux > 0 && aOff && a) ? &a[aOff[i_slip]] : nullptr;
@@ -857,10 +853,10 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
 
             (void)refDir1;  // tanDir1/tanDir2 computed directly from refDir2 and n
 
-            if (getenv("FSRM_SESSION17_DEBUG")) {
+            if (getenv("FSRM_SESSION18_DEBUG")) {
                 static int printed = 0;
                 if (!printed) {
-                    printf("Session 17: kernel sees slip=[%g %g %g] "
+                    printf("Session 18: kernel sees slip=[%g %g %g] "
                            "n=[%g %g %g] refDir2=[%g %g %g]\n",
                            (double)PetscRealPart(slip[0]),
                            (double)PetscRealPart(slip[1]),
