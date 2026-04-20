@@ -177,22 +177,25 @@ private:
     std::vector<MaterialProperties> material_props;
     std::vector<FluidProperties> fluid_props;
 
-    // Auxiliary DM for heterogeneous material properties
+    // Auxiliary DM for heterogeneous material properties. Session 18 keeps
+    // this as the material-only aux: three cell-centered fields (lambda,
+    // mu, rho) attached at material_label_ values 1 (neg) and 2 (pos) so
+    // the hybrid driver's bulk-side displacement callbacks can read them.
     DM  auxDM_ = nullptr;
     Vec auxVec_ = nullptr;
 
-    // Session 15: auxiliary DM and local vector that carry the prescribed
-    // fault slip as a PyLith-style subfield. The aux DM is a topological
-    // clone of the main DM with a single (dim-1) Lagrange subfield named
-    // "slip" restricted to the cohesive interface label. The local vector
-    // is projected from the configured fault-local slip each time step in
-    // updateFaultAuxiliary(t) and attached to the main DM with
-    // DMSetAuxiliaryVec(dm, interfaces_label_, 1, 0, faultAuxVec_) right
-    // before the hybrid residual/Jacobian calls. This replaces the
-    // constants-array broadcast of prescribed slip and matches PyLith's
-    // f0l_slip kernel pattern (libsrc/pylith/fekernels/FaultCohesiveKin.hh).
-    DM  faultAuxDM_ = nullptr;
-    Vec faultAuxVec_ = nullptr;
+    // Session 18: slip-only aux DM/Vec attached at (interfaces_label_, 1, 0).
+    // Built as a topological clone of the main DM with a single (dim-1)
+    // surface FE restricted to interfaces_label_ and marked cohesive via
+    // PetscDSSetCohesive; this makes DMGetDS(slipAuxDM_) return a DS whose
+    // totDim matches the closure at cohesive cells and keeps PETSc 3.25's
+    // hybrid-driver closure check at plexfem.c:3982 consistent. Session 18
+    // attempted to fold this subfield into auxDM_ per PyLith's composite
+    // Field pattern, but PETSc 3.25's DMGetDS returns probs[0] of the DM
+    // while the interfaces-region DS is probs[1]; the two-DM split is the
+    // practical analogue that keeps the lookups well-defined.
+    DM  slipAuxDM_ = nullptr;
+    Vec slipAuxVec_ = nullptr;
     PetscInt fault_slip_aux_field_idx_ = -1;
     PetscErrorCode updateFaultAuxiliary(PetscReal t);
     PetscErrorCode setupAuxiliaryDM();

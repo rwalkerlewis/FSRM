@@ -20,32 +20,38 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. 110 pass, 6 fail honestly (no fake skips).
+116 registered tests. 108 pass, 8 fail honestly (no fake skips).
 
 Known failures (all fault-related, present in baseline `local_fix` tip):
 - Physics.LockedFaultTransparency: SNES does not produce displacement under
   the compression top BC; `fault_norm = 0`.
+- Physics.SCEC.TPV5: `applyInitialFaultStress` writes zero Lagrange DOF sets
+  because the Session 12/14 rim-pin constrains the Lagrange block before the
+  stress is applied.
 - Integration.DynamicRuptureSolve.LockedQuasiStatic: same SNES failure mode
   as the transparency test under quasi-static stepping.
 - Integration.DynamicRuptureSolve.PrescribedSlip
   (gtest `DynamicRuptureSolveTest.PrescribedSlipQuasiStatic`): the PetscDS
   BdResidual on the Lagrange field returns zero on the cohesive geometry in
   PETSc 3.25 (the fault label has no cohesive cells, only depth less than dim
-  points), so the prescribed jump is not driven and `max_fault_slip = 0`.
+  points), so the prescribed jump is not driven. Session 18 plumbed a
+  slip-only aux DM (`slipAuxDM_` / `slipAuxVec_`) gated behind
+  `FSRM_ENABLE_SLIP_AUX=1`; it clears the closure-size check at
+  `plexfem.c:3982` but trips a tabulation-point mismatch at `febasic.c:663`
+  (dim-1 aux FE falls into the face-tabulation code path). Default path is
+  still the Session 16 constants-array baseline, which converges SNES but
+  produces `max_fault_slip ≈ 11` instead of the configured 1 mm.
 - Integration.TimeDependentSlip
 - Integration.SlippingFaultSolve
 - Integration.SlipWeakeningFault
+- Integration.PressurizedFractureFEM
 
 The previously-claimed Section B fix for `LockedFaultTransparency` and
 `LockedFaultQuasiStatic` (epsilon = 1e-4 weak regularization plus penalty-scaled
 diagonal) is in place in the source but the tests fail anyway, indicating either
 a deeper PETSc 3.25 BdResidual issue on the cohesive geometry or a separate
 regression introduced by other commits on `local_fix`. See
-`docs/LAGRANGE_FIX_STATUS.md`.
-
-Physics.SCEC.TPV5 was fixed by adding the displacement field for elastodynamics
-(previously only added for geomechanics, causing error 63 when faults were enabled
-without geomechanics).
+`docs/LAGRANGE_FIX_STATUS.md` and `docs/SESSION_18_REPORT.md`.
 
 | Category | Tests | Description |
 |----------|------:|-------------|
