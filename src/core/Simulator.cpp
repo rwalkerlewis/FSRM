@@ -4901,6 +4901,14 @@ PetscErrorCode Simulator::getOrCreateBuriedCohesiveLabel(DMLabel *buriedCohesive
     PetscInt n_point_prism = 0;
     PetscInt n_labeled = 0;
 
+    // Session 25: gate the looser two-plane rim criterion behind the
+    // experimental aux-slip path. The default (direct-LU) path requires the
+    // original Session 12 aggressive rim-pin (any cone vertex on the domain
+    // bounding box) to keep Locked* and ExplosionFaultReactivation from
+    // regressing.
+    const char *slipAuxEnv = std::getenv("FSRM_ENABLE_SLIP_AUX");
+    const bool useTwoPlaneRim = (slipAuxEnv && slipAuxEnv[0] == '1');
+
     IS stratumIS = nullptr;
     ierr = DMLabelGetStratumIS(interfaces_label_, 1, &stratumIS); CHKERRQ(ierr);
     if (stratumIS) {
@@ -4925,19 +4933,43 @@ PetscErrorCode Simulator::getOrCreateBuriedCohesiveLabel(DMLabel *buriedCohesive
             ierr = DMPlexGetConeSize(dm, p, &coneSize); CHKERRQ(ierr);
             ierr = DMPlexGetCone(dm, p, &cone); CHKERRQ(ierr);
 
-            bool on_boundary = false;
-            for (PetscInt c = 0; c < coneSize && !on_boundary; ++c) {
-                double xyz[3] = {0.0, 0.0, 0.0};
-                ierr = pointMeanCoord(cone[c], xyz); CHKERRQ(ierr);
-                for (PetscInt d = 0; d < dim; ++d) {
-                    if (PetscAbs(xyz[d] - bb_min[d]) < eps[d] ||
-                        PetscAbs(xyz[d] - bb_max[d]) < eps[d]) {
-                        on_boundary = true;
-                        break;
+            bool should_label = false;
+            if (useTwoPlaneRim) {
+                int n_boundary_hits = 0;
+                for (PetscInt c = 0; c < coneSize; ++c) {
+                    double xyz[3] = {0.0, 0.0, 0.0};
+                    ierr = pointMeanCoord(cone[c], xyz); CHKERRQ(ierr);
+                    int hits_this_point = 0;
+                    for (PetscInt d = 0; d < dim; ++d) {
+                        if (PetscAbs(xyz[d] - bb_min[d]) < eps[d] ||
+                            PetscAbs(xyz[d] - bb_max[d]) < eps[d]) {
+                            ++hits_this_point;
+                        }
+                    }
+                    if (hits_this_point > n_boundary_hits) n_boundary_hits = hits_this_point;
+                }
+                // A rim point touches two coordinate planes simultaneously (it
+                // is on an edge of the domain cube). An interior cohesive
+                // point touches at most one plane (the fault-plane coordinate
+                // itself).
+                should_label = (n_boundary_hits >= 2);
+            } else {
+                bool on_boundary = false;
+                for (PetscInt c = 0; c < coneSize && !on_boundary; ++c) {
+                    double xyz[3] = {0.0, 0.0, 0.0};
+                    ierr = pointMeanCoord(cone[c], xyz); CHKERRQ(ierr);
+                    for (PetscInt d = 0; d < dim; ++d) {
+                        if (PetscAbs(xyz[d] - bb_min[d]) < eps[d] ||
+                            PetscAbs(xyz[d] - bb_max[d]) < eps[d]) {
+                            on_boundary = true;
+                            break;
+                        }
                     }
                 }
+                should_label = on_boundary;
             }
-            if (on_boundary) {
+
+            if (should_label) {
                 ierr = DMLabelSetValue(*buriedCohesiveLabel, p, 1); CHKERRQ(ierr);
                 ++n_labeled;
             }
@@ -4948,8 +4980,9 @@ PetscErrorCode Simulator::getOrCreateBuriedCohesiveLabel(DMLabel *buriedCohesive
 
     if (rank == 0) {
         PetscPrintf(comm,
-            "Session 14 (kept in 15): buried_cohesive label (geometric fallback): "
+            "Session 25: buried_cohesive label (geometric fallback, %s): "
             "%d points labeled (candidates %d: seg_prism=%d, point_prism=%d)\n",
+            useTwoPlaneRim ? "two-plane rim" : "any-plane rim",
             (int)n_labeled, (int)n_candidates,
             (int)n_seg_prism, (int)n_point_prism);
     }
