@@ -3117,10 +3117,21 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
     // Clone the primary DM topology
     ierr = DMClone(dm, &auxDM_); CHKERRQ(ierr);
 
-    // Get quadrature from the primary FE to match tabulation points
-    PetscQuadrature quad = NULL;
+    // Get BOTH volume and face quadrature from the primary (displacement) FE.
+    // Session 19 proved that the febasic.c:663 "Number of tabulation points"
+    // mismatch was driven by this material aux, not the slip aux. The hybrid
+    // residual integrator queries the material aux on the bulk-side keys
+    // (material_label_ values 1 and 2). With auxOnBd=FALSE on those keys
+    // (dimAux=3, dim from cohesive Lagrange field=2), PETSc pulls the aux
+    // FACE tabulation and compares it to the main FE's 3-point volume tab.
+    // Previously the material aux got the volume quadrature copied but the
+    // face quadrature stayed at the P0 default (1 point), so the Np check
+    // always failed once the slip aux was attached. Copy both quadratures.
+    PetscQuadrature disp_vol_quad = NULL;
+    PetscQuadrature disp_face_quad = NULL;
     if (!fe_fields.empty()) {
-        ierr = PetscFEGetQuadrature(fe_fields[0], &quad); CHKERRQ(ierr);
+        ierr = PetscFEGetQuadrature(fe_fields[0], &disp_vol_quad); CHKERRQ(ierr);
+        ierr = PetscFEGetFaceQuadrature(fe_fields[0], &disp_face_quad); CHKERRQ(ierr);
     }
 
     // Create scalar FE fields for lambda, mu, rho on the auxiliary DM
@@ -3128,9 +3139,13 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
     for (PetscInt f = 0; f < NUM_AUX_FIELDS; ++f) {
         PetscFE fe_aux;
         ierr = PetscFECreateLagrange(PETSC_COMM_SELF, dim, 1, isSimplex, 0, PETSC_DETERMINE, &fe_aux); CHKERRQ(ierr);
-        // Match quadrature to primary FE so tabulation point counts agree
-        if (quad) {
-            ierr = PetscFESetQuadrature(fe_aux, quad); CHKERRQ(ierr);
+        // Match BOTH volume and face quadrature to the displacement FE so the
+        // hybrid integrator's Np checks (febasic.c:663) pass on every key.
+        if (disp_vol_quad) {
+            ierr = PetscFESetQuadrature(fe_aux, disp_vol_quad); CHKERRQ(ierr);
+        }
+        if (disp_face_quad) {
+            ierr = PetscFESetFaceQuadrature(fe_aux, disp_face_quad); CHKERRQ(ierr);
         }
         ierr = DMSetField(auxDM_, f, NULL, (PetscObject)fe_aux); CHKERRQ(ierr);
         ierr = PetscFEDestroy(&fe_aux); CHKERRQ(ierr);
@@ -3174,7 +3189,17 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
     //   triangle == volume tab of Lagrange on a triangle == 3 pts).
     //   DMSetFieldAvoidTensor is set TRUE for clarity (it is also
     //   forced TRUE internally for any region DS that is cohesive).
-    if (config.enable_faults && cohesive_kernel_ && interfaces_label_) {
+    //
+    // Session 20: gate inversion to default-ON was tested and reverted.
+    // The face-quadrature fix above eliminates the febasic.c:663 mismatch,
+    // but with the rim-pin off and the slip aux active, the linear solver
+    // diverges (KSP iterations 0) on the cohesive Jacobian for both
+    // PrescribedSlip and the previously-passing Locked* / ExplosionFault
+    // cases. Keep slip aux DM creation gated by FSRM_ENABLE_SLIP_AUX so
+    // the Session 16 constants-array path remains the default and the
+    // baseline test count is preserved.
+    if (getenv("FSRM_ENABLE_SLIP_AUX") &&
+        config.enable_faults && cohesive_kernel_ && interfaces_label_) {
         ierr = DMClone(dm, &slipAuxDM_); CHKERRQ(ierr);
 
         PetscFE fe_slip = nullptr;
@@ -6935,7 +6960,9 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
                 // FSRM_ENABLE_SLIP_AUX (see setupAuxiliaryDM for the
                 // tabulation-point mismatch rationale). When set,
                 // re-attach on every call so projection / BC insertion
-                // paths cannot drop it from the DM map.
+                // paths cannot drop it from the DM map. Session 20
+                // tested default-ON and rolled back due to KSP
+                // divergence after rim-pin removal.
                 ierr = sim->updateFaultAuxiliary(t); CHKERRQ(ierr);
                 const bool enable_slip_aux =
                     (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr);
@@ -7150,6 +7177,7 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                 }
 
                 // Session 19: match residual-path gating (see FormFunction).
+                // Session 20 attempted default-ON; rolled back.
                 ierr = sim->updateFaultAuxiliary(t); CHKERRQ(ierr);
                 const bool enable_slip_aux_j =
                     (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr);
@@ -8252,7 +8280,10 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
             // Keep the Session 12/14 PyLith-style rim-pin BC in place by
             // default so the Session 16 baseline (constants-array
             // prescribed slip) still has a non-singular Lagrange block.
-            // Set FSRM_DISABLE_RIM_PIN=1 to opt out.
+            // Set FSRM_DISABLE_RIM_PIN=1 to opt out. (Session 20 tested
+            // an inversion to default-OFF coordinated with aux-slip on
+            // and observed KSP DIVERGED_LINEAR_SOLVE iterations 0 across
+            // the linear fault tests, so the inversion was rolled back.)
             const bool rim_pin_disabled = (getenv("FSRM_DISABLE_RIM_PIN") != nullptr);
             if (!rim_pin_disabled && buried_cohesive_label_ && lagrange_field_idx_ >= 0) {
                 PetscDS lagrange_ds = nullptr;
