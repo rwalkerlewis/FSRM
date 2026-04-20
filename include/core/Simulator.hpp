@@ -197,6 +197,17 @@ private:
     DM  slipAuxDM_ = nullptr;
     Vec slipAuxVec_ = nullptr;
     PetscInt fault_slip_aux_field_idx_ = -1;
+
+    // Session 21: rigid-body near-null-space on the displacement field,
+    // sized for the full assembled Jacobian (displacement DOFs populated,
+    // Lagrange DOFs zero). Built once in setupSolvers when aux-slip is
+    // active and GAMG is selected; attached to J in FormJacobian after
+    // the hybrid assembly bookend so PCGAMG can find it via
+    // MatGetNearNullSpace. The sub-DM + PetscObjectCompose path used
+    // through Session 20 did not reach PCGAMG on the full monolithic
+    // matrix (diagnosed by the Session 21 probe: MatGetNearNullSpace J
+    // returned NULL with only the composed-on-field path active).
+    MatNullSpace rigidBodyNullSpace_ = nullptr;
     PetscErrorCode updateFaultAuxiliary(PetscReal t);
     PetscErrorCode setupAuxiliaryDM();
     PetscErrorCode populateAuxFieldsByDepth();

@@ -480,6 +480,7 @@ Simulator::Simulator(MPI_Comm comm_in)
 }
 
 Simulator::~Simulator() {
+    if (rigidBodyNullSpace_) MatNullSpaceDestroy(&rigidBodyNullSpace_);
     if (slipAuxVec_) VecDestroy(&slipAuxVec_);
     if (slipAuxDM_) DMDestroy(&slipAuxDM_);
     if (auxVec_) VecDestroy(&auxVec_);
@@ -2957,17 +2958,17 @@ PetscErrorCode Simulator::setupPhysics() {
 
     // Setup auxiliary DM for heterogeneous material properties or gravity.
     //
-    // Session 19: when FSRM_ENABLE_SLIP_AUX is set AND faults are enabled,
-    // force aux creation so the slip-only slipAuxDM_ is built alongside
-    // the material auxDM_. The Session 19 attempt to make the aux-slip
-    // path the default failed because the PETSc 3.25 hybrid integrator's
-    // tabulation-point check at febasic.c:663 cannot be satisfied with
-    // either a dim-1 surface FE (face tab Np = 1, mismatches main vol Np)
-    // or a dim volume FE (closure mismatch returns at plexfem.c:3982,
-    // 9 != 12). Default gating therefore mirrors Session 18, which keeps
-    // the Session 16 constants-array baseline for the fault-subset suite
-    // and leaves the aux plumbing in tree behind FSRM_ENABLE_SLIP_AUX=1
-    // for follow-on experiments.
+    // Session 21: the default-ON aux-slip path was tested and rolled back
+    // (see docs/SESSION_21_REPORT.md). With aux-slip ON and rim-pin OFF,
+    // PCGAMG + rigid-body near-null-space solves the matrix for a few
+    // Newton iterations but the line search fails (norm 2.19e-4 -> 17.88
+    // on the first Newton step), so PrescribedSlip still does not reach
+    // the 1 mm target opening. Enabling the inversion regresses
+    // LockedQuasiStatic / LockedElastodynamic / TimeDependentSlip, so
+    // the default gating stays at Session 20 wording (FSRM_ENABLE_SLIP_AUX
+    // opt-in). The GAMG + near-null-space infrastructure below is
+    // preserved for explicit experimentation via FSRM_SADDLE_SOLVER=gamg
+    // plus FSRM_ENABLE_SLIP_AUX=1.
     const bool need_aux_for_fault =
         (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr) &&
         config.enable_faults && cohesive_kernel_ && interfaces_label_;
@@ -3190,14 +3191,11 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
     //   DMSetFieldAvoidTensor is set TRUE for clarity (it is also
     //   forced TRUE internally for any region DS that is cohesive).
     //
-    // Session 20: gate inversion to default-ON was tested and reverted.
-    // The face-quadrature fix above eliminates the febasic.c:663 mismatch,
-    // but with the rim-pin off and the slip aux active, the linear solver
-    // diverges (KSP iterations 0) on the cohesive Jacobian for both
-    // PrescribedSlip and the previously-passing Locked* / ExplosionFault
-    // cases. Keep slip aux DM creation gated by FSRM_ENABLE_SLIP_AUX so
-    // the Session 16 constants-array path remains the default and the
-    // baseline test count is preserved.
+    // Session 21: gate rolled back to Session 20 wording. The default-ON
+    // aux-slip + GAMG + near-null-space path was tested; it lets KSP run
+    // but the line search fails to reduce the residual from the first
+    // Newton step (2.19e-4 -> 17.88 on PrescribedSlip) and regresses
+    // Locked* / TimeDependentSlip. Keep the slip aux DM opt-in.
     if (getenv("FSRM_ENABLE_SLIP_AUX") &&
         config.enable_faults && cohesive_kernel_ && interfaces_label_) {
         ierr = DMClone(dm, &slipAuxDM_); CHKERRQ(ierr);
@@ -3343,14 +3341,8 @@ PetscErrorCode Simulator::setupAuxiliaryDM()
         ierr = DMSetAuxiliaryVec(dm, NULL, 0, 0, auxVec_); CHKERRQ(ierr);
     }
 
-    // Session 19: the slipAuxVec_ attachment at the cohesive key remains
-    // gated behind FSRM_ENABLE_SLIP_AUX. With the attachment on, the
-    // hybrid driver's closure-size check at plexfem.c:3982 trips on
-    // (closure 9 vs DS totDim 12) for a volume aux FE, and febasic.c:663
-    // trips on (Tf Np 3 vs TfAux Np 1) for a surface aux FE. Keeping
-    // the attachment opt-in preserves the Session 16 constants-array
-    // baseline for the fault-subset suite while leaving the plumbing in
-    // tree for a future session that resolves the tabulation issue.
+    // Session 21: gate rolled back. Attach cohesive-key aux only when
+    // FSRM_ENABLE_SLIP_AUX=1, same as Session 19-20.
     if (config.enable_faults && cohesive_kernel_ && interfaces_label_ && slipAuxVec_
         && getenv("FSRM_ENABLE_SLIP_AUX")) {
         ierr = DMSetAuxiliaryVec(dm, interfaces_label_, 1, 0, slipAuxVec_); CHKERRQ(ierr);
@@ -3836,27 +3828,28 @@ PetscErrorCode Simulator::setupSolvers() {
     if (config.enable_faults && cohesive_kernel_) {
         const char *saddle = getenv("FSRM_SADDLE_SOLVER");
 
-        // Always attach rigid-body near-null-space to a sub-DM for the
-        // displacement field. For direct LU this is ignored; GAMG picks it
-        // up automatically. The sub-DM path ensures the null-space vectors
-        // match the fieldsplit displacement-block size (222 rather than the
-        // full 297) so enabling Path B later does not regress the PCSetData
-        // size check.
-        if (displacement_field_idx_ >= 0) {
-            DM sub_dm = NULL;
-            PetscInt disp_idx_array[1] = {displacement_field_idx_};
-            ierr = DMCreateSubDM(dm, 1, disp_idx_array, NULL, &sub_dm); CHKERRQ(ierr);
+        // Session 21: build the rigid-body near-null-space on the PARENT
+        // DM so the resulting vectors are sized for the full assembled
+        // Jacobian (297 for the canonical PrescribedSlip mesh). Passing
+        // displacement_field_idx_ to DMPlexCreateRigidBody restricts the
+        // rigid-body projection to the displacement subfield while the
+        // Lagrange DOFs stay zero. Store on the Simulator and attach via
+        // MatSetNearNullSpace in FormJacobian; the Session 14 sub-DM +
+        // PetscObjectCompose(field, "nearnullspace", ...) path did not
+        // reach PCGAMG on the full monolithic matrix, as verified by the
+        // Session 21 MatGetNearNullSpace probe in FormJacobian.
+        if (displacement_field_idx_ >= 0 && !rigidBodyNullSpace_) {
+            ierr = DMPlexCreateRigidBody(dm, displacement_field_idx_,
+                                         &rigidBodyNullSpace_); CHKERRQ(ierr);
 
-            MatNullSpace near_null_space = NULL;
-            ierr = DMPlexCreateRigidBody(sub_dm, 0,
-                                         &near_null_space); CHKERRQ(ierr);
+            // PyLith also composes the null-space on the displacement field
+            // object so fieldsplit paths (FSRM_SADDLE_SOLVER=fieldsplit)
+            // can pull it at MatCreateSubMatrix time.
             PetscObject disp_field = NULL;
             ierr = DMGetField(dm, displacement_field_idx_, NULL,
                               &disp_field); CHKERRQ(ierr);
             ierr = PetscObjectCompose(disp_field, "nearnullspace",
-                                      (PetscObject)near_null_space); CHKERRQ(ierr);
-            ierr = MatNullSpaceDestroy(&near_null_space); CHKERRQ(ierr);
-            ierr = DMDestroy(&sub_dm); CHKERRQ(ierr);
+                                      (PetscObject)rigidBodyNullSpace_); CHKERRQ(ierr);
 
             if (rank == 0) {
                 const char *disp_name = NULL;
@@ -3866,33 +3859,41 @@ PetscErrorCode Simulator::setupSolvers() {
                     ierr = PetscSectionGetFieldName(section, displacement_field_idx_,
                                                    &disp_name); CHKERRQ(ierr);
                 }
+                PetscInt nns_nvecs = 0;
+                const Vec *nns_vecs = NULL;
+                PetscBool nns_has_const = PETSC_FALSE;
+                ierr = MatNullSpaceGetVecs(rigidBodyNullSpace_, &nns_has_const,
+                                           &nns_nvecs, &nns_vecs); CHKERRQ(ierr);
+                PetscInt nns_vec_size = 0;
+                if (nns_nvecs > 0 && nns_vecs) {
+                    ierr = VecGetLocalSize(nns_vecs[0], &nns_vec_size); CHKERRQ(ierr);
+                }
                 PetscPrintf(comm,
-                            "Session 14: attached rigid-body near-null-space to field %d ('%s') via sub-DM\n",
+                            "Session 21: built rigid-body near-null-space on parent DM "
+                            "for field %d ('%s'); has_const=%d nvecs=%d local_size=%d\n",
                             (int)displacement_field_idx_,
-                            disp_name ? disp_name : "(unnamed)");
+                            disp_name ? disp_name : "(unnamed)",
+                            (int)nns_has_const, (int)nns_nvecs,
+                            (int)nns_vec_size);
                 if (lagrange_field_idx_ >= 0 && section) {
                     const char *lag_name = NULL;
                     ierr = PetscSectionGetFieldName(section, lagrange_field_idx_,
                                                    &lag_name); CHKERRQ(ierr);
                     PetscPrintf(comm,
-                                "Session 14: lagrange field %d name: '%s'\n",
+                                "Session 21: lagrange field %d name: '%s'\n",
                                 (int)lagrange_field_idx_,
                                 lag_name ? lag_name : "(unnamed)");
                 }
             }
         }
 
-        // Session 15: with PyLith-style aux-field slip, the rim-pin is gone
-        // and the saddle-point matrix is full-rank under PyLith's standard
-        // GAMG + near-null-space solver. Make GAMG the default for
-        // fault-enabled runs so the configuration matches PyLith
-        // (libsrc/pylith/materials/Elasticity.cc:getSolverDefaults). The
-        // FSRM_SADDLE_SOLVER env var still selects the experimental Schur
-        // fieldsplit (Path B) for diagnostics. Tests that explicitly set
-        // -pc_type via PetscOptionsSetValue *before* setupSolvers keep their
-        // override (we only set the GAMG default when no -pc_type is set
-        // yet, mirroring how SNESSetFromOptions / KSPSetFromOptions allow
-        // command-line overrides).
+        // Session 21: solver selector rolled back to Session 20 wording
+        // (GAMG default whenever -pc_type is not already set; test harness
+        // -pc_type=lu preset wins for the default fault test path). The
+        // Session 21 aux-slip-coordinated override was tested but produced
+        // SNES line-search failures on PrescribedSlip - see the report.
+        // FSRM_SADDLE_SOLVER={gamg,fieldsplit} still selects an explicit
+        // saddle-point solver for diagnostics.
         PetscBool pc_already_set = PETSC_FALSE;
         ierr = PetscOptionsHasName(NULL, NULL, "-pc_type", &pc_already_set); CHKERRQ(ierr);
         if (saddle && std::string(saddle) == "fieldsplit") {
@@ -3908,6 +3909,19 @@ PetscErrorCode Simulator::setupSolvers() {
             ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
             if (rank == 0) {
                 PetscPrintf(comm, "Session 15: Schur fieldsplit enabled via FSRM_SADDLE_SOLVER=fieldsplit\n");
+            }
+        } else if (saddle && std::string(saddle) == "gamg") {
+            // Explicit aux-slip + GAMG experimental path (Session 21 infra).
+            // Overrides any test-harness preset.
+            ierr = PetscOptionsSetValue(NULL, "-pc_type", "gamg"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_type", "gmres"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-mg_levels_ksp_type", "richardson"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-mg_levels_pc_type", "jacobi"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-mg_levels_ksp_max_it", "5"); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm,
+                            "Session 21: FSRM_SADDLE_SOLVER=gamg explicit; PyLith defaults (GAMG + GMRES + near-null-space)\n");
             }
         } else if (!pc_already_set) {
             // Default: PyLith elastic + fault solver (GAMG + GMRES with near-null-space).
@@ -6955,14 +6969,7 @@ PetscErrorCode Simulator::FormFunction(TS ts, PetscReal t, Vec U, Vec U_t, Vec F
                 keys[2].field = sim->lagrange_field_idx_;
                 keys[2].part  = 0;
 
-                // Session 19: refresh slipAuxVec_ each time step. The
-                // cohesive-key attachment stays opt-in via
-                // FSRM_ENABLE_SLIP_AUX (see setupAuxiliaryDM for the
-                // tabulation-point mismatch rationale). When set,
-                // re-attach on every call so projection / BC insertion
-                // paths cannot drop it from the DM map. Session 20
-                // tested default-ON and rolled back due to KSP
-                // divergence after rim-pin removal.
+                // Session 21: gate rolled back to Session 19-20 wording.
                 ierr = sim->updateFaultAuxiliary(t); CHKERRQ(ierr);
                 const bool enable_slip_aux =
                     (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr);
@@ -7176,8 +7183,7 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                     ierr = MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRQ(ierr);
                 }
 
-                // Session 19: match residual-path gating (see FormFunction).
-                // Session 20 attempted default-ON; rolled back.
+                // Session 21: gate rolled back to Session 19-20 wording.
                 ierr = sim->updateFaultAuxiliary(t); CHKERRQ(ierr);
                 const bool enable_slip_aux_j =
                     (getenv("FSRM_ENABLE_SLIP_AUX") != nullptr);
@@ -7203,6 +7209,43 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                 if (J != P) {
                     ierr = MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
                     ierr = MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+                }
+
+                // Session 21: attach the full-DM rigid-body near-null-
+                // space directly to the Jacobian so PCGAMG can find it via
+                // MatGetNearNullSpace. PyLith's PetscObjectCompose path on
+                // the displacement field object did not propagate to the
+                // monolithic Jacobian in PETSc 3.25; the explicit
+                // MatSetNearNullSpace is required. MatZeroEntries above
+                // preserves the attachment, so re-attaching every call is
+                // idempotent (PCGAMG caches by matrix state).
+                if (sim->rigidBodyNullSpace_) {
+                    ierr = MatSetNearNullSpace(P, sim->rigidBodyNullSpace_); CHKERRQ(ierr);
+                    if (J != P) {
+                        ierr = MatSetNearNullSpace(J, sim->rigidBodyNullSpace_); CHKERRQ(ierr);
+                    }
+                }
+
+                // Session 21 debug probe: verify the rigid-body near-null-
+                // space reached the assembled Jacobian. PyLith composes the
+                // near-null-space on the displacement field object and
+                // PCGAMG pulls it through MatGetNearNullSpace during setup.
+                if (getenv("FSRM_SESSION21_DEBUG")) {
+                    MatNullSpace nns = nullptr;
+                    ierr = MatGetNearNullSpace(J, &nns); CHKERRQ(ierr);
+                    PetscPrintf(sim->comm,
+                                "Session 21: MatGetNearNullSpace returned %s\n",
+                                nns ? "attached" : "NULL");
+                    if (nns) {
+                        PetscInt nvecs = 0;
+                        const Vec *vecs = nullptr;
+                        PetscBool has_const = PETSC_FALSE;
+                        ierr = MatNullSpaceGetVecs(nns, &has_const, &nvecs,
+                                                   &vecs); CHKERRQ(ierr);
+                        PetscPrintf(sim->comm,
+                                    "Session 21: near-null-space has_const=%d nvecs=%d\n",
+                                    (int)has_const, (int)nvecs);
+                    }
                 }
             }
         }
@@ -8275,15 +8318,13 @@ PetscErrorCode Simulator::setupBoundaryConditions() {
                     displacement_field, lagrange_field_idx);
             }
 
-            // Session 18: the aux-slip cohesive-key attachment is gated
-            // behind FSRM_ENABLE_SLIP_AUX (see setupAuxiliaryDM comment).
-            // Keep the Session 12/14 PyLith-style rim-pin BC in place by
-            // default so the Session 16 baseline (constants-array
-            // prescribed slip) still has a non-singular Lagrange block.
-            // Set FSRM_DISABLE_RIM_PIN=1 to opt out. (Session 20 tested
-            // an inversion to default-OFF coordinated with aux-slip on
-            // and observed KSP DIVERGED_LINEAR_SOLVE iterations 0 across
-            // the linear fault tests, so the inversion was rolled back.)
+            // Session 21: rim-pin gate rolled back to Session 20 wording
+            // (default ON; opt-out via FSRM_DISABLE_RIM_PIN=1). The
+            // inversion coordinated with default-ON aux-slip and GAMG was
+            // tested and produced SNES DIVERGED_LINE_SEARCH on
+            // PrescribedSlip plus regressions of LockedQuasiStatic,
+            // LockedElastodynamic, TimeDependentSlip. See
+            // docs/SESSION_21_REPORT.md.
             const bool rim_pin_disabled = (getenv("FSRM_DISABLE_RIM_PIN") != nullptr);
             if (!rim_pin_disabled && buried_cohesive_label_ && lagrange_field_idx_ >= 0) {
                 PetscDS lagrange_ds = nullptr;
