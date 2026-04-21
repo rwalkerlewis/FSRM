@@ -3953,15 +3953,17 @@ PetscErrorCode Simulator::setupSolvers() {
             ierr = PetscOptionsSetValue(NULL, "-ksp_type", "gmres"); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
 
-            // Session 26: damp the bt line search. The prescribed-slip target at u=0
-            // produces a large Newton step that bt cannot find an acceptable step size
-            // for. Damping to 0.1 converts the one-shot step into ~10 progressively
-            // smaller steps. snes_max_it raised from the test harness's 200 to 500 to
-            // allow for the slower convergence.
-            ierr = PetscOptionsSetValue(NULL, "-snes_linesearch_type", "bt"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-snes_linesearch_damping", "0.1"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-snes_linesearch_max_it", "50"); CHKERRQ(ierr);
-            ierr = PetscOptionsSetValue(NULL, "-snes_max_it", "500"); CHKERRQ(ierr);
+            // Session 27: tighten KSP tolerance to PyLith's production value.
+            // At default rtol=1e-5, a 10-GPa elastic scale produces KSP residuals
+            // of ~1e+4 absolute when the SNES residual is 1e-4, so the Newton
+            // step contains far more error than the SNES residual it is trying
+            // to reduce. PyLith uses rtol=1e-14 for this reason (PetscOptions.cc:353).
+            ierr = PetscOptionsSetValue(NULL, "-ksp_rtol", "1.0e-14"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_atol", "1.0e-7"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-snes_rtol", "1.0e-14"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-snes_atol", "5.0e-7"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-ksp_max_it", "500"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-snes_max_it", "200"); CHKERRQ(ierr);
 
             if (rank == 0) {
                 PetscPrintf(comm,
