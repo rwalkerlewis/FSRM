@@ -834,6 +834,37 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
                     ? constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + c] : 0.0;
                 f0[c] = u[Nc + c] - u[c] - delta;
             }
+            // Session 29 A.1: also dump from the fallback path so we can tell
+            // which branch is live.
+            if (getenv("FSRM_S29_BYHAND")) {
+                static int s29_fb_count = 0;
+                if (s29_fb_count < 2) {
+                    ++s29_fb_count;
+                    std::printf(
+                        "[S29-A.1 f0_hybrid_lambda FALLBACK call=%d] "
+                        "x=[%.4f %.4f %.4f] Nc=%d slip_null=%d refDir2_null=%d NfAux=%d\n",
+                        s29_fb_count,
+                        (double)x[0], (double)x[1], (double)x[2], (int)Nc,
+                        (slip == nullptr) ? 1 : 0,
+                        (refDir2 == nullptr) ? 1 : 0, (int)NfAux);
+                    std::printf(
+                        "  delta_const = [%.6e %.6e %.6e] (constants[%d..%d])\n",
+                        (double)((numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X)
+                                 ? PetscRealPart(constants[COHESIVE_CONST_PRESCRIBED_SLIP_X]) : 0.0),
+                        (double)((numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + 1)
+                                 ? PetscRealPart(constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + 1]) : 0.0),
+                        (double)((numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + 2)
+                                 ? PetscRealPart(constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + 2]) : 0.0),
+                        (int)COHESIVE_CONST_PRESCRIBED_SLIP_X,
+                        (int)(COHESIVE_CONST_PRESCRIBED_SLIP_X + 2));
+                    std::printf(
+                        "  f0_OUT (fallback) = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(f0[0]),
+                        (double)PetscRealPart(f0[1]),
+                        (double)PetscRealPart(f0[2]));
+                    std::fflush(stdout);
+                }
+            }
         } else {
             PetscScalar tanDir1[3] = {0.0, 0.0, 0.0};
             PetscScalar tanDir2[3] = {0.0, 0.0, 0.0};
@@ -873,6 +904,64 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
                 const PetscScalar slipXYZ =
                     n[c]*slip[0] + tanDir1[c]*slip[1] + tanDir2[c]*slip[2];
                 f0[c] = u[Nc + c] - u[c] - slipXYZ;
+            }
+
+            // Session 29 Thread A.1: print-only diagnostic for ONE quadrature
+            // point on ONE cohesive cell at the fault-plane center. Guarded by
+            // FSRM_S29_BYHAND=1 and limited by a call counter so we capture a
+            // clean dump of f0 inputs and outputs at u=0 without flooding the
+            // log. No mutation of f0[] (Rule 29).
+            if (getenv("FSRM_S29_BYHAND")) {
+                static int s29_f0_call_count = 0;
+                const bool center_qpt =
+                    (std::fabs((double)x[0] - 0.5) < 0.05) &&
+                    (std::fabs((double)x[1] - 0.5) < 0.15) &&
+                    (std::fabs((double)x[2] - 0.5) < 0.15);
+                if (center_qpt && s29_f0_call_count < 4) {
+                    ++s29_f0_call_count;
+                    std::printf(
+                        "[S29-A.1 f0_hybrid_lambda call=%d] "
+                        "x=[%.4f %.4f %.4f] n=[%.3f %.3f %.3f] Nc=%d\n",
+                        s29_f0_call_count,
+                        (double)x[0], (double)x[1], (double)x[2],
+                        (double)n[0], (double)n[1], (double)n[2], (int)Nc);
+                    std::printf(
+                        "  slip_aux (fault-local) = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(slip[0]),
+                        (double)PetscRealPart(slip[1]),
+                        (double)PetscRealPart(slip[2]));
+                    PetscScalar slipXYZ_dbg[3] = {0.0, 0.0, 0.0};
+                    for (PetscInt c = 0; c < Nc; ++c) {
+                        slipXYZ_dbg[c] =
+                            n[c]*slip[0] + tanDir1[c]*slip[1] + tanDir2[c]*slip[2];
+                    }
+                    std::printf(
+                        "  slipXYZ (Cartesian)    = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(slipXYZ_dbg[0]),
+                        (double)PetscRealPart(slipXYZ_dbg[1]),
+                        (double)PetscRealPart(slipXYZ_dbg[2]));
+                    std::printf(
+                        "  u_neg = [%.6e %.6e %.6e]  u_pos = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(u[0]),
+                        (double)PetscRealPart(u[1]),
+                        (double)PetscRealPart(u[2]),
+                        (double)PetscRealPart(u[Nc + 0]),
+                        (double)PetscRealPart(u[Nc + 1]),
+                        (double)PetscRealPart(u[Nc + 2]));
+                    std::printf(
+                        "  lambda (u[uOff[1]..]) = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(u[uOff[1] + 0]),
+                        (double)PetscRealPart(u[uOff[1] + 1]),
+                        (double)PetscRealPart(u[uOff[1] + 2]));
+                    std::printf(
+                        "  f0_OUT (kernel)       = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(f0[0]),
+                        (double)PetscRealPart(f0[1]),
+                        (double)PetscRealPart(f0[2]));
+                    std::printf(
+                        "  expected f0 = -slipXYZ  (u_jump=0 at u=0)\n");
+                    std::fflush(stdout);
+                }
             }
         }
     } else {
@@ -1027,6 +1116,59 @@ void CohesiveFaultKernel::g0_hybrid_lambda_u(
         for (PetscInt c = 0; c < Nc; ++c) {
             g0[c * Nc + c]            = -1.0;
             g0[Nc * Nc + c * Nc + c]  = 1.0;
+        }
+
+        // Session 29 Thread A.1: print-only diagnostic for the analytical
+        // g0_hybrid_lambda_u block at the fault-plane center quadrature
+        // point. Guarded by FSRM_S29_BYHAND=1 and limited by a call counter.
+        // No mutation of g0[] (Rule 29).
+        if (getenv("FSRM_S29_BYHAND")) {
+            static int s29_g0_call_count = 0;
+            const bool center_qpt =
+                (std::fabs((double)x[0] - 0.5) < 0.05) &&
+                (std::fabs((double)x[1] - 0.5) < 0.15) &&
+                (std::fabs((double)x[2] - 0.5) < 0.15);
+            if (center_qpt && s29_g0_call_count < 4) {
+                ++s29_g0_call_count;
+                std::printf(
+                    "[S29-A.1 g0_hybrid_lambda_u call=%d] "
+                    "x=[%.4f %.4f %.4f] n=[%.3f %.3f %.3f] Nc=%d mode=%.3f\n",
+                    s29_g0_call_count,
+                    (double)x[0], (double)x[1], (double)x[2],
+                    (double)n[0], (double)n[1], (double)n[2],
+                    (int)Nc, (double)mode);
+                std::printf(
+                    "  u_neg = [%.6e %.6e %.6e]  u_pos = [%.6e %.6e %.6e]\n",
+                    (double)PetscRealPart(u[0]),
+                    (double)PetscRealPart(u[1]),
+                    (double)PetscRealPart(u[2]),
+                    (double)PetscRealPart(u[Nc + 0]),
+                    (double)PetscRealPart(u[Nc + 1]),
+                    (double)PetscRealPart(u[Nc + 2]));
+                // Print the neg-side block (first Nc*Nc entries) and pos-side
+                // block (next Nc*Nc entries) in row-major layout.
+                std::printf("  g0_OUT neg-side block dR_lambda/du_neg:\n");
+                for (PetscInt i = 0; i < Nc; ++i) {
+                    std::printf("    [");
+                    for (PetscInt j = 0; j < Nc; ++j) {
+                        std::printf(" %+.3e",
+                            (double)PetscRealPart(g0[i * Nc + j]));
+                    }
+                    std::printf(" ]\n");
+                }
+                std::printf("  g0_OUT pos-side block dR_lambda/du_pos:\n");
+                for (PetscInt i = 0; i < Nc; ++i) {
+                    std::printf("    [");
+                    for (PetscInt j = 0; j < Nc; ++j) {
+                        std::printf(" %+.3e",
+                            (double)PetscRealPart(g0[Nc * Nc + i * Nc + j]));
+                    }
+                    std::printf(" ]\n");
+                }
+                std::printf(
+                    "  expected: neg=-I, pos=+I (state-independent for prescribed)\n");
+                std::fflush(stdout);
+            }
         }
     } else {
         // SLIPPING: port the semi-smooth Newton tangent from the pre-Session-4
