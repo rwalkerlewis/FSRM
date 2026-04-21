@@ -1,5 +1,29 @@
 # Lagrange Field Fix -- Status Report
 
+**HISTORICAL / SUPERSEDED** (Session 31).
+
+This document is the decision trail for Sessions 10-14's initial exploration
+of the PETSc 3.25 region-DS limitations that motivated FSRM's current
+rim-pin + manual-interior-assembly strategy. It is retained as background
+context for why the code evolved the way it did. For the current solver
+state, failing tests, and open investigation bottlenecks see
+`docs/SOLVER_STATE.md`. For verified PyLith architecture references see
+`docs/PYLITH_REFERENCE.md`. New work should update those two documents, not
+this one.
+
+Phase 1 (cohesive-cell label) and Phase 2 (field restriction attempt) are
+fully landed or reverted as described below. Phase 3 (epsilon sweep) is
+historical; Sessions 10-30 have since established the working regime
+(`epsilon = 1e-4`) and the outer Schur KSP is the current bottleneck, not
+the epsilon choice. Phase 4 (`dm_reorder_section`) is landed and still
+applicable (see `CLAUDE.md` DS/BC ordering rule 4).
+
+Options A (PETSc upgrade), C (penalty dominance), D (fieldsplit LU) are
+still orthogonally viable directions but each is subsumed into the current
+`docs/SOLVER_STATE.md` bottleneck list (Schur approximation, factorization
+type, Lagrange block scaling). Do not restart these investigations from
+scratch; measure first, then pick from the remaining candidates.
+
 ## Phase: Partial resolution via Option B (interior assembly only)
 
 A scoped subset of `docs/PYLITH_COMPATIBILITY.md` Section B Option B has landed.
