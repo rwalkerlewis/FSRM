@@ -3953,6 +3953,16 @@ PetscErrorCode Simulator::setupSolvers() {
             ierr = PetscOptionsSetValue(NULL, "-ksp_type", "gmres"); CHKERRQ(ierr);
             ierr = PetscOptionsSetValue(NULL, "-ksp_gmres_restart", "100"); CHKERRQ(ierr);
 
+            // Session 26: damp the bt line search. The prescribed-slip target at u=0
+            // produces a large Newton step that bt cannot find an acceptable step size
+            // for. Damping to 0.1 converts the one-shot step into ~10 progressively
+            // smaller steps. snes_max_it raised from the test harness's 200 to 500 to
+            // allow for the slower convergence.
+            ierr = PetscOptionsSetValue(NULL, "-snes_linesearch_type", "bt"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-snes_linesearch_damping", "0.1"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-snes_linesearch_max_it", "50"); CHKERRQ(ierr);
+            ierr = PetscOptionsSetValue(NULL, "-snes_max_it", "500"); CHKERRQ(ierr);
+
             if (rank == 0) {
                 PetscPrintf(comm,
                             "Session 23: fieldsplit Schur with PyLith options "
