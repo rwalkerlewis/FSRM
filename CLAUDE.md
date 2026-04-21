@@ -9,6 +9,22 @@ FSRM (Full Service Reservoir Model) is a C++17/PETSc/MPI coupled multiphysics si
 Repository: github.com/rwalkerlewis/FSRM
 Branch: main
 
+## Documentation Layout
+
+Read in this order when resuming work:
+
+- `docs/SOLVER_STATE.md`: Current fault-solver state, pass/fail, matrix characterization, bottlenecks, change log.
+- `docs/PYLITH_REFERENCE.md`: Verified PyLith architecture pins with file:line references.
+- `docs/SESSION_RUNBOOK.md`: Env vars, commands, decision-branch template, report structure.
+- `docs/SESSION_NN_REPORT.md`: Per-session changelog, numbered reports. Avoid reading these in sequence; prefer the three standing documents above and consult a specific report only when those direct you to one.
+
+Secondary references:
+
+- `docs/PYLITH_COMPATIBILITY.md`: Feature-parity wishlist (not a verified reference).
+- `docs/LAGRANGE_FIX_STATUS.md`: Historical record of PETSc 3.25 architectural blockers (superseded by `SOLVER_STATE.md` for current state; kept as decision trail).
+- `docs/FAULT_TEST_REGRESSION_AUDIT.md`: Test inventory and history.
+- `docs/NUMERICAL_METHODS.md`, `docs/PHYSICS_MODELS.md`: physics reference.
+
 ### Codebase Size
 
 After cleanup, the live codebase is:
@@ -20,43 +36,18 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. 108 pass, 8 fail honestly (no fake skips).
+116 registered tests. 110 pass, 6 fail honestly (no fake skips). Measured at Session 30 (default path, no env vars).
 
-Known failures (all fault-related, present in baseline `local_fix` tip):
-- Physics.LockedFaultTransparency: SNES does not produce displacement under
-  the compression top BC; `fault_norm = 0`.
-- Physics.SCEC.TPV5: `applyInitialFaultStress` writes zero Lagrange DOF sets
-  because the Session 12/14 rim-pin constrains the Lagrange block before the
-  stress is applied.
-- Integration.DynamicRuptureSolve.LockedQuasiStatic: same SNES failure mode
-  as the transparency test under quasi-static stepping.
-- Integration.DynamicRuptureSolve.PrescribedSlip
-  (gtest `DynamicRuptureSolveTest.PrescribedSlipQuasiStatic`): the PetscDS
-  BdResidual on the Lagrange field returns zero on the cohesive geometry in
-  PETSc 3.25 (the fault label has no cohesive cells, only depth less than dim
-  points), so the prescribed jump is not driven. Session 18 plumbed a
-  slip-only aux DM (`slipAuxDM_` / `slipAuxVec_`) gated behind
-  `FSRM_ENABLE_SLIP_AUX=1`; Session 19 verified that the
-  `febasic.c:663` mismatch is actually driven by the *material* aux's
-  Np = 1 vs the displacement FE's Np = 3 on the bulk-side hybrid keys
-  (`dim` in febasic comes from the cohesive-side Lagrange FE
-  `dim - 1 == 2`, so `auxOnBd` is already TRUE for a dim-1 surface aux).
-  Switching to a dim volume aux FE per the Session 19 prompt only
-  inverts the failure to the closure-size guard at `plexfem.c:3982`
-  (`closure 9 != DS 12`). The default path remains the Session 16
-  constants-array baseline; it converges SNES but produces
-  `max_fault_slip = 263.0` (the Session 18 figure of 11.7 was stale).
-- Integration.TimeDependentSlip
-- Integration.SlippingFaultSolve
-- Integration.SlipWeakeningFault
-- Integration.PressurizedFractureFEM
+Known failures on default path (source of truth: `docs/SOLVER_STATE.md`):
 
-The previously-claimed Section B fix for `LockedFaultTransparency` and
-`LockedFaultQuasiStatic` (epsilon = 1e-4 weak regularization plus penalty-scaled
-diagonal) is in place in the source but the tests fail anyway, indicating either
-a deeper PETSc 3.25 BdResidual issue on the cohesive geometry or a separate
-regression introduced by other commits on `local_fix`. See
-`docs/LAGRANGE_FIX_STATUS.md` and `docs/SESSION_18_REPORT.md`.
+- Physics.SCEC.TPV5: friction Jacobian port incomplete for slip-weakening + nucleation patch coupling.
+- Physics.LockedFaultTransparency: PETSc 3.25 BdResidual on cohesive geometry; flaky between runs.
+- Integration.PressurizedFractureFEM: hydrofrac rewire needed (separate scope from fault-solver bottleneck).
+- Integration.DynamicRuptureSolve.PrescribedSlip: BdResidual on the Lagrange field does not fire on the cohesive geometry under PETSc 3.25. See `docs/SOLVER_STATE.md` and `docs/PYLITH_REFERENCE.md` for the current investigation state.
+- Integration.SlippingFaultSolve: friction Jacobian port needed.
+- Integration.SlipWeakeningFault: friction Jacobian port needed.
+
+Three additional tests regress under the experimental fieldsplit path (`FSRM_ENABLE_SLIP_AUX=1 FSRM_SADDLE_SOLVER=fieldsplit`): `Integration.DynamicRuptureSolve.LockedQuasiStatic`, `Integration.DynamicRuptureSolve.LockedElastodynamic`, `Integration.TimeDependentSlip`. Under experimental the fault subset is 7 / 16. See `docs/SOLVER_STATE.md` "Extra failures under experimental path."
 
 | Category | Tests | Description |
 |----------|------:|-------------|
@@ -393,6 +384,10 @@ a starting point but must be rewritten to use the PetscDS callback pattern.
 14. Update CLAUDE.md and README.md after every session to reflect actual code state. Every claim must be backed by a specific test name or code reference.
 15. GTEST_SKIP is ONLY for hardware-dependent tests (GPU, MPI rank count) or genuine crash bugs that would kill the test runner. A test that produces a zero solution is a FAILURE, not a skip. If SNES converges to zero, the physics setup is wrong -- fix it, do not hide it behind GTEST_SKIP.
 16. Never truncate terminal output. Do not pipe `make`, `ctest`, `docker run`, `cmake`, or any other build / test / run command through `head`, `tail`, `grep`, `awk`, `sed`, or `cut`. Capture the full stdout / stderr stream to a log file (for example `... 2>&1 | tee /tmp/full.log`) and inspect the saved log directly with the `Read` tool when results are needed. Truncating output in-line hides build warnings, test names, SNES iterations, and stack traces that are diagnostic for failures.
+17. No option tuning without diagnostic data. Before changing any PETSc option in the solver path (preconditioner type, factorization type, tolerances, damping, smoother, restart length, etc.), the session report must document a specific measurement (condition number, spectrum gap, KSP residual trajectory, FD vs hand-coded Jacobian difference) that justifies the specific option being changed. Speculative tuning loops without new measurement data are prohibited.
+18. No Jacobian-adjacent modifications in a diagnostic session. A session whose prompt is labeled "diagnostic" must not modify `src/physics/`, `src/numerics/`, or the cohesive / bulk Jacobian registration code paths in `src/core/Simulator.cpp`. Diagnostic prints are allowed when guarded by `FSRM_S<N>_<TAG>=1` env-var gates.
+19. Every session that changes solver behavior must append a one-line entry to the change log in `docs/SOLVER_STATE.md` and update the "Current test state" table if pass/fail counts changed.
+20. Before starting a solver-related session, read `docs/SOLVER_STATE.md`. Before re-deriving any PyLith architectural fact, consult `docs/PYLITH_REFERENCE.md` and update it there rather than in a session report.
 
 ## Parallel Development and Execution
 

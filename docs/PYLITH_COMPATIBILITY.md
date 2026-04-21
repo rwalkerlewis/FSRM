@@ -1,5 +1,10 @@
 # PyLith Compatibility Features
 
+**Note (Session 31)**: For verified PyLith architecture details (file:line
+references into PyLith source) see `docs/PYLITH_REFERENCE.md`. This document
+is a feature-parity wishlist describing what FSRM aligns with PyLith and
+which gaps remain, not a verified architecture reference.
+
 This document describes FSRM features that align with PyLith workflows and conventions,
 enabling users familiar with PyLith to set up equivalent simulations in FSRM.
 
