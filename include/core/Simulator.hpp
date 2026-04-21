@@ -208,6 +208,18 @@ private:
     // matrix (diagnosed by the Session 21 probe: MatGetNearNullSpace J
     // returned NULL with only the composed-on-field path active).
     MatNullSpace rigidBodyNullSpace_ = nullptr;
+    // Session 30: a second near-null-space sized for the FULL monolithic
+    // Jacobian (displacement DOFs populated, Lagrange DOFs zero). The
+    // Session 21 path attached the full-DM sized null-space both to the
+    // displacement field object (for fieldsplit's sub-block) and to the
+    // monolithic Jacobian (for the default non-fieldsplit GAMG path),
+    // but fieldsplit+PCGAMG errored because the vectors were too large
+    // for the displacement sub-block (297 != 222). Session 30 splits the
+    // two usages: rigidBodyNullSpace_ now stores the sub-DM sized vectors
+    // that the displacement field object exposes for fieldsplit, while
+    // rigidBodyNullSpaceFull_ stores the full-DM sized vectors attached
+    // to the monolithic Jacobian in FormJacobian on the default path.
+    MatNullSpace rigidBodyNullSpaceFull_ = nullptr;
     PetscErrorCode updateFaultAuxiliary(PetscReal t);
     PetscErrorCode setupAuxiliaryDM();
     PetscErrorCode populateAuxFieldsByDepth();

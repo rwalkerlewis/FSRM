@@ -481,6 +481,7 @@ Simulator::Simulator(MPI_Comm comm_in)
 
 Simulator::~Simulator() {
     if (rigidBodyNullSpace_) MatNullSpaceDestroy(&rigidBodyNullSpace_);
+    if (rigidBodyNullSpaceFull_) MatNullSpaceDestroy(&rigidBodyNullSpaceFull_);
     if (slipAuxVec_) VecDestroy(&slipAuxVec_);
     if (slipAuxDM_) DMDestroy(&slipAuxDM_);
     if (auxVec_) VecDestroy(&auxVec_);
@@ -3835,44 +3836,49 @@ PetscErrorCode Simulator::setupSolvers() {
     if (config.enable_faults && cohesive_kernel_) {
         const char *saddle = getenv("FSRM_SADDLE_SOLVER");
 
-        // Session 21: build the rigid-body near-null-space on the PARENT
-        // DM so the resulting vectors are sized for the full assembled
-        // Jacobian (297 for the canonical PrescribedSlip mesh). Passing
-        // displacement_field_idx_ to DMPlexCreateRigidBody restricts the
-        // rigid-body projection to the displacement subfield while the
-        // Lagrange DOFs stay zero. Store on the Simulator and attach via
-        // MatSetNearNullSpace in FormJacobian; the Session 14 sub-DM +
-        // PetscObjectCompose(field, "nearnullspace", ...) path did not
-        // reach PCGAMG on the full monolithic matrix, as verified by the
-        // Session 21 MatGetNearNullSpace probe in FormJacobian.
+        // Session 30: build TWO rigid-body near-null-spaces. The displacement
+        // sub-block (fieldsplit inner PCGAMG) needs vectors sized to the
+        // displacement sub-DM (222 for the canonical PrescribedSlip mesh);
+        // the monolithic Jacobian (default non-fieldsplit GAMG path) needs
+        // vectors sized to the full DM (255). Session 21 built only the full
+        // size and composed it on the displacement field, which PCGAMG
+        // rejected with "Attached null space vector size 297 != matrix size
+        // 222". The sub-DM + PetscObjectCompose(field, "nearnullspace", ...)
+        // pattern is what PyLith uses at libsrc/pylith/problems/Problem.cc.
+        //
+        // Session 23 gated the fieldsplit compose OFF with comment "Building
+        // a properly-sized sub-DM null-space is left to a follow-up session."
+        // This session lands that follow-up.
         if (displacement_field_idx_ >= 0 && !rigidBodyNullSpace_) {
-            ierr = DMPlexCreateRigidBody(dm, displacement_field_idx_,
-                                         &rigidBodyNullSpace_); CHKERRQ(ierr);
+            // Sub-DM null-space for fieldsplit's displacement sub-block.
+            // PyLith pattern: capture the IS so its ref-count stays alive
+            // and destroy it after DMPlexCreateRigidBody.
+            PetscInt fields_disp[1] = { displacement_field_idx_ };
+            DM disp_subdm = NULL;
+            IS disp_is = NULL;
+            ierr = DMCreateSubDM(dm, 1, fields_disp, &disp_is, &disp_subdm); CHKERRQ(ierr);
+            // On a single-field sub-DM, the displacement field has index 0.
+            ierr = DMPlexCreateRigidBody(disp_subdm, 0, &rigidBodyNullSpace_); CHKERRQ(ierr);
+            ierr = ISDestroy(&disp_is); CHKERRQ(ierr);
+            ierr = DMDestroy(&disp_subdm); CHKERRQ(ierr);
 
-            // PyLith also composes the null-space on the displacement field
-            // object so fieldsplit paths (FSRM_SADDLE_SOLVER=fieldsplit)
-            // can pull it at MatCreateSubMatrix time.
-            //
-            // Session 23: skip the compose when FSRM_SADDLE_SOLVER=fieldsplit.
-            // DMPlexCreateRigidBody(dm, field) returns vectors sized for the
-            // full DM (free local size 297 on the canonical PrescribedSlip
-            // mesh) with only the displacement-field rows populated. When
-            // fieldsplit pulls the composed null-space and feeds it to PCGAMG
-            // on the displacement sub-block (free local size 222), PCSetData_AGG
-            // errors with "Attached null space vector size 297 != matrix size
-            // 222". Building a properly-sized sub-DM null-space is left to a
-            // follow-up session; for now skip the compose so fieldsplit's
-            // displacement sub-solve runs without an attached near-null-space.
-            const char *saddle_compose = getenv("FSRM_SADDLE_SOLVER");
-            const bool fieldsplit_compose =
-                (saddle_compose && std::string(saddle_compose) == "fieldsplit");
-            if (!fieldsplit_compose) {
-                PetscObject disp_field = NULL;
-                ierr = DMGetField(dm, displacement_field_idx_, NULL,
-                                  &disp_field); CHKERRQ(ierr);
-                ierr = PetscObjectCompose(disp_field, "nearnullspace",
-                                          (PetscObject)rigidBodyNullSpace_); CHKERRQ(ierr);
-            }
+            // Full-DM null-space for the monolithic default path.
+            ierr = DMPlexCreateRigidBody(dm, displacement_field_idx_,
+                                         &rigidBodyNullSpaceFull_); CHKERRQ(ierr);
+
+            // Compose the sub-DM sized vectors on the displacement field.
+            // Fieldsplit's inner PCGAMG retrieves this via the PETSc-internal
+            // DMCreateSubDM + PetscObjectQuery("nearnullspace") path
+            // (src/dm/interface/dmi.c and src/ksp/pc/impls/fieldsplit/
+            // fieldsplit.c). On the non-fieldsplit default path the compose
+            // is harmless because PCGAMG on the monolithic system pulls from
+            // MatGetNearNullSpace (set in FormJacobian) rather than from the
+            // composed field object.
+            PetscObject disp_field = NULL;
+            ierr = DMGetField(dm, displacement_field_idx_, NULL,
+                              &disp_field); CHKERRQ(ierr);
+            ierr = PetscObjectCompose(disp_field, "nearnullspace",
+                                      (PetscObject)rigidBodyNullSpace_); CHKERRQ(ierr);
 
             if (rank == 0) {
                 const char *disp_name = NULL;
@@ -3882,28 +3888,36 @@ PetscErrorCode Simulator::setupSolvers() {
                     ierr = PetscSectionGetFieldName(section, displacement_field_idx_,
                                                    &disp_name); CHKERRQ(ierr);
                 }
-                PetscInt nns_nvecs = 0;
-                const Vec *nns_vecs = NULL;
-                PetscBool nns_has_const = PETSC_FALSE;
-                ierr = MatNullSpaceGetVecs(rigidBodyNullSpace_, &nns_has_const,
-                                           &nns_nvecs, &nns_vecs); CHKERRQ(ierr);
-                PetscInt nns_vec_size = 0;
-                if (nns_nvecs > 0 && nns_vecs) {
-                    ierr = VecGetLocalSize(nns_vecs[0], &nns_vec_size); CHKERRQ(ierr);
+                PetscInt sub_nvecs = 0, sub_size = 0;
+                const Vec *sub_vecs = NULL;
+                PetscBool sub_has_const = PETSC_FALSE;
+                ierr = MatNullSpaceGetVecs(rigidBodyNullSpace_, &sub_has_const,
+                                           &sub_nvecs, &sub_vecs); CHKERRQ(ierr);
+                if (sub_nvecs > 0 && sub_vecs) {
+                    ierr = VecGetLocalSize(sub_vecs[0], &sub_size); CHKERRQ(ierr);
+                }
+                PetscInt full_nvecs = 0, full_size = 0;
+                const Vec *full_vecs = NULL;
+                PetscBool full_has_const = PETSC_FALSE;
+                ierr = MatNullSpaceGetVecs(rigidBodyNullSpaceFull_, &full_has_const,
+                                           &full_nvecs, &full_vecs); CHKERRQ(ierr);
+                if (full_nvecs > 0 && full_vecs) {
+                    ierr = VecGetLocalSize(full_vecs[0], &full_size); CHKERRQ(ierr);
                 }
                 PetscPrintf(comm,
-                            "Session 21: built rigid-body near-null-space on parent DM "
-                            "for field %d ('%s'); has_const=%d nvecs=%d local_size=%d\n",
+                            "Session 30: rigid-body near-null-space built for field %d "
+                            "('%s'); sub-DM nvecs=%d local_size=%d (composed on field); "
+                            "full-DM nvecs=%d local_size=%d (for monolithic Jacobian)\n",
                             (int)displacement_field_idx_,
                             disp_name ? disp_name : "(unnamed)",
-                            (int)nns_has_const, (int)nns_nvecs,
-                            (int)nns_vec_size);
+                            (int)sub_nvecs, (int)sub_size,
+                            (int)full_nvecs, (int)full_size);
                 if (lagrange_field_idx_ >= 0 && section) {
                     const char *lag_name = NULL;
                     ierr = PetscSectionGetFieldName(section, lagrange_field_idx_,
                                                    &lag_name); CHKERRQ(ierr);
                     PetscPrintf(comm,
-                                "Session 21: lagrange field %d name: '%s'\n",
+                                "Session 30: lagrange field %d name: '%s'\n",
                                 (int)lagrange_field_idx_,
                                 lag_name ? lag_name : "(unnamed)");
                 }
@@ -7308,29 +7322,22 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
                     ierr = MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
                 }
 
-                // Session 21: attach the full-DM rigid-body near-null-
-                // space directly to the Jacobian so PCGAMG can find it via
-                // MatGetNearNullSpace. PyLith's PetscObjectCompose path on
-                // the displacement field object did not propagate to the
-                // monolithic Jacobian in PETSc 3.25; the explicit
-                // MatSetNearNullSpace is required. MatZeroEntries above
-                // preserves the attachment, so re-attaching every call is
-                // idempotent (PCGAMG caches by matrix state).
-                //
-                // Session 23: gate this attachment off when
-                // FSRM_SADDLE_SOLVER=fieldsplit. For fieldsplit Schur the
-                // near-null-space belongs on the displacement sub-block's
-                // KSP, which PyLith propagates via PetscObjectCompose on the
-                // displacement field object (done in setupSolvers). Setting
-                // it on the parent monolithic matrix would just confuse the
-                // Schur sub-solve.
+                // Session 30: attach the FULL-DM-sized rigid-body near-
+                // null-space to the monolithic Jacobian on the default
+                // (non-fieldsplit) path, so PCGAMG on the whole saddle-point
+                // system can use it via MatGetNearNullSpace. The sub-DM
+                // sized null-space is already composed on the displacement
+                // field in setupSolvers; fieldsplit's inner PCGAMG pulls it
+                // from there. Attaching the full-DM vectors to the
+                // monolithic matrix under fieldsplit would feed mismatched
+                // sizes to the Schur sub-solve, so skip.
                 const char *saddle_j = getenv("FSRM_SADDLE_SOLVER");
                 const bool fieldsplit_active =
                     (saddle_j && std::string(saddle_j) == "fieldsplit");
-                if (sim->rigidBodyNullSpace_ && !fieldsplit_active) {
-                    ierr = MatSetNearNullSpace(P, sim->rigidBodyNullSpace_); CHKERRQ(ierr);
+                if (sim->rigidBodyNullSpaceFull_ && !fieldsplit_active) {
+                    ierr = MatSetNearNullSpace(P, sim->rigidBodyNullSpaceFull_); CHKERRQ(ierr);
                     if (J != P) {
-                        ierr = MatSetNearNullSpace(J, sim->rigidBodyNullSpace_); CHKERRQ(ierr);
+                        ierr = MatSetNearNullSpace(J, sim->rigidBodyNullSpaceFull_); CHKERRQ(ierr);
                     }
                 }
 
