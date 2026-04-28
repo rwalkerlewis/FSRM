@@ -167,3 +167,46 @@ Append one entry per session below. Format:
 **Next concrete step:**
 - (specific, testable next action)
 ```
+
+### Session 0 — 2026-04-28 — Milestone 0 (Honest baseline)
+
+**What passed:**
+- `docs/NEM_ROADMAP.md` installed verbatim on branch `nem-roadmap`
+  (committed as "session 0: install nuclear explosion monitoring roadmap").
+- `docs/NEM_BASELINE.md` written with the four required inventory sections:
+  integration-test enumeration, unimplemented headers (11), stub
+  implementations (5 confirmed in `src/experimental/`, plus 6 ML files
+  flagged for manual review at Milestone 3), and 23 non-runnable Python
+  scripts that import from a non-existent `fsrm` package (no
+  `pyproject.toml`, no `fsrm/` directory anywhere in the repo).
+- No source files, headers, scripts, or tests were modified or deleted,
+  consistent with the Milestone 0 directive "Inventory only — no deletion yet."
+
+**What is blocked and why:**
+- The integration-test pass/fail/runtime table required by Milestone 0
+  bullet 1 is not filled in. `Dockerfile.ci` fails at the PETSc compile
+  layer with `/bin/sh: 1: ./configure: not found`. Root cause: the
+  `petsc-3.25.0.tar.gz` download from
+  `web.cels.anl.gov/projects/petsc/download/release-snapshots/` does not
+  unpack to a `petsc-3.25*` directory in the current build environment,
+  and the subsequent `mv ... || true` masks the failure, leaving an
+  empty `WORKDIR /opt/petsc-3.25.0`. No host-side build is possible per
+  `CLAUDE.md` rule 1 ("Build and test in Docker. Always."). Per
+  `docs/NEM_ROADMAP.md` final-notes clause, this failure is documented
+  and the session stops rather than papering over it.
+- The classification of `src/ml/*.cpp` as stub-vs-real cannot be
+  finalized without a working link/test cycle; flagged for manual
+  inspection at Milestone 3.
+
+**Next concrete step:**
+- Open a small follow-up session that repairs `Dockerfile.ci` only:
+  pin the PETSc tarball URL to a concrete archive that is known to
+  unpack to `petsc-3.25.0/`, remove the `|| true` mask so the build
+  fails loudly if the directory is wrong, and verify by running
+  `docker build -f Dockerfile.ci -t fsrm-ci:local .` followed by
+  `docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local
+  bash -c 'cmake .. -DENABLE_TESTING=ON && make -j$(nproc) && ctest
+  --output-on-failure -L integration'`. Then update section 1.2 of
+  `docs/NEM_BASELINE.md` with the resulting per-test status table.
+  Only after that is the gate to begin Milestone 1 (Sedan 1962) cleared.
+
