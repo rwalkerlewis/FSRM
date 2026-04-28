@@ -253,3 +253,66 @@ Append one entry per session below. Format:
   at receivers placed at 100 m, 500 m, 1 km, 2 km on the free surface
   and at source depth.  Do not start M1.4 in that session.
 
+### Session 2 — 2026-04-28 — Milestone 1.3 (run + receivers)
+
+**What passed:**
+- `config/examples/sedan_1962_validated.config` -- new validated
+  configuration that drives `Simulator` via the committed Gmsh mesh
+  `meshes/historical/sedan_1962_nearfield.msh` (z=0 at surface,
+  z=-2000 at the bottom; shot point at (0, 0, -194)).  Three depth
+  layers from `models/sedan_1962.vel` are mapped via `LAYER_N`
+  blocks consumed by `Simulator::loadConfig`; lambda/mu values were
+  recomputed from the canonical Vp/Vs/rho table to within 0.1
+  percent.  The legacy `config/examples/sedan_1962.config` is left
+  untouched.  Eight receivers on the free surface and at source
+  depth at radial offsets of 100 m, 500 m, 1 km, and 2 km.
+- `tests/integration/test_sedan_1962_run.cpp` (CTest label
+  `integration`, name `Integration.Sedan1962Run`) -- four sub-tests:
+  `SimulationCompletes` exercises the full
+  `initializeFromConfigFile -> setupDM -> labelBoundaries ->
+  setupFields -> setupPhysics -> setupTimeStepper -> setupSolvers
+  -> setInitialConditions -> run -> writeSummary` pipeline;
+  `AllSACFilesProducedAndNonzero` asserts 8 stations x 3 components
+  with > 100 non-zero samples each (= 0.5 s at 200 Hz);
+  `AmplitudeMonotonicallyDecaysOnSurface` asserts BHZ peak at 100 m
+  > 500 m > 1 km > 2 km on the free surface; `PFirstArrivalTimeReasonable`
+  asserts the BHZ first-arrival time at SUR_R2000 lies in [0.4, 0.8] s
+  bracketing the theoretical ~0.57 s direct-P arrival at vp = 3500 m/s.
+  Test gets a 1800 s timeout because it runs the full pipeline four
+  times, once per fixture sub-test.
+
+**What is blocked and why:**
+- Discrepancy in the session 2 brief: the brief listed
+  `[LAYER_1] lambda = 6.51e8 Pa` for the alluvium top layer.  Honest
+  re-derivation from the canonical Vp=1500, Vs=700, rho=1900 in
+  `models/sedan_1962.vel` gives lambda = 1900 * (1500^2 - 2*700^2)
+  = 2.413e+09 Pa, a factor of ~3.7 off.  Per the brief's own
+  "differs by more than 1 percent -> use your computed value" rule,
+  the new config uses 2.413e9 Pa and documents the discrepancy in its
+  header.  The Layer 1 mu and Layer 2 / Layer 3 values matched the
+  re-derivation to within 0.1 percent.  No edit to
+  `models/sedan_1962.vel` (per session-2 scope: ASCII file is
+  documentation and is not modified in this session).
+- The brief's `[ROCK] youngs_modulus = 21.5e9` was replaced with
+  the recomputed E = 22.37 GPa (and Poisson ratio 0.291), consistent
+  with the Layer 3 lambda/mu.  Difference ~4 percent.
+- The local agent sandbox is not the build environment of record.
+  Final pass/fail signal for `Integration.Sedan1962Run` (4 sub-tests)
+  must come from GitHub Actions on the `nem-roadmap-m1-sedan-run-receivers`
+  branch.  If the simulation diverges or produces NaNs at the chosen
+  `dt_max = 0.005`, the M1.3 fallback path (halve `dt_max` and
+  `dt_initial`, document, re-run) is followed.  If even
+  `dt_max = 0.001` fails, the session stops and the failure is
+  documented as a blocker per the brief.
+
+**Next concrete step:**
+- Session 3: Milestone 1.4 (validation). Pull published Sedan PPV
+  versus range data from at least two of: USGS Open-File Reports,
+  LLNL UCRL documents, peer-reviewed near-field motion compilations
+  (Murphy 1996, Vincent et al.). Add a Python post-processing script
+  under `scripts/validation/` that reads the SAC files produced by
+  this session, computes PPV at each receiver, and produces
+  `figures/sedan_1962/ppv_vs_range.pdf`. Add an integration test
+  that asserts each PPV is within a factor of 2 of observed and the
+  log-log slope is within plus/minus 0.3 of the observed slope.
+

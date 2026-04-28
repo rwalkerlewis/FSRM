@@ -131,6 +131,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_thermal_expansion.cpp
     integration/test_thermal_diffusion.cpp
     integration/test_sedan_1962_mesh.cpp
+    integration/test_sedan_1962_run.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -305,6 +306,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.ThermalExpansion COMMAND run_integration_tests --gtest_filter=ThermalExpansionTest.*)
     add_test(NAME Integration.ThermalDiffusion COMMAND run_integration_tests --gtest_filter=ThermalDiffusionTest.*)
     add_test(NAME Integration.Sedan1962Mesh    COMMAND run_integration_tests --gtest_filter=Sedan1962MeshTest.*)
+    add_test(NAME Integration.Sedan1962Run     COMMAND run_integration_tests --gtest_filter=Sedan1962RunTest.*)
     add_test(NAME Integration.HistoricNuclear.Gasbuggy1967 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gasbuggy1967)
     add_test(NAME Integration.HistoricNuclear.Gnome1961 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gnome1961)
     add_test(NAME Integration.HistoricNuclear.Sedan1962 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962)
@@ -424,6 +426,15 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.NtsPahuteMesa
         Integration.Sedan1962Mesh
         PROPERTIES TIMEOUT 600 LABELS "integration"
+    )
+
+    # Sedan1962Run executes the full Simulator pipeline four times (once
+    # per Google Test fixture sub-test) on a 50,780-tet Gmsh mesh with
+    # 800 timesteps of TSALPHA2 elastodynamics, so it gets a longer
+    # per-test budget than the rest of the integration suite.
+    set_tests_properties(
+        Integration.Sedan1962Run
+        PROPERTIES TIMEOUT 1800 LABELS "integration"
     )
 
     # Performance tests
