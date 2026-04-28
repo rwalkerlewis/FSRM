@@ -254,7 +254,7 @@ TEST_F(Sedan1962RunTest, PFirstArrivalTimeReasonable)
   const float peak = maxAbsAmplitude(data);
   ASSERT_GT(peak, 0.0f) << "SUR_R2000 BHZ peak is zero";
 
-  const float threshold = 0.05f * peak;
+  const float threshold = 0.05f * peak;  // 5% of peak for first-arrival detection
   int first_idx = -1;
   for (int i = 0; i < npts; ++i)
   {
