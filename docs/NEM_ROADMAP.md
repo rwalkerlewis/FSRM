@@ -210,3 +210,46 @@ Append one entry per session below. Format:
   `docs/NEM_BASELINE.md` with the resulting per-test status table.
   Only after that is the gate to begin Milestone 1 (Sedan 1962) cleared.
 
+### Session 1 — 2026-04-28 — Milestone 1.1 + 1.2 partial
+
+**What passed:**
+- `models/sedan_1962.vel` — three-layer Sedan velocity model
+  (alluvium / welded tuff / Paleozoic basement), with citation block
+  pointing at Carlson and Roberts (PNE-217F), Vortman (LA-3911), and
+  Murphy (1996).  TODO note flags primary-source upgrade for M1.4.
+- `scripts/meshing/sedan_1962_nearfield.geo` and
+  `scripts/meshing/build_sedan_1962_mesh.sh` — Gmsh input for the 8 km
+  by 8 km by 2 km box with a 50 m fine sphere of radius 500 m anchored
+  on the shot point at (0, 0, -194), graded out to ~300 m at the outer
+  boundary (tightened from the 500 m roadmap target so the longest tet
+  edge stays below the 750 m sanity bound).  Frequency-band rationale
+  is in the .geo header.
+- `meshes/historical/sedan_1962_nearfield.msh` — committed pre-built
+  mesh, 50,780 tetrahedra, min edge 31.6 m, max edge 669.4 m, with
+  154 fine cells whose centroid is within 100 m of the shot point.
+- `tests/integration/test_sedan_1962_mesh.cpp` (CTest label
+  `integration`, name `Integration.Sedan1962Mesh`) — loads the mesh
+  via `DMPlexCreateGmshFromFile` and asserts tet count, min/max edge,
+  and a fine cell near the source point.
+- `tests/unit/domain/test_mueller_murphy_moment_consistency.cpp`
+  (CTest label `unit`, name `Unit.MuellerMurphyMomentConsistency`) —
+  Sedan-configured `MuellerMurphySource` checks the Simpson-rule
+  integral of `momentRate(t)` against `params.scalar_moment()` (1%
+  tolerance) and asserts `body_wave_magnitude()` lies in [4.0, 5.5]
+  bracketing the USGS Sedan mb of ~4.75.
+
+**What is blocked and why:**
+- Per-test pass/fail/runtime table for `docs/NEM_BASELINE.md` Section
+  1.2 is still pending; the agent sandbox does not have the GitHub
+  Actions test-result artifacts mounted, and per the session-1 brief
+  the Dockerfile failure is not being chased.  The two new tests are
+  expected to appear in the next CI run on this branch and on the
+  next merge into `main`; the inventory table can be filled then.
+
+**Next concrete step:**
+- Session 2: Milestone 1.3 (run + receivers).  Configure
+  `config/examples/sedan_1962_validated.config` to use the new mesh
+  and velocity model, run for 2.0 s simulated time, output SAC files
+  at receivers placed at 100 m, 500 m, 1 km, 2 km on the free surface
+  and at source depth.  Do not start M1.4 in that session.
+
