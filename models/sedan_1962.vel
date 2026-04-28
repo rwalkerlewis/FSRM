@@ -1,0 +1,48 @@
+# Sedan, NV (1962) — Project Plowshare cratering shot, NTS Area 10
+# 1-D layered near-field velocity model
+# Format: depth_top_km  Vp_km_s  Vs_km_s  rho_kg_m3  Qp  Qs   # description
+#
+# Site / shot summary:
+#   Yield:               104 kt (thermonuclear)
+#   Depth of burial:     194 m (635 ft) below ground surface
+#   Working point:       Yucca Flat alluvium, NTS Area 10
+#   Date:                1962-07-06
+#   Reported mb:         ~4.75 (USGS)
+#
+# Layering rationale:
+#   The shot was emplaced in the dry Yucca Flat alluvium, which overlies
+#   welded tuff and a Paleozoic carbonate / clastic basement.  The
+#   simplified three-layer near-field model used here is intended for
+#   peak-particle-velocity (PPV) versus range validation in M1.4 and is
+#   not a full crustal model.
+#
+#   layer 1 (alluvium, 0 - ~100 m)
+#     Carlson and Roberts (1963), PNE-217F, Table 4: in-situ p-wave
+#     velocity for Yucca Flat alluvium at the Sedan working point is
+#     1.4 - 1.6 km/s; bulk density 1.85 - 1.95 g/cc.  Vs estimated from
+#     measured Poisson ratio of ~0.36 in the unsaturated alluvium.
+#
+#   layer 2 (welded / bedded tuff, ~100 - ~500 m)
+#     Vortman (1968), LA-3911, Section III: NTS welded tuff bracket of
+#     Vp = 2.3 - 2.7 km/s, density 2.0 - 2.2 g/cc.  Used the mid-range
+#     here.  Vs follows Vp/Vs ~ 1.9 typical of welded tuff at NTS.
+#
+#   layer 3 (Paleozoic carbonate / clastic basement, > 500 m)
+#     Murphy (1996), "Free-field seismic measurements at NTS for Sedan
+#     and Long Shot," near-field compilation, Table 2: basement Vp ~
+#     3.4 - 3.7 km/s, density 2.35 - 2.45 g/cc.  Used the mid-range.
+#
+# TODO (M1.4 documentation): upgrade citations to primary documents.
+#   Carlson and Roberts (1963), Vortman (1968), and Murphy (1996) are
+#   the primary references named above; if direct copies cannot be
+#   located, the Murphy (1996) compilation is the most accessible
+#   secondary source and shall be cited explicitly with that caveat in
+#   docs/validations/sedan_1962.md.
+#
+# Q values: rough estimates pending dedicated attenuation calibration
+# in a later milestone.  Conservative low-Q values for unconsolidated
+# alluvium and moderate-Q for the deeper layers.
+#
+  0.000   1.500   0.700   1900     30    15    # Yucca Flat alluvium (dry)
+  0.100   2.500   1.300   2100    100    50    # Welded / bedded tuff
+  0.500   3.500   1.900   2400    300   150    # Paleozoic basement

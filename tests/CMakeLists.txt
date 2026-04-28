@@ -31,6 +31,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_material_model.cpp
     unit/domain/test_seismic_source.cpp
     unit/domain/test_explosion_source.cpp
+    unit/domain/test_mueller_murphy_moment_consistency.cpp
     unit/domain/test_co2_properties.cpp
     unit/domain/test_flash_calculation.cpp
     unit/domain/test_residual_trapping.cpp
@@ -129,6 +130,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_velocity_model_material.cpp
     integration/test_thermal_expansion.cpp
     integration/test_thermal_diffusion.cpp
+    integration/test_sedan_1962_mesh.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -202,6 +204,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.MaterialModel          COMMAND run_unit_tests --gtest_filter=MaterialModelTest.*)
     add_test(NAME Unit.SeismicSource          COMMAND run_unit_tests --gtest_filter=*SeismicSource*.*)
     add_test(NAME Unit.ExplosionSource        COMMAND run_unit_tests --gtest_filter=ExplosionSourceKernelTest.*)
+    add_test(NAME Unit.MuellerMurphyMomentConsistency COMMAND run_unit_tests --gtest_filter=MuellerMurphyMomentConsistencyTest.*)
     add_test(NAME Unit.EclipseIO              COMMAND run_unit_tests --gtest_filter=EclipseIOTest.*)
     add_test(NAME Unit.MLRegistry             COMMAND run_unit_tests --gtest_filter=MLModelRegistryTest.*)
     add_test(NAME Unit.UnitSystem             COMMAND run_unit_tests --gtest_filter=UnitSystemTest.*)
@@ -301,6 +304,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.VelocityModelMaterial COMMAND run_integration_tests --gtest_filter=VelocityModelMaterialTest.*)
     add_test(NAME Integration.ThermalExpansion COMMAND run_integration_tests --gtest_filter=ThermalExpansionTest.*)
     add_test(NAME Integration.ThermalDiffusion COMMAND run_integration_tests --gtest_filter=ThermalDiffusionTest.*)
+    add_test(NAME Integration.Sedan1962Mesh    COMMAND run_integration_tests --gtest_filter=Sedan1962MeshTest.*)
     add_test(NAME Integration.HistoricNuclear.Gasbuggy1967 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gasbuggy1967)
     add_test(NAME Integration.HistoricNuclear.Gnome1961 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gnome1961)
     add_test(NAME Integration.HistoricNuclear.Sedan1962 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962)
@@ -334,6 +338,7 @@ if(GTest_FOUND)
         Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
         Unit.FaultMeshManager Unit.CohesiveFaultKernel
         Unit.ElasticityAux
+        Unit.MuellerMurphyMomentConsistency
         Unit.DruckerPragerStandalone
         Unit.Elastoplasticity
         Unit.PressurizedFractureCallbacks
@@ -417,6 +422,7 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.Sedan1962
         Integration.HistoricNuclear.DegelenMountain
         Integration.HistoricNuclear.NtsPahuteMesa
+        Integration.Sedan1962Mesh
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 
