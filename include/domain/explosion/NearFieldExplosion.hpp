@@ -575,25 +575,7 @@ public:
     bool isInCavity(const std::array<double, 3>& point, double time) const;
     bool isInCrushedZone(const std::array<double, 3>& point) const;
     bool isInFracturedZone(const std::array<double, 3>& point) const;
-
-    // Returns true when `point` lies in the predicted spall layer above
-    // the source. The decision is phenomenological and uses the
-    // SpallModel-derived spall thickness for the configured yield and
-    // depth -- consistent with the existing radial-bin lookup used by
-    // getDamage. Each call also records the radial bin into the
-    // internal spall map for getSpallVolumeFraction().
     bool isSpalled(const std::array<double, 3>& point) const;
-
-    // Fraction of unique radial bins (10 m wide) probed by isSpalled
-    // that returned true. Returns 0 when isSpalled has not been queried
-    // yet, when the configured shot is too deep for the SpallModel to
-    // predict appreciable spall (less than 1 m of spall thickness), or
-    // before the surface P-wave arrival time elapses.
-    double getSpallVolumeFraction() const;
-
-    // Reset the recorded spall map. Useful for tests that want to start
-    // from a clean slate before driving the solver again.
-    void clearSpallRecord();
     
     // Field queries
     double getPeakPressure(const std::array<double, 3>& point) const;
@@ -643,10 +625,6 @@ private:
     double current_time = 0.0;
     double cavity_radius_current = 0.0;
     bool initialized = false;
-
-    // Sparse spall map keyed by radial bin (10 m). Mutable so isSpalled
-    // can record query results from a const context.
-    mutable std::map<int, bool> spall_map_;
     
     // Cavity expansion model
     double cavity_velocity = 0.0;

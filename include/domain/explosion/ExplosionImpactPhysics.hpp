@@ -113,65 +113,26 @@ enum class CraterStage {
  * @brief Parameters for nuclear explosion source
  */
 struct NuclearSourceParameters {
-    /**
-     * @brief Host medium classification used to select the cavity-radius
-     * coefficient C in Rc = C * W^(1/3) * (rho_ref/rho)^(1/3).
-     *
-     * Coefficients (m / kt^(1/3)) are literature-derived:
-     *   GRANITE   11    (Boardman et al. 1964, ANE-1041; Closmann 1969)
-     *   TUFF      18    (Closmann 1969; Glenn & Goldstein 1994)
-     *   SALT      16    (Glenn & Goldstein 1994; Salmon, Sterling tests)
-     *   ALLUVIUM  22    (Closmann 1969; weakly cemented sediments)
-     *   SHALE     14    (Lewis Shale, Gasbuggy estimate; Carter et al. 1968)
-     *   GENERIC   12    (legacy mid-range value, preserves prior behaviour)
-     *
-     * References:
-     *   Boardman, McArthur, Rabb (1964), "Responses of four rock mediums
-     *     to contained nuclear explosions", J. Geophys. Res. 69(16).
-     *   Closmann (1969), "On the prediction of cavity radius produced by
-     *     a contained nuclear explosion", J. Geophys. Res. 74(15).
-     *   Glenn & Goldstein (1994), "Seismic decoupling with chemical and
-     *     nuclear explosions in salt", J. Geophys. Res. 99(B6).
-     */
-    enum class MediumType {
-        GRANITE,
-        TUFF,
-        SALT,
-        ALLUVIUM,
-        SHALE,
-        GENERIC
-    };
-
     double yield_kt = 100.0;              // Yield in kilotons TNT
     double depth_of_burial = 0.0;         // meters (positive = underground)
     double height_of_burst = 0.0;         // meters AGL (for air bursts)
     double fission_fraction = 0.5;        // Fraction of yield from fission
-
+    
     // Location
     double x = 0.0, y = 0.0, z = 0.0;
-
+    
     // Derived quantities
-    double total_energy_joules() const {
-        return yield_kt * ExplosionConstants::JOULES_PER_KILOTON;
+    double total_energy_joules() const { 
+        return yield_kt * ExplosionConstants::JOULES_PER_KILOTON; 
     }
-
-    // Scaling laws for cavity and damage zones.
-    // The default overloads use the legacy GENERIC coefficient (C = 12) so
-    // call sites that did not supply a medium continue to behave as before.
-    // The medium-aware overload selects C from the literature table above.
+    
+    // Scaling laws for cavity and damage zones
     double cavity_radius(double rock_density = 2650.0) const;
-    double cavity_radius(double rock_density, MediumType medium) const;
-    static double cavityCoefficient(MediumType medium);
     double crushed_zone_radius() const;
     double fractured_zone_radius() const;
-
-    // Seismic source parameters. The medium-aware overload routes the
-    // medium choice through cavity_radius and is used by
-    // MuellerMurphySource so a setMedium call rescales M0 correctly.
-    // The single-argument overload is the legacy GENERIC default and
-    // exists for callers that did not previously pass a medium.
-    double scalar_moment() const;                  // N*m, GENERIC default
-    double scalar_moment(MediumType medium) const; // N*m, medium-aware
+    
+    // Seismic source parameters
+    double scalar_moment() const;        // N·m
     double body_wave_magnitude() const;  // m_b
     double surface_wave_magnitude() const; // M_s
 };
@@ -185,58 +146,37 @@ struct NuclearSourceParameters {
 class MuellerMurphySource {
 public:
     MuellerMurphySource();
-
+    
     void setParameters(const NuclearSourceParameters& params);
     void setMediumProperties(double rho, double vp, double vs);
-
-    // Select the host medium used by computeDerivedQuantities so the
-    // cavity-radius cube-root coefficient is medium-aware. Defaults to
-    // MediumType::GENERIC, which preserves legacy behaviour (C = 12).
-    void setMedium(NuclearSourceParameters::MediumType medium);
-
-    // Mueller-Murphy (1971) RDP shape parameters. Defaults are
-    // B = 1 (no spectral overshoot), zeta = 0.7 (mild damping), and
-    // k_B = 1 (numerator zero at the corner frequency, suppressed when
-    // B = 1 via the (B - 1) gating in ::rdp). Set B > 1 to enable the
-    // M&M elastic-overshoot peak; tighten zeta toward 0.4 for tamped
-    // granite per Stevens & Day (1985).
-    void setOvershoot(double B);
-    void setDamping(double zeta);
-    void setOvershootZeroFactor(double k_B);
-
+    
     // Source time function (moment rate)
     double momentRate(double t) const;
-
+    
     // Reduced displacement potential in frequency domain
     std::complex<double> rdp(double omega) const;
-
+    
     // Corner frequency
     double getCornerFrequency() const;
-
+    
     // Overshoot parameter
     double getOvershoot() const;
-
-    // Damping factor (zeta) used by the M&M resonator response.
-    double getDamping() const;
-
+    
     // Moment tensor (isotropic + CLVD)
     void getMomentTensor(double t, double* M) const;
-
+    
 private:
     NuclearSourceParameters source_params;
-    NuclearSourceParameters::MediumType medium_type;
     double density;
     double p_velocity;
     double s_velocity;
-
+    
     // Derived
     double corner_frequency;
     double scalar_moment;
-    double overshoot;          // Mueller-Murphy spectral overshoot factor B
-    double damping;            // Damping factor zeta in (0, 1]
-    double overshoot_zero_factor;  // k_B: places the RDP zero at omega_p * k_B
+    double overshoot;
     double rise_time;
-
+    
     void computeDerivedQuantities();
 };
 

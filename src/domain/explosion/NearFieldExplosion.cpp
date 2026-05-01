@@ -318,72 +318,9 @@ bool NearFieldExplosionSolver::isInFracturedZone(const std::array<double, 3>& po
     return r >= source.crushedZoneRadius() && r < source.fracturedZoneRadius();
 }
 
-bool NearFieldExplosionSolver::isSpalled(const std::array<double, 3>& point) const {
-    // Spall is a near-surface phenomenon: tensile reflection of the
-    // shock at the free surface tears off a layer whose thickness
-    // SpallModel approximates as
-    //   t_spall = R_c * 2 * exp(-depth / (10 * R_c))
-    // Below ~1 m of predicted spall thickness the shot is effectively
-    // deep enough that no measurable spall occurs (the predicted layer
-    // is in the numerical-noise regime), so we report no spall and do
-    // not record the query.
-    SpallModel sm;
-    const double t_spall = sm.spallThickness(source.yield_kt, source.depth);
-    if (t_spall < 1.0) {
-        return false;
-    }
-
-    // Need enough simulated time for the P-wave to reach the free
-    // surface from the source. Without that, no spall has formed yet.
-    const double depth_to_surface = std::abs(source.location[2]);
-    const double t_onset = depth_to_surface /
-                           std::max(1.0, source.host_vp);
-    if (current_time < t_onset) {
-        return false;
-    }
-
-    // Surface convention: the free surface is z = 0, the source sits at
-    // z = source.location[2] (negative). A point is in the predicted
-    // spall layer if its depth from the surface is at most t_spall and
-    // its lateral offset from the above-source axis is at most the
-    // depth of burial (the spall scale of the surface velocity peak,
-    // see Day & McLaughlin 1991 fig 3).
-    const double depth_from_surface = std::abs(point[2]);
-    const double dx = point[0] - source.location[0];
-    const double dy = point[1] - source.location[1];
-    const double lateral = std::sqrt(dx * dx + dy * dy);
-
-    const bool in_layer =
-        (depth_from_surface <= t_spall) && (lateral <= source.depth);
-
-    // Record the query into the radial-bin sparse map. Bin width
-    // matches the granularity of SpallModel and the existing damage
-    // lookup ladder; choosing 10 m keeps a 1 kt spall (~90 m thick)
-    // resolved in ~9 bins.
-    const int bin = static_cast<int>(lateral / 10.0);
-    auto it = spall_map_.find(bin);
-    if (it == spall_map_.end()) {
-        spall_map_.emplace(bin, in_layer);
-    } else if (in_layer) {
-        // OR in: any point in the bin spalled means the bin spalled.
-        it->second = true;
-    }
-
-    return in_layer;
-}
-
-double NearFieldExplosionSolver::getSpallVolumeFraction() const {
-    if (spall_map_.empty()) return 0.0;
-    size_t n_true = 0;
-    for (const auto& kv : spall_map_) {
-        if (kv.second) n_true++;
-    }
-    return static_cast<double>(n_true) /
-           static_cast<double>(spall_map_.size());
-}
-
-void NearFieldExplosionSolver::clearSpallRecord() {
-    spall_map_.clear();
+bool NearFieldExplosionSolver::isSpalled(const std::array<double, 3>& /*point*/) const {
+    // Would check spall map in real implementation
+    return false;
 }
 
 double NearFieldExplosionSolver::getPeakPressure(const std::array<double, 3>& point) const {
