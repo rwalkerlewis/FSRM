@@ -14,6 +14,8 @@
 #include "physics/CohesiveFaultKernel.hpp"
 #include "domain/geomechanics/PyLithFault.hpp"
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace FSRM {
@@ -55,47 +57,96 @@ PetscErrorCode CohesiveFaultKernel::registerWithDS(PetscDS prob,
                                                      int displacement_field,
                                                      int lagrange_field) {
     PetscFunctionBeginUser;
+    (void)prob;
+    (void)displacement_field;
+    (void)lagrange_field;
+
+    // Session 4: the PetscDSSetBdResidual registration path is deprecated.
+    // The cohesive residual / Jacobian are driven via
+    // DMPlexComputeResidualHybridByKey / DMPlexComputeJacobianHybridByKey
+    // after explicit PetscWeakFormSetIndexBdResidual / ...BdJacobian
+    // registrations (see registerHybridWithDS). Calling this legacy entry
+    // point is a no-op so no stale PetscDS callbacks are attached and so
+    // double-integration cannot occur alongside the hybrid driver.
+    std::fprintf(stderr,
+                 "[CohesiveFaultKernel] WARNING: registerWithDS is deprecated; "
+                 "use registerHybridWithDS (Session 4 hybrid-by-key path).\n");
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode CohesiveFaultKernel::registerHybridWithDS(PetscDS prob,
+                                                          PetscWeakForm wf,
+                                                          DMLabel material_label,
+                                                          DMLabel cohesive_label,
+                                                          PetscInt displacement_field,
+                                                          PetscInt lagrange_field) {
+    PetscFunctionBeginUser;
     PetscErrorCode ierr;
 
     // -------------------------------------------------------------------------
     // Propagate current mode and friction coefficient into the PetscDS constant
-    // array.  We read whatever constants are already there, expand to at least
-    // COHESIVE_CONST_COUNT slots, patch the two dedicated cohesive slots, and
-    // write back.  This avoids overwriting PoroelasticSolver constants (0-23)
-    // while ensuring the static callbacks always see the correct mode.
+    // array, matching the pre-Session 4 registerWithDS behaviour.
     // -------------------------------------------------------------------------
-    PetscInt        nconst_old = 0;
-    const PetscScalar *old_c   = nullptr;
+    PetscInt nconst_old = 0;
+    const PetscScalar *old_c = nullptr;
     ierr = PetscDSGetConstants(prob, &nconst_old, &old_c); CHKERRQ(ierr);
 
     PetscInt nconst_new = (nconst_old >= COHESIVE_CONST_COUNT)
                           ? nconst_old : COHESIVE_CONST_COUNT;
     std::vector<PetscScalar> new_c(static_cast<std::size_t>(nconst_new), 0.0);
     for (PetscInt i = 0; i < nconst_old; ++i) new_c[i] = old_c[i];
-    new_c[COHESIVE_CONST_MODE] = locked_ ? 0.0 : 1.0;
+    // Mode slot: 0 locked, 1 slipping, 2 prescribed_slip.
+    double mode_val = locked_ ? 0.0 : 1.0;
+    if (prescribed_slip_mode_) mode_val = 2.0;
+    new_c[COHESIVE_CONST_MODE] = mode_val;
     new_c[COHESIVE_CONST_MU_F] = static_cast<PetscScalar>(mu_friction_);
     new_c[COHESIVE_CONST_TENSILE_STRENGTH] = static_cast<PetscScalar>(tensile_strength_);
+    if (prescribed_slip_mode_) {
+        new_c[COHESIVE_CONST_PRESCRIBED_SLIP_X] =
+            static_cast<PetscScalar>(prescribed_slip_[0]);
+        new_c[COHESIVE_CONST_PRESCRIBED_SLIP_Y] =
+            static_cast<PetscScalar>(prescribed_slip_[1]);
+        new_c[COHESIVE_CONST_PRESCRIBED_SLIP_Z] =
+            static_cast<PetscScalar>(prescribed_slip_[2]);
+    }
     ierr = PetscDSSetConstants(prob, nconst_new, new_c.data()); CHKERRQ(ierr);
 
-    // Register residual callbacks for cohesive cells
-    // These will be called by PETSc's hybrid cell integration
-    ierr = PetscDSSetBdResidual(prob, displacement_field,
-                                 f0_displacement_cohesive, nullptr); CHKERRQ(ierr);
-    ierr = PetscDSSetBdResidual(prob, lagrange_field,
-                                 f0_lagrange_constraint, nullptr); CHKERRQ(ierr);
+    // -------------------------------------------------------------------------
+    // Register the three weak forms against explicit (label, value, field)
+    // keys. Matches PETSc ex5.c:TestAssembly lines 1194-1202.
+    // -------------------------------------------------------------------------
+    ierr = PetscWeakFormSetIndexBdResidual(
+        wf, material_label, 1, displacement_field, 0,
+        0, f0_hybrid_u_neg, 0, nullptr); CHKERRQ(ierr);
+    ierr = PetscWeakFormSetIndexBdResidual(
+        wf, material_label, 2, displacement_field, 0,
+        0, f0_hybrid_u_pos, 0, nullptr); CHKERRQ(ierr);
+    ierr = PetscWeakFormSetIndexBdResidual(
+        wf, cohesive_label, 1, lagrange_field, 0,
+        0, f0_hybrid_lambda, 0, nullptr); CHKERRQ(ierr);
 
-    // Register Jacobian callbacks for cohesive cells
-    ierr = PetscDSSetBdJacobian(prob, displacement_field, lagrange_field,
-                                 g0_displacement_lagrange, nullptr,
-                                 nullptr, nullptr); CHKERRQ(ierr);
-    ierr = PetscDSSetBdJacobian(prob, lagrange_field, displacement_field,
-                                 g0_lagrange_displacement, nullptr,
-                                 nullptr, nullptr); CHKERRQ(ierr);
-    ierr = PetscDSSetBdJacobian(prob, lagrange_field, lagrange_field,
-                                 g0_lagrange_lagrange, nullptr,
-                                 nullptr, nullptr); CHKERRQ(ierr);
+    // Jacobians:
+    //   (material, 1, disp, lambda) -> g0 = -I  (neg side)
+    //   (material, 2, disp, lambda) -> g0 = +I  (pos side)
+    //   (cohesive, 1, lambda, disp) -> block layout [-I | +I] in the combined
+    //                                   u_neg / u_pos trial space.
+    //   (cohesive, 1, lambda, lambda) -> zero for locked / prescribed, non-zero
+    //                                     for slipping (ported from the old
+    //                                     g0_lagrange_lagrange).
+    ierr = PetscWeakFormSetIndexBdJacobian(
+        wf, material_label, 1, displacement_field, lagrange_field, 0,
+        0, g0_hybrid_u_lambda_neg, 0, nullptr, 0, nullptr, 0, nullptr); CHKERRQ(ierr);
+    ierr = PetscWeakFormSetIndexBdJacobian(
+        wf, material_label, 2, displacement_field, lagrange_field, 0,
+        0, g0_hybrid_u_lambda_pos, 0, nullptr, 0, nullptr, 0, nullptr); CHKERRQ(ierr);
+    ierr = PetscWeakFormSetIndexBdJacobian(
+        wf, cohesive_label, 1, lagrange_field, displacement_field, 0,
+        0, g0_hybrid_lambda_u, 0, nullptr, 0, nullptr, 0, nullptr); CHKERRQ(ierr);
+    ierr = PetscWeakFormSetIndexBdJacobian(
+        wf, cohesive_label, 1, lagrange_field, lagrange_field, 0,
+        0, g0_hybrid_lambda_lambda, 0, nullptr, 0, nullptr, 0, nullptr); CHKERRQ(ierr);
 
-    PetscFunctionReturn(0);
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode CohesiveFaultKernel::updateAuxiliaryState(DM dm,
@@ -653,6 +704,642 @@ void CohesiveFaultKernel::f0_prescribed_slip(
         PetscScalar delta = (numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + d)
                             ? constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + d] : 0.0;
         f[d] = jump - delta;
+    }
+}
+
+// ============================================================================
+// PETSc hybrid-driver callbacks (Session 4)
+//
+// Layout conventions (see PETSc src/dm/impls/plex/tests/ex5.c TestAssembly):
+//   - For the displacement weak form (key material/1 or 2):
+//       u[uOff[0] + c] = displacement component c on that side
+//       u[uOff[1] + c] = Lagrange multiplier component c
+//   - For the Lagrange weak form (key cohesive/1):
+//       Nc          = uOff[2] - uOff[1] = dim
+//       u[c]        = negative-side displacement, c in [0, Nc)
+//       u[Nc + c]   = positive-side displacement, c in [0, Nc)
+//       u[uOff[1] + c] = Lagrange multiplier
+//
+// Residual sign convention: we enforce (u_pos - u_neg) = delta_prescribed,
+// so f0_hybrid_lambda[c] = u[Nc+c] - u[c] - delta[c] for the prescribed /
+// locked (delta=0) branches. The Jacobian dR_lambda/du is then [-I | +I].
+// The displacement callbacks match PETSc ex5.c exactly: -lambda on the
+// negative side, +lambda on the positive side.
+// ============================================================================
+
+void CohesiveFaultKernel::f0_hybrid_u_neg(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar f0[]) {
+
+    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x; (void)n; (void)numConstants; (void)constants;
+
+    for (PetscInt c = 0; c < dim; ++c) {
+        f0[c] = -u[uOff[1] + c];
+    }
+}
+
+void CohesiveFaultKernel::f0_hybrid_u_pos(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar f0[]) {
+
+    (void)Nf; (void)NfAux; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)x; (void)n; (void)numConstants; (void)constants;
+
+    for (PetscInt c = 0; c < dim; ++c) {
+        f0[c] = u[uOff[1] + c];
+    }
+}
+
+void CohesiveFaultKernel::f0_hybrid_lambda(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, const PetscReal x[],
+    const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar f0[]) {
+
+    (void)Nf; (void)uOff_x; (void)u_t; (void)u_x;
+    (void)aOff_x; (void)a_t; (void)a_x;
+    (void)t; (void)x;
+
+    const PetscInt Nc = uOff[2] - uOff[1];
+
+    // Decode mode. Slot layout matches the PetscDS constants array populated
+    // in Simulator::setupPhysics.
+    PetscReal mode = (numConstants > COHESIVE_CONST_MODE)
+                     ? PetscRealPart(constants[COHESIVE_CONST_MODE]) : 0.0;
+
+    if (mode < 0.5) {
+        // LOCKED: jump = 0.
+        for (PetscInt c = 0; c < Nc; ++c) {
+            f0[c] = u[Nc + c] - u[c];
+        }
+    } else if (mode > 1.5) {
+        // PRESCRIBED SLIP -- PyLith f0l_slip pattern
+        // (libsrc/pylith/fekernels/FaultCohesiveKin.hh, 3D case).
+        //
+        // Session 18: slip is the sole aux field on Simulator::slipAuxDM_
+        // when FSRM_ENABLE_SLIP_AUX is set, so aOff[0] points at the slip
+        // triple. refDir1 / refDir2 come from constants slots 80..85; the
+        // kernel rotates fault-local components into Cartesian via the
+        // PyLith tangent basis
+        //   tanDir1 = normalize(refDir2 x n)
+        //   tanDir2 = normalize(n x tanDir1).
+        const PetscInt i_slip = 0;
+        const PetscScalar *slip =
+            (NfAux > 0 && aOff && a) ? &a[aOff[i_slip]] : nullptr;
+
+        const PetscScalar *refDir1 =
+            (numConstants > COHESIVE_CONST_REF_DIR1_Z)
+            ? &constants[COHESIVE_CONST_REF_DIR1_X] : nullptr;
+        const PetscScalar *refDir2 =
+            (numConstants > COHESIVE_CONST_REF_DIR2_Z)
+            ? &constants[COHESIVE_CONST_REF_DIR2_X] : nullptr;
+
+        if (!slip || !refDir2) {
+            // Fall back to constants path if aux or refDirs are missing
+            // (should not happen once Session 17 plumbing is live).
+            for (PetscInt c = 0; c < Nc; ++c) {
+                PetscScalar delta =
+                    (numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + c)
+                    ? constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + c] : 0.0;
+                f0[c] = u[Nc + c] - u[c] - delta;
+            }
+            // Session 29 A.1: also dump from the fallback path so we can tell
+            // which branch is live.
+            if (getenv("FSRM_S29_BYHAND")) {
+                static int s29_fb_count = 0;
+                if (s29_fb_count < 2) {
+                    ++s29_fb_count;
+                    std::printf(
+                        "[S29-A.1 f0_hybrid_lambda FALLBACK call=%d] "
+                        "x=[%.4f %.4f %.4f] Nc=%d slip_null=%d refDir2_null=%d NfAux=%d\n",
+                        s29_fb_count,
+                        (double)x[0], (double)x[1], (double)x[2], (int)Nc,
+                        (slip == nullptr) ? 1 : 0,
+                        (refDir2 == nullptr) ? 1 : 0, (int)NfAux);
+                    std::printf(
+                        "  delta_const = [%.6e %.6e %.6e] (constants[%d..%d])\n",
+                        (double)((numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X)
+                                 ? PetscRealPart(constants[COHESIVE_CONST_PRESCRIBED_SLIP_X]) : 0.0),
+                        (double)((numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + 1)
+                                 ? PetscRealPart(constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + 1]) : 0.0),
+                        (double)((numConstants > COHESIVE_CONST_PRESCRIBED_SLIP_X + 2)
+                                 ? PetscRealPart(constants[COHESIVE_CONST_PRESCRIBED_SLIP_X + 2]) : 0.0),
+                        (int)COHESIVE_CONST_PRESCRIBED_SLIP_X,
+                        (int)(COHESIVE_CONST_PRESCRIBED_SLIP_X + 2));
+                    std::printf(
+                        "  f0_OUT (fallback) = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(f0[0]),
+                        (double)PetscRealPart(f0[1]),
+                        (double)PetscRealPart(f0[2]));
+                    std::fflush(stdout);
+                }
+            }
+        } else {
+            PetscScalar tanDir1[3] = {0.0, 0.0, 0.0};
+            PetscScalar tanDir2[3] = {0.0, 0.0, 0.0};
+            // tanDir1 = refDir2 x n (before normalize)
+            tanDir1[0] = refDir2[1]*n[2] - refDir2[2]*n[1];
+            tanDir1[1] = refDir2[2]*n[0] - refDir2[0]*n[2];
+            tanDir1[2] = refDir2[0]*n[1] - refDir2[1]*n[0];
+            const PetscReal mag1 = PetscSqrtReal(PetscRealPart(
+                tanDir1[0]*tanDir1[0] + tanDir1[1]*tanDir1[1] + tanDir1[2]*tanDir1[2]));
+            if (mag1 > 1e-12) {
+                tanDir1[0] /= mag1; tanDir1[1] /= mag1; tanDir1[2] /= mag1;
+            }
+            // tanDir2 = n x tanDir1 (unit since n and tanDir1 are orthonormal)
+            tanDir2[0] = n[1]*tanDir1[2] - n[2]*tanDir1[1];
+            tanDir2[1] = n[2]*tanDir1[0] - n[0]*tanDir1[2];
+            tanDir2[2] = n[0]*tanDir1[1] - n[1]*tanDir1[0];
+
+            (void)refDir1;  // tanDir1/tanDir2 computed directly from refDir2 and n
+
+            if (getenv("FSRM_SESSION18_DEBUG")) {
+                static int printed = 0;
+                if (!printed) {
+                    printf("Session 18: kernel sees slip=[%g %g %g] "
+                           "n=[%g %g %g] refDir2=[%g %g %g]\n",
+                           (double)PetscRealPart(slip[0]),
+                           (double)PetscRealPart(slip[1]),
+                           (double)PetscRealPart(slip[2]),
+                           (double)n[0], (double)n[1], (double)n[2],
+                           (double)PetscRealPart(refDir2[0]),
+                           (double)PetscRealPart(refDir2[1]),
+                           (double)PetscRealPart(refDir2[2]));
+                    printed = 1;
+                }
+            }
+
+            for (PetscInt c = 0; c < Nc; ++c) {
+                const PetscScalar slipXYZ =
+                    n[c]*slip[0] + tanDir1[c]*slip[1] + tanDir2[c]*slip[2];
+                f0[c] = u[Nc + c] - u[c] - slipXYZ;
+            }
+
+            // Session 29 Thread A.1: print-only diagnostic for ONE quadrature
+            // point on ONE cohesive cell at the fault-plane center. Guarded by
+            // FSRM_S29_BYHAND=1 and limited by a call counter so we capture a
+            // clean dump of f0 inputs and outputs at u=0 without flooding the
+            // log. No mutation of f0[] (Rule 29).
+            if (getenv("FSRM_S29_BYHAND")) {
+                static int s29_f0_call_count = 0;
+                const bool center_qpt =
+                    (std::fabs((double)x[0] - 0.5) < 0.05) &&
+                    (std::fabs((double)x[1] - 0.5) < 0.15) &&
+                    (std::fabs((double)x[2] - 0.5) < 0.15);
+                if (center_qpt && s29_f0_call_count < 4) {
+                    ++s29_f0_call_count;
+                    std::printf(
+                        "[S29-A.1 f0_hybrid_lambda call=%d] "
+                        "x=[%.4f %.4f %.4f] n=[%.3f %.3f %.3f] Nc=%d\n",
+                        s29_f0_call_count,
+                        (double)x[0], (double)x[1], (double)x[2],
+                        (double)n[0], (double)n[1], (double)n[2], (int)Nc);
+                    std::printf(
+                        "  slip_aux (fault-local) = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(slip[0]),
+                        (double)PetscRealPart(slip[1]),
+                        (double)PetscRealPart(slip[2]));
+                    PetscScalar slipXYZ_dbg[3] = {0.0, 0.0, 0.0};
+                    for (PetscInt c = 0; c < Nc; ++c) {
+                        slipXYZ_dbg[c] =
+                            n[c]*slip[0] + tanDir1[c]*slip[1] + tanDir2[c]*slip[2];
+                    }
+                    std::printf(
+                        "  slipXYZ (Cartesian)    = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(slipXYZ_dbg[0]),
+                        (double)PetscRealPart(slipXYZ_dbg[1]),
+                        (double)PetscRealPart(slipXYZ_dbg[2]));
+                    std::printf(
+                        "  u_neg = [%.6e %.6e %.6e]  u_pos = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(u[0]),
+                        (double)PetscRealPart(u[1]),
+                        (double)PetscRealPart(u[2]),
+                        (double)PetscRealPart(u[Nc + 0]),
+                        (double)PetscRealPart(u[Nc + 1]),
+                        (double)PetscRealPart(u[Nc + 2]));
+                    std::printf(
+                        "  lambda (u[uOff[1]..]) = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(u[uOff[1] + 0]),
+                        (double)PetscRealPart(u[uOff[1] + 1]),
+                        (double)PetscRealPart(u[uOff[1] + 2]));
+                    std::printf(
+                        "  f0_OUT (kernel)       = [%.6e %.6e %.6e]\n",
+                        (double)PetscRealPart(f0[0]),
+                        (double)PetscRealPart(f0[1]),
+                        (double)PetscRealPart(f0[2]));
+                    std::printf(
+                        "  expected f0 = -slipXYZ  (u_jump=0 at u=0)\n");
+                    std::fflush(stdout);
+                }
+            }
+        }
+    } else {
+        // SLIPPING (Coulomb friction, semi-smooth Newton). Ported from the
+        // pre-Session-4 f0_lagrange_constraint, with slip = u_pos - u_neg
+        // resolved via the hybrid (u[c], u[Nc+c]) layout.
+        PetscScalar slip[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < Nc; ++d) {
+            slip[d] = u[Nc + d] - u[d];
+        }
+
+        PetscReal slip_n = 0.0;
+        for (PetscInt d = 0; d < Nc; ++d) {
+            slip_n += PetscRealPart(slip[d]) * n[d];
+        }
+
+        PetscReal slip_t[3] = {0.0, 0.0, 0.0};
+        PetscReal slip_t_mag2 = 0.0;
+        for (PetscInt d = 0; d < Nc; ++d) {
+            slip_t[d] = PetscRealPart(slip[d]) - slip_n * n[d];
+            slip_t_mag2 += slip_t[d] * slip_t[d];
+        }
+        PetscReal slip_mag = std::sqrt(slip_t_mag2);
+
+        PetscReal lambda_n = 0.0;
+        for (PetscInt d = 0; d < Nc; ++d) {
+            lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];
+        }
+
+        PetscReal friction_model =
+            (numConstants > COHESIVE_CONST_FRICTION_MODEL)
+            ? PetscRealPart(constants[COHESIVE_CONST_FRICTION_MODEL]) : 0.0;
+        PetscReal mu_f_val;
+        if (friction_model > 0.5) {
+            PetscReal mu_s = (numConstants > COHESIVE_CONST_MU_S)
+                             ? PetscRealPart(constants[COHESIVE_CONST_MU_S]) : 0.677;
+            PetscReal mu_d = (numConstants > COHESIVE_CONST_MU_D)
+                             ? PetscRealPart(constants[COHESIVE_CONST_MU_D]) : 0.525;
+            PetscReal D_c = (numConstants > COHESIVE_CONST_DC)
+                            ? PetscRealPart(constants[COHESIVE_CONST_DC]) : 0.40;
+            mu_f_val = mu_s - (mu_s - mu_d) * PetscMin(slip_mag, D_c) / D_c;
+        } else {
+            mu_f_val = (numConstants > COHESIVE_CONST_MU_F)
+                       ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        }
+
+        PetscReal tau_f = mu_f_val * std::abs(-lambda_n);
+
+        PetscReal lambda_t[3] = {0.0, 0.0, 0.0};
+        PetscReal lambda_t_mag2 = 0.0;
+        for (PetscInt d = 0; d < Nc; ++d) {
+            lambda_t[d] = PetscRealPart(u[uOff[1] + d]) - lambda_n * n[d];
+            lambda_t_mag2 += lambda_t[d] * lambda_t[d];
+        }
+        PetscReal lambda_t_mag = std::sqrt(lambda_t_mag2);
+
+        for (PetscInt d = 0; d < Nc; ++d) {
+            PetscScalar component;
+            if (slip_mag > 1e-15) {
+                PetscReal slip_hat = slip_t[d] / slip_mag;
+                component = lambda_t[d] - tau_f * slip_hat;
+            } else {
+                if (lambda_t_mag > tau_f + 1e-10) {
+                    component = lambda_t[d] * (1.0 - tau_f / lambda_t_mag);
+                } else {
+                    component = 0.0;
+                }
+            }
+            component += (slip_n < 0.0 ? -slip_n : 0.0) * n[d];
+            f0[d] = component;
+        }
+    }
+}
+
+void CohesiveFaultKernel::g0_hybrid_u_lambda_neg(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift,
+    const PetscReal x[], const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar g0[]) {
+
+    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
+    (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x; (void)n;
+    (void)numConstants; (void)constants;
+
+    for (PetscInt c = 0; c < dim; ++c) {
+        g0[c * dim + c] = -1.0;
+    }
+}
+
+void CohesiveFaultKernel::g0_hybrid_u_lambda_pos(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift,
+    const PetscReal x[], const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar g0[]) {
+
+    (void)Nf; (void)NfAux; (void)uOff; (void)uOff_x;
+    (void)u; (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x; (void)n;
+    (void)numConstants; (void)constants;
+
+    for (PetscInt c = 0; c < dim; ++c) {
+        g0[c * dim + c] = 1.0;
+    }
+}
+
+void CohesiveFaultKernel::g0_hybrid_lambda_u(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift,
+    const PetscReal x[], const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar g0[]) {
+
+    (void)Nf; (void)NfAux; (void)uOff_x;
+    (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x;
+
+    const PetscInt Nc = uOff[2] - uOff[1];
+
+    PetscReal mode = (numConstants > COHESIVE_CONST_MODE)
+                     ? PetscRealPart(constants[COHESIVE_CONST_MODE]) : 0.0;
+
+    if (mode < 0.5 || mode > 1.5) {
+        // LOCKED or PRESCRIBED: d(u_pos - u_neg - delta)/d(u_neg) = -I,
+        //                        d(...)/d(u_pos) = +I.
+        for (PetscInt c = 0; c < Nc; ++c) {
+            g0[c * Nc + c]            = -1.0;
+            g0[Nc * Nc + c * Nc + c]  = 1.0;
+        }
+
+        // Session 29 Thread A.1: print-only diagnostic for the analytical
+        // g0_hybrid_lambda_u block at the fault-plane center quadrature
+        // point. Guarded by FSRM_S29_BYHAND=1 and limited by a call counter.
+        // No mutation of g0[] (Rule 29).
+        if (getenv("FSRM_S29_BYHAND")) {
+            static int s29_g0_call_count = 0;
+            const bool center_qpt =
+                (std::fabs((double)x[0] - 0.5) < 0.05) &&
+                (std::fabs((double)x[1] - 0.5) < 0.15) &&
+                (std::fabs((double)x[2] - 0.5) < 0.15);
+            if (center_qpt && s29_g0_call_count < 4) {
+                ++s29_g0_call_count;
+                std::printf(
+                    "[S29-A.1 g0_hybrid_lambda_u call=%d] "
+                    "x=[%.4f %.4f %.4f] n=[%.3f %.3f %.3f] Nc=%d mode=%.3f\n",
+                    s29_g0_call_count,
+                    (double)x[0], (double)x[1], (double)x[2],
+                    (double)n[0], (double)n[1], (double)n[2],
+                    (int)Nc, (double)mode);
+                std::printf(
+                    "  u_neg = [%.6e %.6e %.6e]  u_pos = [%.6e %.6e %.6e]\n",
+                    (double)PetscRealPart(u[0]),
+                    (double)PetscRealPart(u[1]),
+                    (double)PetscRealPart(u[2]),
+                    (double)PetscRealPart(u[Nc + 0]),
+                    (double)PetscRealPart(u[Nc + 1]),
+                    (double)PetscRealPart(u[Nc + 2]));
+                // Print the neg-side block (first Nc*Nc entries) and pos-side
+                // block (next Nc*Nc entries) in row-major layout.
+                std::printf("  g0_OUT neg-side block dR_lambda/du_neg:\n");
+                for (PetscInt i = 0; i < Nc; ++i) {
+                    std::printf("    [");
+                    for (PetscInt j = 0; j < Nc; ++j) {
+                        std::printf(" %+.3e",
+                            (double)PetscRealPart(g0[i * Nc + j]));
+                    }
+                    std::printf(" ]\n");
+                }
+                std::printf("  g0_OUT pos-side block dR_lambda/du_pos:\n");
+                for (PetscInt i = 0; i < Nc; ++i) {
+                    std::printf("    [");
+                    for (PetscInt j = 0; j < Nc; ++j) {
+                        std::printf(" %+.3e",
+                            (double)PetscRealPart(g0[Nc * Nc + i * Nc + j]));
+                    }
+                    std::printf(" ]\n");
+                }
+                std::printf(
+                    "  expected: neg=-I, pos=+I (state-independent for prescribed)\n");
+                std::fflush(stdout);
+            }
+        }
+    } else {
+        // SLIPPING: port the semi-smooth Newton tangent from the pre-Session-4
+        // g0_lagrange_displacement. d(slip)/d(u_neg) = -I, d(slip)/d(u_pos) =
+        // +I, so the neg-side block is -G and the pos-side block is +G, where
+        // G = d(constraint)/d(slip).
+        PetscScalar slip[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < Nc; ++d) {
+            slip[d] = u[Nc + d] - u[d];
+        }
+        PetscReal slip_n = 0.0;
+        for (PetscInt d = 0; d < Nc; ++d) {
+            slip_n += PetscRealPart(slip[d]) * n[d];
+        }
+        PetscReal slip_t[3] = {0.0, 0.0, 0.0};
+        PetscReal slip_t_mag2 = 0.0;
+        for (PetscInt d = 0; d < Nc; ++d) {
+            slip_t[d] = PetscRealPart(slip[d]) - slip_n * n[d];
+            slip_t_mag2 += slip_t[d] * slip_t[d];
+        }
+        PetscReal slip_t_mag = std::sqrt(slip_t_mag2);
+
+        PetscReal s_hat[3] = {0.0, 0.0, 0.0};
+        if (slip_t_mag > 1e-15) {
+            for (PetscInt d = 0; d < Nc; ++d) {
+                s_hat[d] = slip_t[d] / slip_t_mag;
+            }
+        }
+
+        PetscReal friction_model =
+            (numConstants > COHESIVE_CONST_FRICTION_MODEL)
+            ? PetscRealPart(constants[COHESIVE_CONST_FRICTION_MODEL]) : 0.0;
+        PetscReal mu_s = 0.0, mu_d = 0.0, D_c = 1.0;
+        PetscReal mu_f;
+        if (friction_model > 0.5) {
+            mu_s = (numConstants > COHESIVE_CONST_MU_S)
+                   ? PetscRealPart(constants[COHESIVE_CONST_MU_S]) : 0.677;
+            mu_d = (numConstants > COHESIVE_CONST_MU_D)
+                   ? PetscRealPart(constants[COHESIVE_CONST_MU_D]) : 0.525;
+            D_c = (numConstants > COHESIVE_CONST_DC)
+                  ? PetscRealPart(constants[COHESIVE_CONST_DC]) : 0.40;
+            mu_f = mu_s - (mu_s - mu_d) * std::min(slip_t_mag, D_c) / D_c;
+        } else {
+            mu_f = (numConstants > COHESIVE_CONST_MU_F)
+                   ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+        }
+
+        PetscReal lambda_n = 0.0;
+        for (PetscInt d = 0; d < Nc; ++d) {
+            lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];
+        }
+        PetscReal sigma_n_comp = std::max(0.0, -lambda_n);
+        PetscReal tau_f = mu_f * sigma_n_comp;
+
+        PetscReal dmu_dslip = 0.0;
+        if (friction_model > 0.5 && slip_t_mag < D_c) {
+            dmu_dslip = -(mu_s - mu_d) / D_c;
+        }
+
+        for (PetscInt i = 0; i < Nc; ++i) {
+            for (PetscInt j = 0; j < Nc; ++j) {
+                PetscReal P_ij = ((i == j) ? 1.0 : 0.0) - n[i] * n[j];
+                PetscReal dS_ij = 0.0;
+                if (slip_t_mag > 1e-15) {
+                    dS_ij = (P_ij - s_hat[i] * s_hat[j]) / slip_t_mag;
+                }
+                PetscReal G_ij = -tau_f * dS_ij;
+                if (dmu_dslip != 0.0 && slip_t_mag > 1e-15) {
+                    G_ij += -dmu_dslip * sigma_n_comp * s_hat[i] * s_hat[j];
+                }
+                if (slip_n < 0.0) {
+                    G_ij += -n[i] * n[j];
+                }
+                g0[i * Nc + j]            = -G_ij;
+                g0[Nc * Nc + i * Nc + j]  =  G_ij;
+            }
+        }
+    }
+}
+
+void CohesiveFaultKernel::g0_hybrid_lambda_lambda(
+    PetscInt dim, PetscInt Nf, PetscInt NfAux,
+    const PetscInt uOff[], const PetscInt uOff_x[],
+    const PetscScalar u[], const PetscScalar u_t[],
+    const PetscScalar u_x[],
+    const PetscInt aOff[], const PetscInt aOff_x[],
+    const PetscScalar a[], const PetscScalar a_t[],
+    const PetscScalar a_x[],
+    PetscReal t, PetscReal u_tShift,
+    const PetscReal x[], const PetscReal n[],
+    PetscInt numConstants,
+    const PetscScalar constants[],
+    PetscScalar g0[]) {
+
+    (void)Nf; (void)NfAux; (void)uOff_x;
+    (void)u_t; (void)u_x;
+    (void)aOff; (void)aOff_x; (void)a; (void)a_t; (void)a_x;
+    (void)t; (void)u_tShift; (void)x;
+
+    const PetscInt Nc = uOff[2] - uOff[1];
+    (void)dim;
+
+    PetscReal mode = (numConstants > COHESIVE_CONST_MODE)
+                     ? PetscRealPart(constants[COHESIVE_CONST_MODE]) : 0.0;
+
+    for (PetscInt i = 0; i < Nc; ++i) {
+        for (PetscInt j = 0; j < Nc; ++j) {
+            g0[i * Nc + j] = 0.0;
+        }
+    }
+
+    if (mode < 0.5 || mode > 1.5) {
+        // LOCKED or PRESCRIBED: no dependency on lambda.
+        return;
+    }
+
+    // SLIPPING: ported from the pre-Session-4 g0_lagrange_lagrange.
+    PetscScalar slip[3] = {0.0, 0.0, 0.0};
+    for (PetscInt d = 0; d < Nc; ++d) {
+        slip[d] = u[Nc + d] - u[d];
+    }
+    PetscReal slip_n_val = 0.0;
+    for (PetscInt d = 0; d < Nc; ++d) {
+        slip_n_val += PetscRealPart(slip[d]) * n[d];
+    }
+    PetscReal slip_t[3] = {0.0, 0.0, 0.0};
+    PetscReal slip_t_mag2 = 0.0;
+    for (PetscInt d = 0; d < Nc; ++d) {
+        slip_t[d] = PetscRealPart(slip[d]) - slip_n_val * n[d];
+        slip_t_mag2 += slip_t[d] * slip_t[d];
+    }
+    PetscReal slip_t_mag = std::sqrt(slip_t_mag2);
+
+    PetscReal s_hat[3] = {0.0, 0.0, 0.0};
+    if (slip_t_mag > 1e-15) {
+        for (PetscInt d = 0; d < Nc; ++d) {
+            s_hat[d] = slip_t[d] / slip_t_mag;
+        }
+    }
+
+    PetscReal friction_model =
+        (numConstants > COHESIVE_CONST_FRICTION_MODEL)
+        ? PetscRealPart(constants[COHESIVE_CONST_FRICTION_MODEL]) : 0.0;
+    PetscReal mu_f;
+    if (friction_model > 0.5) {
+        PetscReal mu_s = (numConstants > COHESIVE_CONST_MU_S)
+                         ? PetscRealPart(constants[COHESIVE_CONST_MU_S]) : 0.677;
+        PetscReal mu_d = (numConstants > COHESIVE_CONST_MU_D)
+                         ? PetscRealPart(constants[COHESIVE_CONST_MU_D]) : 0.525;
+        PetscReal D_c = (numConstants > COHESIVE_CONST_DC)
+                        ? PetscRealPart(constants[COHESIVE_CONST_DC]) : 0.40;
+        mu_f = mu_s - (mu_s - mu_d) * std::min(slip_t_mag, D_c) / D_c;
+    } else {
+        mu_f = (numConstants > COHESIVE_CONST_MU_F)
+               ? PetscRealPart(constants[COHESIVE_CONST_MU_F]) : 0.6;
+    }
+
+    PetscReal lambda_n = 0.0;
+    for (PetscInt d = 0; d < Nc; ++d) {
+        lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];
+    }
+    PetscReal sigma_n_comp = std::max(0.0, -lambda_n);
+
+    for (PetscInt i = 0; i < Nc; ++i) {
+        for (PetscInt j = 0; j < Nc; ++j) {
+            PetscReal P_ij = ((i == j) ? 1.0 : 0.0) - n[i] * n[j];
+            g0[i * Nc + j] = P_ij;
+            if (sigma_n_comp > 0.0 && slip_t_mag > 1e-15) {
+                g0[i * Nc + j] += mu_f * s_hat[i] * n[j];
+            }
+        }
     }
 }
 

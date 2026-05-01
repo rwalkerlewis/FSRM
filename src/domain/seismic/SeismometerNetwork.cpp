@@ -246,14 +246,14 @@ PetscErrorCode SeismometerNetwork::initialize(DM dm,
         PetscCall(DMGetField(dm_, f, nullptr, &obj));
         const char* nm = nullptr;
         if (obj) PetscCall(PetscObjectGetName(obj, &nm));
-        if (nm && std::string(nm).find("displacement_") == 0) {
+        if (nm && std::string(nm).find("displacement") == 0) {
             disp_field = f;
             break;
         }
     }
     if (disp_field < 0) {
         if (rank_ == 0) {
-            PetscPrintf(comm_, "Warning: seismometers enabled but no displacement_ field exists; disabling.\n");
+            PetscPrintf(comm_, "Warning: seismometers enabled but no displacement field exists; disabling.\n");
         }
         out_cfg_.enabled = false;
         PetscFunctionReturn(0);

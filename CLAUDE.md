@@ -9,6 +9,22 @@ FSRM (Full Service Reservoir Model) is a C++17/PETSc/MPI coupled multiphysics si
 Repository: github.com/rwalkerlewis/FSRM
 Branch: main
 
+## Documentation Layout
+
+Read in this order when resuming work:
+
+- `docs/SOLVER_STATE.md`: Current fault-solver state, pass/fail, matrix characterization, bottlenecks, change log.
+- `docs/PYLITH_REFERENCE.md`: Verified PyLith architecture pins with file:line references.
+- `docs/SESSION_RUNBOOK.md`: Env vars, commands, decision-branch template, report structure.
+- `docs/SESSION_NN_REPORT.md`: Per-session changelog, numbered reports. Avoid reading these in sequence; prefer the three standing documents above and consult a specific report only when those direct you to one.
+
+Secondary references:
+
+- `docs/PYLITH_COMPATIBILITY.md`: Feature-parity wishlist (not a verified reference).
+- `docs/LAGRANGE_FIX_STATUS.md`: Historical record of PETSc 3.25 architectural blockers (superseded by `SOLVER_STATE.md` for current state; kept as decision trail).
+- `docs/FAULT_TEST_REGRESSION_AUDIT.md`: Test inventory and history.
+- `docs/NUMERICAL_METHODS.md`, `docs/PHYSICS_MODELS.md`: physics reference.
+
 ### Codebase Size
 
 After cleanup, the live codebase is:
@@ -20,23 +36,18 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. 113 pass, 3 fail honestly (no fake skips).
+116 registered tests. 110 pass, 6 fail honestly (no fake skips). Measured at Session 30 (default path, no env vars).
 
-Known failures (identity Lagrange regularization produces zero solutions on coarse mesh):
-- Physics.LockedFaultTransparency: locked fault, zero solution
-- Integration.DynamicRuptureSolve.LockedQuasiStatic: locked fault, zero solution
-- Integration.DynamicRuptureSolve.PrescribedSlipQuasiStatic: prescribed slip, zero solution
+Known failures on default path (source of truth: `docs/SOLVER_STATE.md`):
 
-The quasi-static fault failures are caused by the Lagrange volume regularization
-(f = lambda, g = I) competing with BdResidual on cohesive cells. The regularization
-drives lambda toward zero on ALL cells, overwhelming the constraint on coarse meshes.
-Fixing this requires restricting the Lagrange field to cohesive cells via PETSc region
-DS splitting, which is blocked by section/closure size mismatches in PETSc 3.25 when
-fields have different support labels sharing boundary vertices.
+- Physics.SCEC.TPV5: friction Jacobian port incomplete for slip-weakening + nucleation patch coupling.
+- Physics.LockedFaultTransparency: PETSc 3.25 BdResidual on cohesive geometry; flaky between runs.
+- Integration.PressurizedFractureFEM: hydrofrac rewire needed (separate scope from fault-solver bottleneck).
+- Integration.DynamicRuptureSolve.PrescribedSlip: BdResidual on the Lagrange field does not fire on the cohesive geometry under PETSc 3.25. See `docs/SOLVER_STATE.md` and `docs/PYLITH_REFERENCE.md` for the current investigation state.
+- Integration.SlippingFaultSolve: friction Jacobian port needed.
+- Integration.SlipWeakeningFault: friction Jacobian port needed.
 
-Physics.SCEC.TPV5 was fixed by adding the displacement field for elastodynamics
-(previously only added for geomechanics, causing error 63 when faults were enabled
-without geomechanics).
+Three additional tests regress under the experimental fieldsplit path (`FSRM_ENABLE_SLIP_AUX=1 FSRM_SADDLE_SOLVER=fieldsplit`): `Integration.DynamicRuptureSolve.LockedQuasiStatic`, `Integration.DynamicRuptureSolve.LockedElastodynamic`, `Integration.TimeDependentSlip`. Under experimental the fault subset is 7 / 16. See `docs/SOLVER_STATE.md` "Extra failures under experimental path."
 
 | Category | Tests | Description |
 |----------|------:|-------------|
@@ -125,16 +136,38 @@ DMGetDS(dm, &prob); // 5. Get DS for later use
 ### Lagrange Multiplier Field and Cohesive Cells
 
 The Lagrange multiplier field is added via `DMAddField(dm, nullptr, fe_lagrange)` on
-ALL cells. A `cohesive_cells` label marks cohesive prism cells after mesh splitting
-(for future use in field restriction). The displacement field is added for both
-`enable_geomechanics` and `enable_elastodynamics`.
+ALL cells. The displacement field is added for both `enable_geomechanics` and
+`enable_elastodynamics`.
 
-Volume regularization (f = lambda, g = I) keeps interior Lagrange DOFs non-singular
-but competes with BdResidual on cohesive cells, causing zero-solution failures on
-coarse quasi-static meshes. Restricting the Lagrange field to cohesive cells via
-`DMAddField(dm, cohesive_cells_label, ...)` creates region DSes that cause
-section/closure size mismatches in `DMPlexInsertBoundaryValues` (PETSc 3.25
-limitation with shared vertices between labeled and unlabeled cells).
+Weak volume regularization (f = epsilon * lambda, g = epsilon * I with epsilon = 1e-4)
+keeps interior Lagrange DOFs non-singular for LU factorization. The regularization
+is negligible compared to the BdResidual constraint on cohesive faces. A penalty-scaled
+Lagrange diagonal (penalty * coeff ~ O(E/h)) is added manually at cohesive vertices
+in addCohesivePenaltyToJacobian to match the displacement stiffness scale.
+
+Restricting the Lagrange field to cohesive cells via `DMAddField(dm, label, ...)`
+was investigated but PETSc 3.25 region DS does not support volume assembly via
+DMPlexTSComputeIFunctionFEM. See docs/LAGRANGE_FIX_STATUS.md for details.
+
+Section B Option B from `docs/PYLITH_COMPATIBILITY.md` is partially landed:
+`addInteriorLagrangeResidual` (`src/core/Simulator.cpp:4180-4271`) zeros the Lagrange
+residual at non-cohesive DOFs after `DMPlexTSComputeIFunctionFEM`, and the disjoint
+loop inside `addCohesivePenaltyToJacobian` (`src/core/Simulator.cpp:4677-4720`) stamps
+a canonical penalty-scaled diagonal on every interior (non-cohesive) Lagrange DOF.
+The strict spec also calls for removing the PetscDS volume callback, but the volume
+callback remains registered: empirically PETSc 3.25 needs at least one volume residual
+on the Lagrange field for the BdResidual on cohesive cells to fire reliably, and
+removing it regresses `Integration.DynamicRuptureSolve.LockedFaultElastodynamic`. The
+manual residual zeroing overrides the small epsilon contribution at interior DOFs, so
+the net interior behaviour matches the strict Section B form.
+
+The prescribed-slip Cartesian vector is now copied from `cohesive_kernel_` into the
+unified constants array in `setupPhysics` (`src/core/Simulator.cpp:2234-2249`). The
+original code allocated `COHESIVE_CONST_PRESCRIBED_SLIP_X..Z` slots but never wrote
+them, so `f0_prescribed_slip` always read a zero target jump. The push is gated on
+`fault_mode_ == "prescribed_slip"` and uses the new
+`CohesiveFaultKernel::getPrescribedSlip` accessor in
+`include/physics/CohesiveFaultKernel.hpp`.
 
 ### PDE Assembly
 
@@ -350,6 +383,11 @@ a starting point but must be rewritten to use the PetscDS callback pattern.
 13. Verification tests must have quantitative pass/fail criteria with numerical tolerances.
 14. Update CLAUDE.md and README.md after every session to reflect actual code state. Every claim must be backed by a specific test name or code reference.
 15. GTEST_SKIP is ONLY for hardware-dependent tests (GPU, MPI rank count) or genuine crash bugs that would kill the test runner. A test that produces a zero solution is a FAILURE, not a skip. If SNES converges to zero, the physics setup is wrong -- fix it, do not hide it behind GTEST_SKIP.
+16. Never truncate terminal output. Do not pipe `make`, `ctest`, `docker run`, `cmake`, or any other build / test / run command through `head`, `tail`, `grep`, `awk`, `sed`, or `cut`. Capture the full stdout / stderr stream to a log file (for example `... 2>&1 | tee /tmp/full.log`) and inspect the saved log directly with the `Read` tool when results are needed. Truncating output in-line hides build warnings, test names, SNES iterations, and stack traces that are diagnostic for failures.
+17. No option tuning without diagnostic data. Before changing any PETSc option in the solver path (preconditioner type, factorization type, tolerances, damping, smoother, restart length, etc.), the session report must document a specific measurement (condition number, spectrum gap, KSP residual trajectory, FD vs hand-coded Jacobian difference) that justifies the specific option being changed. Speculative tuning loops without new measurement data are prohibited.
+18. No Jacobian-adjacent modifications in a diagnostic session. A session whose prompt is labeled "diagnostic" must not modify `src/physics/`, `src/numerics/`, or the cohesive / bulk Jacobian registration code paths in `src/core/Simulator.cpp`. Diagnostic prints are allowed when guarded by `FSRM_S<N>_<TAG>=1` env-var gates.
+19. Every session that changes solver behavior must append a one-line entry to the change log in `docs/SOLVER_STATE.md` and update the "Current test state" table if pass/fail counts changed.
+20. Before starting a solver-related session, read `docs/SOLVER_STATE.md`. Before re-deriving any PyLith architectural fact, consult `docs/PYLITH_REFERENCE.md` and update it there rather than in a session report.
 
 ## Parallel Development and Execution
 

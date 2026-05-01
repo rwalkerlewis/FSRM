@@ -177,15 +177,127 @@ private:
     std::vector<MaterialProperties> material_props;
     std::vector<FluidProperties> fluid_props;
 
-    // Auxiliary DM for heterogeneous material properties
+    // Auxiliary DM for heterogeneous material properties. Session 18 keeps
+    // this as the material-only aux: three cell-centered fields (lambda,
+    // mu, rho) attached at material_label_ values 1 (neg) and 2 (pos) so
+    // the hybrid driver's bulk-side displacement callbacks can read them.
     DM  auxDM_ = nullptr;
     Vec auxVec_ = nullptr;
+
+    // Session 18: slip-only aux DM/Vec attached at (interfaces_label_, 1, 0).
+    // Built as a topological clone of the main DM with a single (dim-1)
+    // surface FE restricted to interfaces_label_ and marked cohesive via
+    // PetscDSSetCohesive; this makes DMGetDS(slipAuxDM_) return a DS whose
+    // totDim matches the closure at cohesive cells and keeps PETSc 3.25's
+    // hybrid-driver closure check at plexfem.c:3982 consistent. Session 18
+    // attempted to fold this subfield into auxDM_ per PyLith's composite
+    // Field pattern, but PETSc 3.25's DMGetDS returns probs[0] of the DM
+    // while the interfaces-region DS is probs[1]; the two-DM split is the
+    // practical analogue that keeps the lookups well-defined.
+    DM  slipAuxDM_ = nullptr;
+    Vec slipAuxVec_ = nullptr;
+    PetscInt fault_slip_aux_field_idx_ = -1;
+
+    // Session 21: rigid-body near-null-space on the displacement field,
+    // sized for the full assembled Jacobian (displacement DOFs populated,
+    // Lagrange DOFs zero). Built once in setupSolvers when aux-slip is
+    // active and GAMG is selected; attached to J in FormJacobian after
+    // the hybrid assembly bookend so PCGAMG can find it via
+    // MatGetNearNullSpace. The sub-DM + PetscObjectCompose path used
+    // through Session 20 did not reach PCGAMG on the full monolithic
+    // matrix (diagnosed by the Session 21 probe: MatGetNearNullSpace J
+    // returned NULL with only the composed-on-field path active).
+    MatNullSpace rigidBodyNullSpace_ = nullptr;
+    // Session 30: a second near-null-space sized for the FULL monolithic
+    // Jacobian (displacement DOFs populated, Lagrange DOFs zero). The
+    // Session 21 path attached the full-DM sized null-space both to the
+    // displacement field object (for fieldsplit's sub-block) and to the
+    // monolithic Jacobian (for the default non-fieldsplit GAMG path),
+    // but fieldsplit+PCGAMG errored because the vectors were too large
+    // for the displacement sub-block (297 != 222). Session 30 splits the
+    // two usages: rigidBodyNullSpace_ now stores the sub-DM sized vectors
+    // that the displacement field object exposes for fieldsplit, while
+    // rigidBodyNullSpaceFull_ stores the full-DM sized vectors attached
+    // to the monolithic Jacobian in FormJacobian on the default path.
+    MatNullSpace rigidBodyNullSpaceFull_ = nullptr;
+    PetscErrorCode updateFaultAuxiliary(PetscReal t);
     PetscErrorCode setupAuxiliaryDM();
     PetscErrorCode populateAuxFieldsByDepth();
     PetscErrorCode populateAuxFieldsByMaterialLabel();
     PetscErrorCode populateAuxFieldsByVelocityModel();
     PetscErrorCode applyExplosionDamageToAuxFields();
     PetscErrorCode createCohesiveCellLabel();
+    PetscErrorCode getOrCreateInterfacesLabel(DMLabel *interfacesLabel);
+    PetscErrorCode getOrCreateInterfaceFacetsLabel(DMLabel *interfaceFacetsLabel);
+    // Session 10: identify cohesive vertices that lie on the global domain
+    // boundary (the rim of the fault). These need an essential Dirichlet BC
+    // on the Lagrange field to pin the otherwise rank-deficient constraint
+    // block in the saddle-point matrix. PyLith pattern, see
+    // libsrc/pylith/faults/FaultCohesive.cc createConstraints (buried-edges).
+    PetscErrorCode getOrCreateFaultBoundaryLabel(DMLabel *faultBoundaryLabel);
+
+    // Session 12: PyLith "buried_cohesive" label. Contains cohesive
+    // edge-prisms (DM_POLYTOPE_SEG_PRISM_TENSOR) and cohesive vertex-prisms
+    // (DM_POLYTOPE_POINT_PRISM_TENSOR) whose cone touches the domain bounding
+    // box (fault rim). These are the points that carry Lagrange DOFs in
+    // PETSc's hybrid numbering (Session 11 found d1=25 for the 4x4x4 test).
+    // Pinning them with a zero Dirichlet on the Lagrange field removes the
+    // structural rank deficiency in the saddle-point constraint block.
+    // PyLith reference: libsrc/pylith/faults/FaultCohesive.cc:444-480.
+    PetscErrorCode getOrCreateBuriedCohesiveLabel(DMLabel *buriedCohesiveLabel);
+
+    // Session 4: material label that tags regular cells adjacent to cohesive
+    // prisms with value 1 (negative side) or value 2 (positive side). This is
+    // the PETSc hybrid-driver pattern (see dm/impls/plex/tests/ex5.c
+    // TestAssembly) required by DMPlexComputeResidualHybridByKey /
+    // DMPlexComputeJacobianHybridByKey to dispatch the per-side displacement
+    // weak forms.
+    PetscErrorCode createMaterialLabel();
+
+    // PyLith-style "cohesive interface" label: cohesive cells plus their
+    // closure faces, edges, and vertices on the negative side of the fault.
+    // Populated by getOrCreateInterfacesLabel during setupFaultNetwork and
+    // consumed by setupBoundaryConditions to register the Lagrange
+    // fault_constraint Neumann BC on the cohesive geometry.
+    DMLabel interfaces_label_ = nullptr;
+
+    // Facets-only ("cohesive interface facets") label: height-1 subset of
+    // interfaces_label_. DMAddBoundary dispatches BdResidual on every labeled
+    // point, so passing the full-stratum interfaces_label_ feeds cohesive
+    // cells and vertices into the kernel and yields NaN. This label contains
+    // only the cohesive facets that are the correct target for BdResidual.
+    DMLabel interface_facets_label_ = nullptr;
+
+    // Session 10: subset of cohesive vertices that lie on the global domain
+    // boundary (the fault rim). Used to pin Lagrange DOFs via post-assembly
+    // MatZeroRowsColumnsLocal in FormJacobian and an explicit zero of the
+    // residual entries in FormFunction. Removes the structural rank
+    // deficiency in the constraint block diagnosed in Session 9 (PCSVD
+    // smallest sigma ~3.7e-08, condition number 5.36e+17).
+    DMLabel fault_boundary_label_ = nullptr;
+    // Session 12: label built by getOrCreateBuriedCohesiveLabel containing
+    // cohesive edge/vertex prisms at the fault rim. Used to register a
+    // PetscDSAddBoundary essential BC on the region DS that owns the
+    // Lagrange field.
+    DMLabel buried_cohesive_label_ = nullptr;
+    // Cached LOCAL section indices of Lagrange DOFs at fault-boundary
+    // vertices, populated at the end of setupFields once the local section
+    // exists. Empty when faults are disabled or no rim vertices were found.
+    std::vector<PetscInt> fault_boundary_lagrange_local_dofs_;
+    PetscErrorCode cacheFaultBoundaryLagrangeDofs();
+    PetscErrorCode pinFaultBoundaryLagrangeJacobian(Mat J, Mat P);
+    PetscErrorCode pinFaultBoundaryLagrangeResidual(Vec locF);
+
+    // Session 4: material label with value 1 on regular cells on the negative
+    // side of the fault and value 2 on regular cells on the positive side.
+    // Used as key[0].label / key[1].label in DMPlexComputeResidualHybridByKey.
+    DMLabel material_label_ = nullptr;
+
+    // Field indices cached during setupFields so FormFunction / FormJacobian
+    // can build PetscFormKey arrays without re-querying the DS on every call.
+    // -1 means the field is not present.
+    PetscInt displacement_field_idx_ = -1;
+    PetscInt lagrange_field_idx_ = -1;
     
     // Simulation state
     double current_time;
@@ -208,7 +320,34 @@ private:
     PetscErrorCode addInjectionToResidual(PetscReal t, Vec locF);
     PetscErrorCode addFaultPressureToResidual(PetscReal t, Vec locF);
     PetscErrorCode addTractionToResidual(PetscReal t, Vec locF);
+    PetscErrorCode subtractLagrangeRegularizationOnCohesive(Vec locF, Vec locU);
+    PetscErrorCode zeroLagrangeDiagonalOnCohesive(Mat J);
+    [[deprecated("Session 6: hybrid Jacobian (DMPlexComputeJacobianHybridByKey) "
+                 "is the sole driver of cohesive coupling entries. Calling this "
+                 "augmentation re-introduces the double-write that caused "
+                 "DIVERGED_LINEAR_SOLVE iterations 0 in Session 5.")]]
     PetscErrorCode addCohesivePenaltyToJacobian(Mat J, Vec locU = nullptr);
+
+    /**
+     * @brief Zero the Lagrange residual at interior (non-cohesive) DOFs.
+     *
+     * Per docs/PYLITH_COMPATIBILITY.md Section B Option B, interior
+     * Lagrange degrees of freedom are not driven by the cohesive
+     * constraint and must not retain any residual contribution. PETSc
+     * 3.25 requires the weak volume callback (f0_weak_lagrange) to stay
+     * registered for the BdResidual on cohesive cells to fire reliably;
+     * this routine overwrites the small epsilon = 1e-4 contribution
+     * that callback leaves at non-cohesive Lagrange DOFs so the manual
+     * diagonal in addCohesivePenaltyToJacobian is the sole driver
+     * there. Cohesive vertex contributions are intentionally preserved.
+     *
+     * Called from FormFunction after DMPlexTSComputeIFunctionFEM and the
+     * other manual residual additions.
+     *
+     * @param locF Local residual vector to update in place.
+     * @return PETSC_SUCCESS or a PETSc error code.
+     */
+    PetscErrorCode addInteriorLagrangeResidual(Vec locF);
 
     // Hydraulic fracture model (Phase 3)
     std::unique_ptr<HydraulicFractureModel> hydrofrac_;
