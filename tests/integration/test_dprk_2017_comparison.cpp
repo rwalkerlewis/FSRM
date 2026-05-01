@@ -119,10 +119,16 @@ TEST_F(DPRK2017ComparisonTest, FarFieldSyntheticMb)
   EXPECT_NEAR(std::abs(rdp_low), M0, M0 * 0.01)
       << "RDP at low frequency should equal M0";
 
-  // Verify RDP at corner frequency is M0/2 (half-power point)
+  // RDP magnitude at corner frequency. With the Mueller-Murphy (1971)
+  // damped second-order resonator (B = 1, zeta = 0.7 defaults), the
+  // amplitude at omega = omega_p is 1/(2*zeta) ~ 0.714 * M0. The
+  // legacy single-pole form gave 0.5 * M0; the M&M form is the
+  // physically correct shape.
   auto rdp_fc = source.rdp(2.0 * M_PI * fc);
-  EXPECT_NEAR(std::abs(rdp_fc), M0 / 2.0, M0 * 0.05)
-      << "RDP at corner frequency should be M0/2";
+  const double zeta = source.getDamping();
+  const double expected_fc = M0 / (2.0 * zeta);
+  EXPECT_NEAR(std::abs(rdp_fc), expected_fc, expected_fc * 0.1)
+      << "RDP at corner frequency should match M&M damped resonator value";
 
   // Verify dominant period is in physical range
   double T_dominant = 1.0 / fc;
@@ -131,13 +137,18 @@ TEST_F(DPRK2017ComparisonTest, FarFieldSyntheticMb)
   EXPECT_LT(T_dominant, 10.0)
       << "Dominant period too long for 250 kt: " << T_dominant << " s";
 
-  // Verify spectral rolloff matches omega^-2 model
-  // At 10*fc, amplitude should be ~1% of M0: 1/(1+100) = 0.0099
+  // Verify spectral rolloff matches the damped second-order omega^-2
+  // envelope. With B = 1 defaults the M&M numerator zero is suppressed
+  // and at x = 10 the magnitude is 1 / sqrt((1 - 100)^2 + (2*zeta*10)^2).
   auto rdp_10fc = source.rdp(2.0 * M_PI * 10.0 * fc);
-  double expected_ratio = 1.0 / (1.0 + 100.0);
+  const double x10 = 10.0;
+  const double denom_mag_10 =
+      std::sqrt((1.0 - x10 * x10) * (1.0 - x10 * x10) +
+                (2.0 * zeta * x10) * (2.0 * zeta * x10));
+  double expected_ratio = 1.0 / denom_mag_10;
   double actual_ratio = std::abs(rdp_10fc) / M0;
   EXPECT_NEAR(actual_ratio, expected_ratio, expected_ratio * 0.1)
-      << "RDP rolloff at 10*fc should follow omega^-2";
+      << "RDP rolloff at 10*fc should follow M&M omega^-2 envelope";
 
   // Cross-check: mb from Murphy formula should match observations
   double mb_murphy = params.body_wave_magnitude();

@@ -194,6 +194,16 @@ public:
     // MediumType::GENERIC, which preserves legacy behaviour (C = 12).
     void setMedium(NuclearSourceParameters::MediumType medium);
 
+    // Mueller-Murphy (1971) RDP shape parameters. Defaults are
+    // B = 1 (no spectral overshoot), zeta = 0.7 (mild damping), and
+    // k_B = 1 (numerator zero at the corner frequency, suppressed when
+    // B = 1 via the (B - 1) gating in ::rdp). Set B > 1 to enable the
+    // M&M elastic-overshoot peak; tighten zeta toward 0.4 for tamped
+    // granite per Stevens & Day (1985).
+    void setOvershoot(double B);
+    void setDamping(double zeta);
+    void setOvershootZeroFactor(double k_B);
+
     // Source time function (moment rate)
     double momentRate(double t) const;
 
@@ -205,6 +215,9 @@ public:
 
     // Overshoot parameter
     double getOvershoot() const;
+
+    // Damping factor (zeta) used by the M&M resonator response.
+    double getDamping() const;
 
     // Moment tensor (isotropic + CLVD)
     void getMomentTensor(double t, double* M) const;
@@ -219,7 +232,9 @@ private:
     // Derived
     double corner_frequency;
     double scalar_moment;
-    double overshoot;
+    double overshoot;          // Mueller-Murphy spectral overshoot factor B
+    double damping;            // Damping factor zeta in (0, 1]
+    double overshoot_zero_factor;  // k_B: places the RDP zero at omega_p * k_B
     double rise_time;
 
     void computeDerivedQuantities();
