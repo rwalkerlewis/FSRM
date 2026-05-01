@@ -84,10 +84,15 @@ protected:
     }
   }
 
-  // Write a CI-quick config for a historic nuclear test
+  // Write a CI-quick config for a historic nuclear test. The optional
+  // medium_type string is written into the EXPLOSION_SOURCE section so
+  // MuellerMurphySource::setMedium picks the correct cavity coefficient
+  // (granite 11, tuff 18, salt 16, alluvium 22, shale 14, generic 12
+  // m / kt^(1/3)).
   void writeConfig(const std::string& name, double yield_kt, double depth_m,
                    double domain_z, const std::vector<LayerDef>& layers,
-                   double end_time = 0.1)
+                   double end_time = 0.1,
+                   const std::string& medium_type = "GENERIC")
   {
     config_path_ = "test_historic_" + name + ".config";
     output_dir_ = "test_historic_" + name + "_output";
@@ -162,6 +167,7 @@ protected:
     cfg << "onset_time = 0.0\n";
     cfg << "rise_time = 0.01\n";
     cfg << "cavity_overpressure = 1.0e10\n";
+    cfg << "medium_type = " << medium_type << "\n";
     cfg << "\n[BOUNDARY_CONDITIONS]\n";
     cfg << "bottom = free\n";
     cfg << "sides = free\n";
@@ -458,7 +464,8 @@ TEST_F(HistoricNuclearTest, Gasbuggy1967)
   };
   // P-wave travel time from 1280 m source to surface in this layered
   // model is ~0.28 s -- run long enough that the wave arrives.
-  writeConfig("gasbuggy_1967", 29.0, 1280.0, 5000.0, layers, 0.5);
+  // Medium SHALE: Lewis Shale emplacement zone (Carter et al. 1968).
+  writeConfig("gasbuggy_1967", 29.0, 1280.0, 5000.0, layers, 0.5, "SHALE");
 
   PetscReal sol_norm = 0.0;
   PetscErrorCode ierr = runPipeline(sol_norm);
@@ -485,7 +492,8 @@ TEST_F(HistoricNuclearTest, Gnome1961)
   };
   // P-wave travel time from 361 m source is ~0.08 s -- 0.15 s gives
   // ~1.9x onset margin for the upper-bound test.
-  writeConfig("gnome_1961", 3.1, 361.0, 2000.0, layers, 0.15);
+  // Medium SALT: Salado Salt formation (Glenn & Goldstein 1994).
+  writeConfig("gnome_1961", 3.1, 361.0, 2000.0, layers, 0.15, "SALT");
 
   PetscReal sol_norm = 0.0;
   PetscErrorCode ierr = runPipeline(sol_norm);
@@ -509,7 +517,9 @@ TEST_F(HistoricNuclearTest, Sedan1962)
     {1700.0, 1000.0, 1.02e10, 7.50e9,  2300.0},  // Welded tuff
     {1000.0,    0.0, 1.87e10, 1.34e10, 2650.0},   // Paleozoic carbonate
   };
-  writeConfig("sedan_1962", 104.0, 194.0, 2000.0, layers);
+  // Medium ALLUVIUM: 194 m of alluvial overburden, cratering shot
+  // (Closmann 1969 weakly cemented sediments).
+  writeConfig("sedan_1962", 104.0, 194.0, 2000.0, layers, 0.1, "ALLUVIUM");
 
   PetscReal sol_norm = 0.0;
   PetscErrorCode ierr = runPipeline(sol_norm);
@@ -535,7 +545,8 @@ TEST_F(HistoricNuclearTest, DegelenMountain)
   };
   // P-wave travel time from 300 m source is ~0.06 s -- 0.15 s window
   // captures arrival and a portion of the surface-trapped wavetrain.
-  writeConfig("degelen_mountain", 50.0, 300.0, 3000.0, layers, 0.15);
+  // Medium GRANITE: competent granite shot (Boardman et al. 1964).
+  writeConfig("degelen_mountain", 50.0, 300.0, 3000.0, layers, 0.15, "GRANITE");
 
   PetscReal sol_norm = 0.0;
   PetscErrorCode ierr = runPipeline(sol_norm);
@@ -562,7 +573,8 @@ TEST_F(HistoricNuclearTest, NtsPahuteMesa)
   };
   // P-wave travel time from 600 m source is ~0.14 s -- 0.3 s captures
   // the arrival comfortably.
-  writeConfig("nts_pahute_mesa", 150.0, 600.0, 3000.0, layers, 0.3);
+  // Medium TUFF: welded/nonwelded tuff sequence (Closmann 1969).
+  writeConfig("nts_pahute_mesa", 150.0, 600.0, 3000.0, layers, 0.3, "TUFF");
 
   PetscReal sol_norm = 0.0;
   PetscErrorCode ierr = runPipeline(sol_norm);
@@ -588,7 +600,10 @@ TEST_F(HistoricNuclearTest, FarFieldAmplitudeRegression)
     {1700.0, 1000.0, 1.02e10, 7.50e9,  2300.0},  // Welded tuff
     {1000.0,    0.0, 1.87e10, 1.34e10, 2650.0},   // Paleozoic carbonate
   };
-  writeConfig("regression_sedan_1962", 104.0, 194.0, 2000.0, layers);
+  // Medium ALLUVIUM matches the integration-test invocation above so
+  // the regression CSV captures the medium-aware moment scaling.
+  writeConfig("regression_sedan_1962", 104.0, 194.0, 2000.0, layers, 0.1,
+              "ALLUVIUM");
 
   PetscReal sol_norm = 0.0;
   PetscErrorCode ierr = runPipeline(sol_norm);
