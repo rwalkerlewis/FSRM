@@ -276,8 +276,14 @@ protected:
 
   // Aki & Richards (2002, eq. 4.30) far-field P-wave peak displacement
   // amplitude for an isotropic explosion source. The radiated peak
-  // comes from the moment-rate peak Mdot_peak ~ M0 / tau evaluated at
-  // the source rise time tau = 0.55 / fc:
+  // comes from the analytic moment-rate peak. With the pass-2
+  // Fourier-pair Mdot(t) = M0 * omega_p^2 * t * exp(-omega_p t)
+  // (critically damped impulse response of the M&M RDP) the peak is
+  // attained at t = 1 / omega_p with value
+  //
+  //   Mdot_peak = M0 * omega_p / e
+  //
+  // and the far-field amplitude estimate is
   //
   //   u_peak ~ 2 * Mdot_peak / (4 * pi * rho * vp^3 * R)
   //
@@ -300,8 +306,8 @@ protected:
     source.setMediumProperties(rho, vp, vs);
     const double M0 = params.scalar_moment();
     const double fc = source.getCornerFrequency();
-    const double tau = 0.55 / std::max(1e-9, fc);
-    const double Mdot_peak = M0 / tau;
+    const double omega_p = 2.0 * M_PI * std::max(1e-9, fc);
+    const double Mdot_peak = M0 * omega_p / std::exp(1.0);
     const double R = depth_m_;  // station directly above source
     const double surface_doubling = 2.0;
     return surface_doubling * Mdot_peak /
