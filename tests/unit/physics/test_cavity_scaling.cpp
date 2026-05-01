@@ -137,6 +137,74 @@ TEST_F(CavityScalingTest, CoefficientTableValues)
   EXPECT_DOUBLE_EQ(NuclearSourceParameters::cavityCoefficient(MediumType::GENERIC),  12.0);
 }
 
+// Pass-2: crushed_zone_radius(medium) routes the medium argument through
+// cavity_radius. Salt (C = 16) and granite (C = 11) at the same yield
+// must produce a crushed-zone ratio matching the coefficient ratio
+// (16/11) within 1% (the legacy single-arg crushed_zone_radius hard-
+// coded the GENERIC coefficient and ignored medium entirely).
+TEST_F(CavityScalingTest, CrushedZoneScalesWithMedium)
+{
+  NuclearSourceParameters params;
+  params.yield_kt = 1.0;
+
+  const double rc_salt = params.crushed_zone_radius(MediumType::SALT);
+  const double rc_granite = params.crushed_zone_radius(MediumType::GRANITE);
+  ASSERT_GT(rc_salt, 0.0);
+  ASSERT_GT(rc_granite, 0.0);
+
+  const double ratio = rc_salt / rc_granite;
+  const double expected = 16.0 / 11.0;
+  EXPECT_NEAR(ratio, expected, 0.01 * expected)
+      << "crushed_zone_radius(SALT)/crushed_zone_radius(GRANITE) "
+      << "must equal C_SALT/C_GRANITE = 16/11 within 1%";
+}
+
+// Pass-2: same scaling guarantee for the fractured-zone radius.
+TEST_F(CavityScalingTest, FracturedZoneScalesWithMedium)
+{
+  NuclearSourceParameters params;
+  params.yield_kt = 1.0;
+
+  const double rf_salt = params.fractured_zone_radius(MediumType::SALT);
+  const double rf_granite = params.fractured_zone_radius(MediumType::GRANITE);
+  ASSERT_GT(rf_salt, 0.0);
+  ASSERT_GT(rf_granite, 0.0);
+
+  const double ratio = rf_salt / rf_granite;
+  const double expected = 16.0 / 11.0;
+  EXPECT_NEAR(ratio, expected, 0.01 * expected)
+      << "fractured_zone_radius(SALT)/fractured_zone_radius(GRANITE) "
+      << "must equal C_SALT/C_GRANITE = 16/11 within 1%";
+}
+
+// Pass-2 backward-compat: legacy zero-argument crushed_zone_radius and
+// fractured_zone_radius continue to use the GENERIC coefficient
+// (C = 12) so existing callers that did not pass a medium see
+// unchanged behaviour. Regression check guards against accidental
+// behavior shift in the legacy overloads.
+TEST_F(CavityScalingTest, LegacyCrushedZoneStable)
+{
+  NuclearSourceParameters params;
+  params.yield_kt = 1.0;
+
+  const double rc_legacy = params.crushed_zone_radius();
+  const double rc_generic = params.crushed_zone_radius(MediumType::GENERIC);
+  EXPECT_DOUBLE_EQ(rc_legacy, rc_generic)
+      << "Legacy zero-arg crushed_zone_radius must match GENERIC overload";
+
+  const double rf_legacy = params.fractured_zone_radius();
+  const double rf_generic = params.fractured_zone_radius(MediumType::GENERIC);
+  EXPECT_DOUBLE_EQ(rf_legacy, rf_generic)
+      << "Legacy zero-arg fractured_zone_radius must match GENERIC overload";
+
+  // Numerical sanity: 3 * cavity_radius and 10 * cavity_radius for 1 kt
+  // at GENERIC (C = 12, rho_ref = 2650): cavity_radius is 12 m so
+  // crushed = 36 m and fractured = 120 m exactly.
+  const double rc_cavity = params.cavity_radius(2650.0, MediumType::GENERIC);
+  EXPECT_DOUBLE_EQ(rc_legacy, 3.0 * rc_cavity);
+  EXPECT_DOUBLE_EQ(rf_legacy, 10.0 * rc_cavity);
+}
+
 // MuellerMurphySource::setMedium plumbs the medium into
 // computeDerivedQuantities so the scalar moment reflects the medium-aware
 // cavity radius.

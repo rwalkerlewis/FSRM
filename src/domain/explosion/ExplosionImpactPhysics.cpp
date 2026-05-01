@@ -56,13 +56,27 @@ double NuclearSourceParameters::cavity_radius(double rock_density,
 }
 
 double NuclearSourceParameters::crushed_zone_radius() const {
+    // Legacy zero-argument overload: GENERIC medium (C = 12).
+    return crushed_zone_radius(MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::crushed_zone_radius(MediumType medium) const {
     // Educational scaling: crushed zone is a few cavity radii.
-    return 3.0 * cavity_radius();
+    // Routes the medium argument through cavity_radius so the
+    // surrounding zone scales with the medium-specific coefficient
+    // (e.g., salt 16 vs granite 11 gives a 45% larger crushed zone at
+    // fixed yield).
+    return 3.0 * cavity_radius(2650.0, medium);
 }
 
 double NuclearSourceParameters::fractured_zone_radius() const {
-    // Educational scaling: fractured zone extends ~5–15 cavity radii.
-    return 10.0 * cavity_radius();
+    // Legacy zero-argument overload: GENERIC medium (C = 12).
+    return fractured_zone_radius(MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::fractured_zone_radius(MediumType medium) const {
+    // Educational scaling: fractured zone extends ~5-15 cavity radii.
+    return 10.0 * cavity_radius(2650.0, medium);
 }
 
 double NuclearSourceParameters::scalar_moment() const {
@@ -191,7 +205,7 @@ MuellerMurphySource::MuellerMurphySource()
       corner_frequency(1.0),
       scalar_moment(0.0),
       overshoot(1.0),
-      damping(0.7),
+      damping(1.0),
       overshoot_zero_factor(1.0),
       rise_time(0.05) {}
 
@@ -249,30 +263,112 @@ void MuellerMurphySource::computeDerivedQuantities() {
     // or setMediumProperties call.
 }
 
-// Mueller-Murphy (1971) moment-rate function.
+// Mueller-Murphy (1971) moment-rate function (Fourier pair of ::rdp).
 //
-// We retain the simple causal exponential moment rate
-//   Mdot(t) = (M0/tau) * exp(-t/tau) for t >= 0
-// because (a) it integrates to M0, (b) it is non-negative for all t,
-// and (c) it has Mdot(0) > 0, all of which are required by callers
-// and existing tests (Physics.MuellerMurphy.MomentRateFunction).
+// The frequency-domain RDP is the canonical Mueller-Murphy damped
+// second-order resonator
 //
-// The frequency-domain ::rdp uses the canonical M&M damped-resonator
-// form, which for B = 1 default has Mdot(0) = 0 in its strict
-// inverse-Laplace impulse-response form. Implementing the strict
-// Fourier pair in time would regress the existing tests, so the two
-// forms share only M0 and the corner frequency. For frequency-domain
-// studies (DPRK synthetic, RDP overshoot inspection), use ::rdp; for
-// time-domain coupling into TSSolve, use ::momentRate.
+//   Psi(omega) = M0 * (1 + i (B - 1) omega / omega_zero)
+//                / (1 - (omega/omega_p)^2 + 2 i zeta omega / omega_p)
+//
+// The time-domain moment rate Mdot(t) is its inverse Fourier transform.
+// For the default elastic-overshoot-free shape (B = 1) the (B - 1)
+// numerator zero is gated off and the time-domain function is the
+// impulse response of a damped harmonic oscillator scaled by omega_p^2:
+//
+//   zeta < 1 (underdamped):
+//     Mdot(t) = (M0 omega_p^2 / omega_d) * exp(-zeta omega_p t) * sin(omega_d t)
+//     omega_d = omega_p sqrt(1 - zeta^2)
+//
+//   zeta = 1 (critically damped, the default):
+//     Mdot(t) = M0 omega_p^2 * t * exp(-omega_p t)
+//     non-negative for all t >= 0; integrates to M0; peak at t = 1/omega_p
+//     with value M0 omega_p / e
+//
+//   zeta > 1 (overdamped):
+//     Mdot(t) = (M0 omega_p^2 / (2 omega_h)) *
+//               (exp(-(zeta omega_p - omega_h) t) - exp(-(zeta omega_p + omega_h) t))
+//     omega_h = omega_p sqrt(zeta^2 - 1)
+//
+// For the elastic-overshoot case (B != 1) the additional numerator
+// factor (B - 1) i omega / omega_zero in the frequency domain is the
+// Laplace transform of a time derivative scaled by (B - 1) / omega_zero.
+// The overshoot moment rate is therefore
+//
+//   Mdot_overshoot(t) = Mdot_base(t) + (B - 1) / omega_zero * dMdot_base/dt
+//
+// where dMdot_base/dt is computed analytically per damping case.
+//
+// Default damping zeta = 1.0: critically damped is non-negative for all
+// t and integrates to M0 analytically -- no FD-derivative tail, no
+// Gibbs ripple from the ::rdp inversion. Underdamped values can be
+// chosen via setDamping(zeta < 1) when a user wants to model the
+// elastic overshoot peak (Stevens & Day 1985 figure 4) explicitly.
 //
 // References: Mueller & Murphy (1971) BSSA 61(6); Murphy (1981) DARPA
-// report; Stevens & Day (1985) JGR 90.
+// report; Stevens & Day (1985) JGR 90, eq. 4 and 6.
 double MuellerMurphySource::momentRate(double t) const {
     if (t < 0.0 || scalar_moment <= 0.0) {
         return 0.0;
     }
-    const double tau = std::max(1e-12, rise_time);
-    return (scalar_moment / tau) * std::exp(-t / tau);
+    const double omega_p = 2.0 * M_PI * std::max(1e-12, corner_frequency);
+    const double zeta = damping;
+    const double M0 = scalar_moment;
+    const double op2 = omega_p * omega_p;
+
+    auto base_and_deriv = [&](double t_eval, double& h, double& hp) {
+        // h(t) = base impulse response of M0 * H(s) where
+        //   H(s) = omega_p^2 / (s^2 + 2 zeta omega_p s + omega_p^2)
+        // hp(t) = dh/dt evaluated analytically per damping case.
+        if (zeta < 1.0 - 1e-9) {
+            const double zw = zeta * omega_p;
+            const double od = omega_p * std::sqrt(std::max(0.0, 1.0 - zeta * zeta));
+            const double e_d = std::exp(-zw * t_eval);
+            const double s_d = std::sin(od * t_eval);
+            const double c_d = std::cos(od * t_eval);
+            // h(t) = (M0 * omega_p^2 / omega_d) * exp(-zeta omega_p t) sin(omega_d t)
+            h = (M0 * op2 / std::max(1e-30, od)) * e_d * s_d;
+            // hp(t) = (M0 * omega_p^2 / omega_d) * exp(-zeta omega_p t)
+            //         * (-zeta omega_p sin(omega_d t) + omega_d cos(omega_d t))
+            hp = (M0 * op2 / std::max(1e-30, od)) * e_d *
+                 (-zw * s_d + od * c_d);
+        } else if (zeta > 1.0 + 1e-9) {
+            const double zw = zeta * omega_p;
+            const double oh = omega_p * std::sqrt(zeta * zeta - 1.0);
+            const double a1 = zw - oh;
+            const double a2 = zw + oh;
+            const double e1 = std::exp(-a1 * t_eval);
+            const double e2 = std::exp(-a2 * t_eval);
+            // h(t) = (M0 * omega_p^2 / (2 omega_h)) * (exp(-a1 t) - exp(-a2 t))
+            h = (M0 * op2 / (2.0 * std::max(1e-30, oh))) * (e1 - e2);
+            // hp(t) = (M0 * omega_p^2 / (2 omega_h)) * (-a1 exp(-a1 t) + a2 exp(-a2 t))
+            hp = (M0 * op2 / (2.0 * std::max(1e-30, oh))) *
+                 (-a1 * e1 + a2 * e2);
+        } else {
+            // Critically damped: zeta == 1 (within +/- 1e-9 tolerance).
+            const double e_c = std::exp(-omega_p * t_eval);
+            // h(t) = M0 * omega_p^2 * t * exp(-omega_p t)
+            h = M0 * op2 * t_eval * e_c;
+            // hp(t) = M0 * omega_p^2 * (1 - omega_p t) * exp(-omega_p t)
+            hp = M0 * op2 * (1.0 - omega_p * t_eval) * e_c;
+        }
+    };
+
+    double h = 0.0;
+    double hp = 0.0;
+    base_and_deriv(t, h, hp);
+
+    // Default (B = 1) gating: the (B - 1) numerator zero is suppressed
+    // and the time-domain function reduces to the pure damped impulse
+    // response. setOvershoot(B > 1) activates the elastic-overshoot
+    // peak; the corresponding time-domain term is (B - 1) / omega_zero
+    // times the analytic derivative of the base impulse response.
+    if (std::abs(overshoot - 1.0) <= 1e-12) {
+        return h;
+    }
+    const double omega_zero =
+        omega_p * std::max(1e-9, overshoot_zero_factor);
+    return h + (overshoot - 1.0) / omega_zero * hp;
 }
 
 // Mueller-Murphy (1971) RDP in the frequency domain.

@@ -246,7 +246,12 @@ TEST_F(MuellerMurphyValidationTest, CavityRadiusScaling)
       << "Cavity radius should scale as W^(1/3)";
 }
 
-// Test 6: Moment rate function properties
+// Test 6: Moment rate function properties (Fourier-pair impulse response).
+//
+// With the default critically damped (zeta = 1) form, Mdot(0) = 0
+// exactly, peaks at t = 1/omega_p with value M0 * omega_p / e, and
+// integrates to M0 over [0, infinity). Decays exponentially with time
+// constant ~1/omega_p so the long-time tail is negligible.
 TEST_F(MuellerMurphyValidationTest, MomentRateFunction)
 {
   NuclearSourceParameters params;
@@ -257,21 +262,36 @@ TEST_F(MuellerMurphyValidationTest, MomentRateFunction)
   source.setParameters(params);
   source.setMediumProperties(RHO_GRANITE, VP_GRANITE, VS_GRANITE);
 
-  // Moment rate at t=0 should be at or near peak (explosion onset)
+  // Mdot(0) = 0 exactly for the critically damped impulse response.
   double mr_0 = source.momentRate(0.0);
-  EXPECT_GT(mr_0, 0.0) << "Moment rate at t=0 must be nonzero";
+  EXPECT_GE(mr_0, 0.0) << "Moment rate at t=0 must be non-negative";
   EXPECT_TRUE(std::isfinite(mr_0)) << "Moment rate at t=0 must be finite";
 
-  // Moment rate should decay with time (for an impulsive source)
+  // Peak occurs at t = 1/omega_p with analytic value M0 * omega_p / e.
+  const double M0 = params.scalar_moment();
+  const double fc = source.getCornerFrequency();
+  const double omega_p = 2.0 * M_PI * fc;
+  const double t_peak = 1.0 / omega_p;
+  const double mr_peak = source.momentRate(t_peak);
+  EXPECT_GT(mr_peak, 0.0)
+      << "Moment rate at the analytic peak time must be positive";
+  const double expected_peak = M0 * omega_p / std::exp(1.0);
+  // 2x bracket as required by spec, to absorb future damping changes.
+  EXPECT_NEAR(mr_peak, expected_peak, 0.5 * expected_peak)
+      << "Peak moment rate at t = 1/omega_p should be M0 * omega_p / e";
+
+  // Moment rate should be finite for any positive t.
   double mr_1 = source.momentRate(1.0);
   EXPECT_TRUE(std::isfinite(mr_1));
-  EXPECT_LT(std::abs(mr_1), std::abs(mr_0) + 1.0e-20)
-      << "Moment rate should not grow with time";
 
-  // Moment rate at t = 10 * rise_time should be < 1% of peak
+  // Moment rate at t = 10 * rise_time (i.e., omega_p * t = 5.5 pi) should
+  // have decayed to << 1% of peak. With zeta = 1 default,
+  // Mdot(10 tau) / Mdot_peak = (omega_p * 10 tau) * exp(1 - omega_p * 10 tau).
+  // omega_p * 10 * (0.55/fc) = 2 pi * 5.5 ~ 34.56, so the ratio is
+  // 34.56 * exp(-33.56) ~ 9e-14 -- well below 1% of peak.
   double rise_time = 0.55 / source.getCornerFrequency();
   double mr_10tau = source.momentRate(10.0 * rise_time);
-  EXPECT_LT(std::abs(mr_10tau), 0.01 * std::abs(mr_0))
+  EXPECT_LT(std::abs(mr_10tau), 0.01 * mr_peak)
       << "Moment rate at 10*rise_time should be < 1% of peak";
 }
 
@@ -472,8 +492,9 @@ TEST_F(MuellerMurphyValidationTest, MomentRateIntegratesToM0)
       << "Mdot trapezoidal integral over [0, 30/omega_p] should approach M0";
 }
 
-// Test 14: moment-rate non-negative for B = 1 default. The exponential
-// momentRate kernel is non-negative for all t by construction.
+// Test 14: moment-rate non-negative for B = 1 default. The critically
+// damped impulse response Mdot(t) = M0 * omega_p^2 * t * exp(-omega_p t)
+// is non-negative for all t >= 0 by construction.
 TEST_F(MuellerMurphyValidationTest, MomentRateNonNegativeForB1)
 {
   NuclearSourceParameters params;
@@ -497,4 +518,156 @@ TEST_F(MuellerMurphyValidationTest, MomentRateNonNegativeForB1)
         << "momentRate(" << t << ") = " << mr
         << " must be non-negative for default (B = 1) shape";
   }
+}
+
+// =============================================================================
+// Fourier-pair consistency tests (pass 2): verify that the time-domain
+// momentRate(t) is the inverse Fourier transform of rdp(omega). The
+// canonical M&M frequency-domain RDP and the time-domain moment rate
+// must agree at three diagnostic points: (a) low frequency, where the
+// integral over time equals the spectral plateau; (b) corner frequency,
+// where the magnitude is M0 / (2 zeta); and (c) high frequency, where
+// the spectrum must roll off as omega^-2. The third point is the test
+// that PR #110 could not enforce because the legacy exponential kernel
+// rolled off as omega^-1, not omega^-2.
+// =============================================================================
+
+namespace mueller_murphy_pass2 {
+
+// One-shot numerical Fourier integral at a single angular frequency.
+// Uses trapezoidal rule on the sampled Mdot trace; sufficient for
+// magnitude checks at omega well below the Nyquist of the sampling.
+inline std::complex<double> fourier_at(const std::vector<double>& mdot,
+                                       double dt, double omega)
+{
+  std::complex<double> sum(0.0, 0.0);
+  const int N = static_cast<int>(mdot.size());
+  if (N < 2) return sum;
+  for (int i = 0; i < N; ++i) {
+    const double t = static_cast<double>(i) * dt;
+    const std::complex<double> phase(std::cos(omega * t), -std::sin(omega * t));
+    const double w = (i == 0 || i == N - 1) ? 0.5 : 1.0;
+    sum += w * mdot[i] * phase;
+  }
+  return sum * dt;
+}
+
+}  // namespace mueller_murphy_pass2
+
+// Test 15 (pass 2): low-frequency Fourier integral matches |Psi(0)| = M0.
+// Trapezoidal-integrate Mdot(t) over [0, 60/omega_p]; the truncation
+// residual at T = 60/omega_p is exp(-60) (1 + 60) ~ 6e-25 for the
+// critically damped form, far below the 1% test tolerance.
+TEST_F(MuellerMurphyValidationTest, MomentRateMatchesRDPLowFrequency)
+{
+  using namespace mueller_murphy_pass2;
+  NuclearSourceParameters params;
+  params.yield_kt = 10.0;
+
+  MuellerMurphySource source;
+  source.setParameters(params);
+  source.setMediumProperties(RHO_GRANITE, VP_GRANITE, VS_GRANITE);
+
+  const double M0 = params.scalar_moment();
+  const double fc = source.getCornerFrequency();
+  const double omega_p = 2.0 * M_PI * fc;
+  const double T = 60.0 / omega_p;
+  const int N = 8001;
+  const double dt = T / static_cast<double>(N - 1);
+
+  std::vector<double> mdot(N);
+  double integral = 0.0;
+  for (int i = 0; i < N; ++i) {
+    const double t = static_cast<double>(i) * dt;
+    mdot[i] = source.momentRate(t);
+    const double w = (i == 0 || i == N - 1) ? 0.5 : 1.0;
+    integral += w * mdot[i] * dt;
+  }
+
+  EXPECT_NEAR(integral, M0, 0.01 * M0)
+      << "Trapezoidal integral of Mdot over [0, 60/omega_p] must equal "
+      << "the low-frequency RDP plateau M0 within 1%";
+}
+
+// Test 16 (pass 2): Fourier magnitude at omega = omega_p equals
+// |Psi(omega_p)| = M0 / (2 zeta). For zeta = 1 the corner amplitude is
+// M0 / 2.
+TEST_F(MuellerMurphyValidationTest, MomentRateMatchesRDPCornerAmplitude)
+{
+  using namespace mueller_murphy_pass2;
+  NuclearSourceParameters params;
+  params.yield_kt = 10.0;
+
+  MuellerMurphySource source;
+  source.setParameters(params);
+  source.setMediumProperties(RHO_GRANITE, VP_GRANITE, VS_GRANITE);
+
+  const double M0 = params.scalar_moment();
+  const double fc = source.getCornerFrequency();
+  const double omega_p = 2.0 * M_PI * fc;
+  const double zeta = source.getDamping();
+
+  // Sample at 32 * f_p so the Nyquist is 16 * f_p. The integration
+  // window must be long enough that the impulse response has decayed
+  // (T = 60/omega_p suffices for zeta = 1).
+  const double T = 60.0 / omega_p;
+  const int N = 16001;
+  const double dt = T / static_cast<double>(N - 1);
+
+  std::vector<double> mdot(N);
+  for (int i = 0; i < N; ++i) {
+    mdot[i] = source.momentRate(static_cast<double>(i) * dt);
+  }
+
+  const std::complex<double> Psi_num = fourier_at(mdot, dt, omega_p);
+  const double mag_num = std::abs(Psi_num);
+  const double mag_analytic = M0 / (2.0 * zeta);
+
+  EXPECT_NEAR(mag_num, mag_analytic, 0.05 * mag_analytic)
+      << "Fourier magnitude of Mdot at omega_p (" << mag_num
+      << ") must match analytic |Psi(omega_p)| = M0 / (2 zeta) = "
+      << mag_analytic << " within 5%";
+}
+
+// Test 17 (pass 2): Fourier magnitude at omega = 100 * omega_p is
+// below M0 / 1000 (i.e., the time-domain function rolls off as omega^-2
+// at high frequency, in agreement with the damped second-order RDP).
+// This is the regression PR #110 could not enforce because the legacy
+// (M0/tau) exp(-t/tau) form rolls off as omega^-1.
+TEST_F(MuellerMurphyValidationTest, MomentRateOmegaMinus2InTimeDomain)
+{
+  using namespace mueller_murphy_pass2;
+  NuclearSourceParameters params;
+  params.yield_kt = 10.0;
+
+  MuellerMurphySource source;
+  source.setParameters(params);
+  source.setMediumProperties(RHO_GRANITE, VP_GRANITE, VS_GRANITE);
+
+  const double M0 = params.scalar_moment();
+  const double fc = source.getCornerFrequency();
+  const double omega_p = 2.0 * M_PI * fc;
+
+  // Sample at 800 * f_p (Nyquist 400 * f_p) so omega = 100 * omega_p is
+  // well within the resolved band. Window 60/omega_p captures the full
+  // impulse response.
+  const double T = 60.0 / omega_p;
+  const int N = 80001;
+  const double dt = T / static_cast<double>(N - 1);
+
+  std::vector<double> mdot(N);
+  for (int i = 0; i < N; ++i) {
+    mdot[i] = source.momentRate(static_cast<double>(i) * dt);
+  }
+
+  const std::complex<double> Psi_high =
+      fourier_at(mdot, dt, 100.0 * omega_p);
+  const double mag_high = std::abs(Psi_high);
+
+  // omega^-2 envelope at x = 100: |Psi| ~ M0 / 10000 with O(zeta) corr.
+  // Asserting < M0/1000 catches any slower (e.g., omega^-1) rolloff.
+  EXPECT_LT(mag_high, M0 / 1000.0)
+      << "High-frequency Fourier magnitude " << mag_high
+      << " exceeds M0/1000 = " << M0 / 1000.0
+      << "; the time-domain Mdot is not rolling off as omega^-2";
 }

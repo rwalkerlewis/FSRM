@@ -369,6 +369,40 @@ static PetscErrorCode applyGmshNameMappingsToDM(
 
 namespace FSRM {
 
+namespace {
+
+// Case-insensitive parser that maps an EXPLOSION_SOURCE.medium_type
+// string to the NuclearSourceParameters::MediumType enum. Unknown
+// values fall back to GENERIC and emit a single rank-0 warning so the
+// run still completes deterministically. The accepted set tracks
+// NuclearSourceParameters::MediumType: GRANITE, TUFF, SALT, ALLUVIUM,
+// SHALE, GENERIC.
+NuclearSourceParameters::MediumType parseMediumType(
+    const std::string& raw, MPI_Comm comm)
+{
+    std::string s = raw;
+    for (auto& c : s) c = static_cast<char>(std::toupper(c));
+    if (s == "GRANITE")  return NuclearSourceParameters::MediumType::GRANITE;
+    if (s == "TUFF")     return NuclearSourceParameters::MediumType::TUFF;
+    if (s == "SALT")     return NuclearSourceParameters::MediumType::SALT;
+    if (s == "ALLUVIUM") return NuclearSourceParameters::MediumType::ALLUVIUM;
+    if (s == "SHALE")    return NuclearSourceParameters::MediumType::SHALE;
+    if (s == "GENERIC")  return NuclearSourceParameters::MediumType::GENERIC;
+
+    int rank = 0;
+    MPI_Comm_rank(comm, &rank);
+    if (rank == 0) {
+        PetscPrintf(comm,
+                    "EXPLOSION_SOURCE.medium_type=\"%s\" not recognised "
+                    "(expected GRANITE|TUFF|SALT|ALLUVIUM|SHALE|GENERIC); "
+                    "falling back to GENERIC.\n",
+                    raw.c_str());
+    }
+    return NuclearSourceParameters::MediumType::GENERIC;
+}
+
+}  // namespace
+
 // =============================================================================
 // ExplosionCoupling (PIMPL)
 // =============================================================================
@@ -388,6 +422,13 @@ struct Simulator::ExplosionCoupling {
     // Stored source parameters for Mueller-Murphy moment rate
     double yield_kt = 0.0;
     double depth_of_burial = 0.0;
+
+    // Host-medium classification used by MuellerMurphySource::setMedium
+    // so the cavity coefficient (Rc = C * W^(1/3) * (rho_ref/rho)^(1/3))
+    // reflects the rock type the layered geology represents. Default
+    // GENERIC preserves legacy behaviour for configs that omit the
+    // medium_type key.
+    std::string medium_type = "GENERIC";
 
     // Cavity model (spherically symmetric proxy)
     SphericalCavitySource cavity;
@@ -1121,7 +1162,16 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
             // Overpressure at cavity wall: allow override, else use a rough scaling
             double P0 = reader.getDouble("EXPLOSION_SOURCE", "cavity_overpressure", 1.0e11 * std::pow(std::max(0.1, yield_kt), 0.25));
 
+            // Host-medium classification routes through MuellerMurphySource
+            // ::setMedium so the cavity coefficient reflects the rock
+            // type. Accepts GRANITE, TUFF, SALT, ALLUVIUM, SHALE, or
+            // GENERIC (case-insensitive). Default GENERIC preserves
+            // pre-pass-2 behaviour for configs that omit the key.
+            std::string medium_str =
+                reader.getString("EXPLOSION_SOURCE", "medium_type", "GENERIC");
+
             explosion_ = std::make_unique<ExplosionCoupling>();
+            explosion_->medium_type = medium_str;
             explosion_->configureUndergroundNuclear(yield_kt, depth_m, x, y, z, rho, vp, vs, rise, P0, t0);
 
             // COUPLED_ANALYTIC: run 1D NearField solver and store RDP source
@@ -6318,12 +6368,22 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
             double K = explosion_->rho * explosion_->vp * explosion_->vp;
             mr = 4.0 * M_PI * K * psi_dot;
         } else {
-            // PROXY: Mueller-Murphy moment rate
+            // PROXY: Mueller-Murphy moment rate.
+            // Medium plumbing (pass 2): setMedium uses the rock-type
+            // specific cavity coefficient so the scalar moment scales
+            // correctly with the host geology. Default GENERIC
+            // preserves pre-pass-2 behaviour for configs that omit
+            // the EXPLOSION_SOURCE.medium_type key. End-to-end
+            // verification lives in Integration.MediumPlumbing.* which
+            // forces explosion_solve_mode = PROXY so this branch is
+            // actually exercised (default COUPLED_ANALYTIC takes the
+            // RDP-source branch above).
             NuclearSourceParameters nsp;
             nsp.yield_kt = explosion_->yield_kt;
             nsp.depth_of_burial = explosion_->depth_of_burial;
             MuellerMurphySource mm;
             mm.setMediumProperties(explosion_->rho, explosion_->vp, explosion_->vs);
+            mm.setMedium(parseMediumType(explosion_->medium_type, PETSC_COMM_WORLD));
             mm.setParameters(nsp);
             mr = mm.momentRate(elapsed);
         }
