@@ -313,6 +313,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.HistoricNuclear.Sedan1962 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962)
     add_test(NAME Integration.HistoricNuclear.DegelenMountain COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DegelenMountain)
     add_test(NAME Integration.HistoricNuclear.NtsPahuteMesa COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.NtsPahuteMesa)
+    add_test(NAME Integration.HistoricNuclear.FarFieldAmplitudeRegression COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.FarFieldAmplitudeRegression)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -426,6 +427,7 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.Sedan1962
         Integration.HistoricNuclear.DegelenMountain
         Integration.HistoricNuclear.NtsPahuteMesa
+        Integration.HistoricNuclear.FarFieldAmplitudeRegression
         Integration.Sedan1962Mesh
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
