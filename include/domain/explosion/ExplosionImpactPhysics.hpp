@@ -162,8 +162,16 @@ struct NuclearSourceParameters {
     double cavity_radius(double rock_density = 2650.0) const;
     double cavity_radius(double rock_density, MediumType medium) const;
     static double cavityCoefficient(MediumType medium);
+    // Medium-aware overloads route the medium argument to cavity_radius
+    // so that the surrounding crushed and fractured zones scale with
+    // the medium-specific cavity coefficient. The zero-argument
+    // overloads use MediumType::GENERIC (C = 12 m / kt^(1/3)) for
+    // backward compatibility with call sites that did not previously
+    // supply a medium.
     double crushed_zone_radius() const;
+    double crushed_zone_radius(MediumType medium) const;
     double fractured_zone_radius() const;
+    double fractured_zone_radius(MediumType medium) const;
 
     // Seismic source parameters. The medium-aware overload routes the
     // medium choice through cavity_radius and is used by

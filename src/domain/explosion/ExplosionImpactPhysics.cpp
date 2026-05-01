@@ -56,13 +56,27 @@ double NuclearSourceParameters::cavity_radius(double rock_density,
 }
 
 double NuclearSourceParameters::crushed_zone_radius() const {
+    // Legacy zero-argument overload: GENERIC medium (C = 12).
+    return crushed_zone_radius(MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::crushed_zone_radius(MediumType medium) const {
     // Educational scaling: crushed zone is a few cavity radii.
-    return 3.0 * cavity_radius();
+    // Routes the medium argument through cavity_radius so the
+    // surrounding zone scales with the medium-specific coefficient
+    // (e.g., salt 16 vs granite 11 gives a 45% larger crushed zone at
+    // fixed yield).
+    return 3.0 * cavity_radius(2650.0, medium);
 }
 
 double NuclearSourceParameters::fractured_zone_radius() const {
-    // Educational scaling: fractured zone extends ~5–15 cavity radii.
-    return 10.0 * cavity_radius();
+    // Legacy zero-argument overload: GENERIC medium (C = 12).
+    return fractured_zone_radius(MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::fractured_zone_radius(MediumType medium) const {
+    // Educational scaling: fractured zone extends ~5-15 cavity radii.
+    return 10.0 * cavity_radius(2650.0, medium);
 }
 
 double NuclearSourceParameters::scalar_moment() const {
