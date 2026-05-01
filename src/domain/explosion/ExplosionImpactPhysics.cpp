@@ -20,14 +20,35 @@ namespace FSRM {
 // NuclearSourceParameters
 // =============================================================================
 
+double NuclearSourceParameters::cavityCoefficient(MediumType medium) {
+    // Coefficients in m / kt^(1/3). See class docstring for citations.
+    switch (medium) {
+        case MediumType::GRANITE:  return 11.0;
+        case MediumType::TUFF:     return 18.0;
+        case MediumType::SALT:     return 16.0;
+        case MediumType::ALLUVIUM: return 22.0;
+        case MediumType::SHALE:    return 14.0;
+        case MediumType::GENERIC:  return 12.0;
+    }
+    return 12.0;
+}
+
 double NuclearSourceParameters::cavity_radius(double rock_density) const {
-    // Simple empirical scaling for underground-contained shots:
-    // Rc ≈ C * W^(1/3) * (rho_ref/rho)^(1/3)
+    // Legacy single-coefficient overload: keep the historical C = 12
+    // behaviour so existing call sites are unchanged.
+    return cavity_radius(rock_density, MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::cavity_radius(double rock_density,
+                                              MediumType medium) const {
+    // Empirical scaling for underground-contained shots:
+    // Rc = C(medium) * W^(1/3) * (rho_ref/rho)^(1/3)
     //
-    // Typical coefficients for hard rock are on the order of 8–15 m/kt^(1/3).
-    // We use a conservative mid-range value.
+    // The medium-aware coefficient distinguishes granite, tuff, salt,
+    // alluvium, and shale -- single-medium coefficient hides ~3x cavity
+    // size variation across realistic host rocks at fixed density.
     const double rho_ref = 2650.0;
-    const double C = 12.0;  // meters per kt^(1/3)
+    const double C = cavityCoefficient(medium);
 
     const double W = std::max(0.0, yield_kt);
     const double rho = (rock_density > 1.0) ? rock_density : rho_ref;
@@ -45,10 +66,17 @@ double NuclearSourceParameters::fractured_zone_radius() const {
 }
 
 double NuclearSourceParameters::scalar_moment() const {
+    // Legacy default: GENERIC medium (C = 12) so call sites that did
+    // not pass a medium see the historical M0 value.
+    return scalar_moment(MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::scalar_moment(MediumType medium) const {
     // Cavity mechanics formula: M0 = 4*pi*rho*vp^2*Rc^3
-    // where Rc is the cavity radius from empirical scaling.
+    // where Rc is the medium-aware cavity radius from empirical scaling.
     const double W = std::max(1e-12, yield_kt);
-    double Rc = cavity_radius(2700.0);  // granite
+    (void)W;
+    double Rc = cavity_radius(2700.0, medium);
     double rho = 2700.0;
     double vp = 5500.0;
     return 4.0 * M_PI * rho * vp * vp * Rc * Rc * Rc;
@@ -156,7 +184,8 @@ double SphericalCavitySource::equivalentMoment() const {
 // =============================================================================
 
 MuellerMurphySource::MuellerMurphySource()
-    : density(2700.0),
+    : medium_type(NuclearSourceParameters::MediumType::GENERIC),
+      density(2700.0),
       p_velocity(5000.0),
       s_velocity(3000.0),
       corner_frequency(1.0),
@@ -176,8 +205,18 @@ void MuellerMurphySource::setMediumProperties(double rho, double vp, double vs) 
     computeDerivedQuantities();
 }
 
+void MuellerMurphySource::setMedium(
+        NuclearSourceParameters::MediumType medium) {
+    medium_type = medium;
+    computeDerivedQuantities();
+}
+
 void MuellerMurphySource::computeDerivedQuantities() {
-    scalar_moment = source_params.scalar_moment();
+    // Use the medium-aware scalar_moment overload so a setMedium call
+    // correctly rescales M0 via the cavity coefficient table. The
+    // default medium_type is GENERIC, which preserves the historical
+    // M0 value for callers that did not call setMedium.
+    scalar_moment = source_params.scalar_moment(medium_type);
     // Patton (1988) corner frequency: fc = 3.0 * W^(-1/3) Hz for hard rock
     // with density correction for non-granite media (baseline rho = 2650 kg/m^3)
     const double W = std::max(1e-6, source_params.yield_kt);

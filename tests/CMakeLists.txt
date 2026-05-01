@@ -43,6 +43,8 @@ set(UNIT_TEST_SOURCES
     unit/numerics/test_petscfe_elasticity_aux.cpp
     # Physics kernels (CCS)
     unit/physics/test_multiphase_flow.cpp
+    # Explosion source physics (medium-aware cavity scaling)
+    unit/physics/test_cavity_scaling.cpp
     # I/O
     unit/io/test_eclipse_io.cpp
     # ML
@@ -220,6 +222,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.FaultMeshManager       COMMAND run_unit_tests --gtest_filter=FaultMeshManagerTest.*)
     add_test(NAME Unit.CohesiveFaultKernel    COMMAND run_unit_tests --gtest_filter=CohesiveFaultKernelTest.*)
     add_test(NAME Unit.ElasticityAux           COMMAND run_unit_tests --gtest_filter=PetscFEElasticityAuxTest.*)
+    add_test(NAME Unit.CavityScaling           COMMAND run_unit_tests --gtest_filter=CavityScalingTest.*)
 
     # --- Functional tests ---
     add_test(NAME Functional.SimulatorInit    COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)
@@ -345,6 +348,7 @@ if(GTest_FOUND)
         Unit.FractureFlowCallbacks
         Unit.HydrofracFormulas
         Unit.FracturePropagation
+        Unit.CavityScaling
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
