@@ -126,6 +126,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_nearfield_coupled.cpp
     integration/test_slipping_fault_solve.cpp
     integration/test_historic_nuclear.cpp
+    integration/test_medium_plumbing.cpp
     integration/test_single_phase_flow.cpp
     integration/test_viscoelastic_wave.cpp
     integration/test_slip_weakening.cpp
@@ -314,6 +315,8 @@ if(GTest_FOUND)
     add_test(NAME Integration.HistoricNuclear.DegelenMountain COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DegelenMountain)
     add_test(NAME Integration.HistoricNuclear.NtsPahuteMesa COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.NtsPahuteMesa)
     add_test(NAME Integration.HistoricNuclear.FarFieldAmplitudeRegression COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.FarFieldAmplitudeRegression)
+    add_test(NAME Integration.MediumPlumbing.SaltExceedsGranite COMMAND run_integration_tests --gtest_filter=MediumPlumbingTest.SaltExceedsGranite)
+    add_test(NAME Integration.MediumPlumbing.GenericFallbackOnUnknownString COMMAND run_integration_tests --gtest_filter=MediumPlumbingTest.GenericFallbackOnUnknownString)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -428,6 +431,8 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.DegelenMountain
         Integration.HistoricNuclear.NtsPahuteMesa
         Integration.HistoricNuclear.FarFieldAmplitudeRegression
+        Integration.MediumPlumbing.SaltExceedsGranite
+        Integration.MediumPlumbing.GenericFallbackOnUnknownString
         Integration.Sedan1962Mesh
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
