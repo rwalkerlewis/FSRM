@@ -408,3 +408,107 @@ TEST_F(NearFieldExplosionValidationTest, SolverStepProducesNonzeroState)
   EXPECT_GT(M_norm, 0.0)
       << "Moment tensor should be nonzero after a time step";
 }
+
+// ---------------------------------------------------------------------------
+// Spall map: the historic-nuclear robustness commit wires
+// NearFieldExplosionSolver::isSpalled to the SpallModel-derived
+// spall thickness and records each query into a sparse radial map.
+// These two tests verify the depth dependence: a shallow shot produces
+// a non-zero spall volume fraction, a deep shot does not.
+// ---------------------------------------------------------------------------
+TEST_F(NearFieldExplosionValidationTest, SpallStateIsRecorded)
+{
+  NearFieldExplosionSolver solver;
+
+  UndergroundExplosionSource src;
+  src.yield_kt = 1.0;
+  src.depth = 100.0;
+  src.location = {0.0, 0.0, -100.0};
+  src.host_density = RHO_GRANITE;
+  src.host_vp = VP_GRANITE;
+  src.host_vs = VS_GRANITE;
+  solver.setSource(src);
+  solver.setEOS(MieGruneisenEOS());
+  solver.setStrengthModel(PressureDependentStrength());
+  solver.setDamageModel(DamageEvolutionModel());
+  solver.initialize();
+
+  // Step past the surface P-wave arrival (~100/5500 ~ 0.018 s) so
+  // isSpalled does not gate on the onset time.
+  const double t_onset = src.depth / src.host_vp;
+  const double dt = 1.0e-3;
+  const int n_steps =
+      static_cast<int>(std::ceil(2.0 * t_onset / dt)) + 5;
+  for (int i = 0; i < n_steps; ++i)
+  {
+    solver.prestep(static_cast<double>(i) * dt, dt);
+    solver.step(dt);
+    solver.poststep(static_cast<double>(i) * dt, dt);
+  }
+
+  // A point on the free surface directly above the source should
+  // register as spalled.
+  std::array<double, 3> surface_point = {0.0, 0.0, 0.0};
+  EXPECT_TRUE(solver.isSpalled(surface_point))
+      << "Surface point above shallow 1 kt shot must be in spall layer";
+
+  // Sample a fan of points across the predicted spall radius to
+  // populate the radial bin map.
+  for (int i = 0; i < 20; ++i)
+  {
+    const double r = 5.0 * i;
+    std::array<double, 3> p = {r, 0.0, 0.0};
+    solver.isSpalled(p);
+  }
+
+  EXPECT_GT(solver.getSpallVolumeFraction(), 0.0)
+      << "Shallow shot must produce a non-zero spall volume fraction";
+}
+
+TEST_F(NearFieldExplosionValidationTest, SpallStateNotSetForDeepShot)
+{
+  NearFieldExplosionSolver solver;
+
+  UndergroundExplosionSource src;
+  src.yield_kt = 1.0;
+  src.depth = 5000.0;
+  src.location = {0.0, 0.0, -5000.0};
+  src.host_density = RHO_GRANITE;
+  src.host_vp = VP_GRANITE;
+  src.host_vs = VS_GRANITE;
+  solver.setSource(src);
+  solver.setEOS(MieGruneisenEOS());
+  solver.setStrengthModel(PressureDependentStrength());
+  solver.setDamageModel(DamageEvolutionModel());
+  solver.initialize();
+
+  // Step past surface arrival (~5000/5500 ~ 0.91 s).
+  const double t_onset = src.depth / src.host_vp;
+  const double dt = 5.0e-3;
+  const int n_steps =
+      static_cast<int>(std::ceil(2.0 * t_onset / dt)) + 5;
+  for (int i = 0; i < n_steps; ++i)
+  {
+    solver.prestep(static_cast<double>(i) * dt, dt);
+    solver.step(dt);
+    solver.poststep(static_cast<double>(i) * dt, dt);
+  }
+
+  // For a 1 kt shot at 5 km the SpallModel-predicted layer is below
+  // 1 m; isSpalled must return false uniformly.
+  std::array<double, 3> surface_point = {0.0, 0.0, 0.0};
+  EXPECT_FALSE(solver.isSpalled(surface_point))
+      << "Deep 1 kt shot must not register as spalled";
+
+  for (int i = 0; i < 20; ++i)
+  {
+    const double r = 25.0 * i;
+    std::array<double, 3> p = {r, 0.0, 0.0};
+    EXPECT_FALSE(solver.isSpalled(p))
+        << "Deep shot must not produce spalled region at lateral "
+        << "offset " << r << " m";
+  }
+
+  EXPECT_DOUBLE_EQ(solver.getSpallVolumeFraction(), 0.0)
+      << "Deep shot must give a zero spall volume fraction";
+}

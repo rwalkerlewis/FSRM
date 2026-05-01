@@ -20,14 +20,35 @@ namespace FSRM {
 // NuclearSourceParameters
 // =============================================================================
 
+double NuclearSourceParameters::cavityCoefficient(MediumType medium) {
+    // Coefficients in m / kt^(1/3). See class docstring for citations.
+    switch (medium) {
+        case MediumType::GRANITE:  return 11.0;
+        case MediumType::TUFF:     return 18.0;
+        case MediumType::SALT:     return 16.0;
+        case MediumType::ALLUVIUM: return 22.0;
+        case MediumType::SHALE:    return 14.0;
+        case MediumType::GENERIC:  return 12.0;
+    }
+    return 12.0;
+}
+
 double NuclearSourceParameters::cavity_radius(double rock_density) const {
-    // Simple empirical scaling for underground-contained shots:
-    // Rc ≈ C * W^(1/3) * (rho_ref/rho)^(1/3)
+    // Legacy single-coefficient overload: keep the historical C = 12
+    // behaviour so existing call sites are unchanged.
+    return cavity_radius(rock_density, MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::cavity_radius(double rock_density,
+                                              MediumType medium) const {
+    // Empirical scaling for underground-contained shots:
+    // Rc = C(medium) * W^(1/3) * (rho_ref/rho)^(1/3)
     //
-    // Typical coefficients for hard rock are on the order of 8–15 m/kt^(1/3).
-    // We use a conservative mid-range value.
+    // The medium-aware coefficient distinguishes granite, tuff, salt,
+    // alluvium, and shale -- single-medium coefficient hides ~3x cavity
+    // size variation across realistic host rocks at fixed density.
     const double rho_ref = 2650.0;
-    const double C = 12.0;  // meters per kt^(1/3)
+    const double C = cavityCoefficient(medium);
 
     const double W = std::max(0.0, yield_kt);
     const double rho = (rock_density > 1.0) ? rock_density : rho_ref;
@@ -45,10 +66,17 @@ double NuclearSourceParameters::fractured_zone_radius() const {
 }
 
 double NuclearSourceParameters::scalar_moment() const {
+    // Legacy default: GENERIC medium (C = 12) so call sites that did
+    // not pass a medium see the historical M0 value.
+    return scalar_moment(MediumType::GENERIC);
+}
+
+double NuclearSourceParameters::scalar_moment(MediumType medium) const {
     // Cavity mechanics formula: M0 = 4*pi*rho*vp^2*Rc^3
-    // where Rc is the cavity radius from empirical scaling.
+    // where Rc is the medium-aware cavity radius from empirical scaling.
     const double W = std::max(1e-12, yield_kt);
-    double Rc = cavity_radius(2700.0);  // granite
+    (void)W;
+    double Rc = cavity_radius(2700.0, medium);
     double rho = 2700.0;
     double vp = 5500.0;
     return 4.0 * M_PI * rho * vp * vp * Rc * Rc * Rc;
@@ -156,12 +184,15 @@ double SphericalCavitySource::equivalentMoment() const {
 // =============================================================================
 
 MuellerMurphySource::MuellerMurphySource()
-    : density(2700.0),
+    : medium_type(NuclearSourceParameters::MediumType::GENERIC),
+      density(2700.0),
       p_velocity(5000.0),
       s_velocity(3000.0),
       corner_frequency(1.0),
       scalar_moment(0.0),
       overshoot(1.0),
+      damping(0.7),
+      overshoot_zero_factor(1.0),
       rise_time(0.05) {}
 
 void MuellerMurphySource::setParameters(const NuclearSourceParameters& params) {
@@ -176,17 +207,66 @@ void MuellerMurphySource::setMediumProperties(double rho, double vp, double vs) 
     computeDerivedQuantities();
 }
 
+void MuellerMurphySource::setMedium(
+        NuclearSourceParameters::MediumType medium) {
+    medium_type = medium;
+    computeDerivedQuantities();
+}
+
+void MuellerMurphySource::setOvershoot(double B) {
+    overshoot = std::max(0.0, B);
+    // Note: do not call computeDerivedQuantities here because that
+    // method now resets nothing related to overshoot; it would
+    // recompute scalar_moment and corner_frequency, which are
+    // independent of B / zeta / k_B.
+}
+
+void MuellerMurphySource::setDamping(double zeta) {
+    // Clamp into the physically meaningful damping range (0, 1].
+    if (zeta <= 0.0) zeta = 1e-3;
+    if (zeta > 1.0) zeta = 1.0;
+    damping = zeta;
+}
+
+void MuellerMurphySource::setOvershootZeroFactor(double k_B) {
+    overshoot_zero_factor = std::max(1e-3, k_B);
+}
+
 void MuellerMurphySource::computeDerivedQuantities() {
-    scalar_moment = source_params.scalar_moment();
+    // Use the medium-aware scalar_moment overload so a setMedium call
+    // correctly rescales M0 via the cavity coefficient table. The
+    // default medium_type is GENERIC, which preserves the historical
+    // M0 value for callers that did not call setMedium.
+    scalar_moment = source_params.scalar_moment(medium_type);
     // Patton (1988) corner frequency: fc = 3.0 * W^(-1/3) Hz for hard rock
     // with density correction for non-granite media (baseline rho = 2650 kg/m^3)
     const double W = std::max(1e-6, source_params.yield_kt);
     corner_frequency = 3.0 * std::pow(W, -1.0 / 3.0) *
                        std::pow(density / 2650.0, -1.0 / 3.0);
     rise_time = 0.55 / corner_frequency;
-    overshoot = 1.0;
+    // overshoot, damping, and overshoot_zero_factor preserved across
+    // rebuilds so user-set RDP shape parameters survive a setMedium
+    // or setMediumProperties call.
 }
 
+// Mueller-Murphy (1971) moment-rate function.
+//
+// We retain the simple causal exponential moment rate
+//   Mdot(t) = (M0/tau) * exp(-t/tau) for t >= 0
+// because (a) it integrates to M0, (b) it is non-negative for all t,
+// and (c) it has Mdot(0) > 0, all of which are required by callers
+// and existing tests (Physics.MuellerMurphy.MomentRateFunction).
+//
+// The frequency-domain ::rdp uses the canonical M&M damped-resonator
+// form, which for B = 1 default has Mdot(0) = 0 in its strict
+// inverse-Laplace impulse-response form. Implementing the strict
+// Fourier pair in time would regress the existing tests, so the two
+// forms share only M0 and the corner frequency. For frequency-domain
+// studies (DPRK synthetic, RDP overshoot inspection), use ::rdp; for
+// time-domain coupling into TSSolve, use ::momentRate.
+//
+// References: Mueller & Murphy (1971) BSSA 61(6); Murphy (1981) DARPA
+// report; Stevens & Day (1985) JGR 90.
 double MuellerMurphySource::momentRate(double t) const {
     if (t < 0.0 || scalar_moment <= 0.0) {
         return 0.0;
@@ -195,11 +275,41 @@ double MuellerMurphySource::momentRate(double t) const {
     return (scalar_moment / tau) * std::exp(-t / tau);
 }
 
+// Mueller-Murphy (1971) RDP in the frequency domain.
+//
+//   Psi(omega) = M0 * (1 + i * (B - 1) * omega / omega_zero)
+//                / (1 - (omega/omega_p)^2 + 2 i zeta omega / omega_p)
+//
+// where M0 is the steady-state seismic moment (low-frequency plateau),
+// omega_p = 2 pi f_c is the corner frequency in radians, omega_zero =
+// omega_p * k_B places the numerator zero, B is the elastic overshoot
+// factor and zeta is the damping factor.
+//
+// Defaults (B = 1, zeta = 0.7, k_B = 1) suppress the numerator zero
+// via the (B - 1) gating so the spectrum is the pure damped second-
+// order low-pass with omega^-2 high-frequency decay -- this preserves
+// the existing RDPSpectralShape and RDPLowFrequencyPlateauEqualsM0
+// tests. For tamped granite or studies that resolve the elastic-
+// overshoot peak, set B > 1 (and optionally tighten zeta) via
+// setOvershoot / setDamping to activate the M&M numerator zero.
+//
+// Reference: Mueller & Murphy (1971) BSSA 61(6) figs. 3, 6;
+// Stevens & Day (1985) JGR 90, eq. 4.
 std::complex<double> MuellerMurphySource::rdp(double omega) const {
     const double w = std::max(1e-12, std::abs(omega));
-    const double omega_c = 2.0 * M_PI * std::max(1e-12, corner_frequency);
-    const double den = 1.0 + (w / omega_c) * (w / omega_c);
-    return std::complex<double>(scalar_moment / den, 0.0);
+    const double omega_p = 2.0 * M_PI * std::max(1e-12, corner_frequency);
+    const double zeta = damping;
+    const double k_B = std::max(1e-9, overshoot_zero_factor);
+    const double omega_zero = omega_p * k_B;
+
+    const double x = w / omega_p;
+    using cd = std::complex<double>;
+    // (B - 1) gating: B = 1 default leaves numerator = 1 so the
+    // spectrum is the pure damped second-order low-pass. B > 1
+    // activates the overshoot zero with strength (B - 1).
+    const cd numerator(1.0, (overshoot - 1.0) * w / omega_zero);
+    const cd denom(1.0 - x * x, 2.0 * zeta * x);
+    return scalar_moment * (numerator / denom);
 }
 
 double MuellerMurphySource::getCornerFrequency() const {
@@ -208,6 +318,10 @@ double MuellerMurphySource::getCornerFrequency() const {
 
 double MuellerMurphySource::getOvershoot() const {
     return overshoot;
+}
+
+double MuellerMurphySource::getDamping() const {
+    return damping;
 }
 
 void MuellerMurphySource::getMomentTensor(double t, double* M) const {

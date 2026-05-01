@@ -43,6 +43,8 @@ set(UNIT_TEST_SOURCES
     unit/numerics/test_petscfe_elasticity_aux.cpp
     # Physics kernels (CCS)
     unit/physics/test_multiphase_flow.cpp
+    # Explosion source physics (medium-aware cavity scaling)
+    unit/physics/test_cavity_scaling.cpp
     # I/O
     unit/io/test_eclipse_io.cpp
     # ML
@@ -220,6 +222,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.FaultMeshManager       COMMAND run_unit_tests --gtest_filter=FaultMeshManagerTest.*)
     add_test(NAME Unit.CohesiveFaultKernel    COMMAND run_unit_tests --gtest_filter=CohesiveFaultKernelTest.*)
     add_test(NAME Unit.ElasticityAux           COMMAND run_unit_tests --gtest_filter=PetscFEElasticityAuxTest.*)
+    add_test(NAME Unit.CavityScaling           COMMAND run_unit_tests --gtest_filter=CavityScalingTest.*)
 
     # --- Functional tests ---
     add_test(NAME Functional.SimulatorInit    COMMAND run_functional_tests --gtest_filter=SimulatorInitTest.*)
@@ -310,6 +313,7 @@ if(GTest_FOUND)
     add_test(NAME Integration.HistoricNuclear.Sedan1962 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962)
     add_test(NAME Integration.HistoricNuclear.DegelenMountain COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DegelenMountain)
     add_test(NAME Integration.HistoricNuclear.NtsPahuteMesa COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.NtsPahuteMesa)
+    add_test(NAME Integration.HistoricNuclear.FarFieldAmplitudeRegression COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.FarFieldAmplitudeRegression)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -345,6 +349,7 @@ if(GTest_FOUND)
         Unit.FractureFlowCallbacks
         Unit.HydrofracFormulas
         Unit.FracturePropagation
+        Unit.CavityScaling
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
@@ -422,6 +427,7 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.Sedan1962
         Integration.HistoricNuclear.DegelenMountain
         Integration.HistoricNuclear.NtsPahuteMesa
+        Integration.HistoricNuclear.FarFieldAmplitudeRegression
         Integration.Sedan1962Mesh
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )

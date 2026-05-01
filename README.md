@@ -98,11 +98,14 @@ Every feature below has automated tests with quantitative pass/fail criteria. Ru
 | NearField-FEM coupling | `Integration.NearFieldCoupled` | COUPLED_ANALYTIC 1D solver to 3D FEM moment rate |
 | Per-face traction BC | `Integration.TractionBC` | Manual assembly, uniaxial analytical |
 | Time-dependent slip ramp | `Integration.TimeDependentSlip` | Linear slip ramp with onset/rise time |
-| Historic: Gasbuggy 1967 | `Integration.HistoricNuclear.Gasbuggy1967` | 29 kt, 4-layer Lewis Shale, SAC output |
-| Historic: Gnome 1961 | `Integration.HistoricNuclear.Gnome1961` | 3.1 kt, 4-layer Salado Salt, SAC output |
-| Historic: Sedan 1962 | `Integration.HistoricNuclear.Sedan1962` | 104 kt, 3-layer alluvium, SAC output |
-| Historic: Degelen Mountain | `Integration.HistoricNuclear.DegelenMountain` | 50 kt, 3-layer granite, SAC output |
-| Historic: NTS Pahute Mesa | `Integration.HistoricNuclear.NtsPahuteMesa` | 150 kt, 4-layer tuff, SAC output |
+| Historic: Gasbuggy 1967 | `Integration.HistoricNuclear.Gasbuggy1967` | 29 kt, 4-layer Lewis Shale, SAC output, far-field amplitude / onset / polarity / mb (see [HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md)) |
+| Historic: Gnome 1961 | `Integration.HistoricNuclear.Gnome1961` | 3.1 kt, 4-layer Salado Salt, SAC output, quantitative checks |
+| Historic: Sedan 1962 | `Integration.HistoricNuclear.Sedan1962` | 104 kt, 3-layer alluvium, SAC output, quantitative checks |
+| Historic: Degelen Mountain | `Integration.HistoricNuclear.DegelenMountain` | 50 kt, 3-layer granite, SAC output, quantitative checks |
+| Historic: NTS Pahute Mesa | `Integration.HistoricNuclear.NtsPahuteMesa` | 150 kt, 4-layer tuff, SAC output, quantitative checks |
+| Historic regression CSV | `Integration.HistoricNuclear.FarFieldAmplitudeRegression` | Sedan re-run; emits `historic_nuclear_regression.csv` |
+| Medium-aware cavity radius | `Unit.CavityScaling` | Granite/tuff/salt/alluvium/shale coefficient table, cube-root scaling |
+| DPRK 2017 synthetic-vs-observed amplitude | `Integration.DPRK2017Comparison.DPRK2017FarFieldSyntheticAmplitude` | Mueller-Murphy + Aki-Richards + Butterworth + mb formula |
 | Per-cell material from velocity model | `Integration.VelocityModelMaterial` | Binary Vp/Vs/rho grid mapped to mesh via interpolation |
 | Thermal diffusion (heat equation) | `Integration.ThermalDiffusion` | Steady-state thermal field through TSSolve |
 | Thermoelastic stress (THM) | `Integration.ThermalExpansion` | Thermal expansion coupling, uniform heating, displacement checks |
@@ -111,8 +114,8 @@ Every feature below has automated tests with quantitative pass/fail criteria. Ru
 
 | Feature | Test(s) |
 |---------|---------|
-| Mueller-Murphy source | `Physics.MuellerMurphy` |
-| Near-field explosion (1D Lagrangian) | `Physics.NearFieldExplosion` |
+| Mueller-Murphy source (RDP overshoot, omega^-2 rolloff, mb scaling) | `Physics.MuellerMurphy`; see [HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md) |
+| Near-field explosion (1D Lagrangian) | `Physics.NearFieldExplosion` (includes spall map state, `SpallStateIsRecorded` / `SpallStateNotSetForDeepShot`) |
 | Atmospheric explosion (Sedov-Taylor, Brode, EMP) | `Physics.AtmosphericExplosion` |
 | Drucker-Prager return mapping | `Unit.DruckerPragerStandalone` |
 | Friction laws (slip-weakening, rate-state) | `Unit.FaultMechanics` |
