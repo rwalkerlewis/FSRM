@@ -239,6 +239,10 @@ One line per session. New lines go at the BOTTOM.
   199 residual improves `2.9e+3 -> 6.0e+2` (5x). Still stalls. Verdict:
   Schur approximation is the next bottleneck.
 - S31: documentation reorganization. No solver-state change.
+- pass-3: pass-3 historic-nuclear-fidelity infrastructure (mesh refinement,
+  per-layer Q, frequency-dependent t*, layered absorbing-BC test). Does
+  not modify Jacobian / cohesive code paths; default fault subset count
+  unchanged at 10/16.
 
 ## Quantitative timeline
 
