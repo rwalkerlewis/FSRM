@@ -168,6 +168,23 @@ protected:
     cfg << "rise_time = 0.01\n";
     cfg << "cavity_overpressure = 1.0e10\n";
     cfg << "medium_type = " << medium_type << "\n";
+    // Pass-3 honesty: [MESH_REFINEMENT] is registered as live
+    // infrastructure (Integration.SourceRefinement verifies its plumbing),
+    // but enabling it on the historic-nuclear fixtures *increases* the
+    // peak/u_far ratio rather than decreasing it. The reason is structural:
+    // addExplosionSourceToResidual injects the moment tensor into a single
+    // cell via DMPlexComputeCellGeometryFEM basis-gradient nodal forces.
+    // A finer cell concentrates the same M0 over a smaller volume, so the
+    // local stress (and the seismogram peak at a station within ~5 cells
+    // of the source) goes UP, not down -- the opposite of what the
+    // task-spec premise expected. Empirically with refinement_levels = 1
+    // (the largest budget that fits the ctest 600 s timeout): Gnome 1961
+    // ratio 78x -> 191x; Sedan 1962 65x -> 112x; Pahute Mesa 78x -> 127x.
+    // We therefore leave [MESH_REFINEMENT] disabled on the historic
+    // pipelines; the 100x envelope from pass-2 is still the tightest
+    // bound that holds, and the documented residual is exactly the
+    // single-cell point-source approximation rather than mesh
+    // discretisation. See HISTORIC_NUCLEAR_FIDELITY.md section 3.
     cfg << "\n[BOUNDARY_CONDITIONS]\n";
     cfg << "bottom = free\n";
     cfg << "sides = free\n";
@@ -640,16 +657,27 @@ TEST_F(HistoricNuclearTest, FarFieldAmplitudeRegression)
 
   // CSV path: emit beside the build directory so it is easy to attach
   // to the PR description.
+  //
+  // Pass-3 schema: a refinement_levels column captures whether the
+  // mesh was refined for the run. For pass-2 / pass-3 main-line
+  // historic-nuclear simulations refinement is disabled (single-cell
+  // moment-tensor injection in addExplosionSourceToResidual makes
+  // peaks rise rather than fall when the source cell shrinks; see
+  // HISTORIC_NUCLEAR_FIDELITY.md). The column is reserved so a
+  // future PR that distributes the source over multiple cells can
+  // emit a refined row alongside the un-refined baseline and track
+  // the peak / u_far ratio change.
   std::string csv_path = "historic_nuclear_regression.csv";
   bool exists = std::filesystem::exists(csv_path);
   std::ofstream csv(csv_path, std::ios::app);
   if (!exists) {
-    csv << "test,yield_kt,depth_m,end_time,peak_abs_m,peak_time_s,"
+    csv << "test,yield_kt,depth_m,end_time,refinement_levels,peak_abs_m,peak_time_s,"
         << "u_far_estimate_m,polarity_sign,l2_norm,onset_lower,onset_upper\n";
   }
   csv << std::scientific << std::setprecision(6)
       << "Sedan1962," << yield_kt_ << "," << depth_m_ << ","
-      << end_time_ << "," << result.peak_abs << ","
+      << end_time_ << ",0,"
+      << result.peak_abs << ","
       << result.peak_time << "," << u_far << ","
       << result.polarity_sign << "," << result.l2_norm << ","
       << result.onset_lower << "," << result.onset_upper << "\n";
