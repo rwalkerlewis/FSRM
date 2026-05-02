@@ -6,13 +6,22 @@
 namespace FSRM
 {
 
-// Auxiliary field indices for heterogeneous material properties
+// Auxiliary field indices for heterogeneous material properties.
+//
+// Pass-3 (per-layer Q) added AUX_QP and AUX_QS at indices 3 and 4. When
+// viscoelastic attenuation is disabled the fields remain in the aux DM
+// but are unused (populated with the global / sentinel value), so any
+// callback that reads only AUX_LAMBDA / AUX_MU / AUX_RHO sees no
+// change in behaviour. The g3_viscoelastic_aux callback, when present,
+// reads the per-cell Q to scale the unrelaxed-modulus delta_mu sum.
 enum AuxFieldIndex
 {
   AUX_LAMBDA = 0,
   AUX_MU     = 1,
   AUX_RHO    = 2,
-  NUM_AUX_FIELDS = 3
+  AUX_QP     = 3,
+  AUX_QS     = 4,
+  NUM_AUX_FIELDS = 5
 };
 
 /**

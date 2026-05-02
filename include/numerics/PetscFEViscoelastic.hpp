@@ -47,6 +47,14 @@ static constexpr PetscInt VISCO_CONST_DK_BASE  = 65;  // delta_kappa_0..delta_ka
 static constexpr PetscInt VISCO_CONST_COUNT    = 70;
 static constexpr PetscInt VISCO_MAX_MECHANISMS = 5;
 
+// Pass-3 (per-layer Q): the global q_s and q_p the mechanism weights
+// were fit against. Per-cell Q from aux fields scales the unrelaxed
+// modulus by (Q_global / Q_local). Slots 86, 87 sit past the thermal
+// (74..78) and cohesive refDir (80..85) ranges, so they do not
+// collide with any other physics module's unified_constants layout.
+static constexpr PetscInt VISCO_CONST_Q_S_GLOBAL = 86;
+static constexpr PetscInt VISCO_CONST_Q_P_GLOBAL = 87;
+
 // Auxiliary field indices (memory variables start after lambda, mu, rho)
 static constexpr PetscInt VISCO_AUX_MEMORY_BASE = 3;  // R_0 starts at aOff[3]
 

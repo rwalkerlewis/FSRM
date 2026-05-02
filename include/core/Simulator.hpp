@@ -32,6 +32,10 @@ public:
     PetscErrorCode initialize(const SimulationConfig& config);
     PetscErrorCode initializeFromConfigFile(const std::string& config_file);
     PetscErrorCode setupDM();
+    // Pass-3: refine the mesh in a sphere around the explosion source. No-op
+    // unless config.mesh_refinement_enabled. Invoked after setupDM() and
+    // before labelBoundaries().
+    PetscErrorCode refineSourceRegion();
     PetscErrorCode setupFields();
     PetscErrorCode setupPhysics();
     PetscErrorCode setupTimeStepper();

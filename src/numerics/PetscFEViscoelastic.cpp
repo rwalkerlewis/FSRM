@@ -230,9 +230,41 @@ void g3_viscoelastic_aux(PetscInt dim, PetscInt Nf, PetscInt NfAux,
         sum_dk  += getRealConst(numConstants, constants, VISCO_CONST_DK_BASE + m, 0.0);
     }
 
+    // Pass-3: per-cell Q scaling. The constants-array delta_mu was
+    // computed once globally with config.visco_q_s, so it represents
+    // the constant-Q solution at Q_global. Per-layer Q lets us
+    // approximate cell-local attenuation by scaling delta_mu by
+    // (Q_global / Q_local). At Q_local = Q_global the scale is 1
+    // (bit-identical backward compat); at Q_local -> infinity the
+    // scaled delta_mu -> 0 and the unrelaxed modulus collapses back
+    // to the relaxed (elastic) modulus.
+    //
+    // NfAux >= 5 means the per-cell Q fields (AUX_QP=3, AUX_QS=4) are
+    // populated. Constants slots 78 and 79 carry the global Q the
+    // mechanism weights were fit against; when those slots are zero
+    // the per-cell scaling is disabled (legacy path).
+    PetscReal q_scale_s = 1.0;
+    PetscReal q_scale_p = 1.0;
+    if (NfAux >= 5) {
+        const PetscReal q_p_local = PetscRealPart(a[aOff[3]]);
+        const PetscReal q_s_local = PetscRealPart(a[aOff[4]]);
+        const PetscReal q_p_global =
+            getRealConst(numConstants, constants, VISCO_CONST_Q_P_GLOBAL, 0.0);
+        const PetscReal q_s_global =
+            getRealConst(numConstants, constants, VISCO_CONST_Q_S_GLOBAL, 0.0);
+        if (q_p_local > 0.0 && q_p_global > 0.0)
+            q_scale_p = q_p_global / q_p_local;
+        if (q_s_local > 0.0 && q_s_global > 0.0)
+            q_scale_s = q_s_global / q_s_local;
+    }
+    const PetscReal sum_dmu_eff = sum_dmu * q_scale_s;
+    const PetscReal sum_dk_eff  = sum_dk  * q_scale_p;
+
     // Unrelaxed moduli (used as tangent for implicit integration)
-    const PetscScalar mu_u     = mu_r * (1.0 + sum_dmu);
-    const PetscScalar lambda_u = lambda_r + (2.0 / 3.0) * (mu_r * sum_dmu - mu_r * sum_dk);
+    const PetscScalar mu_u     = mu_r * (1.0 + sum_dmu_eff);
+    const PetscScalar lambda_u = lambda_r + (2.0 / 3.0) *
+                                 (mu_r * sum_dmu_eff - mu_r * sum_dk_eff);
+    (void)lambda_u;
     // Simplified: for P-wave attenuation, use lambda_u = lambda_r * (1 + sum_dk)
     // But for S-wave only: lambda unchanged, mu adjusted.
     // Using the proper tangent: lambda_u = lambda_r, mu_u = mu_r*(1+sum_dmu)

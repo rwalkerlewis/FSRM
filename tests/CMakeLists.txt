@@ -134,6 +134,9 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_thermal_expansion.cpp
     integration/test_thermal_diffusion.cpp
     integration/test_sedan_1962_mesh.cpp
+    integration/test_source_refinement.cpp
+    integration/test_layered_q.cpp
+    integration/test_absorbing_bc_layered.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -317,6 +320,10 @@ if(GTest_FOUND)
     add_test(NAME Integration.HistoricNuclear.FarFieldAmplitudeRegression COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.FarFieldAmplitudeRegression)
     add_test(NAME Integration.MediumPlumbing.SaltExceedsGranite COMMAND run_integration_tests --gtest_filter=MediumPlumbingTest.SaltExceedsGranite)
     add_test(NAME Integration.MediumPlumbing.GenericFallbackOnUnknownString COMMAND run_integration_tests --gtest_filter=MediumPlumbingTest.GenericFallbackOnUnknownString)
+    # Pass-3 (historic-nuclear-fidelity-pass-3) integration tests
+    add_test(NAME Integration.SourceRefinement COMMAND run_integration_tests --gtest_filter=SourceRefinementTest.*)
+    add_test(NAME Integration.LayeredQ COMMAND run_integration_tests --gtest_filter=LayeredQTest.*)
+    add_test(NAME Integration.AbsorbingBCLayered COMMAND run_integration_tests --gtest_filter=AbsorbingBCLayeredTest.*)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -434,6 +441,9 @@ if(GTest_FOUND)
         Integration.MediumPlumbing.SaltExceedsGranite
         Integration.MediumPlumbing.GenericFallbackOnUnknownString
         Integration.Sedan1962Mesh
+        Integration.SourceRefinement
+        Integration.LayeredQ
+        Integration.AbsorbingBCLayered
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

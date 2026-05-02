@@ -137,6 +137,15 @@ struct MaterialLayer {
     double lambda = 30.0e9;   // First Lame parameter (Pa)
     double mu = 25.0e9;       // Shear modulus (Pa)
     double rho = 2650.0;      // Density (kg/m^3)
+
+    // Per-layer quality factors (pass-3). Negative sentinel means "inherit
+    // global [VISCOELASTIC] q_p / q_s if defined, otherwise treat as
+    // elastic". Per-cell aux fields are populated from these so the
+    // generalized Maxwell body unrelaxed modulus reflects depth-stratified
+    // attenuation. Backward compat: a config with no per-layer overrides
+    // and a global [VISCOELASTIC] section reproduces the pass-2 result.
+    double q_p = -1.0;
+    double q_s = -1.0;
 };
 
 struct MaterialRegion {
@@ -400,6 +409,20 @@ struct SimulationConfig {
     double visco_q_s = 100.0;                      // S-wave quality factor
     double visco_f_min = 0.1;                      // Low end of constant-Q band (Hz)
     double visco_f_max = 10.0;                     // High end of constant-Q band (Hz)
+
+    // =========================================================================
+    // Source-region mesh refinement (pass-3)
+    // =========================================================================
+    // When enabled, refineSourceRegion() runs after setupDM() and before
+    // labelBoundaries(). Cells whose centroid is within
+    // source_radius_factor * cavity_radius of the explosion source are
+    // marked DM_ADAPT_REFINE; PETSc's DMAdaptLabel produces a refined DM.
+    // refinement_levels iterates the refine-mark-adapt cycle so that
+    // levels = 2 quarters the local edge length. Default disabled so
+    // existing tests remain bit-identical.
+    bool mesh_refinement_enabled = false;
+    double mesh_refinement_source_radius_factor = 5.0;
+    int mesh_refinement_levels = 1;
 
     // =========================================================================
     // HIGH-FIDELITY OPTIONS (Optional Advanced Features)
