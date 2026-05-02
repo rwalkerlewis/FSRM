@@ -762,6 +762,24 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         }
     }
 
+    // Pass-3: parse source-region mesh refinement configuration (optional).
+    if (reader.hasSection("MESH_REFINEMENT")) {
+        config.mesh_refinement_enabled = reader.getBool("MESH_REFINEMENT", "enabled", false);
+        config.mesh_refinement_source_radius_factor =
+            reader.getDouble("MESH_REFINEMENT", "source_radius_factor", 5.0);
+        config.mesh_refinement_levels =
+            static_cast<int>(reader.getDouble("MESH_REFINEMENT", "refinement_levels", 1.0));
+        if (config.mesh_refinement_levels < 0) config.mesh_refinement_levels = 0;
+        if (config.mesh_refinement_levels > 4) config.mesh_refinement_levels = 4;
+        if (rank == 0 && config.mesh_refinement_enabled) {
+            PetscPrintf(comm,
+                "Mesh refinement (source region): radius_factor=%.2f * Rc, "
+                "levels=%d\n",
+                config.mesh_refinement_source_radius_factor,
+                config.mesh_refinement_levels);
+        }
+    }
+
     // Parse heterogeneous material configuration (optional)
     if (reader.hasSection("MATERIAL")) {
         config.use_heterogeneous_material = reader.getBool("MATERIAL", "heterogeneous", false);
@@ -796,6 +814,15 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
             layer.lambda   = reader.getDouble(section_name, "lambda", 30.0e9);
             layer.mu       = reader.getDouble(section_name, "mu", 25.0e9);
             layer.rho      = reader.getDouble(section_name, "rho", 2650.0);
+            // Pass-3: optional per-layer Q. Defaults are -1 (sentinel) so
+            // the aux-field populator can decide between (a) inheriting
+            // the global VISCOELASTIC q_p/q_s, or (b) treating the layer
+            // as elastic when no global Q is set. Real seismic media
+            // (AK135) report Q_alpha varying from ~280 in the
+            // asthenosphere to ~1450 in the upper crust; per-layer Q is
+            // the depth-stratified attenuation hook.
+            layer.q_p      = reader.getDouble(section_name, "q_p", -1.0);
+            layer.q_s      = reader.getDouble(section_name, "q_s", -1.0);
             config.material_layers.push_back(layer);
         }
         if (rank == 0) {
@@ -1422,10 +1449,10 @@ PetscErrorCode Simulator::loadEclipseInput(const std::string& filename) {
 PetscErrorCode Simulator::setupDM() {
     PetscFunctionBeginUser;
     PetscErrorCode ierr;
-    
+
     // Setup coordinate system first
     ierr = setupCoordinateSystem(); CHKERRQ(ierr);
-    
+
     // Choose grid setup based on mesh type
     switch (grid_config.mesh_type) {
         case MeshType::GMSH:
@@ -1449,7 +1476,189 @@ PetscErrorCode Simulator::setupDM() {
             }
             break;
     }
-    
+
+    // Pass-3: optionally refine cells in a sphere around the explosion
+    // source. No-op when [MESH_REFINEMENT] is absent or disabled.
+    ierr = refineSourceRegion(); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+// =============================================================================
+// refineSourceRegion (pass-3)
+//
+// Mark cells whose centroid lies within
+//   source_radius_factor * cavity_radius
+// of the explosion source location and call DMAdaptLabel to produce a
+// refined DM. Iterated `refinement_levels` times so level=2 quarters the
+// local edge length. Marking is local-only: the global mesh outside the
+// source ball is unchanged.
+//
+// Designed for the historic-nuclear CI configuration where the 4x4x4 base
+// mesh has h ~ 500 m for a 5 km domain while the cavity radius for 100 kt
+// in granite is Rc ~ 50 m. Refining levels=2 inside a 5*Rc ball brings
+// h_local ~ 125 m, roughly Rc/h ~ 0.4 -- close enough to resolve the
+// cavity while keeping the global cell count bounded.
+//
+// Default disabled. When [MESH_REFINEMENT] enabled = false (or the
+// section is absent) this routine returns immediately so existing tests
+// behave bit-identically.
+// =============================================================================
+PetscErrorCode Simulator::refineSourceRegion() {
+    PetscFunctionBeginUser;
+    if (!config.mesh_refinement_enabled) PetscFunctionReturn(0);
+    if (!explosion_) PetscFunctionReturn(0);
+    if (config.mesh_refinement_levels <= 0) PetscFunctionReturn(0);
+    PetscErrorCode ierr;
+
+    // Cavity radius (medium-aware). Pass-2 plumbing: medium_type comes
+    // from EXPLOSION_SOURCE.medium_type.
+    NuclearSourceParameters mp;
+    mp.yield_kt = explosion_->yield_kt;
+    mp.depth_of_burial = explosion_->depth_of_burial;
+    NuclearSourceParameters::MediumType medium =
+        parseMediumType(explosion_->medium_type, comm);
+    double Rc = mp.cavity_radius(explosion_->rho, medium);
+    if (Rc <= 0.0) {
+        if (rank == 0) {
+            PetscPrintf(comm,
+                "refineSourceRegion: cavity radius <= 0, skipping refinement\n");
+        }
+        PetscFunctionReturn(0);
+    }
+    const double R_refine = config.mesh_refinement_source_radius_factor * Rc;
+
+    const double sx = explosion_->sx;
+    const double sy = explosion_->sy;
+    const double sz = explosion_->sz;
+
+    if (rank == 0) {
+        PetscPrintf(comm,
+            "Source-region refinement: Rc=%.2f m, R_refine=%.2f m, levels=%d, "
+            "source=(%.2f, %.2f, %.2f)\n",
+            Rc, R_refine, config.mesh_refinement_levels, sx, sy, sz);
+    }
+
+    for (int level = 0; level < config.mesh_refinement_levels; ++level) {
+        // Build a fresh "SourceRefine" DMLabel marking cells inside the
+        // source ball with DM_ADAPT_REFINE; everything else stays at the
+        // default DM_ADAPT_DETERMINE so DMAdaptLabel leaves it untouched.
+        DMLabel adaptLabel = nullptr;
+        ierr = DMLabelCreate(PETSC_COMM_SELF, "SourceRefine", &adaptLabel); CHKERRQ(ierr);
+        ierr = DMLabelSetDefaultValue(adaptLabel, DM_ADAPT_DETERMINE); CHKERRQ(ierr);
+
+        PetscInt cStart, cEnd;
+        ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+        PetscInt n_marked = 0;
+        // Always mark the cell that contains the source point even if
+        // the analytic R_refine ball would miss it on a coarse mesh
+        // (e.g. h >> R_refine). This guarantees at least one cell of
+        // refinement around the source.
+        {
+            Vec pt;
+            ierr = VecCreateSeq(PETSC_COMM_SELF, 3, &pt); CHKERRQ(ierr);
+            ierr = VecSetBlockSize(pt, 3); CHKERRQ(ierr);
+            PetscScalar* pv = nullptr;
+            ierr = VecGetArray(pt, &pv); CHKERRQ(ierr);
+            pv[0] = sx; pv[1] = sy; pv[2] = sz;
+            ierr = VecRestoreArray(pt, &pv); CHKERRQ(ierr);
+            PetscSF cellSF = nullptr;
+            ierr = DMLocatePoints(dm, pt, DM_POINTLOCATION_NONE, &cellSF); CHKERRQ(ierr);
+            const PetscSFNode* remotes = nullptr;
+            PetscInt nFound = 0;
+            ierr = PetscSFGetGraph(cellSF, nullptr, &nFound, nullptr, &remotes); CHKERRQ(ierr);
+            if (nFound > 0 && remotes && remotes[0].index >= 0) {
+                PetscInt c0 = remotes[0].index;
+                if (c0 >= cStart && c0 < cEnd) {
+                    PetscInt cur = -2;
+                    DMLabelGetValue(adaptLabel, c0, &cur);
+                    if (cur != DM_ADAPT_REFINE) {
+                        ierr = DMLabelSetValue(adaptLabel, c0, DM_ADAPT_REFINE); CHKERRQ(ierr);
+                        ++n_marked;
+                    }
+                }
+            }
+            ierr = PetscSFDestroy(&cellSF); CHKERRQ(ierr);
+            ierr = VecDestroy(&pt); CHKERRQ(ierr);
+        }
+
+        for (PetscInt c = cStart; c < cEnd; ++c) {
+            PetscReal vol = 0.0;
+            PetscReal centroid[3] = {0.0, 0.0, 0.0};
+            ierr = DMPlexComputeCellGeometryFVM(dm, c, &vol, centroid, nullptr); CHKERRQ(ierr);
+            const double dx = centroid[0] - sx;
+            const double dy = centroid[1] - sy;
+            const double dz = centroid[2] - sz;
+            const double r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 <= R_refine * R_refine) {
+                PetscInt cur = -2;
+                DMLabelGetValue(adaptLabel, c, &cur);
+                if (cur != DM_ADAPT_REFINE) {
+                    ierr = DMLabelSetValue(adaptLabel, c, DM_ADAPT_REFINE); CHKERRQ(ierr);
+                    ++n_marked;
+                }
+            }
+        }
+
+        PetscInt n_marked_global = 0;
+        ierr = MPI_Allreduce(&n_marked, &n_marked_global, 1, MPIU_INT, MPI_SUM, comm); CHKERRQ(ierr);
+
+        if (n_marked_global == 0) {
+            // No cells in the source ball on any rank; nothing to refine.
+            ierr = DMLabelDestroy(&adaptLabel); CHKERRQ(ierr);
+            if (rank == 0) {
+                PetscPrintf(comm,
+                    "Source-region refinement: level %d marked 0 cells, "
+                    "stopping early\n", level);
+            }
+            break;
+        }
+
+        DM dmAdapt = nullptr;
+        ierr = DMAdaptLabel(dm, adaptLabel, &dmAdapt); CHKERRQ(ierr);
+        ierr = DMLabelDestroy(&adaptLabel); CHKERRQ(ierr);
+        if (!dmAdapt) {
+            if (rank == 0) {
+                PetscPrintf(comm,
+                    "Source-region refinement: DMAdaptLabel returned NULL DM "
+                    "at level %d, stopping refinement\n", level);
+            }
+            break;
+        }
+
+        ierr = DMSetFromOptions(dmAdapt); CHKERRQ(ierr);
+
+        PetscInt cStart_old, cEnd_old, cStart_new, cEnd_new;
+        ierr = DMPlexGetHeightStratum(dm, 0, &cStart_old, &cEnd_old); CHKERRQ(ierr);
+        ierr = DMPlexGetHeightStratum(dmAdapt, 0, &cStart_new, &cEnd_new); CHKERRQ(ierr);
+
+        // Replace the simulator's DM with the refined one.
+        ierr = DMDestroy(&dm); CHKERRQ(ierr);
+        dm = dmAdapt;
+
+        if (rank == 0) {
+            PetscPrintf(comm,
+                "Source-region refinement: level %d marked %d cells, "
+                "cell count %d -> %d\n",
+                level, (int)n_marked_global,
+                (int)(cEnd_old - cStart_old),
+                (int)(cEnd_new - cStart_new));
+        }
+    }
+
+    // Update bounding-box-derived grid dimensions in case anything
+    // downstream consumes them. The mesh extent does not actually
+    // change under label-driven refinement, but the cell count does;
+    // re-emit the updated cell count in the log.
+    PetscInt cStart_final, cEnd_final;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart_final, &cEnd_final); CHKERRQ(ierr);
+    if (rank == 0) {
+        PetscPrintf(comm,
+            "Source-region refinement complete: %d local cells\n",
+            (int)(cEnd_final - cStart_final));
+    }
+
     PetscFunctionReturn(0);
 }
 
@@ -2266,7 +2475,7 @@ PetscErrorCode Simulator::setupPhysics() {
     // Maximum constant array size: must accommodate all physics modules.
     // TractionBC uses up to slot 53, Viscoelastic uses up to slot 69,
     // CohesiveFaultKernel refDir1/refDir2 occupy slots 80..85 (Session 16).
-    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = 86;
+    static constexpr PetscInt MAX_UNIFIED_CONSTANTS = 88;
     PetscScalar unified_constants[MAX_UNIFIED_CONSTANTS] = {0};
 
     // Always set material properties if geomechanics is enabled
@@ -2374,6 +2583,13 @@ PetscErrorCode Simulator::setupPhysics() {
             // Use same weights for bulk modulus (simplified: Q_p approx 2*Q_s)
             unified_constants[PetscFEViscoelastic::VISCO_CONST_DK_BASE + m] = dmu_arr[m];
         }
+        // Pass-3: store the global Q values the mechanism weights were
+        // fit against. The aux callback divides by per-cell Q to get
+        // the per-cell scaling (Q_global / Q_local). At Q_local =
+        // Q_global the scale is unity, so configs without per-layer
+        // overrides produce bit-identical results to pass-2.
+        unified_constants[PetscFEViscoelastic::VISCO_CONST_Q_S_GLOBAL] = config.visco_q_s;
+        unified_constants[PetscFEViscoelastic::VISCO_CONST_Q_P_GLOBAL] = config.visco_q_p;
     }
 
     // Set cohesive fault constants if enabled
@@ -3439,6 +3655,16 @@ PetscErrorCode Simulator::populateAuxFieldsByDepth()
         default_rho = material_props[0].density;
     }
 
+    // Pass-3: per-cell Q. When viscoelastic is on the global VISCOELASTIC
+    // q_p / q_s is the fall-back; per-layer q_p / q_s overrides the
+    // global. When viscoelastic is off, slots 3/4 stay at the
+    // VecZeroEntries default (0) so other consumers (notably the
+    // elastoplasticity callback, which reads aOff[4] as accumulated
+    // plastic strain) see their pre-pass-3 zero initial state.
+    const bool write_q = config.enable_viscoelastic;
+    const double q_p_global = config.visco_q_p;
+    const double q_s_global = config.visco_q_s;
+
     PetscScalar *a;
     ierr = VecGetArray(auxVec_, &a); CHKERRQ(ierr);
 
@@ -3454,12 +3680,16 @@ PetscErrorCode Simulator::populateAuxFieldsByDepth()
         PetscScalar lambda = default_lambda;
         PetscScalar mu = default_mu;
         PetscScalar rho = default_rho;
+        PetscScalar q_p = q_p_global;
+        PetscScalar q_s = q_s_global;
 
         for (const auto& layer : config.material_layers) {
             if (z <= layer.z_top && z > layer.z_bottom) {
                 lambda = layer.lambda;
                 mu = layer.mu;
                 rho = layer.rho;
+                if (layer.q_p > 0.0) q_p = layer.q_p;
+                if (layer.q_s > 0.0) q_s = layer.q_s;
                 break;
             }
         }
@@ -3471,6 +3701,10 @@ PetscErrorCode Simulator::populateAuxFieldsByDepth()
         a[offset + AUX_LAMBDA] = lambda;
         a[offset + AUX_MU]     = mu;
         a[offset + AUX_RHO]    = rho;
+        if (write_q) {
+            a[offset + AUX_QP] = q_p;
+            a[offset + AUX_QS] = q_s;
+        }
     }
 
     ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
@@ -3530,6 +3764,13 @@ PetscErrorCode Simulator::populateAuxFieldsByMaterialLabel()
         a[offset + AUX_LAMBDA] = lambda;
         a[offset + AUX_MU] = mu;
         a[offset + AUX_RHO] = rho;
+        if (config.enable_viscoelastic) {
+            // Pass-3: gmsh-label assignment has no per-region Q grammar,
+            // so use the global VISCOELASTIC fall-back. Per-layer Q is
+            // via [LAYER_N] q_p / q_s on the depth path.
+            a[offset + AUX_QP] = config.visco_q_p;
+            a[offset + AUX_QS] = config.visco_q_s;
+        }
     }
 
     ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
@@ -3576,6 +3817,10 @@ PetscErrorCode Simulator::populateAuxFieldsByVelocityModel()
         a[offset + AUX_LAMBDA] = lambda_val;
         a[offset + AUX_MU]     = mu_val;
         a[offset + AUX_RHO]    = rho_val;
+        if (config.enable_viscoelastic) {
+            a[offset + AUX_QP] = config.visco_q_p;
+            a[offset + AUX_QS] = config.visco_q_s;
+        }
     }
 
     ierr = VecRestoreArray(auxVec_, &a); CHKERRQ(ierr);
