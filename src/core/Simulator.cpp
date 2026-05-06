@@ -401,6 +401,16 @@ NuclearSourceParameters::MediumType parseMediumType(
     return NuclearSourceParameters::MediumType::GENERIC;
 }
 
+// Pass-4: per-cell weight cache entry for distributed moment-tensor
+// injection. Held in an anonymous namespace so file-scope helpers
+// (buildDistributedSourceCellsImpl, addExplosionSourceToResidual) can
+// reference the type without access-control gymnastics through the
+// private Simulator::ExplosionCoupling nested struct.
+struct DistributedSourceCell {
+    PetscInt cell;
+    double weight_volume;   // w_c * V_c, normalized so sum = 1 globally
+};
+
 }  // namespace
 
 // =============================================================================
@@ -440,6 +450,31 @@ struct Simulator::ExplosionCoupling {
     double nf_cavity_radius = 0.0;
     double nf_crushed_radius = 0.0;
     double nf_fractured_radius = 0.0;
+
+    // Pass-4: multi-cell moment-tensor source distribution.
+    // Default SINGLE_CELL preserves the pass-3 single-cell injection
+    // (addExplosionSourceToResidual operating on explosion_cell_ only).
+    // GAUSSIAN distributes the moment over cells inside a 3*sigma ball
+    // weighted by exp(-r^2 / (2*sigma^2)) with sigma = gaussian_sigma_factor
+    // * cavity_radius. UNIFORM_SPHERE distributes uniformly inside a
+    // support_radius_factor * cavity_radius ball. The integrated moment
+    // density equals M0 in all modes.
+    std::string source_distribution_mode = "SINGLE_CELL";
+    double source_support_radius_factor = 1.0;
+    double source_gaussian_sigma_factor = 0.5;
+    int source_min_cells = 1;
+
+    // Cached cell list for distributed injection. Built lazily on the
+    // first call to addExplosionSourceToResidual; rebuilt only if the
+    // DM pointer changes (so refineSourceRegion invalidating the DM is
+    // handled automatically). Each entry stores a cell index plus the
+    // pre-computed weight (w_c * V_c, normalized so sum_c w_c V_c = 1
+    // globally). DistributedSourceCell is defined in the anonymous
+    // namespace at file scope above.
+    bool dist_cells_initialized = false;
+    DM dist_cells_dm = nullptr;     // DM pointer the cache was built against
+    std::vector<DistributedSourceCell> dist_cells;
+    bool dist_fallback_warned = false;
 
     // Configure from basic nuclear underground parameters
     void configureUndergroundNuclear(double yield_kt, double depth_m,
@@ -1200,6 +1235,52 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
             explosion_ = std::make_unique<ExplosionCoupling>();
             explosion_->medium_type = medium_str;
             explosion_->configureUndergroundNuclear(yield_kt, depth_m, x, y, z, rho, vp, vs, rise, P0, t0);
+
+            // Pass-4: optional [SOURCE_DISTRIBUTION] section. Default
+            // SINGLE_CELL preserves pass-3 single-cell injection so
+            // configs that omit the section produce byte-identical
+            // output. Accepted modes: SINGLE_CELL, GAUSSIAN, UNIFORM_SPHERE
+            // (case-insensitive). Distributed modes apply M0 weighted
+            // over cells inside a support_radius_factor * Rc ball; for
+            // GAUSSIAN the weight is exp(-r^2 / (2 sigma^2)) with sigma
+            // = gaussian_sigma_factor * Rc and the ball is truncated at
+            // 3 * sigma. min_cells is a degeneracy guard: if fewer than
+            // min_cells lie in the support ball the run falls back to
+            // SINGLE_CELL with a single rank-0 warning.
+            if (reader.hasSection("SOURCE_DISTRIBUTION")) {
+                std::string mode_raw = reader.getString(
+                    "SOURCE_DISTRIBUTION", "mode", "SINGLE_CELL");
+                std::string mode = mode_raw;
+                for (auto& c : mode) c = static_cast<char>(std::toupper(c));
+                if (mode != "SINGLE_CELL" && mode != "GAUSSIAN" &&
+                    mode != "UNIFORM_SPHERE") {
+                    if (rank == 0) {
+                        PetscPrintf(comm,
+                            "SOURCE_DISTRIBUTION.mode=\"%s\" not recognised "
+                            "(expected SINGLE_CELL|GAUSSIAN|UNIFORM_SPHERE); "
+                            "falling back to SINGLE_CELL.\n", mode_raw.c_str());
+                    }
+                    mode = "SINGLE_CELL";
+                }
+                explosion_->source_distribution_mode = mode;
+                explosion_->source_support_radius_factor = reader.getDouble(
+                    "SOURCE_DISTRIBUTION", "support_radius_factor", 1.0);
+                explosion_->source_gaussian_sigma_factor = reader.getDouble(
+                    "SOURCE_DISTRIBUTION", "gaussian_sigma_factor", 0.5);
+                int mc = static_cast<int>(reader.getDouble(
+                    "SOURCE_DISTRIBUTION", "min_cells", 1.0));
+                if (mc < 1) mc = 1;
+                explosion_->source_min_cells = mc;
+                if (rank == 0 && mode != "SINGLE_CELL") {
+                    PetscPrintf(comm,
+                        "Source distribution: mode=%s, support_radius_factor="
+                        "%.3f, gaussian_sigma_factor=%.3f, min_cells=%d\n",
+                        mode.c_str(),
+                        explosion_->source_support_radius_factor,
+                        explosion_->source_gaussian_sigma_factor,
+                        explosion_->source_min_cells);
+                }
+            }
 
             // COUPLED_ANALYTIC: run 1D NearField solver and store RDP source
             if (config.explosion_solve_mode == "COUPLED_ANALYTIC") {
@@ -6596,6 +6677,212 @@ PetscErrorCode Simulator::locateExplosionCell() {
     PetscFunctionReturn(0);
 }
 
+// Apply the moment-tensor equivalent nodal forces in a single FE cell.
+// Same formula F_i^a = -(sum_j dPhi_a/dx_j * M_ij) as the original
+// addExplosionSourceToResidual single-cell path; refactored as a helper so
+// the SINGLE_CELL and distributed (GAUSSIAN, UNIFORM_SPHERE) branches share
+// the per-cell injection. M is the (already-weighted) symmetric moment
+// tensor for this cell. Caller owns the locF VecGetArray bookend.
+static PetscErrorCode injectMomentTensorIntoCell(
+    DM dm, MPI_Comm comm, PetscInt cell, PetscInt disp_field,
+    const double Mmat[3][3], PetscScalar* farray)
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    const PetscInt dim = 3;
+
+    PetscSection section;
+    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
+    DMLabel depth_label = nullptr;
+    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
+
+    PetscFE fe;
+    ierr = DMGetField(dm, disp_field, nullptr, (PetscObject*)&fe); CHKERRQ(ierr);
+    PetscInt Nb;
+    ierr = PetscFEGetDimension(fe, &Nb); CHKERRQ(ierr);
+    PetscInt nNodes = Nb / dim;
+
+    DMPolytopeType cellType;
+    ierr = DMPlexGetCellType(dm, cell, &cellType); CHKERRQ(ierr);
+    PetscReal refPt[3];
+    if (cellType == DM_POLYTOPE_TETRAHEDRON) {
+        refPt[0] = 0.25; refPt[1] = 0.25; refPt[2] = 0.25;
+    } else {
+        refPt[0] = 0.0; refPt[1] = 0.0; refPt[2] = 0.0;
+    }
+
+    PetscTabulation T;
+    ierr = PetscFECreateTabulation(fe, 1, 1, refPt, 1, &T); CHKERRQ(ierr);
+
+    PetscReal v0[3], J[9], invJ_g[9], detJ_val;
+    ierr = DMPlexComputeCellGeometryFEM(dm, cell, nullptr, v0, J, invJ_g, &detJ_val);
+    CHKERRQ(ierr);
+
+    PetscInt closureSize = 0;
+    PetscInt *cellClosure = nullptr;
+    ierr = DMPlexGetTransitiveClosure(dm, cell, PETSC_TRUE, &closureSize, &cellClosure);
+    CHKERRQ(ierr);
+
+    std::vector<PetscInt> cell_vertices;
+    cell_vertices.reserve(static_cast<std::size_t>(nNodes));
+    for (PetscInt c = 0; c < closureSize; ++c) {
+        const PetscInt point = cellClosure[2 * c];
+        PetscInt depth = -1;
+        PetscInt disp_dof = 0;
+        ierr = DMLabelGetValue(depth_label, point, &depth); CHKERRQ(ierr);
+        if (depth != 0) continue;
+        ierr = PetscSectionGetFieldDof(section, point, disp_field, &disp_dof); CHKERRQ(ierr);
+        if (disp_dof >= dim) cell_vertices.push_back(point);
+    }
+
+    PetscCheck(static_cast<PetscInt>(cell_vertices.size()) >= nNodes, comm, PETSC_ERR_PLIB,
+               "Explosion source cell %d has %d displacement vertices, expected at least %d",
+               static_cast<int>(cell),
+               static_cast<int>(cell_vertices.size()),
+               static_cast<int>(nNodes));
+
+    for (PetscInt a = 0; a < nNodes; ++a) {
+        double dPhi_dx[3] = {0.0, 0.0, 0.0};
+        for (PetscInt j = 0; j < dim; ++j) {
+            for (PetscInt d = 0; d < dim; ++d) {
+                PetscInt tabIdx = a * dim * dim * dim + d;
+                dPhi_dx[j] += T->T[1][tabIdx] * invJ_g[d * dim + j];
+            }
+        }
+        PetscInt field_off = 0;
+        ierr = PetscSectionGetFieldOffset(
+            section, cell_vertices[static_cast<std::size_t>(a)],
+            disp_field, &field_off); CHKERRQ(ierr);
+        if (field_off < 0) continue;
+        for (PetscInt i = 0; i < dim; ++i) {
+            double force = 0.0;
+            for (PetscInt j = 0; j < dim; ++j) {
+                force += dPhi_dx[j] * Mmat[i][j];
+            }
+            farray[field_off + i] += -force;
+        }
+    }
+
+    ierr = DMPlexRestoreTransitiveClosure(dm, cell, PETSC_TRUE, &closureSize, &cellClosure);
+    CHKERRQ(ierr);
+    ierr = PetscTabulationDestroy(&T); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
+// Pass-4: build the cached cell list and per-cell weights for distributed
+// moment-tensor injection. Cells whose centroid lies inside the support
+// ball (radius = support_radius_factor * Rc, truncated at 3*sigma for
+// GAUSSIAN) are enumerated; each gets a Gaussian or uniform weight. The
+// raw weights are normalized via MPI_Allreduce so sum_c (w_c * V_c) = 1
+// across all ranks, preserving the integrated moment density (M0
+// conservation) regardless of how cells distribute across ranks. If
+// fewer than min_cells globally fall in the ball the cache stays empty
+// and the caller falls back to SINGLE_CELL.
+static PetscErrorCode buildDistributedSourceCellsImpl(
+    DM dm, MPI_Comm comm, int rank, double sx, double sy, double sz,
+    double Rc, const std::string& mode,
+    double support_radius_factor, double gaussian_sigma_factor,
+    int min_cells,
+    std::vector<DistributedSourceCell>& out_cells,
+    bool& out_fallback, bool& out_warned_already)
+{
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+    out_cells.clear();
+    out_fallback = false;
+
+    if (Rc <= 0.0) {
+        out_fallback = true;
+        if (rank == 0 && !out_warned_already) {
+            PetscPrintf(comm,
+                "Source distribution: cavity radius <= 0; falling back to "
+                "SINGLE_CELL.\n");
+            out_warned_already = true;
+        }
+        PetscFunctionReturn(0);
+    }
+
+    const double sigma = std::max(1e-12, gaussian_sigma_factor * Rc);
+    double R_support = support_radius_factor * Rc;
+    if (mode == "GAUSSIAN") {
+        const double R_3sigma = 3.0 * sigma;
+        if (R_3sigma > R_support) R_support = R_3sigma;
+    }
+    const double R2 = R_support * R_support;
+
+    PetscInt cStart, cEnd;
+    ierr = DMPlexGetHeightStratum(dm, 0, &cStart, &cEnd); CHKERRQ(ierr);
+
+    struct RawEntry { PetscInt cell; double w; double vol; };
+    std::vector<RawEntry> raw;
+    raw.reserve(64);
+    double local_norm = 0.0;
+    for (PetscInt c = cStart; c < cEnd; ++c) {
+        PetscReal vol = 0.0;
+        PetscReal centroid[3] = {0.0, 0.0, 0.0};
+        ierr = DMPlexComputeCellGeometryFVM(dm, c, &vol, centroid, nullptr); CHKERRQ(ierr);
+        const double dx = centroid[0] - sx;
+        const double dy = centroid[1] - sy;
+        const double dz = centroid[2] - sz;
+        const double r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 > R2) continue;
+        double w;
+        if (mode == "GAUSSIAN") {
+            w = std::exp(-r2 / (2.0 * sigma * sigma));
+        } else {
+            w = 1.0;
+        }
+        raw.push_back({c, w, static_cast<double>(vol)});
+        local_norm += w * static_cast<double>(vol);
+    }
+
+    PetscInt local_count = static_cast<PetscInt>(raw.size());
+    PetscInt global_count = 0;
+    ierr = MPI_Allreduce(&local_count, &global_count, 1, MPIU_INT, MPI_SUM, comm); CHKERRQ(ierr);
+
+    if (global_count < min_cells) {
+        out_fallback = true;
+        if (rank == 0 && !out_warned_already) {
+            PetscPrintf(comm,
+                "Source distribution: support ball contains %d cells globally "
+                "(min_cells=%d); falling back to SINGLE_CELL injection.\n",
+                static_cast<int>(global_count), min_cells);
+            out_warned_already = true;
+        }
+        PetscFunctionReturn(0);
+    }
+
+    double global_norm = 0.0;
+    ierr = MPI_Allreduce(&local_norm, &global_norm, 1, MPI_DOUBLE, MPI_SUM, comm); CHKERRQ(ierr);
+    if (global_norm <= 0.0) {
+        out_fallback = true;
+        if (rank == 0 && !out_warned_already) {
+            PetscPrintf(comm,
+                "Source distribution: normalization sum non-positive; "
+                "falling back to SINGLE_CELL.\n");
+            out_warned_already = true;
+        }
+        PetscFunctionReturn(0);
+    }
+
+    out_cells.reserve(raw.size());
+    for (const auto& r : raw) {
+        DistributedSourceCell dc;
+        dc.cell = r.cell;
+        dc.weight_volume = (r.w * r.vol) / global_norm;
+        out_cells.push_back(dc);
+    }
+
+    if (rank == 0) {
+        PetscPrintf(comm,
+            "Source distribution: mode=%s, Rc=%.2f m, R_support=%.2f m, "
+            "sigma=%.2f m, %d cells globally enumerated\n",
+            mode.c_str(), Rc, R_support, sigma,
+            static_cast<int>(global_count));
+    }
+    PetscFunctionReturn(0);
+}
+
 PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
     PetscFunctionBeginUser;
     if (explosion_cell_ < 0 || !explosion_) PetscFunctionReturn(0);
@@ -6644,118 +6931,76 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
         disp_field = 1;
     }
 
-    PetscSection section;
-    ierr = DMGetLocalSection(dm, &section); CHKERRQ(ierr);
-    DMLabel depth_label = nullptr;
-    ierr = DMPlexGetDepthLabel(dm, &depth_label); CHKERRQ(ierr);
-    PetscScalar *farray = nullptr;
-    ierr = VecGetArray(locF, &farray); CHKERRQ(ierr);
-
-    // Proper moment tensor equivalent nodal forces (BUG 5 fix)
-    // For a point moment tensor M_ij * delta(x - x_s):
-    //   F_i^a = -(sum_j dPhi_a/dx_j * M_ij)
-    // where dPhi_a is the scalar basis function of node a.
-    PetscInt dim = 3;
-
-    // Build full symmetric moment tensor [3][3]
-    double Mmat[3][3] = {
+    // Build full symmetric moment tensor [3][3] for the single-cell path
+    // and as the un-weighted reference for distributed modes.
+    const double Mmat[3][3] = {
         {M[0], M[3], M[4]},
         {M[3], M[1], M[5]},
         {M[4], M[5], M[2]}
     };
 
-    // Get the FE for the displacement field
-    PetscFE fe;
-    ierr = DMGetField(dm, disp_field, NULL, (PetscObject*)&fe); CHKERRQ(ierr);
+    PetscScalar* farray = nullptr;
+    ierr = VecGetArray(locF, &farray); CHKERRQ(ierr);
 
-    // Get total number of basis functions and number of components
-    PetscInt Nb;
-    ierr = PetscFEGetDimension(fe, &Nb); CHKERRQ(ierr);
-    PetscInt nNodes = Nb / dim;
+    // Lazy-build the distributed cell list for GAUSSIAN / UNIFORM_SPHERE
+    // modes. Rebuild if the DM pointer changed (e.g. between successive
+    // refineSourceRegion calls in different runs of the same Simulator
+    // object). Falls back to SINGLE_CELL when the support ball is empty
+    // or holds fewer than min_cells globally.
+    bool use_distributed = (explosion_->source_distribution_mode != "SINGLE_CELL");
+    if (use_distributed && (!explosion_->dist_cells_initialized ||
+                            explosion_->dist_cells_dm != dm)) {
+        // Cavity radius (medium-aware), same recipe as refineSourceRegion.
+        NuclearSourceParameters mp;
+        mp.yield_kt = explosion_->yield_kt;
+        mp.depth_of_burial = explosion_->depth_of_burial;
+        NuclearSourceParameters::MediumType medium =
+            parseMediumType(explosion_->medium_type, comm);
+        double Rc = mp.cavity_radius(explosion_->rho, medium);
+        bool fallback = false;
+        ierr = buildDistributedSourceCellsImpl(
+            dm, comm, rank,
+            explosion_->sx, explosion_->sy, explosion_->sz, Rc,
+            explosion_->source_distribution_mode,
+            explosion_->source_support_radius_factor,
+            explosion_->source_gaussian_sigma_factor,
+            explosion_->source_min_cells,
+            explosion_->dist_cells, fallback,
+            explosion_->dist_fallback_warned); CHKERRQ(ierr);
+        if (fallback) {
+            explosion_->dist_cells.clear();
+        }
+        explosion_->dist_cells_initialized = true;
+        explosion_->dist_cells_dm = dm;
+        if (fallback) use_distributed = false;
+    } else if (use_distributed && explosion_->dist_cells.empty()) {
+        // Cache built but empty: fallback already triggered.
+        use_distributed = false;
+    }
 
-    // Determine reference centroid based on cell type
-    DMPolytopeType cellType;
-    ierr = DMPlexGetCellType(dm, explosion_cell_, &cellType); CHKERRQ(ierr);
-
-    PetscReal refPt[3];
-    if (cellType == DM_POLYTOPE_TETRAHEDRON) {
-        refPt[0] = 0.25; refPt[1] = 0.25; refPt[2] = 0.25;
+    if (!use_distributed) {
+        // SINGLE_CELL legacy path: byte-identical to pre-pass-4 code so
+        // configs that omit [SOURCE_DISTRIBUTION] (or set it to
+        // SINGLE_CELL) produce the same SAC output.
+        ierr = injectMomentTensorIntoCell(dm, comm, explosion_cell_,
+                                          disp_field, Mmat, farray); CHKERRQ(ierr);
     } else {
-        refPt[0] = 0.0; refPt[1] = 0.0; refPt[2] = 0.0;
-    }
-
-    // Tabulate basis derivatives at cell centroid (K=1 for first derivatives)
-    PetscTabulation T;
-    ierr = PetscFECreateTabulation(fe, 1, 1, refPt, 1, &T); CHKERRQ(ierr);
-
-    // Get inverse Jacobian for reference-to-physical coordinate mapping
-    PetscReal v0[3], J[9], invJ_g[9], detJ_val;
-    ierr = DMPlexComputeCellGeometryFEM(dm, explosion_cell_, NULL, v0, J, invJ_g, &detJ_val);
-    CHKERRQ(ierr);
-
-    // T->T[1] layout: [b * Nc * cdim + c * cdim + d]
-    // For vector FE with dim components:
-    //   basis b = node_a * dim + comp_k
-    //   dPhi_a/dxi_d = T->T[1][(a*dim + k) * dim * dim + k * dim + d] (for any k with c=k)
-    // Using k=0, c=0: dPhi_a/dxi_d = T->T[1][a * dim^3 + d]
-    // Physical gradient: dPhi_a/dx_j = sum_d dPhi_a/dxi_d * invJ[d*dim+j]
-
-    PetscInt closureSize = 0;
-    PetscInt *cellClosure = nullptr;
-    ierr = DMPlexGetTransitiveClosure(dm, explosion_cell_, PETSC_TRUE, &closureSize, &cellClosure);
-    CHKERRQ(ierr);
-
-    std::vector<PetscInt> cell_vertices;
-    cell_vertices.reserve(static_cast<std::size_t>(nNodes));
-    for (PetscInt c = 0; c < closureSize; ++c) {
-        const PetscInt point = cellClosure[2 * c];
-        PetscInt depth = -1;
-        PetscInt disp_dof = 0;
-        ierr = DMLabelGetValue(depth_label, point, &depth); CHKERRQ(ierr);
-        if (depth != 0) {
-            continue;
-        }
-        ierr = PetscSectionGetFieldDof(section, point, disp_field, &disp_dof); CHKERRQ(ierr);
-        if (disp_dof >= dim) {
-            cell_vertices.push_back(point);
+        // Distributed: each cached cell carries a pre-computed weight w_c
+        // * V_c (normalized so sum_c w_c V_c = 1 globally). Apply the
+        // moment-tensor formula in each cell with M scaled by that weight.
+        for (const auto& dc : explosion_->dist_cells) {
+            const double w = dc.weight_volume;
+            const double Mscaled[3][3] = {
+                {Mmat[0][0] * w, Mmat[0][1] * w, Mmat[0][2] * w},
+                {Mmat[1][0] * w, Mmat[1][1] * w, Mmat[1][2] * w},
+                {Mmat[2][0] * w, Mmat[2][1] * w, Mmat[2][2] * w}
+            };
+            ierr = injectMomentTensorIntoCell(dm, comm, dc.cell,
+                                              disp_field, Mscaled, farray); CHKERRQ(ierr);
         }
     }
 
-    PetscCheck(static_cast<PetscInt>(cell_vertices.size()) >= nNodes, comm, PETSC_ERR_PLIB,
-               "Explosion source cell %d has %d displacement vertices, expected at least %d",
-               static_cast<int>(explosion_cell_), static_cast<int>(cell_vertices.size()), static_cast<int>(nNodes));
-
-    for (PetscInt a = 0; a < nNodes; ++a) {
-        // Compute physical gradient of scalar basis function Phi_a
-        double dPhi_dx[3] = {0.0, 0.0, 0.0};
-        for (PetscInt j = 0; j < dim; ++j) {
-            for (PetscInt d = 0; d < dim; ++d) {
-                PetscInt tabIdx = a * dim * dim * dim + d;
-                dPhi_dx[j] += T->T[1][tabIdx] * invJ_g[d * dim + j];
-            }
-        }
-
-        // F_i^a = -(sum_j dPhi_a/dx_j * M_ij)
-        PetscInt field_off = 0;
-        ierr = PetscSectionGetFieldOffset(section, cell_vertices[static_cast<std::size_t>(a)],
-                                          disp_field, &field_off); CHKERRQ(ierr);
-        if (field_off < 0) {
-            continue;
-        }
-        for (PetscInt i = 0; i < dim; ++i) {
-            double force = 0.0;
-            for (PetscInt j = 0; j < dim; ++j) {
-                force += dPhi_dx[j] * Mmat[i][j];
-            }
-            farray[field_off + i] += -force;
-        }
-    }
-
-    ierr = DMPlexRestoreTransitiveClosure(dm, explosion_cell_, PETSC_TRUE, &closureSize, &cellClosure);
-    CHKERRQ(ierr);
-    ierr = PetscTabulationDestroy(&T); CHKERRQ(ierr);
     ierr = VecRestoreArray(locF, &farray); CHKERRQ(ierr);
-
     PetscFunctionReturn(0);
 }
 
