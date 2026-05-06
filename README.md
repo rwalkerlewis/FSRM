@@ -64,7 +64,7 @@ Eighteen runnable examples demonstrate verified capabilities. Each has a `README
 
 ## Verified Capabilities
 
-Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 116 tests total.
+Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 154 tests total (147 pass; 7 known pre-existing failures documented in `CLAUDE.md` and `docs/HISTORIC_NUCLEAR_FIDELITY.md`).
 
 ### Integration-Tested Through TSSolve
 
@@ -103,7 +103,10 @@ Every feature below has automated tests with quantitative pass/fail criteria. Ru
 | Historic: Sedan 1962 | `Integration.HistoricNuclear.Sedan1962` | 104 kt, 3-layer alluvium, SAC output, quantitative checks |
 | Historic: Degelen Mountain | `Integration.HistoricNuclear.DegelenMountain` | 50 kt, 3-layer granite, SAC output, quantitative checks |
 | Historic: NTS Pahute Mesa | `Integration.HistoricNuclear.NtsPahuteMesa` | 150 kt, 4-layer tuff, SAC output, quantitative checks |
-| Historic regression CSV | `Integration.HistoricNuclear.FarFieldAmplitudeRegression` | Sedan re-run; emits `historic_nuclear_regression.csv` |
+| Historic regression CSV | `Integration.HistoricNuclear.FarFieldAmplitudeRegression` | Sedan re-run with both SINGLE_CELL and UNIFORM_SPHERE distribution; emits `historic_nuclear_regression.csv` |
+| Historic distributed-source variants (factor-30 envelope) | `Integration.HistoricNuclear.{Gasbuggy1967, Gnome1961, Sedan1962, DegelenMountain, NtsPahuteMesa, Baneberry1970}_Distributed` | Multi-cell moment-tensor distribution closes the pass-3 single-cell limitation; tightens peak/u_far envelope from factor 100 to factor 30 |
+| Sterling 1966 distributed (factor-100 envelope) | `Integration.HistoricNuclear.Sterling1966_Distributed` | Wide-support distribution unblocks the smallest-yield decoupled salt shot at factor 100 (factor 30 still out of reach on the 4x4x4 CI mesh) |
+| Multi-cell moment-tensor distribution | `Integration.SourceDistribution.{SingleCellLegacyByteIdentical, GaussianM0Conserved, UniformSphereM0Conserved, GaussianBeatsSingleCellOnFineMesh, FallbackToSingleCellWhenBallEmpty}` | `[SOURCE_DISTRIBUTION]` grammar; M0 conservation; refinement-plus-distribution lowers peak/u_far (inversion of pass-3 finding) |
 | Medium-aware cavity radius | `Unit.CavityScaling` | Granite/tuff/salt/alluvium/shale coefficient table, cube-root scaling |
 | DPRK 2017 synthetic-vs-observed amplitude | `Integration.DPRK2017Comparison.DPRK2017FarFieldSyntheticAmplitude` | Mueller-Murphy + Aki-Richards + Butterworth + mb formula |
 | Per-cell material from velocity model | `Integration.VelocityModelMaterial` | Binary Vp/Vs/rho grid mapped to mesh via interpolation |
