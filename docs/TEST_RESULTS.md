@@ -1,3 +1,28 @@
+Test Results Snapshot
+=====================
+
+The body of this document is a verbatim ctest output dump from a prior
+session. It is a reference for the historical test layout and timing,
+not the current pass/fail state. The current source of truth for the
+test inventory and pass/fail counts is CLAUDE.md "Test Suite" and
+docs/SOLVER_STATE.md.
+
+To refresh this snapshot at the head of a release branch:
+
+    docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c \
+      'cd build && ctest --output-on-failure 2>&1 | tee /tmp/ctest.log'
+    cp /tmp/ctest.log docs/TEST_RESULTS.md
+
+Then prepend this header. The ctest -L summary at the end provides the
+per-label timing breakdown.
+
+Snapshot below was captured pre-pass-9 and shows 116 tests with one
+failure (Integration.DynamicRuptureSolve.PrescribedSlip). The current
+state per CLAUDE.md is 116 tests with six honest failures behind the
+PETSc 3.25 BdResidual cohesive-cell limitation, all of them documented
+in docs/SOLVER_STATE.md.
+
+----------------------------------------------------------------------
 Test project /workspace/build
         Start   1: Unit.ConfigReader
   1/116 Test   #1: Unit.ConfigReader ........................................   Passed    0.31 sec

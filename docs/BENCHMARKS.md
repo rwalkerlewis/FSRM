@@ -1,378 +1,126 @@
-# FSRM Benchmarks
+# Benchmarks
 
-This document describes all available benchmarks for validating FSRM's accuracy and performance.
+The FSRM verification gates fall into three categories: analytical
+solutions, historic-nuclear V&V against published observations, and
+SCEC dynamic rupture. This document is the gate-by-gate detail behind
+the cross-pass summary in
+[AXIS_1A_FIDELITY_REPORT.md](AXIS_1A_FIDELITY_REPORT.md). For per-pass
+narrative, see [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md).
 
-## Overview
+## Analytical solutions
 
-FSRM includes comprehensive benchmark suites covering:
-- SPE (Society of Petroleum Engineers) comparative solution projects
-- SCEC (Southern California Earthquake Center) dynamic rupture benchmarks
-- Analytical solutions for verification
-- Performance and scalability tests
+Each gate has a quantitative `EXPECT_*` assertion against an analytical
+or semi-analytical reference. Tests live under
+`tests/physics_validation/`.
 
-## SPE Benchmarks
+| Test | Reference | Tolerance |
+|---|---|---|
+| `Physics.ElastostaticsPatch` | Patch test, exact Hooke stress | 1e-12 nodal |
+| `Physics.LithostaticStress` | Closed-form K0 ratio | 5 % |
+| `Physics.GravityLithostatic` | Lithostatic column | 5 % K0 |
+| `Physics.LambsProblem` | Lamb 1904 surface wave | L2 norm 5 % |
+| `Physics.GarvinsProblem` | Garvin 1956 buried explosion | L2 norm 5 % |
+| `Physics.TerzaghiConsolidation` | Terzaghi 1925 1D consolidation | 2 % time-evolution |
+| `Physics.AbsorbingBC` | Clayton-Engquist energy flux | > 99 % absorbed |
+| `Physics.MomentTensorSource` | Aki-Richards 1980 equivalent body force | 5 % node-load |
+| `Unit.DruckerPragerStandalone` | Return-mapping fixture | 1e-10 stress |
+| `Unit.HydrofracFormulas` | Sneddon 1951, PKN, Carter, Arps | 1e-6 |
+| `Physics.LockedFaultTransparency` | Kinematic transparency | slip < 5e-4 |
+| `Physics.ViscoelasticRelaxation` | GMB closed-form decay | 5 % |
+| `Physics.CohesiveBdResidual` | PetscDS BdResidual on cohesive | 1e-12 |
+| `Physics.SCEC.TPV5` | SCEC TPV5 rupture-front benchmark | matches PyLith ref |
 
-### SPE1 - First SPE Comparative Solution Project
+## Historic-nuclear V&V (axis 1a)
 
-**Description**: Three-phase black oil simulation with gas injection.
+Per-event quantitative gates against published seismic observations and
+near-field measurements. Pinned tier configs ensure pass-N reproducibility.
 
-**Features**:
-- 10x10x3 Cartesian grid
-- Black oil model (oil, gas, water)
-- Vertical injector and producer
-- Initial oil with dissolved gas
+| Gate | Pass-7 | Pass-8 | Pass-9 | Pass-10 | Pass-11 | Spec target | Residual / next |
+|---|---|---|---|---|---|---|---|
+| Salmon CavityRadius | f5 | f4 | f3 | f3 | f3 | 5 % | axis-1b 3D source ball |
+| Salmon FreeFieldPeakVelocity_166m | f5 | f4 | **f2** | f2 | f2 | f2 | closed |
+| Salmon FreeFieldPeakVelocity_322m | f6 | f4 | **f2** | f2 | f2 | f2 | closed |
+| Salmon FreeFieldPeakVelocity_549m | skip | skip | skip | f4 | f4 | f2 | impedance BC contributes; sponge BC opt-in. Closure requires spec sweep or axis-1d |
+| Salmon FarFieldBodyWaveMagnitude | +/-0.5 | +/-0.3 | +/-0.3 | +/-0.3 | +/-0.3 | +/-0.2 | propagation-path drift, axis-3 |
+| Marshak SelfSimilarPureRadiation | n/a | f10 | f8 | f2.5 | **f2** (BDF2) | f2 | closed (HIGHEST tier under axis-1c) |
+| Marshak RadiationEnergyConservation | n/a | 25 % | 10 % | 10 % | **2 %** (BDF2) | 2 % | closed (HIGHEST tier under axis-1c) |
+| Marshak GreyVsZRComparison | n/a | f5 | f3 | f3 | f3 | f3 | closed |
+| Chagan CavityRadius | f6 | f5 | f5 | f5 | f5 | f3 | axis-1b 3D source ball |
+| Chagan FarFieldBodyWaveMagnitude | +/-0.5 | +/-0.4 | +/-0.4 | +/-0.4 | +/-0.4 | +/-0.3 | propagation-path drift, axis-3 |
+| PokhranI FarFieldBodyWaveMagnitude | +/-0.5 | +/-0.4 | +/-0.4 | +/-0.4 | +/-0.4 | +/-0.3 | regional Murphy 1981 reference drift, axis-4 |
+| Granite Hugoniot match (Marsh 1980) | n/a | n/a | n/a | n/a | **30 %, half within** | 5 % | Tillotson refit, axis-4 |
+| Salt Hugoniot match (McQueen 1970) | n/a | n/a | n/a | n/a | **30 %, half within** | 5 % | Tillotson refit, axis-4 |
 
-**Configuration**: `config/spe1_benchmark.config`
+Notation: `f<N>` denotes the achieved peak-amplitude / cavity-radius
+envelope factor. `+/-x` denotes the body-wave magnitude (mb) tolerance.
+Bold cells denote the pass that closed the gate at spec target.
 
-**Executable**: `examples/spe1`
+The pass-by-pass narrative including which gates were retightened, what
+work closed them, and what residuals remain is in
+[HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md).
 
-**Run**:
-```bash
-cd build/examples
-./spe1 ../config/spe1_benchmark.config
-```
+## IRIS waveform V&V
 
-**Reference**: Odeh, A.S. (1981). "Comparison of Solutions to a Three-Dimensional Black-Oil Reservoir Simulation Problem." JPT.
+Synthetic-vs-observed waveform comparison anchored on Salmon 1964 with
+Chagan 1965 and Pokhran I 1974 cross-validation. ObsPy refresh tool at
+`tools/waveform_vv/refresh.py`. Cached under `tools/waveform_vv/cache/`.
 
-### SPE3 - Third SPE Comparative Solution Project
+| Gate | Reference | Threshold |
+|---|---|---|
+| Cross-correlation (0.5-5 Hz) | Cached IRIS waveforms | > 0.7 |
+| Peak amplitude envelope | Cached IRIS waveforms | factor 2 |
+| Arrival-time delta | Cached IRIS waveforms | < 1 sample at closest station |
 
-**Description**: Gas cycling in a gas condensate reservoir.
+CTest label `iris_validation` runs five integration gates that
+GTEST_SKIP cleanly when the cache is empty.
 
-**Configuration**: `config/spe3_benchmark.config`
+## Multi-physics integration
 
-**Run**:
-```bash
-mpirun -np 4 fsrm -c config/spe3_benchmark.config
-```
+| Test | What it proves |
+|---|---|
+| `Integration.NearFieldCoupled` | 1D Lagrangian solver to 3D FEM moment-rate handoff |
+| `Integration.HistoricNuclear.{Gasbuggy,Gnome,Sedan,Degelen,Pahute}` | End-to-end pinned-config historic events |
+| `Integration.HistoricNuclear.FarFieldAmplitudeRegression` | SINGLE_CELL vs UNIFORM_SPHERE distribution regression CSV |
+| `Integration.SourceDistribution.{SingleCellLegacyByteIdentical, GaussianM0Conserved, ...}` | M0 conservation, fallback-to-SINGLE_CELL safety |
+| `Integration.MPI.SalmonSerialVsParallelEquivalence` | Pass-12 parallel correctness gate |
 
-### SPE9 - Ninth SPE Comparative Solution Project
+## SCEC TPV5 dynamic rupture
 
-**Description**: Black oil simulation with complex well controls.
+`Physics.SCEC.TPV5` runs the SCEC TPV5 benchmark with slip-weakening
+friction, initial fault stress, and a nucleation patch. Quantitative
+matches against the published reference solution at the rupture-front
+arrival time and slip-rate magnitude.
 
-**Configuration**: `config/spe9_benchmark.config`
+## Performance benchmarks
 
-### SPE10 - Tenth SPE Comparative Solution Project
+`Performance.{Benchmark, Scaling, Memory, GPU}` are smoke-level
+performance tests; they verify that solvers complete in expected
+wall-time orders, memory does not grow unbounded, and GPU paths
+respond to PETSc CUDA flags. Strong/weak scaling studies are not in
+the standard CI label set; see CLAUDE.md "Test Suite" for the
+breakdown.
 
-**Description**: Large-scale heterogeneous reservoir (60x220x85 cells).
-
-**Features**:
-- Highly heterogeneous permeability field (Tarbert and Upper Ness formations)
-- Two-phase flow (oil and water)
-- Waterflooding scenario
-- 1.1 million cells (full model)
-
-**Configuration**: `config/spe10_benchmark.config`
-
-**Note**: SPE10 data files must be downloaded separately from SPE website.
-
-## SCEC Dynamic Rupture Benchmarks
-
-FSRM implements the SCEC/USGS dynamic rupture benchmark suite for validating earthquake physics.
-
-### TPV5 - Homogeneous Halfspace with Slip-Weakening Friction
-
-**Description**: Vertical strike-slip fault in homogeneous elastic halfspace.
-
-**Features**:
-- Linear slip-weakening friction
-- Spontaneous rupture nucleation
-- Supershear transition
-
-**Configuration**: `config/scec_tpv5.config`
-
-**Executable**: `examples/scec_tpv5`
-
-**Run**:
-```bash
-cd build/examples
-mpirun -np 4 ./scec_tpv5
-```
-
-**Reference**: [SCEC TPV5 Description](http://scecdata.usc.edu/cvws/tpv5docs.html)
-
-### TPV10 - Dipping Fault (60°)
-
-**Description**: Strike-slip fault dipping at 60°.
-
-**Features**:
-- Complex geometry
-- Dip-parallel and dip-perpendicular motion
-- Surface breaking fault
-
-**Configuration**: `config/scec_tpv10.config`
-
-**Executable**: `examples/scec_tpv10`
-
-### TPV16 - Heterogeneous Initial Stress
-
-**Description**: Strike-slip fault with spatially variable initial stress.
-
-**Features**:
-- Heterogeneous stress field
-- Multiple rupture nucleation sites
-- Bilateral rupture propagation
-
-**Configuration**: `benchmarks/scec_tpv16.config`
-
-**Executable**: `examples/scec_tpv16`
-
-### Complete SCEC Suite
-
-All SCEC benchmarks are organized in the `benchmarks/` directory:
+## How to run
 
 ```bash
-# Run complete suite
-cd benchmarks
-./run_scec_suite.sh --all
+# All benchmarks
+ctest -j$(nproc) --output-on-failure
 
-# Run specific benchmark
-./run_scec_suite.sh --tpv 5
+# By label
+ctest -L unit
+ctest -L physics_validation
+ctest -L integration
+ctest -L iris_validation
+ctest -L performance
 
-# Run with verification against reference
-./run_scec_suite.sh --all --verify
+# Single test
+ctest -R Physics.LambsProblem --output-on-failure
 ```
 
-**Available Benchmarks**:
-- TPV5: Basic slip-weakening
-- TPV10: Dipping fault
-- TPV13: Branched fault with plasticity
-- TPV16: Heterogeneous stress
-- TPV34: Thermal pressurization
-- TPV101: Rate-and-state friction (aging law)
-- TPV104: Rate-and-state friction (strong velocity weakening)
-
-See `benchmarks/SCEC_BENCHMARKS_README.md` for complete documentation.
-
-## Analytical Verification Tests
-
-### Single-Phase Flow
-
-#### Theis Solution
-**Description**: Radial flow from a point source in infinite domain.
-
-**Configuration**: Available in test suite
-
-**Verification**: Analytical solution for pressure transient.
-
-#### Buckley-Leverett Solution
-**Description**: 1D two-phase waterflooding with sharp front.
-
-**Configuration**: `config/buckley_leverett_2d.config`
-
-**Verification**: Analytical shock front position and saturation profile.
-
-### Geomechanics
-
-#### Terzaghi Consolidation
-**Description**: 1D consolidation under constant load.
-
-**Verification**: Analytical solution for pressure dissipation and settlement.
-
-#### Mandel-Cryer Effect
-**Description**: 2D poroelastic problem with initial pressure increase.
-
-**Verification**: Analytical solution for pressure and displacement fields.
-
-### Wave Propagation
-
-#### LOH.1 - Layer Over Halfspace
-**Description**: Seismic wave propagation through layered medium.
-
-**Features**:
-- Vertical velocity contrast
-- Reflected and refracted waves
-- Surface waves
-
-**Configuration**: `config/scec_loh1.config`
-
-**Executable**: `examples/scec_loh1`
-
-**Reference**: SCEC-USGS verification exercises.
-
-## Performance Benchmarks
-
-### Scalability Tests
-
-Test parallel efficiency with increasing processor counts.
-
-**Configuration**: `config/default.config` with varying grid sizes
-
-**Run**:
-```bash
-# Weak scaling (constant cells per processor)
-for np in 1 2 4 8 16 32; do
-  mpirun -np $np fsrm -c config/scaling_weak.config
-done
-
-# Strong scaling (constant total cells)
-for np in 1 2 4 8 16 32; do
-  mpirun -np $np fsrm -c config/scaling_strong.config
-done
-```
-
-### GPU Performance
-
-Compare CPU vs GPU execution.
-
-**Run**:
-```bash
-# CPU baseline
-mpirun -np 8 fsrm -c config/gpu_test.config
-
-# Single GPU
-fsrm -c config/gpu_test.config --use-gpu
-
-# Multiple GPUs
-mpirun -np 4 fsrm -c config/gpu_test.config --use-gpu
-
-# Benchmark mode
-fsrm -c config/gpu_test.config --benchmark-gpu
-```
-
-**Expected Speedups**:
-- Single-phase flow: 10-20x
-- Elastodynamics: 30-50x
-- Poroelastodynamics: 20-40x
-- Black oil: 15-25x
-
-See `docs/DEPLOYMENT.md` for GPU setup and `README.md` for performance details.
-
-## Application Examples
-
-### Hydraulic Fracturing
-
-**Configuration**: `config/hydraulic_fracturing.config`
-
-**Features**:
-- PKN/KGD fracture models
-- Proppant transport
-- Leak-off and pressure decline
-
-### Induced Seismicity
-
-**Configuration**: `config/induced_seismicity.config`
-
-**Features**:
-- Fluid injection into faulted reservoir
-- Rate-and-state friction
-- Dynamic rupture triggering
-
-### Enhanced Geothermal System
-
-**Configuration**: `config/geothermal.config`
-
-**Features**:
-- High temperature (300°C)
-- Low permeability granite
-- Thermal-hydraulic-mechanical coupling
-
-### CO2 Storage
-
-**Configuration**: `config/co2_storage.config`
-
-**Features**:
-- Deep saline aquifer
-- CO2 phase behavior
-- Capillary trapping
-- Long-term migration
-
-### Shale Reservoir
-
-**Configuration**: `config/shale_reservoir.config`
-
-**Features**:
-- Ultra-low permeability (~100 nD)
-- Multi-stage hydraulic fracturing
-- Gas desorption
-- Long horizontal wells
-
-## Running Benchmarks
-
-### Quick Test
-```bash
-# Single benchmark
-mpirun -np 4 fsrm -c config/spe1_benchmark.config
-
-# With verification
-mpirun -np 4 fsrm -c config/spe1_benchmark.config --verify
-```
-
-### Complete Test Suite
-```bash
-# All unit tests
-cd build
-make test
-
-# All SCEC benchmarks
-cd benchmarks
-./run_scec_suite.sh --all --verify
-
-# Method of Manufactured Solutions tests
-cd tests
-./run_mms_tests.sh
-```
-
-### Visualization
-```bash
-# VTK output (for ParaView)
-paraview output/*.vtu
-
-# HDF5 output (more efficient)
-python scripts/hdf5_to_xdmf.py output/
-paraview output/solution.xdmf
-
-# Plots (automatically generated)
-ls output/*.png
-```
-
-## Benchmark Results
-
-### Typical Accuracy
-
-| Benchmark | L2 Error | Convergence Rate |
-|-----------|----------|------------------|
-| SPE1 | < 1% | N/A (discrete) |
-| SCEC TPV5 | < 2% | N/A (reference) |
-| Theis | < 0.01% | O(h²) |
-| Terzaghi | < 0.1% | O(h²) |
-| LOH.1 | < 5% | O(h²) |
-
-### Typical Performance (CPU, 32 cores)
-
-| Problem Size | Cells | Time/Step | Memory |
-|--------------|-------|-----------|--------|
-| Small | 1,000 | 0.01 s | 10 MB |
-| Medium | 100,000 | 1 s | 1 GB |
-| Large | 1,000,000 | 20 s | 10 GB |
-| Very Large | 10,000,000 | 5 min | 100 GB |
-
-### GPU Speedup (vs 32 CPU cores)
-
-| Problem Size | Single GPU | 4 GPUs |
-|--------------|------------|--------|
-| Small (1k) | 1-2x | - |
-| Medium (100k) | 10-15x | - |
-| Large (1M) | 20-30x | 18-25x |
-| Very Large (10M) | 30-40x | 60-100x |
-
-## References
-
-### SPE Benchmarks
-1. Odeh, A.S. (1981). "Comparison of Solutions to a Three-Dimensional Black-Oil Reservoir Simulation Problem." JPT, January 1981.
-2. Christie, M.A. and Blunt, M.J. (2001). "Tenth SPE Comparative Solution Project: A Comparison of Upscaling Techniques." SPE Reservoir Eval. & Eng.
-
-### SCEC Benchmarks
-1. Harris, R.A., et al. (2009). "The SCEC/USGS Dynamic Earthquake Rupture Code Verification Exercise." Seismological Research Letters.
-2. Harris, R.A., et al. (2018). "A Suite of Exercises for Verifying Dynamic Earthquake Rupture Codes." Seismological Research Letters.
-
-### Analytical Solutions
-1. Theis, C.V. (1935). "The relation between the lowering of the Piezometric surface and the rate and duration of discharge of a well using ground-water storage." Trans. AGU.
-2. Buckley, S.E. and Leverett, M.C. (1942). "Mechanism of Fluid Displacement in Sands." Trans. AIME.
-3. Mandel, J. (1953). "Consolidation Des Sols (Étude Mathématique)." Géotechnique.
-
-## See Also
-
-- [User Guide](USER_GUIDE.md) - Running simulations
-- [Configuration Reference](CONFIGURATION.md) - All configuration options
-- [Physics Models](PHYSICS_MODELS.md) - Mathematical formulations
-- [Development Guide](DEVELOPMENT.md) - Building and testing
+## Updating benchmarks
+
+When a gate envelope is tightened, edit
+[AXIS_1A_FIDELITY_REPORT.md](AXIS_1A_FIDELITY_REPORT.md) (canonical
+cross-pass record), [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md)
+(per-pass narrative), and this document (gate-by-gate detail) in lockstep.
+The integration test source and the doc must move together.
