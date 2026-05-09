@@ -856,6 +856,126 @@ Wilkins 1980 (Computer Simulation of Dynamic Phenomena), Marsh 1980
 (LASL Shock Hugoniot Data), Trunin 2001 (RFNC-VNIIEF shock data),
 Carter 1979 (LA-7873 NaCl shock data).
 
+## Pass-10 axis-1a closeout
+
+Pass-10 promotes the three HIGHEST-tier scaffolds on the axis-1a
+fidelity ladders to working implementations. After this pass every
+cell on the radiation-phase, cavity-EOS, opacity, operator-splitting,
+and time-integrator ladders has a working implementation; LOW / MED /
+HIGH defaults reproduce the corresponding pass-N behaviour
+byte-for-byte under pinned configs.
+
+### Multigroup radiation transport
+
+`radiation_phase = MARSHAK_MULTIGROUP` engages the new
+`MultigroupRadiationDiffusionSolver`. The grey diffusion equation
+generalises to G coupled equations indexed by frequency group g:
+
+```
+dE_r^g/dt = (1/r^2) d/dr [ r^2 (c / (3 kappa_R^g rho)) dE_r^g/dr ]
+          + c kappa_P^g rho ( 4 pi B_g(T_m) / c - E_r^g )
+```
+
+Per global timestep we run a Newton outer iteration: refresh
+per-cell, per-group opacities at the current `T_iter`, solve G
+separate tridiagonal systems for `E_g^{n+1}`, update `T_m` from the
+linearised matter-energy balance summed over all groups, repeat
+until the relative residual on `E_r^g` drops below
+`radiation_newton_tolerance`. The matter-temperature equation
+linearises around `T_iter` using `dB_g/dT` (computed by finite
+difference from the band-integrated Planck integrals).
+
+Per-group opacity follows path A from the pass-10 spec: the analytic
+Mihalas-Mihalas 1984 sec 82.2 smoothed-continuum bound-bound + Kramers'
+free-free + Thomson scattering model, evaluated at the cell's
+`(rho, T_m)` per timestep. Per-group means are computed by Simpson
+quadrature in log-frequency space over the group's
+[`nu_g`, `nu_{g+1}`] band. `MultigroupOpacityEvaluator` ships the
+quadrature; `FrequencyGroupGrid` parameterises G, `nu_min`, `nu_max`,
+and the number of Simpson sub-points per group.
+
+The default group grid is 16 log-spaced groups from 1e14 Hz (~6
+micron IR) to 1e18 Hz (~3 nm soft X-ray), with 17 Simpson sub-points
+per group. This covers the rock-plasma emission spectrum across the
+cavity-formation regime (`T_m` = 1e4 to 1e7 K). Configurable via
+the new `[NEAR_FIELD_SOURCE]` sub-keys `radiation_n_groups` (1-256),
+`radiation_freq_min_hz`, `radiation_freq_max_hz`,
+`radiation_simpson_points`.
+
+### TABULATED_FULL EOS
+
+`cavity_eos = TABULATED_FULL` removes the pass-9 sin^2 patch window.
+Every EOS query goes through the tabulated reader with a Tillotson
+safety net for out-of-table coverage. The pass-9 entry's residual
+(small numerical artifact at the patch transition) is gone in this
+mode; the residual factor-3 envelope on Salmon CavityRadius after
+pass-10 is the spherical-symmetry assumption itself, named axis-1b
+for follow-up.
+
+### TABULATED_FULL opacity and the dispatch matrix
+
+`opacity_model = TABULATED_FULL` (grey) removes the Z-R fallback at
+in-table queries. The pass-10 dispatch matrix
+`(opacity_model, radiation_phase)` is documented and enforced at
+config time:
+
+| opacity_model       | radiation_phase     | behaviour                  |
+|---------------------|---------------------|----------------------------|
+| `TABULATED_PATCHED` | `MARSHAK_GREY`      | pass-9 patched 2D table with Z-R fallback |
+| `TABULATED_FULL`    | `MARSHAK_GREY`      | pass-9 2D table only, no fallback                 |
+| `TABULATED_FULL`    | `MARSHAK_MULTIGROUP`| per-group analytic model (path A)                  |
+| `TABULATED_PATCHED` | `MARSHAK_MULTIGROUP`| not allowed; throws clear error directing at FULL  |
+
+### Higher-order explicit time integrators
+
+`time_integrator = EXPLICIT_EULER` (default) preserves the pass-9
+byte-identical hydro substep. `time_integrator = TVD_RK2` (Heun's
+method) and `time_integrator = RK3_SSP` (Shu-Osher 1988
+strong-stability-preserving Runge-Kutta) are implemented as convex
+blends of the same explicit-Euler hydro operator:
+
+  TVD_RK2:
+    y1     = y_n + dt L(y_n)
+    y1'    = y1 + dt L(y1)
+    y_n+1  = (1/2) y_n + (1/2) y1'
+
+  RK3_SSP:
+    y1     = y_n + dt L(y_n)
+    y1'    = y1 + dt L(y1)
+    y2     = (3/4) y_n + (1/4) y1'
+    y2'    = y2 + dt L(y2)
+    y_n+1  = (1/3) y_n + (2/3) y2'
+
+The SSP property of these schemes is preserved provided the
+underlying explicit-Euler operator is monotone under the per-step
+CFL bound, which the pass-6 Wilkins-AV Lagrangian update is.
+
+### Strang inner-substep convergence diagnostic
+
+Setting `operator_splitting_convergence_diagnostic = true` exposes
+the inner-CFL substep dt at the first call of each step via the
+new `RadialLagrangianSolver::getDiagnosticInnerSubstepDt()` /
+`getDiagnosticInnerSubstepCount()` accessors. The
+`Physics.Marshak.OperatorSplittingConvergence` test is then run with
+this diagnostic enabled to expose the second-order Strang behaviour
+even at CI-achievable resolution.
+
+### Pass-10 references
+
+- Mihalas, D. and Mihalas, B. W. (1984), "Foundations of Radiation
+  Hydrodynamics", Oxford University Press, sec 80 (multigroup
+  diffusion), sec 82.2 (line opacity smoothed continuum, gaunt factor).
+- Pomraning, G. C. (1973), "The Equations of Radiation
+  Hydrodynamics", Pergamon Press, ch IV (multigroup formulation).
+- Zel'dovich, Y. B. and Raizer, Y. P. (1967), "Physics of Shock
+  Waves and High-Temperature Hydrodynamic Phenomena", vol I,
+  ch V (free-free Kramers' opacity, frequency dependence).
+- Shu, C.-W. and Osher, S. (1988), "Efficient implementation of
+  essentially non-oscillatory shock-capturing schemes",
+  J. Comp. Phys 77, pp 439-471 (SSP3 / SSP2 RK schemes).
+- Strang, G. (1968), "On the construction and comparison of
+  difference schemes", SIAM J. Num. Anal. 5(3), pp 506-517.
+
 ## Validation and Verification
 
 ### Nuclear Explosion Validation

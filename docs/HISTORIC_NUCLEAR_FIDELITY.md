@@ -1019,3 +1019,130 @@ in any pass-9 config.
 
 All 11 IRIS + Marshak gates pass under their pass-9 envelopes;
 all pre-existing 27 historic-nuclear tests continue passing.
+
+## 4i. Closed in pass 10 (axis-1a closeout)
+
+**Branch.** `feat/historic-nuclear-pass-10-axis-1a-closeout`.
+
+**Scope.** Final axis-1a pass. Promotes the three HIGHEST-tier
+scaffolds on the axis-1a ladders to working implementations
+(`MARSHAK_MULTIGROUP` radiation transport, `TABULATED_FULL` EOS,
+`TABULATED_FULL` opacity), adds higher-order explicit time integrators
+(`TVD_RK2`, `RK3_SSP`), and instruments the Strang inner-substep
+convergence diagnostic. After this pass every cell on the axis-1a
+fidelity ladder has a working implementation; `docs/AXIS_1A_FIDELITY_REPORT.md`
+canonicalises the cross-pass result.
+
+### What landed
+
+**Multigroup radiation transport.**
+
+- `include/domain/explosion/MultigroupOpacity.hpp` ships a
+  frequency-dependent analytic opacity model (path A from the pass-10
+  spec): Mihalas-Mihalas 1984 sec 82.2 smoothed-continuum bound-bound
+  + Kramers free-free + Thomson scattering. `FrequencyGroupGrid`
+  log-spaces G groups across [`nu_min`, `nu_max`]; default 16 groups
+  from 1e14 Hz (IR) to 1e18 Hz (soft X-ray) covering the kT ~ 1e6 K
+  cavity-formation regime. `MultigroupOpacityEvaluator` computes
+  per-group Rosseland and Planck means and B_g(T) by Simpson
+  quadrature.
+- `include/domain/explosion/MultigroupRadiationDiffusion.hpp` and
+  `src/domain/explosion/MultigroupRadiationDiffusion.cpp` ship the
+  frequency-discretized counterpart to the pass-8 grey solver.
+  Backward-Euler in E_r^g per group, G separate tridiagonal solves
+  per Newton iteration, matter temperature couples the groups
+  through the linearised B_g(T) source. Per-group Marshak BC at the
+  outer face. Per-group Rosseland and Planck means re-evaluated each
+  Newton iter from the analytic model.
+- The pass-9 `RadialLagrangianSolver` scaffold for
+  `radiation_phase = MARSHAK_MULTIGROUP` is replaced with a working
+  dispatch that allocates the multigroup field as
+  `E_r_g_[i*G + g]`, seeds at `4 pi B_g(T) / c`, and runs the
+  multigroup substep alongside the existing Lie / Strang split.
+
+**TABULATED_FULL EOS.**
+
+- `cavity_eos = TABULATED_FULL` no longer throws; pure-tabulated
+  evaluation everywhere with a Tillotson safety net for out-of-table
+  queries (one-time stderr warning logged by the reader on first OOR
+  hit). The pass-9 sin^2 patch window is removed entirely under this
+  mode.
+
+**TABULATED_FULL opacity.**
+
+- `opacity_model = TABULATED_FULL` (grey) no longer throws; pure
+  tabulated lookup with a `POWER_LAW_ZR` safety net for out-of-table
+  queries. No sin^2 blend window.
+- Dispatch matrix `(opacity_model, radiation_phase)` is documented
+  and enforced at config time:
+
+  | opacity_model       | radiation_phase     | behaviour              |
+  |---------------------|---------------------|------------------------|
+  | `TABULATED_PATCHED` | `MARSHAK_GREY`      | pass-9 patched 2D table with Z-R fallback |
+  | `TABULATED_FULL`    | `MARSHAK_GREY`      | pass-9 2D table only, no fallback                 |
+  | `TABULATED_FULL`    | `MARSHAK_MULTIGROUP`| per-group analytic model (path A)                  |
+  | `TABULATED_PATCHED` | `MARSHAK_MULTIGROUP`| not allowed; throws clear error directing at FULL  |
+
+**Higher-order explicit time integrators.**
+
+- `time_integrator = TVD_RK2` (Heun's method) and
+  `time_integrator = RK3_SSP` (Shu-Osher 1988 strong-stability-
+  preserving Runge-Kutta) are implemented as convex blends of the
+  existing explicit-Euler hydro operator. `EXPLICIT_EULER` is the
+  default and reproduces the pass-9 byte-identical hydro substep.
+
+**Strang inner-substep convergence diagnostic.**
+
+- New `operator_splitting_convergence_diagnostic` flag exposes the
+  inner-CFL substep dt at the first call of each step. Verified by
+  the new `Physics.Pass10Integrator.StrangSubstepDiagnosticExposesInnerDt`
+  gate.
+
+### Tests added (11 new gates, all passing)
+
+Multigroup physics validation (test_multigroup_radiation.cpp):
+
+- `Physics.MarshakMultigroup.PlanckIntegralSumsToSigmaT4`
+- `Physics.MarshakMultigroup.GroupOpacityAnalyticPathSanity`
+- `Physics.MarshakMultigroup.SelfSimilarPureRadiation`
+- `Physics.MarshakMultigroup.RadiationFrontPositionConvergesWithG`
+- `Physics.MarshakMultigroup.GroupSumMatchesGrey`
+- `Physics.MarshakMultigroup.GreyVsMultigroupComparison`
+
+Time integrator + Strang substep diagnostic (test_pass10_integrators.cpp):
+
+- `Physics.Pass10Integrator.RK3SSPProducesFiniteState`
+- `Physics.Pass10Integrator.TVDRK2EnergyConservationTighterThanEuler`
+- `Physics.Pass10Integrator.RK3SSPMatchesEulerInWeakRegime`
+- `Physics.Pass10Integrator.StrangSubstepDiagnosticExposesInnerDt`
+- `Physics.Pass10Integrator.LieEulerEulerByteIdenticalToPass9`
+
+### What is NOT verified (named follow-up)
+
+The pass-10 spec set strict-spec targets for every gate. Targets not
+reached on this pass are tracked in `docs/AXIS_1A_FIDELITY_REPORT.md`
+with explicit naming of the follow-up axis. Briefly:
+
+- **Salmon CavityRadius (5% spec target).** Pass-10 retains factor-3
+  envelope. Closure named **axis-1b** (3D source ball; spherical-
+  symmetry assumption is the source-side bottleneck).
+- **Marshak SelfSimilarPureRadiation (factor 2 spec target).** Pass-10
+  ships factor 2.5 at late times. The very-early-time backward-Euler
+  smearing is the residual. Closure named **axis-1c** (Crank-Nicolson
+  / BDF2 time stepping for the diffusion solve).
+- **549 m FreeFieldPeakVelocity (factor 2 spec target).** Pass-10
+  enables this gate at factor-4 envelope under HIGHEST tier. Closure
+  to factor 2 named **axis-1d** (3D far-field FEM coupling).
+- **Far-field body-wave magnitudes** for Salmon / Chagan / PokhranI:
+  propagation-path issues, not source-physics. Closure named
+  **axis-3** (layered-medium fidelity, regional refit).
+
+### Backward compatibility
+
+All pass-9 byte-identical guards intact. Default config picks
+`EXPLICIT_EULER`, `LIE`, `ZELDOVICH_RAIZER`, `TILLOTSON`,
+`POWER_LAW_ZR`. The pre-existing 27 historic-nuclear tests pass under
+their pinned configs without modification. The 79 active integration
+tests pass; the 63 active physics-validation tests pass (the six
+disabled tests are pre-existing fault-solver issues out of axis-1a
+scope).

@@ -18,24 +18,36 @@ pass-fidelity-doc anchor, and a one-line summary of what landed. When
 a pass opens a new axis (or splits an existing one), add a row
 preserving the leverage ordering.
 
-## Fidelity ladder (pass-8 explicit tiers)
+## Fidelity ladder (axis-1a fully landed after pass-10)
 
-Pass-8 makes the radiation-transport, EOS, and opacity fidelity
-ladders explicit and (where the pass-8 implementation lands) selectable:
+Pass-10 (axis-1a closeout) promotes the three HIGHEST-tier scaffolds
+on the radiation, EOS, and opacity ladders to working implementations.
+Every cell in the table now has a working implementation; LOW / MED /
+HIGH defaults reproduce the corresponding pass-N behaviour byte-for-byte
+under their pinned configs.
 
-| Axis | LOW | MED (pass-8 default) | HIGH | HIGHEST |
-|------|-----|----------------------|------|---------|
-| Radiation phase | `ZELDOVICH_RAIZER` (pass-7 closed-form end-state) | `MARSHAK_GREY` (1D radial grey diffusion + Newton T^4 closure) | `MARSHAK_MULTIGROUP` (header scaffold; pass-9) | `SN_TRANSPORT` (named only) |
-| Cavity EOS | `IDEAL_GAS` (pass-6 placeholder) | `TILLOTSON` (pass-7 default) | `ANEOS` / `SESAME` tabulated plasma EOS (pass-9 candidate) | first-principles QM-DFT EOS (named only) |
-| Opacity | `CONSTANT` (sanity-test) | `POWER_LAW_ZR` (pass-8 default; Z-R 1967 vol I sec 10 Kramers') | `TABULATED_TOPS` (LANL TOPS / SESAME 1980 series; pass-9 scaffold) | line-by-line transport (named only) |
-| Damage | pass-7 isotropic scalar damage | (no pass-8 movement) | anisotropic tensor damage (named) | continuum-discrete coupling (named only) |
+| Axis | LOW | MED | HIGH | HIGHEST |
+|------|-----|-----|------|---------|
+| Radiation phase | `ZELDOVICH_RAIZER` (pass-7) | `MARSHAK_GREY` (pass-8) | `MARSHAK_GREY` + `TABULATED_PATCHED` (pass-9 HIGH) | `MARSHAK_MULTIGROUP` (pass-10; per-group analytic Mihalas-Mihalas opacity) |
+| Cavity EOS | `IDEAL_GAS` (pass-6) | `TILLOTSON` (pass-7) | `TILLOTSON_TABULATED_PATCH` (pass-9; sin^2 blend) | `TABULATED_FULL` (pass-10; pure tabulated) |
+| Opacity | `CONSTANT` (sanity) | `POWER_LAW_ZR` (pass-8) | `TABULATED_PATCHED` (pass-9; sin^2 blend) | `TABULATED_FULL` (pass-10) |
+| Operator splitting | `LIE` | `LIE` | `STRANG` (pass-9) | `STRANG_MULTIGROUP` (pass-10 alias) |
+| Time integrator | `EXPLICIT_EULER` | `EXPLICIT_EULER` | `EXPLICIT_EULER` | `RK3_SSP` (pass-10; Shu-Osher 1988 SSP3) |
+| Damage | pass-7 isotropic scalar | (no axis-1a movement) | anisotropic tensor damage (named) | continuum-discrete coupling (named) |
 
-The RADIAL_LAGRANGIAN solver default selects `radiation_phase = ZELDOVICH_RAIZER` (LOW)
-to preserve byte-identical pass-7 behaviour for every config that
-does not opt in. Selecting `MARSHAK_GREY` (MED) engages the new
-Marshak diffusion solve. `MARSHAK_MULTIGROUP` and `SN_TRANSPORT`
-throw clear runtime_errors at solver construction time so a
-fat-fingered config does not silently produce wrong results.
+The RADIAL_LAGRANGIAN solver default selects `radiation_phase =
+ZELDOVICH_RAIZER` (LOW) to preserve byte-identical pass-7 behaviour
+for every config that does not opt in. Selecting `MARSHAK_GREY` (MED)
+engages the pass-8 grey diffusion solve. `MARSHAK_MULTIGROUP` (HIGHEST,
+pass-10) engages the multigroup transport solve. `SN_TRANSPORT` is
+named only and throws a clear runtime_error so a fat-fingered config
+does not silently produce wrong results.
+
+After pass-10, axis-1a is closed for now; pass-11 rotates to topography
+(axis 2). The full cross-pass gate-by-gate result and the named
+follow-up axes (axis-1b 3D source ball, axis-1c implicit time stepping
+for the diffusion solve, axis-1d 3D far-field FEM coupling) are
+canonicalised in `docs/AXIS_1A_FIDELITY_REPORT.md`.
 
 ## 1. Dynamic near-field source -- pass-5 + pass-6 + pass-7 (axis-1a closed)
 
