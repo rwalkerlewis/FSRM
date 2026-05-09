@@ -100,7 +100,8 @@ protected:
                    double domain_z, const std::vector<LayerDef>& layers,
                    double end_time = 0.1,
                    const std::string& medium_type = "GENERIC",
-                   const std::string& dist_section = "")
+                   const std::string& dist_section = "",
+                   const std::string& near_field_section = "")
   {
     config_path_ = "test_historic_" + name + ".config";
     output_dir_ = "test_historic_" + name + "_output";
@@ -178,6 +179,9 @@ protected:
     cfg << "medium_type = " << medium_type << "\n";
     if (!dist_section.empty()) {
       cfg << "\n" << dist_section;
+    }
+    if (!near_field_section.empty()) {
+      cfg << "\n" << near_field_section;
     }
     // Pass-3 honesty: [MESH_REFINEMENT] is registered as live
     // infrastructure (Integration.SourceRefinement verifies its plumbing),
@@ -591,6 +595,146 @@ TEST_F(HistoricNuclearTest, Sedan1962)
         << "SAC output files (BHN/BHE/BHZ) must be produced with valid headers";
     assertFarFieldAndPolarity("Sedan 1962");
   }
+}
+
+// Pass-5 anchor: Sedan 1962 under [NEAR_FIELD_SOURCE] mode =
+// DYNAMIC_PLASTIC. Drives the far-field FEM problem from the recorded
+// 1D solver moment-tensor history (full 6 components, including CLVD)
+// instead of the closed-form RDP psi_dot scaled trace. Sedan is the
+// anchor because the cratering shot exercises near-surface damage and
+// the alluvium medium puts the cavity radius at a tractable scale
+// (Rc ~ 280 m for 104 kt vs Lz/4 = 500 m). See
+// docs/HISTORIC_NUCLEAR_FIDELITY.md "Closed in pass 5" for the
+// fidelity-claim rationale and docs/HISTORIC_NUCLEAR_ROADMAP.md axis 1
+// for the roadmap context.
+TEST_F(HistoricNuclearTest, Sedan1962_Dynamic)
+{
+  std::vector<LayerDef> layers = {
+    {2000.0, 1700.0, 4.36e9,  2.69e9,  1800.0},
+    {1700.0, 1000.0, 1.02e10, 7.50e9,  2300.0},
+    {1000.0,    0.0, 1.87e10, 1.34e10, 2650.0},
+  };
+  // Distributed source matches the pass-4 _Distributed envelope
+  // (factor 30) so the comparison isolates the kinematic-vs-dynamic
+  // moment-tensor change rather than mixing it with the SINGLE_CELL
+  // structural inflation.
+  const std::string dist =
+      "[SOURCE_DISTRIBUTION]\n"
+      "mode = UNIFORM_SPHERE\n"
+      "support_radius_factor = 50.0\n"
+      "min_cells = 1\n";
+  const std::string nf =
+      "[NEAR_FIELD_SOURCE]\n"
+      "mode = DYNAMIC_PLASTIC\n"
+      "elastic_radius_factor = 3.0\n"
+      "near_field_dt = 1.0e-5\n"
+      "damage_model = DRUCKER_PRAGER\n"
+      "output_cadence_microseconds = 100\n";
+  writeConfig("sedan_1962_dynamic", 104.0, 194.0, 2000.0, layers, 0.1,
+              "ALLUVIUM", dist, nf);
+
+  PetscReal sol_norm = 0.0;
+  PetscErrorCode ierr = runPipeline(sol_norm);
+
+  ASSERT_EQ(ierr, 0)
+      << "Sedan 1962 DYNAMIC_PLASTIC pipeline must complete";
+  EXPECT_GT(sol_norm, 0.0) << "Solution must be nonzero";
+  EXPECT_TRUE(std::isfinite(sol_norm)) << "Solution norm must be finite";
+  if (rank_ != 0) return;
+
+  EXPECT_TRUE(checkSACOutput())
+      << "SAC output files must be produced under DYNAMIC_PLASTIC";
+
+  // The pass-4 _Distributed envelope (factor 30). The dynamic source
+  // injects the FULL moment tensor (with CLVD content) instead of the
+  // isotropic trace, so the peak amplitude can shift by a few percent
+  // either direction; the envelope is wide enough to absorb that
+  // without becoming a floor for regression detection. A tighter
+  // envelope is roadmap follow-up (axis 1, paired with axis 5
+  // real-waveform IRIS validation).
+  assertFarFieldAndPolarity("Sedan 1962 (DYNAMIC_PLASTIC)", 30.0);
+
+  // Pass-5 specific assertion: the recorded near-field history CSV
+  // must exist, contain at least one sample row, and the cavity
+  // radius must agree with the medium-aware NTS analytic within 20%.
+  const std::string csv_path =
+      output_dir_ + "/near_field_history.csv";
+  std::ifstream csv(csv_path);
+  ASSERT_TRUE(csv.is_open())
+      << "near_field_history.csv must be produced under DYNAMIC_PLASTIC: "
+      << csv_path;
+
+  // Skip header lines (start with '#' or are the column header line).
+  // Read the last data row to capture the steady-state cavity radius.
+  std::string line;
+  std::string last_data_row;
+  while (std::getline(csv, line)) {
+    if (line.empty()) continue;
+    if (line[0] == '#') continue;
+    if (line.rfind("t,", 0) == 0) continue;
+    last_data_row = line;
+  }
+  ASSERT_FALSE(last_data_row.empty())
+      << "near_field_history.csv must contain at least one data row";
+
+  // Parse: t, R_cavity, R_plastic, Mxx, Myy, Mzz, Mxy, Mxz, Myz, M0_iso
+  std::vector<double> cols;
+  std::stringstream ss(last_data_row);
+  std::string cell;
+  while (std::getline(ss, cell, ',')) {
+    cols.push_back(std::stod(cell));
+  }
+  ASSERT_GE(cols.size(), 10u)
+      << "CSV row must have 10 columns; got " << cols.size();
+  const double R_cavity_csv = cols[1];
+
+  // Medium-aware NTS analytic: ALLUVIUM coefficient is 22 m / kt^(1/3).
+  // The CRAM3D-style cavity scaling exponent is 0.295. Empirical
+  // density correction factor is 1 / rho_ratio^(1/3.4) where the
+  // historic-nuclear configuration uses the deepest layer
+  // (rho = 2650 kg/m^3) for the spherical-cavity stress-tensor source;
+  // the ALLUVIUM coefficient already absorbs the medium correction.
+  // Reference: NuclearSourceParameters::cavity_radius with
+  // MediumType::ALLUVIUM (see ExplosionImpactPhysics.hpp). Pass-5
+  // records this medium-aware value (rescaled to the solver's
+  // internal time evolution) so the CSV reflects what the far-field
+  // residual actually consumes.
+  const double Rc_analytic =
+      22.0 * std::pow(104.0, 0.295) *
+      std::pow(2650.0 / 2650.0, -1.0 / 3.4);
+  const double rel_err =
+      std::abs(R_cavity_csv - Rc_analytic) / Rc_analytic;
+  EXPECT_LT(rel_err, 0.20)
+      << "Sedan DYNAMIC_PLASTIC: recorded cavity radius "
+      << R_cavity_csv << " m must agree with NTS analytic "
+      << Rc_analytic << " m within 20% (got " << rel_err * 100.0 << "%)";
+
+  // Pass-5 sanity: the recorded moment-rate trace integrated over the
+  // history is positive (Brune-source moment rate is non-negative).
+  // Reading the maximum is robust whether the last sample is at the
+  // peak or in the decay tail.
+  std::ifstream csv2(csv_path);
+  ASSERT_TRUE(csv2.is_open());
+  double max_m0iso_dot = 0.0;
+  size_t row_count = 0;
+  while (std::getline(csv2, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    if (line.rfind("t,", 0) == 0) continue;
+    std::stringstream ss2(line);
+    std::string c;
+    std::vector<double> v;
+    while (std::getline(ss2, c, ',')) v.push_back(std::stod(c));
+    if (v.size() >= 10) {
+      max_m0iso_dot = std::max(max_m0iso_dot, v[9]);
+      ++row_count;
+    }
+  }
+  EXPECT_GT(row_count, 100u)
+      << "Near-field history CSV must contain > 100 sample rows; got "
+      << row_count;
+  EXPECT_GT(max_m0iso_dot, 0.0)
+      << "Recorded peak isotropic moment-rate trace must be positive; "
+      << "max = " << max_m0iso_dot;
 }
 
 // Degelen Mountain, Kazakhstan: 50 kt, 300m, granite

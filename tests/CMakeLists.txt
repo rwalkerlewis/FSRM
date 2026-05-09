@@ -79,6 +79,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_mueller_murphy.cpp
     physics_validation/test_atmospheric_explosion.cpp
     physics_validation/test_near_field_explosion.cpp
+    physics_validation/test_dynamic_plastic_cavity.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -138,6 +139,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_layered_q.cpp
     integration/test_absorbing_bc_layered.cpp
     integration/test_source_distribution.cpp
+    integration/test_near_field_source.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -252,6 +254,10 @@ if(GTest_FOUND)
     add_test(NAME Physics.MuellerMurphy            COMMAND run_physics_tests --gtest_filter=MuellerMurphyValidationTest.*)
     add_test(NAME Physics.AtmosphericExplosion     COMMAND run_physics_tests --gtest_filter=AtmosphericExplosionValidationTest.*)
     add_test(NAME Physics.NearFieldExplosion        COMMAND run_physics_tests --gtest_filter=NearFieldExplosionValidationTest.*)
+    # Pass-5: dynamic-plastic near-field cavity-radius temporal
+    # convergence and moment-tensor extraction.
+    add_test(NAME Physics.NearFieldElastoplastic.CavityRadiusConvergence COMMAND run_physics_tests --gtest_filter=NearFieldElastoplasticTest.CavityRadiusConvergence)
+    add_test(NAME Physics.NearFieldElastoplastic.MomentTensorExtraction COMMAND run_physics_tests --gtest_filter=NearFieldElastoplasticTest.MomentTensorExtraction)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -359,6 +365,12 @@ if(GTest_FOUND)
     add_test(NAME Integration.HistoricNuclear.Gasbuggy1967_Distributed COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gasbuggy1967_Distributed)
     add_test(NAME Integration.HistoricNuclear.Gnome1961_Distributed COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Gnome1961_Distributed)
     add_test(NAME Integration.HistoricNuclear.Sedan1962_Distributed COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962_Distributed)
+    # Pass-5: Sedan 1962 anchor under [NEAR_FIELD_SOURCE] mode =
+    # DYNAMIC_PLASTIC. Asserts cavity radius from the recorded
+    # near-field history CSV agrees with the medium-aware NTS analytic
+    # within 20%, and the BHZ peak/u_far stays within the pass-4
+    # factor-30 envelope.
+    add_test(NAME Integration.HistoricNuclear.Sedan1962_Dynamic COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sedan1962_Dynamic)
     add_test(NAME Integration.HistoricNuclear.DegelenMountain_Distributed COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DegelenMountain_Distributed)
     add_test(NAME Integration.HistoricNuclear.NtsPahuteMesa_Distributed COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.NtsPahuteMesa_Distributed)
     add_test(NAME Integration.HistoricNuclear.Sterling1966_Distributed COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Sterling1966_Distributed)
@@ -382,6 +394,8 @@ if(GTest_FOUND)
     add_test(NAME Integration.SourceDistribution.UniformSphereM0Conserved COMMAND run_integration_tests --gtest_filter=SourceDistributionTest.UniformSphereM0Conserved)
     add_test(NAME Integration.SourceDistribution.GaussianBeatsSingleCellOnFineMesh COMMAND run_integration_tests --gtest_filter=SourceDistributionTest.GaussianBeatsSingleCellOnFineMesh)
     add_test(NAME Integration.SourceDistribution.FallbackToSingleCellWhenBallEmpty COMMAND run_integration_tests --gtest_filter=SourceDistributionTest.FallbackToSingleCellWhenBallEmpty)
+    # Pass-5: [NEAR_FIELD_SOURCE] config-grammar backward-compat guard.
+    add_test(NAME Integration.NearFieldSource.KinematicRDPLegacyByteIdentical COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.KinematicRDPLegacyByteIdentical)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -457,6 +471,8 @@ if(GTest_FOUND)
         Physics.LockedFaultTransparency
         Physics.ViscoelasticRelaxation
         Physics.CohesiveBdResidual
+        Physics.NearFieldElastoplastic.CavityRadiusConvergence
+        Physics.NearFieldElastoplastic.MomentTensorExtraction
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
@@ -531,6 +547,8 @@ if(GTest_FOUND)
         Integration.SourceDistribution.UniformSphereM0Conserved
         Integration.SourceDistribution.GaussianBeatsSingleCellOnFineMesh
         Integration.SourceDistribution.FallbackToSingleCellWhenBallEmpty
+        Integration.HistoricNuclear.Sedan1962_Dynamic
+        Integration.NearFieldSource.KinematicRDPLegacyByteIdentical
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 

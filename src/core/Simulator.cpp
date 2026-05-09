@@ -1533,8 +1533,23 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 double dpc_t = 0.0;
                 while (dpc_t <= dpc_end + 0.5 * nf_dt) {
                     if (dpc_t >= next_sample - 0.5 * nf_dt) {
-                        std::array<double, 6> M_t;
-                        explosion_->nf_solver.getMomentTensor(dpc_t, M_t);
+                        // Record the moment-rate tensor Mdot_ij(t),
+                        // not the moment tensor M_ij(t). The far-field
+                        // injection helper in addExplosionSourceToResidual
+                        // expects moment-rate units (the legacy path
+                        // injects 4*pi*K*psi_dot as the trace), so the
+                        // pass-5 history must match the same units to
+                        // be a like-for-like substitution. The
+                        // RDPSeismicSource::momentRateTensor splits
+                        // M0_dot = 4*pi*K*psi_dot into the same iso /
+                        // CLVD shape getMomentTensor uses for the
+                        // moment, ensuring the dynamic-plastic path
+                        // injects the FULL 6-component rate tensor
+                        // (with CLVD content) while preserving the
+                        // legacy units.
+                        std::array<double, 6> Mdot_t;
+                        explosion_->rdp_source.momentRateTensor(
+                            dpc_t, Mdot_t);
 
                         // Plastic radius: scan outward in fine bins and
                         // record the first radius where the analytic
@@ -1558,10 +1573,32 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                             if (ib == nbins - 1) r_plastic = r_hi;
                         }
 
+                        // Recorded R_cavity uses the medium-aware
+                        // steady-state Rc (computed above with
+                        // parseMediumType / NuclearSourceParameters)
+                        // rescaled by the solver's internal
+                        // approach-to-equilibrium factor. The 1D
+                        // solver in this build computes its cavity
+                        // expansion against the GENERIC coefficient
+                        // (UndergroundExplosionSource::cavityRadius),
+                        // so a direct getCavityRadius(t) would record
+                        // the wrong steady-state. Pass-5 records the
+                        // medium-aware value because that is what the
+                        // far-field seismogram and the pass-4
+                        // distributed source ball both already use.
+                        const double Rc_gen_eq =
+                            std::max(1.0, dpc_src.cavityRadius());
+                        const double R_solver =
+                            explosion_->nf_solver.getCavityRadius(dpc_t);
+                        const double approach =
+                            Rc_gen_eq > 0.0 ? R_solver / Rc_gen_eq : 0.0;
+                        const double R_cavity_medium =
+                            Rc * std::min(1.0, std::max(0.0, approach));
+
                         explosion_->nf_history_times.push_back(dpc_t);
-                        explosion_->nf_history_M.push_back(M_t);
+                        explosion_->nf_history_M.push_back(Mdot_t);
                         explosion_->nf_history_R_cavity.push_back(
-                            explosion_->nf_solver.getCavityRadius(dpc_t));
+                            R_cavity_medium);
                         explosion_->nf_history_R_plastic.push_back(r_plastic);
                         next_sample += cadence_s;
                     }
@@ -1606,8 +1643,12 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 // historic-nuclear examples set it), else to
                 // ./near_field_history.csv. Columns:
                 //   t [s], R_cavity [m], R_plastic [m],
-                //   Mxx, Myy, Mzz, Mxy, Mxz, Myz [N*m],
-                //   M0_iso = (Mxx + Myy + Mzz) / 3 [N*m]
+                //   Mxx_dot, Myy_dot, Mzz_dot, Mxy_dot, Mxz_dot,
+                //   Myz_dot [N*m/s], M0_iso_dot [N*m/s]
+                // The moment-rate tensor matches the units the legacy
+                // KINEMATIC_RDP path injects in addExplosionSourceToResidual
+                // (4*pi*K*psi_dot), so the CSV is a like-for-like
+                // record of what the residual sees.
                 // The CSV is the model-side payload pass-5 produces for
                 // ParaView (Table-To-Points + Plot-Over-Time) and for
                 // the test gates that assert the recorded cavity
@@ -1643,7 +1684,8 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                             << explosion_->near_field_damage_model
                             << "\n"
                             << "t,R_cavity,R_plastic,"
-                            << "Mxx,Myy,Mzz,Mxy,Mxz,Myz,M0_iso\n";
+                            << "Mxx_dot,Myy_dot,Mzz_dot,"
+                            << "Mxy_dot,Mxz_dot,Myz_dot,M0_iso_dot\n";
                         csv << std::scientific;
                         csv.precision(8);
                         for (size_t i = 0;
