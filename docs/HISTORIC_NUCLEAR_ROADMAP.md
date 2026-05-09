@@ -291,7 +291,7 @@ unaffordable. Mesh-grading drops this to (target TBD; ~10^6) cells
 by adapting only where the gradient demands it.
 
 **Acceptance.** A reference grading per event class (small kt,
-large kt, decoupled, atmospheric) lands in `config/examples/`;
+large kt, decoupled, atmospheric) lands in `examples/N_<event>/`;
 the grading is verified on the historic-nuclear pipeline at the
 pass level it unblocks (likely paired with a future axis-2 or
 axis-3 pass).

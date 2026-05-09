@@ -23,7 +23,7 @@ References: Sultanov et al. 1999; Adushkin & Spivak 2015 (Caspian
 salt-dome geology and Soviet PNE catalog).
 
 ## Config
-Uses `config/examples/azgir_a1_1966.config`.
+Uses `examples/31_azgir_a1_1966/config.config`.
 
 ## Expected Output
 - `output/azgir_a1_1966/*.SAC` -- synthetic seismograms at 3 stations

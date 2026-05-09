@@ -1,24 +1,87 @@
 # FSRM Physics Models
 
-Mathematical formulations and theory behind FSRM physics models.
+Mathematical formulations and theory behind FSRM physics models. The
+Volcano / Tsunami sections of earlier drafts of this document referred
+to archived dead code (`archive/src/`) and are not part of the current
+codebase; they are preserved below only for the historical record.
 
-> **See Also:** For GPU acceleration details, see [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md)
+For the source-physics constitutive models that ship as user-selectable
+fidelity-ladder tiers, see the new section
+[Source-physics constitutive models](#source-physics-constitutive-models)
+below.
 
 ---
 
-## Table of Contents
+## Source-physics constitutive models
+
+The pass-11 source-physics solver evaluates the following constitutive
+relationships. Each is selectable via the
+[FIDELITY_LADDER_GUIDE.md](FIDELITY_LADDER_GUIDE.md) tier knobs.
+
+### Equation of state
+
+| Model | Use | Reference |
+|---|---|---|
+| `IDEAL_GAS` | Bring-up only; closed-form `p = (gamma-1) rho e` | -- |
+| `TILLOTSON` | Two-region analytic Tillotson EOS, four parameters per medium (granite, tuff, salt, alluvium) | Tillotson 1962 |
+| `TILLOTSON_TABULATED_PATCH` | Tillotson blended with Z-R partial-ionization plasma table in [5e10, 6e10] Pa | Zel'dovich & Raizer 1967 |
+| `TABULATED_FULL` | Pure ANEOS-derived tabulated EOS; Tillotson safety net for out-of-table queries | Marsh 1980 (granite), McQueen 1970 (salt), ANEOS code |
+
+The Newton energy-partition solve at the radiation-to-hydrodynamic
+transition (Zel'dovich & Raizer 1967 end-state approximation) sets the
+cavity initial state from yield, depth, medium, and EOS. Vapor density
+is set at the solid-rock density.
+
+### Plasticity
+
+Drucker-Prager radial return with Wilkins (1980) viscosity. Coefficients
+`c_l = 0.06`, `c_q = 1.5` per literature. Yield surface and flow rule
+in the standard Simo-Hughes form.
+
+### Opacity
+
+| Model | Use | Reference |
+|---|---|---|
+| `CONSTANT` | Bring-up; single per-medium constant kappa | -- |
+| `POWER_LAW_ZR` | Zel'dovich-Raizer power law in T and rho | Zel'dovich & Raizer 1967 |
+| `TABULATED_PATCHED` | Z-R blended with Mihalas-Mihalas-corrected Rosseland/Planck means in a temperature patch | Mihalas & Mihalas 1984 sec 82.2 |
+| `TABULATED_FULL` | Pure tabulated grey opacity, no Z-R fallback | Mihalas & Mihalas 1984 |
+
+The multigroup variant (`MARSHAK_MULTIGROUP`) computes per-group
+Rosseland and Planck means analytically using a smoothed-continuum
+bound-bound + Kramers free-free + Thomson model (Mihalas & Mihalas
+1984 sec 82.2).
+
+### Radiation transport
+
+| Phase | Method | Reference |
+|---|---|---|
+| `ZELDOVICH_RAIZER` | Closed-form end-state at radiation-to-hydro transition | Zel'dovich & Raizer 1967 |
+| `MARSHAK_GREY` | Single-group radiation diffusion + Newton T^4 coupling | Marshak 1958 |
+| `MARSHAK_MULTIGROUP` | G coupled tridiagonal diffusion solves per Newton iteration | Mihalas & Mihalas 1984 |
+| `SN_TRANSPORT` | Named-only HIGHEST scaffold; not implemented | Mihalas & Mihalas 1984 |
+
+### Source extraction
+
+Surface-integral moment-rate evaluation at the elastic radius. Six
+independent components M_ij(t) and Mdot_ij(t) recorded; cavity radius
+R_cav(t) recorded. Output as `near_field_history.csv` and the per-
+snapshot radial state as `near_field_profile.h5` + `.xdmf`.
+
+For the per-pass narrative of which constitutive models landed when,
+see [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md).
+
+---
+
+## Table of Contents (general FEM physics)
 
 1. [Governing Equations](#governing-equations)
 2. [Fluid Flow Models](#fluid-flow-models)
 3. [Geomechanics Models](#geomechanics-models)
 4. [Thermal Models](#thermal-models)
-5. [Fracture Models](#fracture-models)
-6. [Fault Mechanics](#fault-mechanics)
-7. [Wave Propagation](#wave-propagation)
-8. [Volcano Physics](#volcano-physics)
-9. [Tsunami Physics](#tsunami-physics)
-10. [Coupled Physics](#coupled-physics)
-11. [GPU Acceleration](#gpu-acceleration)
+5. [Fault Mechanics](#fault-mechanics)
+6. [Wave Propagation](#wave-propagation)
+7. [Coupled Physics](#coupled-physics)
 
 ---
 

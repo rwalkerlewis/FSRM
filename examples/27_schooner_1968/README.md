@@ -26,7 +26,7 @@ References: Knox & Terhune 1965 (cratering scaling); Glasstone & Dolan
 cavity geology).
 
 ## Config
-Uses `config/examples/schooner_1968.config`.
+Uses `examples/27_schooner_1968/config.config`.
 
 ## Expected Output
 - `output/schooner_1968/*.SAC` -- synthetic seismograms at 3 stations

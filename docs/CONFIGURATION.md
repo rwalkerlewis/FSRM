@@ -1,466 +1,306 @@
 # Configuration Reference
 
-FSRM simulations are driven entirely by configuration files, eliminating the need to write custom C++ code for most use cases. This document provides a complete reference for all configuration options.
+FSRM simulations are driven by a single `.config` text file consumed by
+the `fsrm` executable. This document is the per-section, per-key
+reference. For at-a-glance fidelity-tier selection, see
+[FIDELITY_LADDER_GUIDE.md](FIDELITY_LADDER_GUIDE.md). For an end-to-end
+worked example, see [USER_GUIDE.md](USER_GUIDE.md).
 
-## File Format
-
-Configuration files use INI-style syntax with sections and key-value pairs:
+## File format
 
 ```ini
 # Comment
 [SECTION_NAME]
 key = value
-string_key = "quoted string"
+string_key = string with no quotes
 list_key = value1, value2, value3
+scientific = 1.5e6
 ```
 
-## Core Sections
+The parser is in `src/core/ConfigReader.cpp`. Section names are
+uppercase, keys are lowercase. Unknown keys are silently ignored;
+unknown values for enum keys warn-and-fall-back to the default with
+a one-time stderr message on rank 0.
 
-### [SIMULATION]
+## Sections
 
-Controls overall simulation behavior.
+The recognized sections are listed below. Unset sections take their
+documented defaults; the source of truth for every default is
+`src/core/Simulator.cpp::initializeFromConfigFile()`.
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `name` | string | "Simulation" | Simulation identifier |
-| `type` | enum | RESERVOIR | RESERVOIR, GEOMECHANICS, WAVE_PROPAGATION, COUPLED |
-| `start_time` | double | 0.0 | Start time (seconds or days) |
-| `end_time` | double | 1.0 | End time |
-| `dt` | double | 0.001 | Initial time step |
-| `max_timesteps` | int | 1000 | Maximum time steps |
-| `output_frequency` | int | 10 | Steps between outputs |
+| Section | Purpose |
+|---|---|
+| `[SIMULATION]` | Top-level run settings, physics enable flags |
+| `[GRID]` | Mesh definition (structured or Gmsh) |
+| `[MATERIAL]` | Per-region elastic / poroelastic / thermal properties |
+| `[MESH_REFINEMENT]` | Adaptive refinement around the source |
+| `[EXPLOSION_SOURCE]` | Underground-explosion top-level parameters |
+| `[NEAR_FIELD_SOURCE]` | Six-rung fidelity-ladder source physics |
+| `[SOURCE_DISTRIBUTION]` | How the moment tensor is distributed over cells |
+| `[BOUNDARY_CONDITIONS]` | Per-face Dirichlet / traction |
+| `[INITIAL_CONDITIONS]` | Per-field initial values |
+| `[ABSORBING_BC]` | Clayton-Engquist absorbing on bounding-box faces |
+| `[THERMAL]` | Thermal field configuration |
+| `[VISCOELASTIC]` | Generalized-Maxwell viscoelastic memory variables |
+| `[PLASTICITY]` | Drucker-Prager plasticity parameters |
+| `[FAULT]` | Cohesive fault network |
+| `[FRACTURE_PLANE]` | Pressurized-fracture formulation |
+| `[HYDRAULIC_FRACTURE]` | Hydraulic-fracture coupling |
+| `[INJECTION]` | Pressure-injection point source |
+| `[SEISMOMETERS]` | Receiver locations and SAC station metadata |
+| `[OUTPUT]` | What to write and where |
+| `[WAVEFORM_VV]` | IRIS waveform-comparison V&V |
+| `[NUCLEAR_TRIGGER]` | Coupling between explosion source and fault |
 
-### [TIME]
-
-Advanced time stepping options.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `method` | enum | BACKWARD_EULER | FORWARD_EULER, BACKWARD_EULER, CRANK_NICOLSON, BDF2 |
-| `adaptive` | bool | true | Enable adaptive time stepping |
-| `min_dt` | double | 1e-10 | Minimum time step |
-| `max_dt` | double | 1e6 | Maximum time step |
-| `cfl` | double | 0.5 | CFL number (explicit methods) |
-| `dt_growth_factor` | double | 1.2 | Max dt increase per step |
-| `dt_reduction_factor` | double | 0.5 | dt reduction on failure |
-
-### [GRID]
-
-Mesh and domain definition.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `nx`, `ny`, `nz` | int | 10 | Grid cells in each direction |
-| `Lx`, `Ly`, `Lz` | double | 1000.0 | Domain size (meters) |
-| `origin_x`, `origin_y`, `origin_z` | double | 0.0 | Domain origin |
-| `mesh_type` | enum | CARTESIAN | CARTESIAN, GMSH, CORNER_POINT, EXODUS |
-| `mesh_file` | string | "" | External mesh file path |
-| `use_unstructured` | bool | false | Use unstructured grid |
-| `input_crs` | string | "" | Input coordinate system (EPSG) |
-| `model_crs` | string | "" | Model coordinate system (EPSG) |
-| `use_local_coordinates` | bool | true | Apply local origin offset |
-| `local_origin_x`, `local_origin_y`, `local_origin_z` | double | 0.0 | Local origin |
-| `auto_detect_utm` | bool | false | Auto-detect UTM zone |
-
-#### Gmsh-Specific Options
+## `[SIMULATION]`
 
 | Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `gmsh_physical_volume` | string | "" | Physical group name for main volume |
-| `gmsh_boundaries` | list | [] | Physical group names for boundaries |
-| `gmsh_refinement_level` | int | 0 | Additional mesh refinement levels |
-| `gmsh_material_mapping` | string | "" | Material domain mappings (see below) |
-| `gmsh_fault_mapping` | string | "" | Fault surface mappings (see below) |
+|---|---|---|---|
+| `name` | string | "FSRM" | Run identifier |
+| `start_time` | double | 0.0 | Simulation start, seconds |
+| `end_time` | double | 1.0 | Simulation end, seconds |
+| `dt` | double | 0.001 | Initial timestep, seconds |
+| `enable_geomechanics` | bool | false | Solid mechanics on |
+| `enable_elastodynamics` | bool | false | TSALPHA2 dynamic ODE |
+| `enable_poroelasticity` | bool | false | Biot poroelasticity |
+| `enable_thermal` | bool | false | Heat equation |
+| `enable_faults` | bool | false | Cohesive fault network |
+| `enable_viscoelastic` | bool | false | GMB attenuation |
 
-**Material Domain Mapping Format:**
-```ini
-# Map physical volume names to material sections
-gmsh_material_mapping = physical_group:ROCK_SECTION, group2:ROCK2, ...
-```
-
-**Fault Surface Mapping Format:**
-```ini
-# Map physical surface names to fault sections
-# Add :split suffix to enable split nodes for discontinuous displacement
-gmsh_fault_mapping = fault_surface:FAULT_SECTION[:split], ...
-```
-
-**Example:**
-```ini
-[GRID]
-mesh_type = GMSH
-mesh_file = meshes/reservoir.msh
-use_unstructured = true
-
-# Map physical volumes to materials
-gmsh_material_mapping = reservoir:ROCK1, caprock:ROCK2, basement:ROCK3
-
-# Map physical surfaces to faults (with split nodes)
-gmsh_fault_mapping = main_fault:FAULT1:split, secondary_fault:FAULT2
-
-# Boundaries for BC application
-gmsh_boundaries = inlet, outlet, top, bottom, north, south
-```
-
-See [Gmsh Mesh Guide](GMSH_MESH_GUIDE.md) for detailed instructions on creating Gmsh meshes with physical groups.
-
-### [PHYSICS]
-
-Enable/disable physics modules.
+## `[GRID]`
 
 | Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enable_flow` | bool | true | Enable fluid flow |
-| `enable_transport` | bool | false | Enable species transport |
-| `enable_geomechanics` | bool | false | Enable geomechanics |
-| `enable_thermal` | bool | false | Enable heat transfer |
-| `enable_fractures` | bool | false | Enable discrete fractures |
-| `enable_faults` | bool | false | Enable fault slip |
+|---|---|---|---|
+| `mesh_type` | enum | STRUCTURED | `STRUCTURED` or `GMSH` |
+| `nx`, `ny`, `nz` | int | 10 | Cells per axis (structured) |
+| `Lx`, `Ly`, `Lz` | double | 1.0 | Domain extents (structured), meters |
+| `mesh_file` | string | -- | Path to MSH2 file (`mesh_type = GMSH`) |
+| `cell_type` | enum | HEX | `HEX` or `TET` (faults require simplices) |
 
-## Material Sections
+## `[MATERIAL]`
 
-### [FLUID]
+Three input modes are supported:
 
-Fluid properties.
+1. Single homogeneous material (omit per-region keys).
+2. Depth-layered: `layer_count = N` plus `layer_<n>_z_min`, `layer_<n>_z_max`,
+   and per-layer properties.
+3. Per-cell binary velocity model: `velocity_model_path =
+   path/to/file.bin` reads (Vp, Vs, rho) trilinearly interpolated to mesh
+   centroids.
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `type` | enum | SINGLE_COMPONENT | SINGLE_COMPONENT, BLACK_OIL, COMPOSITIONAL |
-| `density` | double | 1000.0 | Reference density (kg/m³) |
-| `viscosity` | double | 0.001 | Viscosity (Pa·s) |
-| `compressibility` | double | 4.5e-10 | Compressibility (1/Pa) |
-| `Bo` | double | 1.0 | Oil formation volume factor |
-| `Bw` | double | 1.0 | Water formation volume factor |
-| `Bg` | double | 1.0 | Gas formation volume factor |
-| `Rs` | double | 0.0 | Solution gas-oil ratio |
-| `mu_o` | double | 0.001 | Oil viscosity |
-| `mu_w` | double | 0.001 | Water viscosity |
-| `mu_g` | double | 0.00001 | Gas viscosity |
-| `relperm_model` | enum | COREY | LINEAR, COREY, BROOKS_COREY |
-| `n_w` | double | 2.0 | Water Corey exponent |
-| `n_o` | double | 2.0 | Oil Corey exponent |
-| `S_wc` | double | 0.2 | Connate water saturation |
-| `S_or` | double | 0.2 | Residual oil saturation |
-| `k_rw_max` | double | 0.3 | Max water relative perm |
-| `k_ro_max` | double | 1.0 | Max oil relative perm |
-
-### [ROCK]
-
-Rock/matrix properties.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `porosity` | double | 0.2 | Porosity |
-| `permeability` | double | 1e-13 | Isotropic permeability (m²) |
-| `permeability_x`, `permeability_y`, `permeability_z` | double | 1e-13 | Anisotropic permeability |
-| `compressibility` | double | 1e-10 | Rock compressibility (1/Pa) |
-| `density` | double | 2650 | Grain density (kg/m³) |
-| `thermal_conductivity` | double | 2.5 | Thermal conductivity (W/m·K) |
-| `specific_heat` | double | 800 | Specific heat (J/kg·K) |
-
-### [SOLID]
-
-Geomechanical properties.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `model` | enum | ELASTIC | ELASTIC, POROELASTIC, VISCOELASTIC |
-| `E` | double | 30e9 | Young's modulus (Pa) |
-| `nu` | double | 0.25 | Poisson's ratio |
-| `density` | double | 2650 | Solid density (kg/m³) |
-| `biot_coefficient` | double | 0.8 | Biot coefficient |
-| `lambda` | double | - | Lamé's first parameter |
-| `mu` | double | - | Shear modulus |
-| `Vp` | double | - | P-wave velocity (m/s) |
-| `Vs` | double | - | S-wave velocity (m/s) |
-
-## Wells
-
-Define wells using numbered sections `[WELL1]`, `[WELL2]`, etc.
+Common keys:
 
 | Key | Type | Description |
-|-----|------|-------------|
-| `name` | string | Well identifier |
-| `type` | enum | INJECTOR, PRODUCER |
-| `x`, `y`, `z` | double | Well location |
-| `i`, `j`, `k` | int | Well cell indices (alternative) |
-| `radius` | double | Wellbore radius |
-| `skin` | double | Skin factor |
-| `control_mode` | enum | RATE, BHP |
-| `target_value` | double | Rate (m³/s) or BHP (Pa) |
-| `fluid` | enum | OIL, WATER, GAS |
-| `perforation_start` | double | Top of perforation |
-| `perforation_end` | double | Bottom of perforation |
+|---|---|---|
+| `density` | double | kg/m^3 |
+| `youngs_modulus` | double | Pa |
+| `poisson_ratio` | double | dimensionless |
+| `permeability` | double | m^2 |
+| `porosity` | double | 0..1 |
+| `biot_coefficient` | double | dimensionless |
+| `biot_modulus` | double | Pa |
+| `thermal_conductivity` | double | W/(m K) |
+| `specific_heat` | double | J/(kg K) |
+| `thermal_expansion_coefficient` | double | 1/K |
 
-Example:
-```ini
-[WELL1]
-name = INJECTOR-1
-type = INJECTOR
-x = 100.0
-y = 250.0
-z = -1500.0
-radius = 0.1
-control_mode = RATE
-target_value = 0.001
-fluid = WATER
+## `[EXPLOSION_SOURCE]`
 
-[WELL2]
-name = PRODUCER-1
-type = PRODUCER
-x = 900.0
-y = 250.0
-z = -1500.0
-control_mode = BHP
-target_value = 10.0e6
-fluid = OIL
-```
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `yield_kt` | double | -- | Equivalent TNT yield in kilotons |
+| `location` | 3 doubles | -- | Source coordinates, meters |
+| `medium_label` | enum | GRANITE | `GRANITE`, `TUFF`, `SALT`, `ALLUVIUM`, `SHALE` |
+| `mode` | enum | COUPLED_ANALYTIC | `COUPLED_ANALYTIC` (Mueller-Murphy + dynamic) or `PROXY` (legacy scalar) |
+| `explosion_solve_mode` | enum | COUPLED_ANALYTIC | Same enum as `mode`; legacy alias |
 
-## Boundary Conditions
+## `[NEAR_FIELD_SOURCE]`
 
-Define BCs using numbered sections `[BC1]`, `[BC2]`, etc.
+The six-rung fidelity-ladder block. Defaults are pre-pass-12 backwards-
+compatible: a config that does not set a key gets the previous-pass
+behaviour byte-for-byte.
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `type` | enum | DIRICHLET, NEUMANN, ROBIN |
-| `field` | enum | PRESSURE, TEMPERATURE, DISPLACEMENT, SATURATION |
-| `location` | string | XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX, or physical group name |
-| `value` | double | BC value |
-| `component` | int | Vector component (0=x, 1=y, 2=z) |
+| Key | Type | Default | Values |
+|---|---|---|---|
+| `mode` | enum | KINEMATIC_RDP | `KINEMATIC_RDP` (closed-form) or `DYNAMIC_PLASTIC` (1D Lagrangian) |
+| `solver_kind` | enum | RADIAL_LAGRANGIAN (in pass-7+ DYNAMIC_PLASTIC) | `CLOSED_FORM` or `RADIAL_LAGRANGIAN` |
+| `radiation_phase` | enum | ZELDOVICH_RAIZER | `ZELDOVICH_RAIZER` (LOW), `MARSHAK_GREY` (MED), `MARSHAK_MULTIGROUP` (HIGHEST), `SN_TRANSPORT` (named-only scaffold) |
+| `cavity_eos` | enum | TILLOTSON | `IDEAL_GAS` (LOW), `TILLOTSON` (MED), `TILLOTSON_TABULATED_PATCH` (HIGH), `TABULATED_FULL` (HIGHEST) |
+| `opacity_model` | enum | POWER_LAW_ZR | `CONSTANT` (LOW), `POWER_LAW_ZR` (MED), `TABULATED_PATCHED` (HIGH), `TABULATED_FULL` (HIGHEST) |
+| `operator_splitting` | enum | LIE | `LIE` (LOW/MED), `STRANG` (HIGH), `STRANG_MULTIGROUP` (HIGHEST), `LIE_MULTIGROUP` |
+| `time_integrator` | enum | EXPLICIT_EULER | `EXPLICIT_EULER`, `TVD_RK2`, `RK3_SSP` |
+| `time_integrator_diffusion` | enum | BACKWARD_EULER | `BACKWARD_EULER`, `CRANK_NICOLSON`, `BDF2` |
+| `cavity_geometry` | enum | SPHERICAL | `SPHERICAL` (only working value); `THREE_DIMENSIONAL` is the pass-13 axis-1b scaffold and throws |
+| `cavity_initialization` | enum | PHYSICS_BASED | `PHYSICS_BASED` (Newton energy-partition solve) or `MANUAL` |
+| `initial_cavity_radius_m` | double | -1 | If `MANUAL`, set this; -1 lets the solver choose |
+| `radiation_transition_time_s` | double | -1 | Override Z-R transition time; -1 lets solver choose |
+| `tillotson_parameter_set` | string | medium-derived | Override Tillotson parameter set |
+| `tillotson_extrapolation_warning_threshold_pa` | double | 5e10 | Warn when Tillotson extrapolated above this |
 
-Example:
-```ini
-[BC1]
-type = DIRICHLET
-field = PRESSURE
-location = XMIN
-value = 20.0e6
+### Multigroup (only used when `radiation_phase = MARSHAK_MULTIGROUP`)
 
-[BC2]
-type = NEUMANN
-field = PRESSURE
-location = XMAX, YMIN, YMAX
-value = 0.0
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `radiation_n_groups` | int | 16 | Number of frequency groups (1..256) |
+| `radiation_freq_min_hz` | double | 1e14 | Lowest group frequency |
+| `radiation_freq_max_hz` | double | 1e18 | Highest group frequency |
+| `radiation_simpson_points` | int | 17 | Per-group Planck-integral Simpson points |
+| `output_per_group_radiation` | bool | false | Emit per-group radiation flux to HDF5 |
 
-[BC3]
-type = DIRICHLET
-field = DISPLACEMENT
-location = ZMIN
-value = 0.0
-component = 2
-```
+### Tabulated EOS / opacity (HIGH and HIGHEST tiers)
 
-## Initial Conditions
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `tabulated_eos_table_path` | string | -- | HDF5 path for cavity_eos = TABULATED_* |
+| `tabulated_opacity_rosseland_path` | string | -- | HDF5 path for opacity Rosseland |
+| `tabulated_opacity_planck_path` | string | -- | HDF5 path for opacity Planck |
+| `tabulated_eos_blend_lower_pa` | double | 5e10 | Pressure patch lower bound |
+| `tabulated_eos_blend_upper_pa` | double | 6e10 | Pressure patch upper bound |
+| `tabulated_opacity_blend_lower_k` | double | 1.0e5 | Temperature patch lower bound |
+| `tabulated_opacity_blend_upper_k` | double | 1.26e5 | Temperature patch upper bound |
+| `kappa_constant_m2_per_kg` | double | 0 | Used when `opacity_model = CONSTANT` |
 
-Define ICs using numbered sections `[IC1]`, `[IC2]`, etc.
+### Pass-11 sponge layer and outer-radius override
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `field` | enum | PRESSURE, SATURATION_WATER, SATURATION_OIL, TEMPERATURE, etc. |
-| `type` | enum | CONSTANT, LINEAR, FUNCTION |
-| `value` | double | Constant value |
-| `gradient_x`, `gradient_y`, `gradient_z` | double | Gradient components |
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `sponge_layer_enabled` | bool | false | Israeli-Orszag 1981 graded-damping sponge |
+| `radial_outer_radius_m` | double | -1 | Override outer-domain radius; -1 lets solver choose |
 
-Example:
-```ini
-[IC1]
-field = PRESSURE
-type = CONSTANT
-value = 15.0e6
+### Newton coupling
 
-[IC2]
-field = SATURATION_WATER
-type = CONSTANT
-value = 0.2
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `radiation_max_newton_iter` | int | 10 | Max Newton iterations per timestep |
+| `radiation_newton_tolerance` | double | 1e-6 | Newton residual tolerance |
+| `radiation_handoff_debounce_steps` | int | 3 | Hydro-to-radiation handoff debounce |
 
-[IC3]
-field = TEMPERATURE
-type = LINEAR
-value = 60.0           # At reference point
-gradient_z = 0.03      # 30°C/km geothermal gradient
-```
+### Diagnostic flag
 
-## Source Distribution (Underground Nuclear Tests)
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `operator_splitting_convergence_diagnostic` | bool | false | Per-substep order-check instrumentation |
 
-### [SOURCE_DISTRIBUTION]
+## `[SOURCE_DISTRIBUTION]`
 
-Optional pass-4 grammar that controls how the moment tensor for an
+Pass-4 grammar that controls how the moment tensor for an
 `[EXPLOSION_SOURCE]` is injected into the FEM residual. The default
-preserves the pre-pass-4 single-cell injection so existing configs are
-byte-identical when the section is absent.
+preserves the pre-pass-4 single-cell injection.
 
 | Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `mode` | enum | SINGLE_CELL | `SINGLE_CELL` (legacy delta-function injection in the cell containing the source), `GAUSSIAN` (cell-volume Riemann sum of `M_ij * exp(-r^2/(2*sigma^2))`), `UNIFORM_SPHERE` (cell-volume Riemann sum of `M_ij` uniformly inside the support ball) |
-| `support_radius_factor` | double | 1.0 | Multiplier on the cavity radius `Rc` (medium-aware via `EXPLOSION_SOURCE.medium_type`); the support ball has radius `support_radius_factor * Rc`. For GAUSSIAN the ball is also truncated at `3*sigma` |
-| `gaussian_sigma_factor` | double | 0.5 | For `mode = GAUSSIAN`, sigma in the weight function = `gaussian_sigma_factor * Rc`. Ignored for other modes |
-| `min_cells` | int | 1 | Degeneracy guard: if fewer than `min_cells` cells globally lie inside the support ball, the runtime falls back to `SINGLE_CELL` injection with a single rank-0 warning |
+|---|---|---|---|
+| `mode` | enum | SINGLE_CELL | `SINGLE_CELL`, `GAUSSIAN`, `UNIFORM_SPHERE` |
+| `support_radius_factor` | double | 1.0 | Multiplier on cavity radius |
+| `gaussian_sigma_factor` | double | 0.5 | Sigma factor for `GAUSSIAN` mode |
+| `min_cells` | int | 1 | Fall back to `SINGLE_CELL` if support has fewer cells |
 
-The integrated moment density equals `M0` in all modes -- the per-cell
-weights `w_c * V_c` are normalized via `MPI_Allreduce` so they sum to 1
-globally, preserving the low-frequency RDP plateau across distribution
-choices. See `docs/HISTORIC_NUCLEAR_FIDELITY.md` section 4c for the
-historic-nuclear envelope that these modes shrink, and
-`tests/integration/test_source_distribution.cpp` for the M0
-conservation, fallback, and refinement-inversion verification tests.
+The integrated moment density equals `M0` in all modes; per-cell weights
+are normalized via `MPI_Allreduce` to preserve the low-frequency RDP
+plateau across distribution choices.
 
-Example:
-```ini
-[SOURCE_DISTRIBUTION]
-# Spread the moment tensor over a Gaussian-weighted ball of radius
-# 5 * Rc with sigma = 2 * Rc (truncated at 3 * sigma = 6 * Rc).
-mode = GAUSSIAN
-support_radius_factor = 5.0
-gaussian_sigma_factor = 2.0
-min_cells = 1
-```
+## `[BOUNDARY_CONDITIONS]`
 
-## Solver Settings
-
-### [SOLVER]
-
-Linear and nonlinear solver configuration.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `linear_solver` | enum | GMRES | CG, GMRES, BICGSTAB, DIRECT |
-| `preconditioner` | enum | ILU | JACOBI, ILU, ASM, GAMG, HYPRE |
-| `max_linear_iterations` | int | 1000 | Max linear iterations |
-| `linear_tolerance` | double | 1e-8 | Linear solver tolerance |
-| `nonlinear_solver` | enum | NEWTON | NEWTON, PICARD |
-| `max_nonlinear_iterations` | int | 20 | Max Newton iterations |
-| `nonlinear_tolerance` | double | 1e-6 | Nonlinear tolerance |
-| `line_search` | bool | true | Enable line search |
-
-### [GPU]
-
-GPU acceleration settings.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enable` | bool | false | Enable GPU |
-| `device_id` | int | 0 | GPU device index |
-| `streams` | int | 4 | CUDA streams |
-
-## Output Settings
-
-### [OUTPUT]
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `format` | enum | VTK | VTK, HDF5, ECLIPSE |
-| `directory` | string | "output" | Output directory |
-| `prefix` | string | "solution" | File prefix |
-| `fields` | list | all | Fields to output |
-| `binary` | bool | true | Binary output |
-| `compression` | bool | false | Enable compression |
-
-Example:
-```ini
-[OUTPUT]
-format = VTK
-directory = results
-prefix = reservoir_sim
-fields = PRESSURE, SATURATION, VELOCITY
-binary = true
-```
-
-## Example Configurations
-
-### Single-Phase Flow
+Per-face Dirichlet / traction. Faces are named by axis half-space:
+`X_MIN`, `X_MAX`, `Y_MIN`, `Y_MAX`, `Z_MIN`, `Z_MAX`.
 
 ```ini
-[SIMULATION]
-name = SinglePhaseReservoir
-type = RESERVOIR
-end_time = 86400
-output_frequency = 100
+[BOUNDARY_CONDITIONS]
+face = X_MIN
+type = DIRICHLET
+displacement = 0.0, 0.0, 0.0
 
-[GRID]
-nx = 50
-ny = 50
-nz = 10
-Lx = 1000
-Ly = 500
-Lz = 50
-
-[FLUID]
-type = SINGLE_COMPONENT
-density = 800
-viscosity = 0.001
-compressibility = 5e-10
-
-[ROCK]
-porosity = 0.2
-permeability = 1e-13
-
-[WELL1]
-name = INJECTOR
-type = INJECTOR
-x = 100
-y = 250
-z = -25
-control_mode = RATE
-target_value = 0.001
-
-[WELL2]
-name = PRODUCER
-type = PRODUCER
-x = 900
-y = 250
-z = -25
-control_mode = BHP
-target_value = 10e6
-
-[BC1]
-type = NEUMANN
-field = PRESSURE
-location = XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX
-value = 0.0
-
-[IC1]
-field = PRESSURE
-type = CONSTANT
-value = 20e6
-
-[OUTPUT]
-format = VTK
-directory = output/single_phase
+face = Z_MAX
+type = TRACTION
+traction = 0.0, 0.0, -1.0e6   # downward 1 MPa
 ```
 
-### Two-Phase Waterflooding
+## `[ABSORBING_BC]`
 
-See `/workspace/config/buckley_leverett_2d.config`
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | false | Apply Clayton-Engquist on all 6 faces |
 
-### Coupled Flow-Geomechanics
+> 99 % energy absorption verified by `Physics.AbsorbingBC`.
 
-See `/workspace/config/coupled_reservoir_2d.config`
+## `[THERMAL]`
 
-### Unstructured Mesh with Coordinates
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | false | Heat equation on |
+| `initial_temperature` | double | 293.0 | K |
+| `reference_temperature` | double | 293.0 | K (THM coupling reference) |
 
-See `/workspace/config/unstructured_gmsh_example.config`
+## `[VISCOELASTIC]`
 
-## Running Simulations
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | false | GMB attenuation on |
+| `n_mechanisms` | int | 3 | Number of relaxation mechanisms |
+| `tau_<n>` | double | -- | Relaxation time, seconds |
+| `delta_mu_<n>` | double | -- | Shear modulus contribution |
+| `delta_kappa_<n>` | double | -- | Bulk modulus contribution |
 
-All examples are driven by configuration files:
+## `[PLASTICITY]`
 
-```bash
-# Run with default config location
-./ex_config_driven config/my_simulation.config
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | false | Drucker-Prager on |
+| `cohesion` | double | -- | Pa |
+| `friction_angle` | double | -- | radians |
+| `dilation_angle` | double | -- | radians |
+| `hardening_modulus` | double | 0.0 | Pa |
 
-# Run specific examples
-./ex_buckley_leverett_2d config/buckley_leverett_2d.config
-./ex_coupled_reservoir_2d config/coupled_reservoir_2d.config
-./spe1 config/spe1_benchmark.config
+## `[FAULT]`
 
-# Run in parallel
-mpirun -np 4 ./ex_config_driven config/large_simulation.config
-```
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | false | Insert cohesive cells along fault |
+| `mode` | enum | LOCKED | `LOCKED`, `PRESCRIBED_SLIP`, `SLIP_WEAKENING`, `RATE_STATE` |
+| `friction_model` | enum | CONSTANT | `CONSTANT`, `SLIP_WEAKENING` |
+| `mu_s` | double | 0.6 | Static friction (slip-weakening) |
+| `mu_d` | double | 0.5 | Dynamic friction |
+| `D_c` | double | 0.4 | Critical slip distance, meters |
 
-## See Also
+## `[SEISMOMETERS]`
 
-- [Gmsh Mesh Guide](GMSH_MESH_GUIDE.md) - Complete guide to creating and configuring Gmsh meshes
-- [Unstructured Meshes](UNSTRUCTURED_MESHES.md) - Overview of unstructured mesh support
-- [Coordinate Systems](COORDINATE_SYSTEMS.md) - Geographic coordinate handling
-- [Physics Models](PHYSICS_MODELS.md) - Physics module documentation
-- [Fault Model](PHYSICS_MODELS.md#fault-mechanics) - Fault friction and seismicity
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `station_count` | int | 0 | Number of stations |
+| `station_<n>` | 3 doubles | -- | Station coordinates, meters |
+| `station_<n>_name` | string | "S<n>" | Station identifier in SAC headers |
+| `sac_sampling_rate_hz` | double | 100.0 | Output sampling rate |
+
+## `[OUTPUT]`
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `output_dir` | string | output | Output directory |
+| `hdf5_enabled` | bool | true | Full wavefield HDF5 |
+| `hdf5_write_interval` | double | 0.1 | Seconds between snapshots |
+| `vtk_enabled` | bool | false | VTK output |
+| `sac_enabled` | bool | true | Per-station SAC seismograms |
+| `write_near_field_history` | bool | true | M(t), Mdot(t), R_cav(t) CSV |
+| `write_near_field_profile_h5` | bool | true | Per-snapshot radial state HDF5 |
+| `write_derived_fields` | bool | false | Stress, strain, CFS at each snapshot |
+
+## `[WAVEFORM_VV]`
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | false | Run IRIS waveform-comparison gate |
+| `event_id` | string | -- | Cache subdirectory name |
+| `cache_dir` | string | tools/waveform_vv/cache/<event_id> | SAC cache location |
+| `band_lo_hz` | double | 0.5 | Source-physics-dominated low-frequency cutoff |
+| `band_hi_hz` | double | 5.0 | High-frequency cutoff |
+| `correlation_threshold` | double | 0.7 | Min cross-correlation gate |
+| `peak_amplitude_envelope_factor` | double | 2.0 | Envelope factor for peak-amplitude gate |
+
+See [WAVEFORM_VV.md](WAVEFORM_VV.md) for the cached-data format.
+
+## See also
+
+- [USER_GUIDE.md](USER_GUIDE.md) for an end-to-end worked example.
+- [FIDELITY_LADDER_GUIDE.md](FIDELITY_LADDER_GUIDE.md) for tier selection.
+- [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) for the
+  per-pass physics description.
+- `config/complete_template.config` and `config/default.config` are
+  schema-anchor templates checked into the repository.

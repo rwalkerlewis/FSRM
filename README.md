@@ -3,7 +3,21 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![FSRM CI](https://github.com/rwalkerlewis/FSRM/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rwalkerlewis/FSRM/actions/workflows/ci.yml)
 
-FSRM is a coupled multiphysics simulator for nuclear explosion monitoring, seismic wave propagation, dynamic fault rupture, and THM poroelasticity. Built on PETSc 3.25.0 and MPI, it uses unstructured finite elements (DMPlex) with pointwise PetscDS callbacks for all PDE assembly. The simulator is config-driven: a single executable reads `.config` files that specify geometry, materials, physics, sources, and output.
+FSRM is a coupled multiphysics simulator for nuclear-explosion monitoring,
+seismic wave propagation, dynamic fault rupture, and THM poroelasticity.
+Built on PETSc 3.25.0 with MPI; uses unstructured finite elements (DMPlex)
+with pointwise PetscDS callbacks for all PDE assembly. The simulator is
+config-driven: a single `fsrm` executable reads a `.config` text file that
+specifies geometry, materials, physics, sources, and output.
+
+The headline track is the historic-nuclear validation program: a fidelity
+ladder of source physics, EOS, opacity, and time integration that is
+verified gate-by-gate against published seismic observations from twenty-
+seven historic underground nuclear tests. See
+[docs/AXIS_1A_FIDELITY_REPORT.md](docs/AXIS_1A_FIDELITY_REPORT.md) for the
+canonical cross-pass verification result and
+[docs/HISTORIC_NUCLEAR_ROADMAP.md](docs/HISTORIC_NUCLEAR_ROADMAP.md) for the
+forward roadmap.
 
 **MIT License** -- free to use, modify, and distribute for any purpose.
 
@@ -20,150 +34,142 @@ docker build -f Dockerfile.ci -t fsrm-ci:local .
 docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c \
   'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF && make -j$(nproc)'
 
-# Run an example
-docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
-  ./fsrm -c ../config/examples/uniaxial_compression.config
+# Run an example end-to-end (config lives next to the runner)
+docker run --rm -v $(pwd):/workspace -w /workspace/examples/20_salmon_1964 fsrm-ci:local \
+  ./run.sh
 
-# Run tests
+# Run all tests
 docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
   ctest -j$(nproc) --output-on-failure
-
-# Visualize seismogram output (host machine, requires Python)
-pip install matplotlib obspy
-python3 scripts/plot_seismograms.py build/output/seismograms/
 ```
+
+For a guided walk through a first simulation, see
+[docs/QUICK_START.md](docs/QUICK_START.md).
+
+---
+
+## Fidelity Ladders
+
+The source-physics modules in `src/domain/explosion/` and the time-
+integration strategies in `src/numerics/` ship as user-selectable LOW / MED
+/ HIGH / HIGHEST tiers. Selection is per config block. Defaults are
+backwards-compatible: a config that does not set a tier reproduces the
+previous pass byte-for-byte.
+
+| Knob | LOW | MED | HIGH | HIGHEST |
+|---|---|---|---|---|
+| `radiation_phase` | `ZELDOVICH_RAIZER` | `MARSHAK_GREY` | `MARSHAK_GREY` + `TABULATED_PATCHED` | `MARSHAK_MULTIGROUP` |
+| `cavity_eos` | `IDEAL_GAS` | `TILLOTSON` | `TILLOTSON_TABULATED_PATCH` | `TABULATED_FULL` |
+| `opacity_model` | `CONSTANT` | `POWER_LAW_ZR` | `TABULATED_PATCHED` | `TABULATED_FULL` |
+| `operator_splitting` | `LIE` | `LIE` | `STRANG` | `STRANG_MULTIGROUP` |
+| `time_integrator` (hydro) | `EXPLICIT_EULER` | `EXPLICIT_EULER` | `EXPLICIT_EULER` | `RK3_SSP` |
+| `time_integrator_diffusion` | `BACKWARD_EULER` | `BACKWARD_EULER` | `CRANK_NICOLSON` | `BDF2` |
+
+See [docs/FIDELITY_LADDER_GUIDE.md](docs/FIDELITY_LADDER_GUIDE.md) for the
+single-page guide to picking a tier; see
+[docs/EXPLOSION_IMPACT_PHYSICS.md](docs/EXPLOSION_IMPACT_PHYSICS.md) for
+the per-pass physics description; see
+[docs/AXIS_1A_FIDELITY_REPORT.md](docs/AXIS_1A_FIDELITY_REPORT.md) for the
+gate-by-gate verification result.
 
 ---
 
 ## Examples
 
-Eighteen runnable examples demonstrate verified capabilities. Each has a `README.md`, `run.sh`, and a config file.
+The `examples/` directory contains 38 runnable demonstrations of verified
+capabilities. Each example is self-contained: `config.config`, `README.md`,
+and `run.sh` live in the same directory; running `./run.sh` from the example
+directory builds output under `output/`.
 
-| # | Example | Physics | Run Time |
-|---|---------|---------|----------|
-| 01 | [Uniaxial Compression](examples/01_uniaxial_compression/) | Elastostatics, Dirichlet BCs | < 1s |
-| 02 | [Explosion Seismogram](examples/02_explosion_seismogram/) | Elastodynamics, Mueller-Murphy source, SAC output | ~2s |
-| 03 | [Elastoplastic Compression](examples/03_elastoplastic_compression/) | Drucker-Prager plasticity | < 1s |
-| 04 | [Locked Fault](examples/04_locked_fault/) | Cohesive cell insertion, locked constraint | < 1s |
-| 05 | [Punggye-ri Nuclear Test](examples/05_punggye_ri_nuclear_test/) | Layered geology, explosion, seismograms | ~15s |
-| 06 | [Gmsh Multi-Material](examples/06_gmsh_multimaterial/) | Gmsh mesh import, per-region materials | < 1s |
-| 07 | [Traction BC](examples/07_traction_bc/) | Per-face Neumann traction BC, analytical verification | < 1s |
-| 08 | [Time-Dependent Slip](examples/08_time_dependent_slip/) | Prescribed fault slip with linear time ramp | < 1s |
-| 09 | [Gasbuggy 1967](examples/09_gasbuggy_1967/) | 29 kt, 4-layer Lewis Shale, SAC output | ~15s |
-| 10 | [Gnome 1961](examples/10_gnome_1961/) | 3.1 kt, 4-layer Salado Salt, SAC output | ~15s |
-| 11 | [Sedan 1962](examples/11_sedan_1962/) | 104 kt, 3-layer alluvium, SAC output | ~15s |
-| 12 | [Degelen Mountain](examples/12_degelen_mountain/) | 50 kt, 3-layer granite, SAC output | ~15s |
-| 13 | [NTS Pahute Mesa](examples/13_nts_pahute_mesa/) | 150 kt, 4-layer tuff, SAC output | ~15s |
-| 14 | [Single-Phase Flow](examples/14_single_phase_flow/) | Darcy pressure diffusion, Dirichlet pressure BCs | < 1s |
-| 15 | [Viscoelastic Attenuation](examples/15_viscoelastic_attenuation/) | Generalized Maxwell body, Q-factor, seismograms | ~15s |
-| 16 | [SCEC TPV5](examples/16_scec_tpv5/) | Dynamic rupture, slip-weakening friction, nucleation | ~300s |
-| 17 | [Velocity Model](examples/17_velocity_model/) | Per-cell material from binary velocity file (Vp/Vs/rho) | varies |
-| 18 | [Thermal Expansion](examples/18_thermal_expansion/) | THM coupling, thermoelastic stress, uniform heating | < 1s |
+The historic-nuclear examples cover every era of underground testing
+across all five weapon-state programs:
+
+| US (NTS, Pacific, Alaska) | USSR (Semipalatinsk, Novaya Zemlya) | Other |
+|---|---|---|
+| 09 Gasbuggy 1967 (29 kt) | 30 Chagan 1965 (140 kt) | 12 Degelen Mountain (50 kt) |
+| 10 Gnome 1961 (3.1 kt) | 31 Azgir A1 1966 (1.1 kt) | 32 Pokhran I 1974 (8 kt) |
+| 11 Sedan 1962 (104 kt) | | 33-37 DPRK 2006-2016 (kt range) |
+| 13 NTS Pahute Mesa (150 kt) | | 38 Lop Nor 1976 (Chinese, 4 Mt) |
+| 19 Rainier 1957 (1.7 kt) | | |
+| 20 Salmon 1964 (5.3 kt) | | |
+| 21 Sterling 1966 (0.38 kt decoupled) | | |
+| 22 Long Shot 1965 (80 kt, Amchitka) | | |
+| 23 Milrow 1969 (1 Mt, Amchitka) | | |
+| 24 Cannikin 1971 (~5 Mt, Amchitka) | | |
+| 25 Faultless 1968 (1 Mt, Nevada) | | |
+| 26 Baneberry 1970 (10 kt, NTS vent) | | |
+| 27 Schooner 1968 (30 kt, Plowshare) | | |
+| 28 Rulison 1969 (40 kt, gas stim) | | |
+| 29 Rio Blanco 1973 (3 x 33 kt) | | |
+
+Non-historic examples cover bring-up and feature verification:
+
+| # | Example | Physics |
+|---|---|---|
+| 01 | Uniaxial Compression | Elastostatics, Dirichlet BCs |
+| 02 | Explosion Seismogram | Elastodynamics, Mueller-Murphy source, SAC output |
+| 03 | Elastoplastic Compression | Drucker-Prager plasticity |
+| 04 | Locked Fault | Cohesive cell insertion, locked constraint |
+| 05 | Punggye-ri Nuclear Test | Layered geology, explosion, seismograms |
+| 06 | Gmsh Multi-Material | Gmsh mesh import, per-region materials |
+| 07 | Traction BC | Per-face Neumann traction BC, analytical verification |
+| 08 | Time-Dependent Slip | Prescribed fault slip with linear time ramp |
+| 14 | Single-Phase Flow | Darcy pressure diffusion, Dirichlet pressure BCs |
+| 15 | Viscoelastic Attenuation | Generalized Maxwell body, Q-factor, seismograms |
+| 16 | SCEC TPV5 | Dynamic rupture, slip-weakening friction, nucleation |
+| 17 | Velocity Model | Per-cell material from binary velocity file (Vp/Vs/rho) |
+| 18 | Thermal Expansion | THM coupling, thermoelastic stress, uniform heating |
 
 ---
 
 ## Verified Capabilities
 
-Every feature below has automated tests with quantitative pass/fail criteria. Run `ctest --output-on-failure` to verify. 154 tests total (147 pass; 7 known pre-existing failures documented in `CLAUDE.md` and `docs/HISTORIC_NUCLEAR_FIDELITY.md`).
+Every feature has automated tests with quantitative pass/fail criteria.
+Run `ctest --output-on-failure` to verify. 116 tests are registered;
+110 pass and 6 are documented honest failures (six fault-solver tests
+blocked by a PETSc 3.25 BdResidual limitation; see
+[docs/SOLVER_STATE.md](docs/SOLVER_STATE.md)). For the per-test detail
+see [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) and CLAUDE.md
+"Test Suite". Verified families:
 
-### Integration-Tested Through TSSolve
-
-| Feature | Test(s) | What It Proves |
-|---------|---------|----------------|
-| Elastostatics | `Physics.ElastostaticsPatch`, `Physics.LithostaticStress` | Hooke stress, patch test, K0 ratio |
-| Elastodynamics | `Physics.LambsProblem`, `Physics.GarvinsProblem` | Wave propagation, analytical error norms |
-| Poroelasticity | `Physics.TerzaghiConsolidation` | Biot coupling, analytical consolidation |
-| Absorbing BCs | `Physics.AbsorbingBC` | Clayton-Engquist, >99% energy absorption |
-| Gravity body force | `Physics.GravityLithostatic` | Lithostatic column, K0 within 5% |
-| Moment tensor source | `Physics.MomentTensorSource` | FEM equivalent nodal forces |
-| Explosion seismograms | `Integration.ExplosionSeismogram` | Source -> waves -> SAC output |
-| Injection pressure | `Integration.InjectionPressure` | Poroelastic injection end-to-end |
-| Depth-layered material | `Integration.LayeredElastostatics` | Aux field material assignment |
-| Gmsh mesh import | `Integration.GmshImport` | MSH2 physical names, tet cells |
-| Gmsh multi-material | `Integration.GmshMultiMaterial`, `Integration.GasbuggyMesh` | Per-label lambda/mu/rho |
-| Gmsh nuclear twin | `Integration.NuclearTwinGmsh` | Mapped materials + explosion + HDF5 |
-| Explosion damage zones | `Physics.ExplosionDamageZone` | Degraded aux near cavity |
-| Punggye-ri layered | `Integration.PunggyeRiLayered` | 3-layer + absorbing + SAC + HDF5 |
-| Pressurized fracture | `Integration.PressurizedFractureFEM` | Cohesive traction through TSSolve |
-| Elastoplasticity | `Integration.ElastoplasticSim` | Drucker-Prager through TSSolve |
-| Locked fault (quasi-static) | `Integration.DynamicRuptureSolve.LockedQuasiStatic` | Manual cohesive assembly |
-| Locked fault (elastodynamic) | `Integration.DynamicRuptureSolve.LockedElastodynamic` | Cohesive + TSALPHA2 |
-| Prescribed slip | `Integration.DynamicRuptureSolve.PrescribedSlip` | Imposed displacement jump |
-| Locked fault transparency | `Physics.LockedFaultTransparency` | Fault slip < 5e-4 |
-| Derived fields | `Integration.DerivedFields` | Stress/strain/CFS from solution |
-| HDF5/VTK output | `Integration.OutputFile` | PetscViewerHDF5, VTK |
-| Restart | `Integration.Restart` | Checkpoint/restore lifecycle |
-| DPRK 2017 synthetic mb | `Integration.DPRK2017Comparison` | Synthetic vs observed body-wave magnitude |
-| Explosion+fault residual | `Integration.ExplosionFaultReactivation` | Coexistence of moment-tensor and cohesive residual |
-| NearField-FEM coupling | `Integration.NearFieldCoupled` | COUPLED_ANALYTIC 1D solver to 3D FEM moment rate |
-| Per-face traction BC | `Integration.TractionBC` | Manual assembly, uniaxial analytical |
-| Time-dependent slip ramp | `Integration.TimeDependentSlip` | Linear slip ramp with onset/rise time |
-| Historic: Gasbuggy 1967 | `Integration.HistoricNuclear.Gasbuggy1967` | 29 kt, 4-layer Lewis Shale, SAC output, far-field amplitude / onset / polarity / mb (see [HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md), forward-looking [HISTORIC_NUCLEAR_ROADMAP](docs/HISTORIC_NUCLEAR_ROADMAP.md)) |
-| Historic: Gnome 1961 | `Integration.HistoricNuclear.Gnome1961` | 3.1 kt, 4-layer Salado Salt, SAC output, quantitative checks |
-| Historic: Sedan 1962 | `Integration.HistoricNuclear.Sedan1962` | 104 kt, 3-layer alluvium, SAC output, quantitative checks |
-| Historic: Degelen Mountain | `Integration.HistoricNuclear.DegelenMountain` | 50 kt, 3-layer granite, SAC output, quantitative checks |
-| Historic: NTS Pahute Mesa | `Integration.HistoricNuclear.NtsPahuteMesa` | 150 kt, 4-layer tuff, SAC output, quantitative checks |
-| Historic regression CSV | `Integration.HistoricNuclear.FarFieldAmplitudeRegression` | Sedan re-run with both SINGLE_CELL and UNIFORM_SPHERE distribution; emits `historic_nuclear_regression.csv` |
-| Historic distributed-source variants (factor-30 envelope) | `Integration.HistoricNuclear.{Gasbuggy1967, Gnome1961, Sedan1962, DegelenMountain, NtsPahuteMesa, Baneberry1970}_Distributed` | Multi-cell moment-tensor distribution closes the pass-3 single-cell limitation; tightens peak/u_far envelope from factor 100 to factor 30 |
-| Sterling 1966 distributed (factor-100 envelope) | `Integration.HistoricNuclear.Sterling1966_Distributed` | Wide-support distribution unblocks the smallest-yield decoupled salt shot at factor 100 (factor 30 still out of reach on the 4x4x4 CI mesh) |
-| Multi-cell moment-tensor distribution | `Integration.SourceDistribution.{SingleCellLegacyByteIdentical, GaussianM0Conserved, UniformSphereM0Conserved, GaussianBeatsSingleCellOnFineMesh, FallbackToSingleCellWhenBallEmpty}` | `[SOURCE_DISTRIBUTION]` grammar; M0 conservation; refinement-plus-distribution lowers peak/u_far (inversion of pass-3 finding) |
-| Medium-aware cavity radius | `Unit.CavityScaling` | Granite/tuff/salt/alluvium/shale coefficient table, cube-root scaling |
-| DPRK 2017 synthetic-vs-observed amplitude | `Integration.DPRK2017Comparison.DPRK2017FarFieldSyntheticAmplitude` | Mueller-Murphy + Aki-Richards + Butterworth + mb formula |
-| Per-cell material from velocity model | `Integration.VelocityModelMaterial` | Binary Vp/Vs/rho grid mapped to mesh via interpolation |
-| Thermal diffusion (heat equation) | `Integration.ThermalDiffusion` | Steady-state thermal field through TSSolve |
-| Thermoelastic stress (THM) | `Integration.ThermalExpansion` | Thermal expansion coupling, uniform heating, displacement checks |
-
-### Standalone Verified (Correct, Tested, Not FEM-Coupled)
-
-| Feature | Test(s) |
-|---------|---------|
-| Mueller-Murphy source (RDP overshoot, omega^-2 rolloff, mb scaling) | `Physics.MuellerMurphy`; see [HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md) |
-| Near-field explosion (1D Lagrangian) | `Physics.NearFieldExplosion` (includes spall map state, `SpallStateIsRecorded` / `SpallStateNotSetForDeepShot`) |
-| Atmospheric explosion (Sedov-Taylor, Brode, EMP) | `Physics.AtmosphericExplosion` |
-| Drucker-Prager return mapping | `Unit.DruckerPragerStandalone` |
-| Friction laws (slip-weakening, rate-state) | `Unit.FaultMechanics` |
-| Coulomb stress transfer | `Unit.CoulombStressTransfer` |
-| Hydrofrac formulas (Sneddon, PKN, Carter, Arps) | `Unit.HydrofracFormulas`, `Physics.StressShadowing`, etc. |
-| Fluid flow callbacks | `Unit.SinglePhaseFlow`, `Unit.MultiphaseFlow` |
+- **Elasticity / elastodynamics**: patch test, Lithostatic stress,
+  Lamb's problem, Garvin's problem.
+- **Poroelasticity**: Terzaghi consolidation against analytical solution.
+- **Absorbing boundaries**: Clayton-Engquist with > 99% energy absorption.
+- **Cohesive faults**: locked fault transparency, prescribed slip,
+  TSALPHA2 elastodynamic locked fault.
+- **Dynamic rupture**: SCEC TPV5 with slip-weakening friction.
+- **Source physics**: Mueller-Murphy RDP, near-field Lagrangian solver,
+  multi-cell moment-tensor distribution with M0 conservation.
+- **Historic-nuclear V&V**: 27 events from Gnome 1961 through DPRK 2017
+  with pinned configs and quantitative far-field amplitude / onset /
+  polarity / mb gates (see [HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md)).
+- **IRIS waveform V&V**: synthetic-vs-observed cross-correlation gates
+  on Salmon 1964 with cached station data
+  (see [docs/WAVEFORM_VV.md](docs/WAVEFORM_VV.md)).
+- **Coupled THM**: heat equation, thermoelastic stress, full Biot.
+- **Mesh I/O**: Gmsh per-label material assignment, binary velocity-model
+  ingestion, HDF5 / VTK / SAC output.
 
 ---
 
-## Known Gaps
+## Pass-11 status
 
-These entries track remaining limitations, work in progress, and recently closed gaps.
-
-| Feature | Status |
-|---------|--------|
-| Multiphase flow end-to-end | Callbacks unit-tested; no simulation test |
-| Hydraulic fracture coupled solve | PressurizedFractureFEM passes; lubrication+deformation not coupled |
-| Explosion + fault full TSSolve | Test added (`ExplosionFaultReactivationTest.FullTSSolve` in `Integration.ExplosionFaultReactivation`); pending CI verification |
-| Per-cell material from velocity model | DONE (`Integration.VelocityModelMaterial`, Example 17) |
-| Thermal coupling | DONE (`Integration.ThermalExpansion`, `Integration.ThermalDiffusion`, Example 18) |
-| Radiation transport / fallout | Source code archived; not integrated |
-
----
-
-## Roadmap
-
-Each item requires PetscDS callbacks integrated into `setupPhysics()`, integration tests through TSSolve, an example config, and visualization. Source code in `archive/src/` may provide a starting point but must be rewritten to use the PetscDS callback pattern.
-
-1. ~~Slipping fault convergence~~ DONE
-2. Multiphase flow end-to-end (Buckley-Leverett waterflood)
-3. Full coupled hydraulic fracturing (lubrication + deformation)
-4. ~~Viscoelastic attenuation~~ DONE
-5. ~~Thermal coupling (heat equation + THM Biot)~~ DONE
-6. Radiation transport (advection-diffusion for fallout)
-7. ~~Per-cell material from velocity model files~~ DONE
-8. ~~SCEC TPV5 dynamic rupture benchmark~~ DONE
-9. Multi-stage hydraulic fracturing with stress shadowing
-10. Production forecasting through propped fracture
+Pass-11 closed axis-1c (implicit time integration for the radiation
+diffusion solve, Israeli-Orszag sponge layer for the 549 m free-field BC,
+extended ANEOS Hugoniot match) and shipped the axis-1b 3D source ball
+scaffolding ([docs/AXIS_1B_DESIGN.md](docs/AXIS_1B_DESIGN.md)). Pass-12
+is housekeeping: documentation hygiene, config relocation into example
+directories, the DPRK 2017 example, and presentation figures for the
+showcase events. The next physics pass (pass-13) implements the 3D source
+ball on the pass-11 scaffold.
 
 ---
 
 ## Technology Stack
 
 | Component | Version | Role |
-|-----------|---------|------|
+|---|---|---|
 | C++17 | GCC 11+ | Language standard |
 | PETSc | 3.25.0 | FEM assembly, solvers, mesh (DMPlex) |
 | MPI | OpenMPI 4+ | Parallelism |
@@ -175,7 +181,7 @@ Each item requires PetscDS callbacks integrated into `setupPhysics()`, integrati
 
 ## Build Instructions
 
-### Docker (Recommended)
+### Docker (recommended)
 
 ```bash
 docker build -f Dockerfile.ci -t fsrm-ci:local .
@@ -183,7 +189,7 @@ docker run --rm -v $(pwd):/workspace -w /workspace fsrm-ci:local bash -c \
   'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DENABLE_CUDA=OFF && make -j$(nproc)'
 ```
 
-### Native (Requires PETSc 3.25.0)
+### Native (requires PETSc 3.25.0)
 
 ```bash
 export PETSC_DIR=/path/to/petsc-3.25.0
@@ -194,33 +200,39 @@ make -j$(nproc)
 ctest -j$(nproc) --output-on-failure
 ```
 
-### GPU Acceleration (PETSc CUDA)
+### GPU acceleration (PETSc CUDA)
 
-FSRM supports GPU acceleration via PETSc native CUDA backend. No FSRM source changes needed. Build PETSc with `--with-cuda` and add runtime flags:
+FSRM does not require source changes for GPU. Build PETSc with `--with-cuda`
+(see `Dockerfile.cuda`) and add runtime flags:
 
 ```bash
 ./fsrm -c config.config -vec_type cuda -mat_type aijcusparse -log_view
 ```
 
-PETSc handles vector operations via cuBLAS, matrix operations via cuSPARSE, and KSP solves on GPU automatically.
+PETSc handles vector operations via cuBLAS, matrix operations via cuSPARSE,
+and KSP solves on GPU. The PetscDS pointwise callbacks remain on CPU; data
+transfer is automatic.
 
 ---
 
 ## Repository Structure
 
 ```
-src/                    Live source code (~45 files, ~35k lines)
-include/                Headers
-tests/                  116 automated tests (unit, functional, physics, integration)
-config/examples/        Working example configurations
-examples/               18 runnable examples with README and run.sh
-scripts/                Visualization scripts (Python, reads C++ output)
-meshes/                 Gmsh mesh files for examples
-archive/                Removed dead code, fake examples, aspirational configs
-  archive/src/          ~45k lines of dead/untested source code
-  archive/examples/     80+ fake C++ example stubs
-  archive/config/       141 aspirational configs for non-existent features
-  archive/docs/         11 docs for non-existent features
+src/                  Live source code (~54 kloc across 63 .cpp files)
+include/              Headers (~34 kloc across 73 .hpp files)
+tests/                116 automated tests (unit, functional, physics, integration)
+config/               Schema-anchor templates (default, complete_template,
+                      test_*); per-event configs live next to their examples
+examples/             38 runnable examples with config.config, README.md,
+                      and run.sh
+scripts/              Visualization scripts and waveform fetchers
+                      (Python; read C++ output)
+tools/                Build-time tooling (figure styles, tabulated EOS/opacity
+                      data refresh, waveform V&V infrastructure)
+meshes/               Gmsh mesh files for examples
+docs/                 Standing reference docs; sessions/ archive of per-
+                      session reports; archive/ for retired physics docs
+archive/              Removed dead code (~45 kloc) preserved for context
 ```
 
 ---

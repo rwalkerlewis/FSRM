@@ -11,7 +11,7 @@ the problem is linear.
 
 ## Config
 
-Uses `config/examples/uniaxial_compression.config`.
+Uses `examples/01_uniaxial_compression/config.config`.
 
 ## Expected Output
 
@@ -36,7 +36,7 @@ bottom to the applied value at top), with uniform axial strain eps_zz.
 Or manually:
 ```bash
 cd /path/to/build
-./fsrm -c ../config/examples/uniaxial_compression.config
+./fsrm -c ../examples/01_uniaxial_compression/config.config
 ```
 
 ## Verified By

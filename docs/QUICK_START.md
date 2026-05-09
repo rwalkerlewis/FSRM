@@ -1,179 +1,129 @@
-# FSRM Quick Start Guide
+# FSRM Quick Start
 
-Get running in 5 minutes.
+Get FSRM building, running, and producing seismograms in five minutes.
 
 ## Prerequisites
 
-- CMake >= 3.15
-- C++17 compiler (GCC 7+, Clang 6+)
-- PETSc >= 3.15 with MPI
-- HDF5 (optional)
+The supported build path is Docker. The CI image bundles a verified PETSc
+3.25.0 build with MPI, HDF5, ctetgen, and Gmsh.
 
-## Installation
+- Docker (or any OCI runtime)
+- ~10 GB free disk for the build image and intermediate output
 
-### 1. Install Dependencies (Ubuntu/Debian)
+A native build is documented in [DEVELOPMENT.md](DEVELOPMENT.md) but is
+not the recommended starting path.
 
-```bash
-# Install PETSc and other dependencies
-sudo apt update
-sudo apt install -y cmake g++ libpetsc-dev libhdf5-mpi-dev
-
-# Set environment
-export PETSC_DIR=/usr/lib/petsc
-export PETSC_ARCH=""
-```
-
-### 2. Build FSRM
+## 1. Clone and build
 
 ```bash
-# Clone and build
-git clone https://github.com/your-repo/FSRM.git
+git clone https://github.com/rwalkerlewis/FSRM.git
 cd FSRM
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j4
 
-# Verify
-./fsrm -help
+docker build -f Dockerfile.ci -t fsrm-ci:local .
+docker run --rm -v "$(pwd)":/workspace -w /workspace fsrm-ci:local bash -c \
+  'mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release \
+   -DENABLE_TESTING=ON -DENABLE_CUDA=OFF && make -j$(nproc)'
 ```
 
-## Your First Simulation
+The `fsrm` executable lands in `build/fsrm`.
 
-### Option 1: Use Example Configuration
+## 2. Run the test suite
 
 ```bash
-# Run with pre-configured example
-mpirun -np 4 ./fsrm -c ../config/default.config
+docker run --rm -v "$(pwd)":/workspace -w /workspace/build fsrm-ci:local \
+  ctest -j$(nproc) --output-on-failure
 ```
 
-### Option 2: Generate Your Own Configuration
+Expected: 110 of 116 tests pass. The six failures are pre-existing and
+documented in [SOLVER_STATE.md](SOLVER_STATE.md).
+
+## 3. Run an example end-to-end
+
+Each `examples/N_<event>/` directory is self-contained: config, runner,
+and output landing site live together. To run Salmon 1964 (the canonical
+V&V anchor on the Marshak-tier source physics ladder):
 
 ```bash
-# Generate a template
-./fsrm -generate_config my_simulation.config
-
-# Edit the configuration file
-nano my_simulation.config
-
-# Run your simulation
-mpirun -np 4 ./fsrm -c my_simulation.config
+docker run --rm -v "$(pwd)":/workspace \
+  -w /workspace/examples/20_salmon_1964 fsrm-ci:local \
+  ./run.sh
 ```
 
-### Option 3: Use Eclipse Input
+This produces:
+
+- `output/seismograms/*.sac`: SAC-format synthetic seismograms.
+- `output/near_field_history.csv`: 6-component moment-rate tensor and
+  cavity-radius history from the radial Lagrangian solver.
+- `output/near_field_profile.h5` + `.xdmf`: per-snapshot radial state of
+  the source-ball solver (open in ParaView via the XDMF wrapper).
+- `output/solution.h5` + `.xmf`: full 3-D wavefield (large; opt out via
+  `[OUTPUT] hdf5_enabled = false`).
+
+Run any historic-nuclear example by changing the directory. The
+`examples/` index in [USER_GUIDE.md](USER_GUIDE.md) lists what each one
+exercises.
+
+## 4. Run in parallel
+
+The `run.sh` scripts launch under MPI by default. Override the rank
+count with the `MPI_RANKS` env var:
 
 ```bash
-# Run with Eclipse .DATA file
-mpirun -np 4 ./fsrm -i SPE1.DATA -o output/spe1
+MPI_RANKS=8 ./run.sh
 ```
 
-## Configuration File Basics
+The default is `MPI_RANKS=4`; showcase scripts default to
+`MPI_RANKS=8`. The 1-D radial source-ball solver remains serial; only
+the FEM far-field is parallelized. See the "Running in parallel"
+section of [USER_GUIDE.md](USER_GUIDE.md).
 
-Configuration files use a simple INI format:
+## 5. Visualize the output
 
-```ini
-[SIMULATION]
-start_time = 0.0
-end_time = 86400.0           # 1 day (in seconds)
-fluid_model = SINGLE_COMPONENT
-
-[GRID]
-nx = 20
-ny = 20
-nz = 5
-Lx = 1000.0                  # meters
-Ly = 1000.0
-Lz = 100.0
-
-[ROCK]
-porosity = 0.20
-permeability_x = 100.0       # milliDarcy
-youngs_modulus = 10.0e9      # Pa
-
-[FLUID]
-density = 1000.0             # kg/m³
-viscosity = 0.001            # Pa·s
-
-[WELL1]
-name = PROD1
-type = PRODUCER
-i = 10
-j = 10
-k = 5
-control_mode = RATE
-target_value = 0.01          # m³/s
-```
-
-## Common Use Cases
-
-### Single-Phase Flow
-```bash
-mpirun -np 4 ./fsrm -c ../config/default.config
-```
-
-### Shale Reservoir with Hydraulic Fracturing
-```bash
-mpirun -np 8 ./fsrm -c ../config/shale_reservoir.config
-```
-
-### Geothermal System
-```bash
-mpirun -np 8 ./fsrm -c ../config/geothermal.config
-```
-
-### Induced Seismicity Analysis
-```bash
-mpirun -np 8 ./fsrm -c ../config/induced_seismicity.config
-```
-
-### CO2 Storage
-```bash
-mpirun -np 8 ./fsrm -c ../config/co2_storage.config
-```
-
-## View Results
+The visualization scripts ship in `scripts/` and read the simulator
+output without modification:
 
 ```bash
-# Results are in HDF5 format by default (more efficient)
-python scripts/hdf5_to_xdmf.py output/
-paraview output/solution.xdmf
-
-# Or if using VTK output format:
-paraview output/*.vtu
+pip install matplotlib obspy h5py numpy
+python3 scripts/plot_seismograms.py examples/20_salmon_1964/output/seismograms/
+python3 scripts/plot_wavefield.py examples/20_salmon_1964/output/solution.h5
 ```
 
-## Next Steps
+For the showcase events (Sedan 1962, Salmon 1964, Punggye-ri 2017,
+Cannikin 1971, Sterling 1966) a `figures/regenerate.sh` script
+regenerates a six-figure presentation pack from `output/` using the
+shared style infrastructure in `tools/figures/`.
 
-- Read the [User Guide](USER_GUIDE.md) for detailed documentation
-- See [Configuration Reference](CONFIGURATION.md) for all options
-- Check out [Physics Models](PHYSICS_MODELS.md) for theory
-- For cloud deployment, see [Deployment Guide](DEPLOYMENT.md)
+## Next steps
+
+- [USER_GUIDE.md](USER_GUIDE.md): end-to-end manual covering config blocks,
+  fidelity-ladder selection, and output catalogs.
+- [FIDELITY_LADDER_GUIDE.md](FIDELITY_LADDER_GUIDE.md): one-page guide to
+  picking LOW / MED / HIGH / HIGHEST tiers.
+- [CONFIGURATION.md](CONFIGURATION.md): full config-key reference.
+- [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md): per-pass
+  detail of what the source physics shipped pass-by-pass.
+- [AXIS_1A_FIDELITY_REPORT.md](AXIS_1A_FIDELITY_REPORT.md): the
+  canonical cross-pass V&V result.
 
 ## Troubleshooting
 
-### PETSc not found
-```bash
-# Check environment
-echo $PETSC_DIR
+### Build fails on PETSc detection (native path)
 
-# Try setting it manually
-export PETSC_DIR=/path/to/petsc
-```
+The supported build is Docker. If you have a native PETSc, set
+`PETSC_DIR` and `PETSC_ARCH` to a 3.25.0 build (older PETSc will fail
+because the cohesive-cell BdResidual API and the `DMSetAuxiliaryVec`
+signature change between minor versions).
 
-### MPI errors
-```bash
-# Check MPI installation
-which mpirun
-mpirun --version
+### `mpirun` permission errors when running as root in Docker
 
-# Run on single process first
-./fsrm -c config.config
-```
+The wrapper `scripts/run_with_mpi.sh` (sourced by every example
+`run.sh`) detects the OpenMPI vs MPICH ABI and applies
+`--allow-run-as-root` automatically. If you bypass the wrapper, add
+`--allow-run-as-root` and `--bind-to core` manually under OpenMPI.
 
-### Convergence issues
-```bash
-# Reduce timestep
-dt_initial = 100.0    # instead of 3600
+### `ctest` shows fault-test failures
 
-# Increase iterations
-max_nonlinear_iterations = 100
-```
+The six listed in [SOLVER_STATE.md](SOLVER_STATE.md) are honest
+pre-existing failures behind a PETSc 3.25 BdResidual limitation on
+cohesive geometry. They do not block any historic-nuclear or
+source-physics run.

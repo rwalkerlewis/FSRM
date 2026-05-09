@@ -2,6 +2,10 @@
 build/
 build-*/
 
+# Per-example output directories produced by examples/*/run.sh
+examples/*/output/
+examples/*/output_*/
+
 # Compiled object files
 *.o
 *.obj
@@ -83,8 +87,10 @@ _codeql_build_dir/
 historic_nuclear/
 historic_nuclear/*
 
-# Generated figures (run scripts/plot_*.py to regenerate)
-figures/
+# Generated figures from scripts/plot_*.py (legacy top-level location).
+# The pass-12 showcase figures under examples/*/figures/ and the
+# shared style infrastructure under tools/figures/ are NOT ignored.
+/figures/
 data/historic_nuclear/
 
 .claude/

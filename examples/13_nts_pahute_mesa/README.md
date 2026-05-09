@@ -21,7 +21,7 @@ Features used:
 | Rhyolite | 1000-5000 | 5200 | 3000 | 2600 |
 
 ## Config
-Uses `config/examples/nts_pahute_mesa.config`.
+Uses `examples/13_nts_pahute_mesa/config.config`.
 
 ## Expected Output
 - `output/nts_pahute_mesa/*.SAC` -- synthetic seismograms at 3 stations

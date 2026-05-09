@@ -17,7 +17,7 @@ For a homogeneous isotropic elastic box under uniaxial stress:
 
 ## Config
 
-`config/examples/traction_bc.config`
+`examples/07_traction_bc/config.config`
 
 ## Boundary Conditions
 
@@ -40,7 +40,7 @@ Or manually:
 
 ```bash
 cd build
-./fsrm -c ../config/examples/traction_bc.config
+./fsrm -c ../examples/07_traction_bc/config.config
 ```
 
 ## Expected Output

@@ -28,7 +28,7 @@ References: King, Foster, & Bingham 1972 (Amchitka); Lay, Wallace, &
 Helmberger 1984 (Cannikin teleseismic mb).
 
 ## Config
-Uses `config/examples/cannikin_1971.config`.
+Uses `examples/24_cannikin_1971/config.config`.
 
 ## Expected Output
 - `output/cannikin_1971/*.SAC` -- synthetic seismograms at 3 stations

@@ -95,7 +95,7 @@ on x/y faces, free top face, at u=0.
 - Prescribed-slip Cartesian vector plumbing from `cohesive_kernel_->
   prescribed_slip_` into the unified constants array at
   `src/core/Simulator.cpp:2234-2249` is correct (Session pre-S10; see
-  `docs/LAGRANGE_FIX_STATUS.md` historical record for the original fix).
+  `docs/archive/LAGRANGE_FIX_STATUS.md` historical record for the original fix).
 
 ## Preconditioner state
 

@@ -4,30 +4,39 @@
 # DYNAMIC_PLASTIC, which records a near_field_history.csv alongside
 # the SAC seismograms.
 set -e
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="${REPO_DIR}/build"
-CONFIG="${REPO_DIR}/config/examples/sedan_1962_dynamic.config"
+CONFIG="${SCRIPT_DIR}/config_dynamic.config"
+OUT_DIR="${SCRIPT_DIR}/output_dynamic"
 
 if [ ! -f "${BUILD_DIR}/fsrm" ]; then
-    echo "Error: Build FSRM first (see build instructions in repository root)."
+    echo "Error: Build FSRM first."
     exit 1
 fi
+
+source "${REPO_DIR}/scripts/run_with_mpi.sh"
+
+mkdir -p "${OUT_DIR}"
+cd "${SCRIPT_DIR}"
 
 echo "=== Example 11: Sedan Crater (1962) -- DYNAMIC_PLASTIC ==="
 echo "  104 kt, 194m depth, alluvium, NTS Yucca Flat"
 echo "  [NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC"
-echo "  Config: ${CONFIG}"
-cd "${BUILD_DIR}"
-mkdir -p output/sedan_1962_dynamic
-./fsrm -c "${CONFIG}"
+echo "Config:  ${CONFIG}"
+echo "Output:  ${OUT_DIR}"
+echo "Ranks:   ${MPI_RANKS:-4}"
+echo ""
+
+run_with_mpi "${BUILD_DIR}/fsrm" -c "${CONFIG}"
+
 echo ""
 echo "=== Output Files ==="
-ls -lh output/sedan_1962_dynamic/ 2>/dev/null || \
-    echo "No output files generated."
+ls -lh "${OUT_DIR}" 2>/dev/null || echo "No output files generated."
 echo ""
 echo "Near-field history CSV (pass-5):"
-echo "  output/sedan_1962_dynamic/near_field_history.csv"
+echo "  ${OUT_DIR}/near_field_history.csv"
 echo ""
 echo "ParaView state files:"
 echo "  ${SCRIPT_DIR}/paraview/near_field_cavity.pvsm"

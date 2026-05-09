@@ -17,7 +17,7 @@ Uses:
 
 ## Config
 
-Uses `config/examples/elastoplastic_compression.config`.
+Uses `examples/03_elastoplastic_compression/config.config`.
 
 ## Expected Output
 
@@ -35,7 +35,7 @@ permanent plastic deformation. Below yield, the response matches linear elastici
 Or manually:
 ```bash
 cd /path/to/build
-./fsrm -c ../config/examples/elastoplastic_compression.config
+./fsrm -c ../examples/03_elastoplastic_compression/config.config
 ```
 
 ## Verified By

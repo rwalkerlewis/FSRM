@@ -1,60 +1,78 @@
-# Example 05: Punggye-ri Nuclear Test
+# Example 05: Punggye-ri Nuclear Test -- showcase event
 
-## Physics
+The Punggye-ri showcase. Modern, mountain-emplacement, motivates
+axis-2 topography. Production-resolution counterpart for DPRK 2017
+specifically lives at `examples/39_dprk_2017/`; this example uses a
+generic Punggye-ri layered crustal model for the showcase
+visualization track.
 
-Three-layer elastic model of the Punggye-ri nuclear test site (DPRK, 2017 test,
-estimated 250 kt). Elastodynamic wave propagation with layered geology, explosion
-source, absorbing boundaries, and surface seismometer recording.
+## Physics summary
 
-Layer structure (based on published geology of Mt. Mantap):
-- **Rhyolite/tuff cap** (0-200 m depth): vp=3500, vs=2020, rho=2200
-- **Fractured granite** (200-1000 m depth): vp=4500, vs=2598, rho=2500
-- **Competent granite** (1000-5000 m depth): vp=5800, vs=3349, rho=2650
+| Property | Value |
+|---|---|
+| Geology context | Mt. Mantap, Punggye-ri, DPRK |
+| Approximate yield | ~250 kt (matches DPRK 2017 estimate) |
+| Approximate depth | 800 m below ground |
+| Host rock | Fractured granite under rhyolite/tuff cap |
+| Topography note | Mt. Mantap surface relief contaminates teleseismic surface waves |
 
-The explosion is placed at 800 m depth within the fractured granite layer.
-Three surface seismometers record displacement waveforms.
+## What the simulator does for Punggye-ri
 
-Uses:
-- Depth-based material layering via auxiliary fields
-- Mueller-Murphy source model (250 kt)
-- TSALPHA2 implicit time integration
-- Clayton-Engquist absorbing BCs on 5 faces
-- SeismometerNetwork with SAC output
+This example exercises the layered material path with a generic Punggye-
+ri crustal model. The "where this work goes next" presentation slide
+anchors here: the residual axis-2 (topography) and axis-1d (3D far-
+field) work is what would tighten the body-wave magnitude gate to the
++/-0.2 spec target. Pass-11 leaves these residuals open.
 
-## Config
+## Geology / velocity model
 
-Uses `config/examples/punggye_ri_layered.config`.
+| Layer | Depth (m) | Vp (m/s) | Vs (m/s) | rho (kg/m^3) |
+|---|---|---:|---:|---:|
+| Rhyolite / tuff cap | 0-200 | 3500 | 2020 | 2200 |
+| Fractured granite | 200-1000 | 4500 | 2598 | 2500 |
+| Competent granite | 1000-5000 | 5800 | 3349 | 2650 |
 
-## Expected Output
+The explosion is placed at 800 m depth within the fractured granite
+layer. Three surface seismometers record displacement waveforms.
 
-- `output/solution.h5` -- HDF5 solution snapshots
-- `output/punggye_ri/*.sac` -- SAC seismogram files
+## Configs
 
-The seismograms should show:
-- Complex waveforms from layer reflections and refractions
-- P-wave followed by slower surface waves
-- Amplitude decreasing with distance
+- `config.config`: pass-12 default (CI-quick variant from
+  `punggye_ri_layered_quick.config`).
+- `config_full.config`: full-resolution variant, longer simulation.
+- For the actual DPRK 2017 historic event configuration with citation
+  blocks (Voytan 2019, Wen 2018, Pabian 2018, Tian 2018), see
+  `examples/39_dprk_2017/`.
 
-## Running
-
-```bash
-./run.sh
-```
-
-Or manually (this example takes longer due to wave propagation):
-```bash
-cd /path/to/build
-./fsrm -c ../config/examples/punggye_ri_layered.config
-```
-
-## Visualization
+## Showcase figures
 
 ```bash
-python3 scripts/plot_seismograms.py output/punggye_ri/ --output figures/punggye_ri_seismograms.png
+cd examples/05_punggye_ri_nuclear_test
+MPI_RANKS=8 ./run_showcase.sh
 ```
 
-## Verified By
+The pack covers: layered velocity model with source location, cavity-
+formation radial profile, moment tensor history, all-station
+seismogram grid, synthetic-vs-observed comparison (when DPRK 2017
+cache is populated at `tools/waveform_vv/cache/dprk_2017/`), and
+fidelity-tier comparison.
 
-- `Integration.PunggyeRiLayered` -- full layered workflow
-- `Integration.LayeredElastostatics` -- depth-based material assignment
-- `Integration.DPRK2017Comparison` -- synthetic vs observed mb
+## V&V
+
+- `Integration.PunggyeRiLayered`: full layered workflow.
+- `Integration.LayeredElastostatics`: depth-based material assignment.
+- `Integration.DPRK2017Comparison`: synthetic vs observed mb, pinned
+  to DPRK 2017 yield estimate.
+- `Integration.HistoricNuclear.DPRK2017`: pass-12 smoke test on
+  example 39's production config.
+
+## References
+
+- Pabian, F. V. and Coblentz, D. D. (2018), "The 6th NK Nuclear
+  Test", CNS Occasional Paper 38.
+- Wen, L., et al. (2018), "Topographic and source backscattering
+  effects from the 2017 NK test", GRL 45.
+- Tian, X., et al. (2018), "Source parameters of the 2017 North
+  Korean nuclear test", GJI 213.
+- Voytan, D. P., et al. (2019), "Yield estimates for the six North
+  Korean nuclear tests", GRL 46.

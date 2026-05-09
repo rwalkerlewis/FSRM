@@ -624,7 +624,7 @@ What is verified:
   meaningful regression at the calibration the solver delivers
   today.
 - **`Integration.HistoricNuclear.Sedan1962_Dynamic` and
-  `config/examples/sedan_1962_dynamic.config`** are pinned to
+  `examples/11_sedan_1962/config_dynamic.config`** are pinned to
   `solver_kind = CLOSED_FORM` so the legacy RDP-driven cavity
   radius and far-field amplitude assertions continue to gate
   pass-5 byte-identical behavior after the default flip.
@@ -759,7 +759,7 @@ What is verified:
      the gate asserts only that the solver delivers a positive
      radius.
 - **Salmon 1964 Marshak example.**
-  `config/examples/salmon_1964_marshak.config` opts into
+  `examples/20_salmon_1964/config_marshak.config` opts into
   `radiation_phase = MARSHAK_GREY`; paired with
   `examples/20_salmon_1964/run_marshak.sh`. The pass-7
   `salmon_1964.config` and the existing
@@ -1284,3 +1284,103 @@ historic-nuclear tests pass under their pinned configs without
 modification. The 12 pass-9 / pass-10 Marshak / Multigroup gates
 pass under the new strategy class with byte-identical assembly
 output.
+
+## 4k. Closed in pass 12 (housekeeping and showcase)
+
+**Scope.** Pass-12 is housekeeping, not a physics pass. No new
+fidelity-ladder rungs, no new gate retightenings, no new axes. The
+pass-12 work brings the repository into a state where someone reading
+the docs and walking the example directory understands what the code
+does at the pass-11 level, runs any historic event with a single
+command from a self-contained example folder, and can produce
+presentation-quality figures from already-validated simulation output
+without writing new analysis code.
+
+**Threads landed:**
+
+1. **Documentation hygiene.** Archived 31 SESSION_*_REPORT files plus
+   SESSION_RUNBOOK under `docs/sessions/` with an index. Archived five
+   stale physics docs under `docs/archive/` (NEM_BASELINE,
+   NEM_ROADMAP, LAGRANGE_FIX_STATUS, FAULT_TEST_REGRESSION_AUDIT,
+   PYLITH_COMPATIBILITY) with a README explaining each. Refreshed the
+   user-facing reference docs (README.md, docs/README.md,
+   docs/QUICK_START.md, docs/USER_GUIDE.md, docs/CONFIGURATION.md,
+   docs/EXPLOSION_IMPACT_PHYSICS.md, docs/NUMERICAL_METHODS.md,
+   docs/PHYSICS_MODELS.md, docs/BENCHMARKS.md, docs/TEST_RESULTS.md)
+   to current pass-11 state. Added the new
+   docs/FIDELITY_LADDER_GUIDE.md as a single-page guide to LOW / MED /
+   HIGH / HIGHEST tier selection.
+
+2. **Config relocation.** Moved every per-event config from
+   `config/examples/<event>.config` to `examples/N_<event>/config.config`,
+   making each example folder self-contained. Alternate configs land
+   alongside their parent (config_dynamic.config for Sedan,
+   config_marshak.config / config_highest.config for Salmon,
+   config_full.config for Punggye-ri, config_ci.config for SCEC TPV5).
+   Per-physics starter configs that aren't tied to a runnable example
+   moved under `config/templates/`. The top-level `config/` retains
+   only schema-anchor configs (default, complete_template, test_*).
+
+3. **Three new historic events** (priorities 1-3 from the pass-12
+   drop list landed; priorities 4-5 deferred):
+   - **DPRK 2017 (example 39):** mb 6.3, ~250 kt, granite under tuff
+     overburden, Mt. Mantap. The most-instrumented modern test;
+     anchors any future contemporary-monitoring V&V work.
+   - **Lop Nor 1996 (example 40):** mb 5.0, ~5 kt, weathered granite
+     under Tertiary sediment. Final Chinese underground test.
+   - **Pokhran II Shakti-I (example 41):** mb 5.2, ~20 kt central
+     seismic estimate, granitic gneiss in the Marwar craton. Indian
+     thermonuclear shot.
+   Each has the standard `config.config` + `README.md` + `run.sh` +
+   integration smoke test in
+   `tests/integration/test_historic_nuclear.cpp`. Cached IRIS
+   waveform directories at `tools/waveform_vv/cache/<event>/` are
+   placeholders; the existing fetcher
+   `scripts/fetch_dprk_2017_waveforms.py` populates DPRK 2017,
+   `scripts/fetch_lop_nor_1996_waveforms.py` populates Lop Nor 1996,
+   and Pokhran II ships without a fetcher (no public IRIS coverage
+   pre-CTBT).
+
+4. **Showcase figure infrastructure for Sedan, Salmon, Punggye-ri.**
+   Each priority showcase event ships a six-figure pack regenerated
+   by `figures/regenerate.sh` from existing simulation output. The
+   shared style infrastructure lands at `tools/figures/` (Wong 2011
+   colorblind-safe palette, fixed matplotlib rcParams, plot helpers).
+   `run_showcase.sh` runs the simulation across the relevant fidelity
+   tiers and then regenerates the figures. The committed scripts
+   produce the PNGs from existing simulation output; PNGs are not
+   committed (regenerate locally with `./run_showcase.sh`). The two
+   lower-priority showcase events (Cannikin 1971, Sterling 1966)
+   were dropped per the pass-12 drop priority.
+
+5. **MPI standardization.** New `scripts/run_with_mpi.sh` helper
+   centralizes MPI launch (OpenMPI vs MPICH detection, rank-aware
+   bind-to / oversubscribe / allow-run-as-root flags). Every
+   `examples/*/run.sh` is regenerated from a common template that
+   sources the helper, accepts `MPI_RANKS` env override, and lands
+   output under `examples/N/output/`. Showcase scripts default to
+   `MPI_RANKS=8`. Three new gates (one unit MPI Allreduce smoke,
+   two integration parallel-equivalence) plus a serial-by-design
+   comment block on the radial Lagrangian solver.
+
+**Out of scope explicitly:**
+
+- No physics changes: no new ladder rungs, no new gate
+  retightenings, no new axes. AXIS_1A_FIDELITY_REPORT and the
+  pass-7 / 8 / 9 / 10 / 11 sections of this document are unchanged
+  by pass-12. The new event smoke tests do not assert tightening
+  envelopes; gate-authoring for synthetic-vs-observed cross-
+  correlation under cached IRIS data on the new events is a future
+  physics-pass task.
+- No CI workflow / Dockerfile / action-version changes.
+- The two lower-priority showcase events (Cannikin 1971, Sterling
+  1966) and the two lower-priority new historic events (JVE 1988,
+  Mururoa) were dropped per the pass-12 drop priority. They can land
+  as `feat/historic-nuclear-pass-N+1` follow-ups.
+
+**Pass-13 rotates to** axis-1b 3D source ball implementation on the
+pass-11 scaffold (see `docs/AXIS_1B_DESIGN.md`).
+
+**Verification.** All 27 pre-existing historic-nuclear integration
+tests pass under their pinned, relocated configs. Three new event
+smoke tests pass. Pass-11 byte-identical guards intact.

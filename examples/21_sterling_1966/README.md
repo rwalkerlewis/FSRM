@@ -33,7 +33,7 @@ Identical to Salmon 1964 (same emplacement formation):
 References: Springer et al. 1968; Patton 1991.
 
 ## Config
-Uses `config/examples/sterling_1966.config`.
+Uses `examples/21_sterling_1966/config.config`.
 
 ## Expected Output
 - `output/sterling_1966/*.SAC` -- synthetic seismograms at 3 stations

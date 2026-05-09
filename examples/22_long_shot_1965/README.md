@@ -28,7 +28,7 @@ Features used:
 Reference: King, Foster, & Bingham 1972 (Amchitka).
 
 ## Config
-Uses `config/examples/long_shot_1965.config`.
+Uses `examples/22_long_shot_1965/config.config`.
 
 ## Expected Output
 - `output/long_shot_1965/*.SAC` -- synthetic seismograms at 3 stations

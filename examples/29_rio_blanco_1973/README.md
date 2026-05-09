@@ -34,7 +34,7 @@ References: Lombard et al. 1971; Reynolds et al. 1971 (Piceance Basin
 Plowshare geology).
 
 ## Config
-Uses `config/examples/rio_blanco_1973.config`.
+Uses `examples/29_rio_blanco_1973/config.config`.
 
 ## Expected Output
 - `output/rio_blanco_1973/*.SAC` -- synthetic seismograms at 3 stations

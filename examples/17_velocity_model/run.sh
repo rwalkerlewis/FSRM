@@ -1,23 +1,33 @@
 #!/bin/bash
 # Run the velocity model example
+# Generate velocity model if not present
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+BUILD_DIR="${REPO_DIR}/build"
+CONFIG="${SCRIPT_DIR}/config.config"
+OUT_DIR="${SCRIPT_DIR}/output"
 
-# Generate velocity model if not present
-if [ ! -f velocity_model.bin ]; then
-    echo "Generating velocity model..."
-    python3 ../../scripts/generate_velocity_model.py velocity_model.bin \
-        --nx 10 --ny 10 --nz 10 --xmax 5000 --ymax 5000 --zmax 5000
+if [ ! -f "${BUILD_DIR}/fsrm" ]; then
+    echo "Error: Build FSRM first."
+    echo "  mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && make -j\$(nproc)"
+    exit 1
 fi
 
-# Run simulation
-echo "Running simulation..."
-cd ../../build
-./fsrm -c ../examples/17_velocity_model/config.config \
-    -ts_type alpha2 \
-    -pc_type lu \
-    -ksp_type preonly
+source "${REPO_DIR}/scripts/run_with_mpi.sh"
 
-echo "Done."
+mkdir -p "${OUT_DIR}"
+cd "${SCRIPT_DIR}"
+
+echo "=== Run the velocity model example ==="
+echo "Config:  ${CONFIG}"
+echo "Output:  ${OUT_DIR}"
+echo "Ranks:   ${MPI_RANKS:-4}"
+echo ""
+
+run_with_mpi "${BUILD_DIR}/fsrm" -c "${CONFIG}"
+
+echo ""
+echo "=== Output Files ==="
+ls -lh "${OUT_DIR}" 2>/dev/null || echo "No output files generated."

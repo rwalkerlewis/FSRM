@@ -805,7 +805,7 @@ TEST_F(HistoricNuclearTest, NtsPahuteMesa)
 // uses the same pipeline and seven quantitative assertions as the original
 // five tests above. Velocity models cite published references in the
 // docstring above each TEST_F; production configs in
-// `config/examples/<event>.config` carry the full citation block.
+// `examples/N_<event>/config.config` carry the full citation block.
 // =============================================================================
 
 // Rainier, NTS Area 12 (1957-09-19): 1.7 kt, 274 m, bedded tuff
@@ -1221,7 +1221,7 @@ TEST_F(HistoricNuclearTest, PokhranI_1974)
 
 // DPRK 2006, Punggye-ri Mt. Mantap (2006-10-09): ~0.7 kt (mb 4.1), 470 m,
 // granite. First DPRK test. Velocity model: Mt. Mantap layered model
-// shared with `config/examples/punggye_ri_layered.config`.
+// shared with `examples/05_punggye_ri_nuclear_test/config_full.config`.
 //
 // Status: BLOCKED on the 4x4x4 CI mesh. At 0.7 kt this is the smallest
 // declared DPRK shot; even with the 2-layer simplification used for
@@ -1258,7 +1258,7 @@ TEST_F(HistoricNuclearTest, DPRK2006)
 // granite. Same Mt. Mantap geology as DPRK 2006.
 //
 // Test geology simplification: the 3-layer production config in
-// `config/examples/dprk_2009.config` carries a competent-granite basal
+// `examples/34_dprk_2009/config.config` carries a competent-granite basal
 // layer (vp=5800 m/s); the test fixture collapses to a 2-layer model
 // with fractured-granite extending to z=0 (vp=4500 m/s). The 100x
 // envelope in `assertFarFieldAndPolarity` uses
@@ -1373,7 +1373,7 @@ TEST_F(HistoricNuclearTest, DPRK2016b)
 // First PRC underground test. Velocity model: Wen et al. 2006; Yang et al. 2003.
 //
 // Test geology simplification: the 4-layer production config in
-// `config/examples/lop_nor_1976.config` carries competent and deep
+// `examples/38_lop_nor_1976/config.config` carries competent and deep
 // granite basal layers (vp=5500, 6000 m/s); the test fixture collapses
 // to a 2-layer model with weathered granite extending to z=0
 // (vp=3500 m/s) for the same single-cell-source rationale documented
@@ -1402,6 +1402,93 @@ TEST_F(HistoricNuclearTest, LopNor1976)
   {
     EXPECT_TRUE(checkSACOutput());
     assertFarFieldAndPolarity("Lop Nor 1976");
+  }
+}
+
+// Lop Nor 1996 (final Chinese underground test, 1996-07-29): mb 5.0,
+// ~5 kt central yield estimate. Open-basin emplacement in weathered
+// granite under Tertiary sediment, less topography contamination than
+// the 1976 Tian Shan tunnel sites. Pass-12 housekeeping smoke test.
+TEST_F(HistoricNuclearTest, LopNor1996)
+{
+  std::vector<LayerDef> layers = {
+    {2000.0, 1950.0, 4.10e9,  3.02e9,  2100.0},  // Tertiary sediment cover
+    {1950.0, 1500.0, 2.83e10, 2.55e10, 2650.0},  // Mesozoic / weathered granite
+    {1500.0,    0.0, 3.65e10, 3.47e10, 2750.0},  // Pre-Cambrian basement
+  };
+  // P-wave travel time from 800 m source through granite ~0.15 s;
+  // 0.3 s gives margin.
+  writeConfig("lop_nor_1996", 5.0, 800.0, 2000.0, layers, 0.3, "GRANITE");
+
+  PetscReal sol_norm = 0.0;
+  PetscErrorCode ierr = runPipeline(sol_norm);
+
+  ASSERT_EQ(ierr, 0) << "Lop Nor 1996 (~5 kt, basin granite) pipeline must complete";
+  EXPECT_GT(sol_norm, 0.0);
+  EXPECT_TRUE(std::isfinite(sol_norm));
+  if (rank_ == 0)
+  {
+    EXPECT_TRUE(checkSACOutput());
+    assertFarFieldAndPolarity("Lop Nor 1996");
+  }
+}
+
+// Pokhran II Shakti-I (Indian thermonuclear, 1998-05-11): mb 5.2,
+// ~20 kt central seismic estimate (43 kt announced; well-documented
+// yield discrepancy). Granitic gneiss host rock in the Marwar craton.
+// Pass-12 housekeeping smoke test; the multi-shot superposition with
+// Shakti-II is not modeled.
+TEST_F(HistoricNuclearTest, PokhranII1998)
+{
+  std::vector<LayerDef> layers = {
+    {2000.0, 1950.0, 3.96e9,  1.62e9,  2000.0},  // Alluvium / weathered top
+    {1950.0, 1500.0, 3.06e10, 2.76e10, 2700.0},  // Granitic gneiss host rock
+    {1500.0,    0.0, 3.65e10, 3.73e10, 2800.0},  // Pre-Cambrian basement
+  };
+  // Shallow shot: 210 m source through granite ~0.04 s; 0.2 s margin.
+  writeConfig("pokhran_ii_1998", 20.0, 210.0, 2000.0, layers, 0.2, "GRANITE");
+
+  PetscReal sol_norm = 0.0;
+  PetscErrorCode ierr = runPipeline(sol_norm);
+
+  ASSERT_EQ(ierr, 0) << "Pokhran II Shakti-I (~20 kt, granitic gneiss) pipeline must complete";
+  EXPECT_GT(sol_norm, 0.0);
+  EXPECT_TRUE(std::isfinite(sol_norm));
+  if (rank_ == 0)
+  {
+    EXPECT_TRUE(checkSACOutput());
+    assertFarFieldAndPolarity("Pokhran II 1998");
+  }
+}
+
+// DPRK 2017 (Sixth NK Underground Test, 2017-09-03): mb 6.3, ~250 kt,
+// granite host rock under volcanic tuff overburden, ~600 m below the
+// summit of Mt. Mantap. Pass-12 housekeeping smoke test: runs the
+// pipeline with the 3-layer Pabian/Coblentz 2018 / Wen et al 2018
+// crustal model and verifies SAC output at the configured stations.
+// `examples/39_dprk_2017/config.config` is the production-resolution
+// counterpart for visualization runs.
+TEST_F(HistoricNuclearTest, DPRK2017)
+{
+  std::vector<LayerDef> layers = {
+    {2000.0, 1900.0, 4.21e9,  3.72e9,  2200.0},  // Volcanic tuff / weathered overburden
+    {1900.0, 1000.0, 3.20e10, 2.94e10, 2700.0},  // Competent granite host rock
+    {1000.0,    0.0, 3.65e10, 3.73e10, 2800.0},  // Pre-Cambrian metamorphic basement
+  };
+  // P-wave travel time from 600 m source through granite (vp=5800)
+  // ~0.10 s; 0.3 s gives margin for the multi-layer arrival train.
+  writeConfig("dprk_2017", 250.0, 600.0, 2000.0, layers, 0.3, "GRANITE");
+
+  PetscReal sol_norm = 0.0;
+  PetscErrorCode ierr = runPipeline(sol_norm);
+
+  ASSERT_EQ(ierr, 0) << "DPRK 2017 (~250 kt, granite under tuff) pipeline must complete";
+  EXPECT_GT(sol_norm, 0.0);
+  EXPECT_TRUE(std::isfinite(sol_norm));
+  if (rank_ == 0)
+  {
+    EXPECT_TRUE(checkSACOutput());
+    assertFarFieldAndPolarity("DPRK 2017");
   }
 }
 

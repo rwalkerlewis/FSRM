@@ -21,7 +21,7 @@ Features used:
 | Castile Anhydrite | 600-5000 | 5500 | 3200 | 2900 |
 
 ## Config
-Uses `config/examples/gnome_1961.config`.
+Uses `examples/10_gnome_1961/config.config`.
 
 ## Expected Output
 - `output/gnome_1961/*.SAC` -- synthetic seismograms at 3 stations

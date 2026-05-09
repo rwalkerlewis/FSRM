@@ -28,7 +28,7 @@ Same Aleutian stratigraphy as Long Shot 1965, extended to 5 km depth:
 Reference: King, Foster, & Bingham 1972 (Amchitka).
 
 ## Config
-Uses `config/examples/milrow_1969.config`.
+Uses `examples/23_milrow_1969/config.config`.
 
 ## Expected Output
 - `output/milrow_1969/*.SAC` -- synthetic seismograms at 3 stations

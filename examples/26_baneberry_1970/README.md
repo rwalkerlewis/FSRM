@@ -27,7 +27,7 @@ Features used:
 Reference: Carothers et al. 1995 (Baneberry venting analysis).
 
 ## Config
-Uses `config/examples/baneberry_1970.config`.
+Uses `examples/26_baneberry_1970/config.config`.
 
 ## Expected Output
 - `output/baneberry_1970/*.SAC` -- synthetic seismograms at 3 stations

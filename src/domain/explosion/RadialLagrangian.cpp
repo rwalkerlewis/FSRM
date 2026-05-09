@@ -4,6 +4,23 @@
  *        solver. See include/domain/explosion/RadialLagrangian.hpp for
  *        the design rationale and references.
  *
+ * Pass-12 serial-by-design rationale:
+ *
+ *   This solver is single-rank by design. At production resolution
+ *   (about 800 radial cells x 16 frequency groups for the multigroup
+ *   diffusion variant) the per-step work is small tridiagonal kernels;
+ *   MPI overhead would exceed any saved time, and the workload does
+ *   not partition cleanly along the radial axis without losing the
+ *   surface-integral moment-extraction structure at the elastic
+ *   radius. The FEM far-field that consumes the recorded moment
+ *   tensor is fully MPI-parallel via PETSc DMPlex; that is where the
+ *   simulator gets its parallel speedup.
+ *
+ *   Pass-13 axis-1b moves the source ball to a 3D unstructured
+ *   tetrahedron mesh. That is the natural place to introduce source-
+ *   side MPI parallelism via PETSc; this 1D solver remains the LOW /
+ *   MED / HIGH / HIGHEST tier under cavity_geometry = SPHERICAL.
+ *
  * Per-step update sequence (Wilkins 1980, ch. 3):
  *   1. CFL-limited dt from cell-wise (c_p + |v|).
  *   2. Lagrangian face advection.

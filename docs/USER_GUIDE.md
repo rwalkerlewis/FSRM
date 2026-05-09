@@ -1,473 +1,315 @@
 # FSRM User Guide
 
-Complete documentation for running FSRM simulations.
+End-to-end manual for running FSRM simulations and producing seismograms.
+For a five-minute build-and-run, see [QUICK_START.md](QUICK_START.md). For
+the full config-key reference, see [CONFIGURATION.md](CONFIGURATION.md).
 
-## Table of Contents
+## Contents
 
-1. [Overview](#overview)
-2. [Running Simulations](#running-simulations)
-3. [Configuration Files](#configuration-files)
-4. [Physics Models](#physics-models)
-5. [Boundary and Initial Conditions](#boundary-and-initial-conditions)
-6. [Wells](#wells)
-7. [Fractures](#fractures)
-8. [Faults and Seismicity](#faults-and-seismicity)
-9. [Output and Visualization](#output-and-visualization)
-10. [Performance Optimization](#performance-optimization)
-11. [Troubleshooting](#troubleshooting)
+1. [What FSRM does](#what-fsrm-does)
+2. [Running a simulation](#running-a-simulation)
+3. [Running in parallel](#running-in-parallel)
+4. [Config-file structure](#config-file-structure)
+5. [The source-physics fidelity ladder](#the-source-physics-fidelity-ladder)
+6. [Boundary conditions and meshes](#boundary-conditions-and-meshes)
+7. [Output and visualization](#output-and-visualization)
+8. [IRIS waveform V&V](#iris-waveform-vv)
+9. [Troubleshooting](#troubleshooting)
 
----
+## What FSRM does
 
-## Overview
+FSRM solves coupled multiphysics PDEs on unstructured DMPlex meshes via
+PETSc PetscDS pointwise callbacks. Verified physics (each with quantitative
+integration tests through TSSolve):
 
-FSRM is a fully-coupled reservoir simulator that supports:
+- Linear elasticity (quasi-static and dynamic, TSALPHA2 generalized-α)
+- Biot poroelasticity
+- Drucker-Prager elastoplasticity
+- Generalized-Maxwell viscoelastic attenuation
+- Heat equation and full thermo-hydro-mechanical coupling
+- Cohesive-cell faults (locked, prescribed-slip, slip-weakening)
+- Underground-explosion source physics with a six-rung fidelity ladder
+- Clayton-Engquist absorbing boundaries
+- Single-phase Darcy flow
 
-- **Fluid Flow**: Single-phase, black oil, compositional with EOS
-- **Geomechanics**: Linear elastic, viscoelastic, poroelastic, elastoplastic
-- **Thermal**: Heat conduction and convection
-- **Fractures**: Natural DFN, hydraulic fracturing with proppant
-- **Faults**: Coulomb and rate-state friction, induced seismicity
-- **Dynamics**: Elastic wave propagation, static-to-dynamic triggering
+Twenty-seven historic underground nuclear tests ship as integration
+fixtures with pinned configs (see [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md)).
+Pass-12 housekeeping adds DPRK 2017 and other modern events.
 
-All parameters are configurable via text files - no code changes needed.
+## Running a simulation
 
----
-
-## Running Simulations
-
-### Basic Execution
-
-```bash
-# Using configuration file (recommended)
-mpirun -np <N> fsrm -c <config_file>
-
-# Using Eclipse input
-mpirun -np <N> fsrm -i <input.DATA> -o <output_prefix>
-
-# Generate template configuration
-fsrm -generate_config <template.config>
-```
-
-### Command-Line Options
-
-| Option | Description |
-|--------|-------------|
-| `-c <file>` | Configuration file path |
-| `-i <file>` | Eclipse .DATA input file |
-| `-o <prefix>` | Output file prefix |
-| `-format <type>` | Output format: VTK, HDF5, ECLIPSE |
-| `-generate_config <file>` | Generate configuration template |
-| `-help` | Show help message |
-
-### PETSc Options
-
-Fine-tune solvers via command line:
+Each `examples/N_<event>/` is self-contained. Run any one with:
 
 ```bash
-mpirun -np 4 fsrm -c config.config \
-  -ts_type beuler \
-  -snes_type newtonls \
-  -snes_rtol 1e-8 \
-  -ksp_type gmres \
-  -pc_type ilu \
-  -log_view
+cd examples/20_salmon_1964
+./run.sh
 ```
 
----
+The runner builds output in `examples/20_salmon_1964/output/`. It calls
+`scripts/run_with_mpi.sh` which wraps `mpirun` with the right
+ABI-specific flags (OpenMPI vs MPICH detected at runtime). Override
+the rank count with the `MPI_RANKS` env var (default 4 for examples,
+8 for showcase events).
 
-## Configuration Files
+You can also call the executable directly:
 
-Configuration files use INI format with sections and key-value pairs.
+```bash
+mpirun -n 4 ./build/fsrm -c examples/20_salmon_1964/config.config
+```
 
-### Structure
+## Running in parallel
+
+The FEM far-field is fully MPI-parallel via PETSc DMPlex. The 1-D radial
+source-ball solver (`src/domain/explosion/RadialLagrangian.cpp`) is
+deliberately serial: at production resolution (~800 cells x 16 frequency
+groups for multigroup) the radial solve is small tridiagonal kernels per
+timestep and MPI overhead would exceed any saved time. Pass-13's axis-1b
+3-D source ball will introduce source-side MPI parallelism via PETSc.
+
+Recommended rank counts:
+
+| Mesh resolution | Recommended `MPI_RANKS` |
+|---|---|
+| ~10k cells (tutorial / unit) | 1-2 |
+| ~100k cells (CI examples) | 4 |
+| ~1M cells (showcase / production) | 8-16 |
+
+`Integration.MPI.SalmonSerialVsParallelEquivalence` verifies that
+serial and parallel produce numerically equivalent SAC output (peak
+amplitude relative difference under 1 %, cross-correlation above
+0.99 in the 0.5-5 Hz band). If a new event you author drifts these
+numbers between rank counts, the FEM partitioning has lost
+correctness; check rank-aware logic added since.
+
+## Config-file structure
+
+Configs use INI format. Each section name is uppercase; keys are
+lowercase. Comments start with `#`.
 
 ```ini
 [SECTION]
-key = value                  # Comment
-another_key = 1.5e6          # Scientific notation supported
-array_key = 1.0, 2.0, 3.0    # Comma-separated arrays
+key = value                  # comment
+scientific = 1.5e6           # scientific notation
 ```
 
-### Main Sections
+The parser's recognized sections are `SIMULATION`, `GRID`, `MATERIAL`,
+`MESH_REFINEMENT`, `EXPLOSION_SOURCE`, `NEAR_FIELD_SOURCE`,
+`SOURCE_DISTRIBUTION`, `BOUNDARY_CONDITIONS`, `INITIAL_CONDITIONS`,
+`ABSORBING_BC`, `THERMAL`, `VISCOELASTIC`, `PLASTICITY`, `FAULT`,
+`FRACTURE_PLANE`, `HYDRAULIC_FRACTURE`, `INJECTION`, `SEISMOMETERS`,
+`SEISMICITY`, `OUTPUT`, `NUCLEAR_TRIGGER`, `WAVEFORM_VV`. See
+[CONFIGURATION.md](CONFIGURATION.md) for the full key reference.
 
-| Section | Description |
-|---------|-------------|
-| `[SIMULATION]` | Time stepping, physics flags, solver options |
-| `[GRID]` | Domain dimensions and mesh |
-| `[ROCK]` / `[ROCK1]` | Material properties |
-| `[FLUID]` | Fluid properties |
-| `[WELL1]`, `[WELL2]`... | Well definitions |
-| `[FRACTURE1]`... | Fracture definitions |
-| `[FAULT1]`... | Fault definitions |
-| `[BC1]`, `[BC2]`... | Boundary conditions |
-| `[IC1]`, `[IC2]`... | Initial conditions |
-| `[DYNAMICS]` | Wave propagation settings |
-| `[SEISMICITY]` | Fault mechanics settings |
-| `[OUTPUT]` | Output configuration |
-
-### Example Configuration
+A minimal explosion-seismogram config has the structure below; the
+historic-nuclear configs add layered-material, source-distribution,
+and per-event timing detail.
 
 ```ini
 [SIMULATION]
-start_time = 0.0
-end_time = 31536000.0        # 1 year
-dt_initial = 86400.0         # 1 day
-fluid_model = BLACK_OIL
-solid_model = POROELASTIC
+end_time = 8.0                  # seconds
+enable_elastodynamics = true
 enable_geomechanics = true
-enable_faults = true
 
 [GRID]
-nx = 50
-ny = 50
-nz = 20
-Lx = 5000.0
-Ly = 5000.0
-Lz = 1000.0
+mesh_type = STRUCTURED
+nx = 24
+ny = 24
+nz = 24
+Lx = 4000.0
+Ly = 4000.0
+Lz = 4000.0
 
-[ROCK]
-constitutive_model = POROELASTIC
-porosity = 0.15
-permeability_x = 50.0
-permeability_z = 5.0
-youngs_modulus = 20.0e9
+[MATERIAL]
+density = 2700.0
+youngs_modulus = 60.0e9
 poisson_ratio = 0.25
-biot_coefficient = 0.8
 
-[FLUID]
-type = BLACK_OIL
-oil_density_std = 850.0
-solution_gor = 100.0
-pvt_correlation = STANDING
+[ABSORBING_BC]
+enabled = true                  # Clayton-Engquist on all six faces
 
-[WELL1]
-name = INJ1
-type = INJECTOR
-i = 25
-j = 25
-k = 10
-control_mode = RATE
-target_value = 0.02
+[EXPLOSION_SOURCE]
+yield_kt = 5.3
+location = 2000.0, 2000.0, 1300.0
+medium_label = SALT
+mode = COUPLED_ANALYTIC
 
-[FAULT1]
-name = MAIN_FAULT
-x = 2500.0
-y = 2500.0
-z = 500.0
-strike = 45.0
-dip = 60.0
-length = 3000.0
-width = 500.0
-friction_law = RATE_STATE_AGING
+[NEAR_FIELD_SOURCE]
+mode = DYNAMIC_PLASTIC
+solver_kind = RADIAL_LAGRANGIAN
+cavity_eos = TILLOTSON
+
+[SEISMOMETERS]
+station_count = 3
+station_1 = 1000.0, 2000.0, 0.0
+station_2 = 2000.0, 1000.0, 0.0
+station_3 = 3000.0, 2000.0, 0.0
+
+[OUTPUT]
+sac_enabled = true
+hdf5_enabled = true
+output_dir = output
 ```
 
----
+## The source-physics fidelity ladder
 
-## Physics Models
-
-### Fluid Models
-
-| Model | Config Value | Description |
-|-------|--------------|-------------|
-| Single-phase | `SINGLE_COMPONENT` | Compressible single-phase flow |
-| Black Oil | `BLACK_OIL` | Three-phase (oil/water/gas) with PVT |
-| Compositional | `COMPOSITIONAL` | Multi-component with EOS flash |
-| Brine | `BRINE` | Saline water with salinity effects |
-| CO2 | `CO2` | Supercritical CO2 behavior |
-
-### Solid Models
-
-| Model | Config Value | Description |
-|-------|--------------|-------------|
-| Linear Elastic | `ELASTIC` | Standard Hookean elasticity |
-| Viscoelastic | `VISCOELASTIC` | Maxwell, Kelvin-Voigt, or SLS |
-| Poroelastic | `POROELASTIC` | Biot's coupled theory |
-| Elastoplastic | `ELASTOPLASTIC` | Mohr-Coulomb or Drucker-Prager |
-| Anisotropic | `VTI` / `HTI` | Transverse isotropy |
-
-### Coupling Options
-
-Enable via flags in `[SIMULATION]`:
+The `[NEAR_FIELD_SOURCE]` block exposes six fidelity-ladder sub-keys.
+Each maps to a LOW / MED / HIGH / HIGHEST tier; see
+[FIDELITY_LADDER_GUIDE.md](FIDELITY_LADDER_GUIDE.md) for the at-a-glance
+selection table.
 
 ```ini
-enable_geomechanics = true
-enable_thermal = true
-enable_fractures = true
-enable_faults = true
-enable_elastodynamics = true
+[NEAR_FIELD_SOURCE]
+mode = DYNAMIC_PLASTIC                # KINEMATIC_RDP for closed-form path
+solver_kind = RADIAL_LAGRANGIAN       # CLOSED_FORM for pass-5 byte-identical
+
+# Fidelity ladders
+radiation_phase = MARSHAK_GREY        # ZELDOVICH_RAIZER (LOW) | MARSHAK_GREY (MED) | MARSHAK_MULTIGROUP (HIGHEST)
+cavity_eos = TILLOTSON                # IDEAL_GAS | TILLOTSON | TILLOTSON_TABULATED_PATCH | TABULATED_FULL
+opacity_model = POWER_LAW_ZR          # CONSTANT | POWER_LAW_ZR | TABULATED_PATCHED | TABULATED_FULL
+operator_splitting = LIE              # LIE | STRANG | STRANG_MULTIGROUP
+time_integrator = EXPLICIT_EULER      # EXPLICIT_EULER | TVD_RK2 | RK3_SSP
+time_integrator_diffusion = BDF2      # BACKWARD_EULER | CRANK_NICOLSON | BDF2
+
+# Multigroup parameters (only used when radiation_phase = MARSHAK_MULTIGROUP)
+radiation_n_groups = 16
+radiation_freq_min_hz = 1.0e14
+radiation_freq_max_hz = 1.0e18
+
+# Tabulated data paths (only used by TABULATED_* variants)
+tabulated_eos_table_path = tools/tabulated_data/tables/eos/granite_aneos.h5
+tabulated_opacity_rosseland_path = tools/tabulated_data/tables/opacity/granite_rosseland.h5
+tabulated_opacity_planck_path = tools/tabulated_data/tables/opacity/granite_planck.h5
+tabulated_eos_blend_lower_pa = 5.0e10
+tabulated_eos_blend_upper_pa = 6.0e10
+tabulated_opacity_blend_lower_k = 1.0e5
+tabulated_opacity_blend_upper_k = 1.26e5
+
+# Pass-11 sponge layer (Israeli-Orszag 1981) and outer-radius override
+sponge_layer_enabled = false
+radial_outer_radius_m = -1.0          # -1 lets the solver choose
+
+# Cavity geometry (axis-1b scaffold; pass-13 implementation)
+cavity_geometry = SPHERICAL           # THREE_DIMENSIONAL throws until pass-13
 ```
 
----
+Defaults reproduce the pre-pass-12 behaviour. Selecting an unknown
+value yields a warn-and-fall-back to the safe LOW tier on rank 0.
 
-## Boundary and Initial Conditions
+## Boundary conditions and meshes
 
-### Boundary Conditions
+Three orthogonal mechanisms ship:
 
-```ini
-[BC1]
-type = DIRICHLET              # DIRICHLET, NEUMANN, ROBIN
-field = PRESSURE              # PRESSURE, TEMPERATURE, DISPLACEMENT
-location = XMIN               # XMIN, XMAX, YMIN, YMAX, ZMIN, ZMAX
-value = 20.0e6                # Value (Pa for pressure)
+- **Clayton-Engquist absorbing**: `[ABSORBING_BC] enabled = true` adds
+  first-order absorbing tractions on all six bounding-box faces.
+  `Physics.AbsorbingBC` verifies > 99 % energy absorption.
+- **Per-face Dirichlet / traction**: `[BOUNDARY_CONDITIONS]` block
+  with `face = X_MIN | X_MAX | Y_MIN | ...` and explicit per-component
+  vectors. See `examples/07_traction_bc/`.
+- **Gmsh per-region material assignment**: `[GRID] mesh_type = GMSH`
+  with `mesh_file = path/to/mesh.msh` (MSH2 format). Physical names in
+  the mesh map to material labels in the config. See
+  `examples/06_gmsh_multimaterial/`.
 
-[BC2]
-type = NEUMANN
-field = DISPLACEMENT
-location = ZMAX
-value = 0.0                   # Zero traction (free surface)
-```
+For sub-cell-resolution sources, `[MESH_REFINEMENT]` adaptively
+refines around the explosion location. For per-cell velocity-model
+material assignment from binary `Vp/Vs/rho` grids, set
+`[MATERIAL] velocity_model_path = path/to/velocity_model.bin`.
 
-### Initial Conditions
+## Output and visualization
 
-```ini
-[IC1]
-field = PRESSURE
-distribution = GRADIENT       # UNIFORM, GRADIENT, FILE
-value = 20.0e6                # Base value
-gradient = 0, 0, 10000        # Gradient vector (Pa/m)
-
-[IC2]
-field = TEMPERATURE
-distribution = GRADIENT
-value = 300.0                 # Surface temperature (K)
-gradient = 0, 0, 0.03         # Geothermal gradient (K/m)
-```
-
----
-
-## Wells
-
-### Well Configuration
-
-```ini
-[WELL1]
-name = PROD1                  # Well identifier
-type = PRODUCER               # PRODUCER, INJECTOR, OBSERVATION
-i = 10                        # Grid index (0-based)
-j = 10
-k = 5
-control_mode = RATE           # RATE, BHP, THP
-target_value = 0.01           # m³/s (rate) or Pa (pressure)
-max_rate = 0.1                # Maximum rate constraint
-min_bhp = 5.0e6               # Minimum BHP constraint
-diameter = 0.2                # Wellbore diameter (m)
-skin = 0.0                    # Skin factor
-```
-
-### Well Types
-
-| Type | Description |
-|------|-------------|
-| `PRODUCER` | Production well (fluid removal) |
-| `INJECTOR` | Injection well (fluid addition) |
-| `OBSERVATION` | Monitoring well (no flow) |
-
-### Control Modes
-
-| Mode | Description |
-|------|-------------|
-| `RATE` | Fixed rate (m³/s), limited by BHP |
-| `BHP` | Fixed bottomhole pressure |
-| `THP` | Fixed tubing head pressure |
-
----
-
-## Fractures
-
-### Natural Fractures
-
-```ini
-[FRACTURE1]
-type = NATURAL
-location = 500, 500, 50, 0.707, 0.707, 0  # x,y,z, normal_x,y,z
-aperture = 0.0001             # meters
-permeability = 1.0e-12        # m²
-enable_propagation = false
-```
-
-### Hydraulic Fractures
-
-```ini
-[FRACTURE2]
-type = HYDRAULIC
-location = 250, 500, 50, 0, 1, 0
-aperture = 0.001              # meters
-permeability = 1.0e-10        # m²
-toughness = 1.0e6             # Pa·m^0.5
-energy = 100.0                # J/m²
-enable_propagation = true
-enable_proppant = true
-```
-
----
-
-## Faults and Seismicity
-
-### Fault Definition
-
-```ini
-[FAULT1]
-name = MAIN_FAULT
-x = 5000.0                    # Center X (m)
-y = 0.0                       # Center Y
-z = 4000.0                    # Center depth
-strike = 0.0                  # Degrees from North
-dip = 60.0                    # Degrees from horizontal
-length = 2000.0               # Along-strike (m)
-width = 1500.0                # Down-dip (m)
-```
-
-### Friction Laws
-
-```ini
-# Coulomb friction
-friction_law = COULOMB
-static_friction = 0.6
-dynamic_friction = 0.4
-cohesion = 1.0e6              # Pa
-
-# Rate-and-state friction
-friction_law = RATE_STATE_AGING
-rate_state_a = 0.010          # Direct effect
-rate_state_b = 0.015          # Evolution effect (b>a = unstable)
-rate_state_dc = 1.0e-4        # Critical slip distance (m)
-rate_state_v0 = 1.0e-6        # Reference velocity (m/s)
-rate_state_f0 = 0.6           # Reference friction
-```
-
-### Seismicity Configuration
-
-```ini
-[SEISMICITY]
-enable = true
-friction_law = RATE_STATE_AGING
-nucleation_size = 1.0         # Critical patch size (m)
-seismic_slip_rate = 1.0e-3    # Seismic threshold (m/s)
-b_value = 1.0                 # Gutenberg-Richter b-value
-aftershocks = true
-stress_transfer = true
-```
-
----
-
-## Output and Visualization
-
-### Output Configuration
+`[OUTPUT]` controls what the simulator writes. Defaults are fine for
+the historic-nuclear examples.
 
 ```ini
 [OUTPUT]
-format = VTK                  # VTK, HDF5, ECLIPSE
-path = output                 # Directory
-frequency = 10                # Every N timesteps
-
-# Fields to output
-pressure = true
-displacement = true
-stress = false
-strain = false
-velocity = false
-permeability = false
-temperature = false
-saturation = false
-fault_slip = true
-seismic_catalog = true
+output_dir = output
+hdf5_enabled = true                   # full wavefield, large
+hdf5_write_interval = 0.1             # seconds
+sac_enabled = true                    # SAC seismograms at SEISMOMETERS
+write_near_field_history = true       # 6-component M(t), Mdot(t), R_cav(t)
+write_near_field_profile_h5 = true    # per-snapshot radial state
 ```
 
-### Visualization
+After a run, the `output/` directory typically contains:
 
-```bash
-# View with ParaView
-paraview output/*.vtu
+- `seismograms/<station>.{r,t,z}.sac`: rotated to radial / transverse /
+  vertical at each `[SEISMOMETERS]` station.
+- `near_field_history.csv`: 14 columns -- time, six components of M(t),
+  six of Mdot(t), and the cavity radius.
+- `near_field_profile.h5` + `.xdmf`: per-snapshot radial state of the
+  source ball (vp, vs, rho, T_matter, T_radiation, plastic strain). The
+  XDMF wrapper opens directly in ParaView.
+- `solution.h5` + `.xmf`: 3-D wavefield at every output cadence. Open
+  the XMF in ParaView to visualize displacement / velocity / stress.
 
-# View seismic catalog
-cat output/seismic_catalog.csv
-```
+For the showcase events (Sedan 1962, Salmon 1964, Punggye-ri 2017,
+Cannikin 1971, Sterling 1966), `figures/regenerate.sh` produces a
+six-figure presentation pack from the output directory using shared
+matplotlib styling in `tools/figures/figure_style.py`.
 
----
+## IRIS waveform V&V
 
-## Performance Optimization
-
-### Parallel Scaling
-
-```bash
-# Scale processes with problem size
-# ~10,000 cells per process is optimal
-mpirun -np 8 fsrm -c large_simulation.config
-```
-
-### Solver Options
+The `[WAVEFORM_VV]` block opts the run into IRIS waveform-comparison
+gates. Cached station data lives under `tools/waveform_vv/cache/`.
+Refresh with `tools/waveform_vv/refresh.py` (requires ObsPy).
 
 ```ini
-[SIMULATION]
-rtol = 1.0e-6
-atol = 1.0e-8
-max_nonlinear_iterations = 50
-max_linear_iterations = 1000
+[WAVEFORM_VV]
+enabled = true
+event_id = SALMON_1964
+cache_dir = tools/waveform_vv/cache/salmon_1964
+band_lo_hz = 0.5
+band_hi_hz = 5.0
+correlation_threshold = 0.7
+peak_amplitude_envelope_factor = 2.0
 ```
 
-### GPU Acceleration
-
-```ini
-[SIMULATION]
-use_gpu = true
-gpu_mode = CPU_FALLBACK
-gpu_device_id = 0
-gpu_memory_fraction = 0.8
-```
-
-```bash
-# Build with CUDA
-cmake .. -DENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="80;86"
-make
-```
-
----
+The integration test family `Physics.WaveformVV.*` runs the comparison
+gates. The `iris_validation` ctest label gates the suite as a whole. See
+[WAVEFORM_VV.md](WAVEFORM_VV.md) for the cached-data format and the
+waveform-comparison metric definitions.
 
 ## Troubleshooting
 
-### Common Issues
+### Run dies with "cavity_geometry=THREE_DIMENSIONAL not implemented"
 
-**PETSc not found:**
-```bash
-export PETSC_DIR=/path/to/petsc
-export PETSC_ARCH=arch-linux-c-debug
-```
+This is the pass-13 axis-1b scaffold guard. Set `cavity_geometry =
+SPHERICAL` (the default).
 
-**Convergence failure:**
-- Reduce timestep: `dt_initial = 100.0`
-- Increase iterations: `max_nonlinear_iterations = 100`
-- Check boundary conditions for consistency
+### `radiation_phase = SN_TRANSPORT` raises a runtime error
 
-**Memory issues:**
-- Reduce grid resolution
-- Use more MPI processes
-- Enable GPU if available
+`SN_TRANSPORT` is a HIGHEST-tier scaffold; it is not implemented and is
+not on the pass-13 roadmap. Use `MARSHAK_MULTIGROUP`.
 
-**Slow performance:**
-- Increase grid coarseness
-- Use adaptive timestepping
-- Enable AMG preconditioner: `-pc_type hypre -pc_hypre_type boomeramg`
+### "TABULATED_FULL requires a table" warning, results look like power-law fallback
 
-### Debug Mode
+The path you set for `tabulated_eos_table_path` (or the opacity paths)
+either does not exist or failed HDF5 parsing. Check
+`tools/tabulated_data/README.md` for the expected layout. The solver
+emits a one-time stderr warning when it falls back to the analytic.
 
-```bash
-# Build with debug symbols
-cmake .. -DCMAKE_BUILD_TYPE=Debug
-make
+### Convergence fails / NaN in radial solver
 
-# Run with verbose output
-mpirun -np 4 fsrm -c config.config \
-  -snes_monitor \
-  -ksp_monitor \
-  -ts_monitor \
-  -log_view
-```
+The CFL constant is set automatically. NaNs in the source ball usually
+indicate a Tillotson extrapolation past the threshold; raise
+`tillotson_extrapolation_warning_threshold_pa` if you genuinely need
+to operate above it (default 5e10 Pa).
 
----
+### `mpirun` errors when running as root in Docker
+
+The wrapper `scripts/run_with_mpi.sh` (sourced by every example
+`run.sh`) detects this and applies `--allow-run-as-root`
+automatically. Bypass the wrapper only if you know the MPI ABI.
+
+### Six fault tests fail in `ctest`
+
+These are documented in [SOLVER_STATE.md](SOLVER_STATE.md). They sit
+behind a PETSc 3.25 BdResidual limitation that FSRM cannot fix from
+the application side. They do not block any historic-nuclear run.
 
 ## References
 
-- PETSc: https://petsc.org/
-- Biot poroelasticity: Wang (2000), Theory of Linear Poroelasticity
-- Rate-state friction: Dieterich (1979), Ruina (1983)
-- Black oil PVT: Standing (1947), Vazquez-Beggs (1980)
+- PETSc 3.25.0: https://petsc.org/
+- PyLith verified architecture pins: [PYLITH_REFERENCE.md](PYLITH_REFERENCE.md)
+- Source physics primary literature: see [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) "References"
+- Numerical methods: see [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md)

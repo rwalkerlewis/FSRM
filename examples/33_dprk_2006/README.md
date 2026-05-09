@@ -6,7 +6,7 @@ column. Models the ~0.7 kt (USGS mb 4.1) DPRK event of 2006-10-09 at
 ~470 m depth in Punggye-ri, the first DPRK underground test.
 
 Same Mt. Mantap velocity model as the rest of the DPRK series and
-matches `config/examples/punggye_ri_layered.config`.
+matches `examples/33_dprk_2006/config.config`.
 
 Features used:
 - Layered heterogeneous material (aux field assignment)
@@ -22,11 +22,11 @@ Features used:
 | Competent granite     | 1000-2000 | 5800 | 3349 | 2650 |
 
 References: Mt. Mantap velocity model from existing
-`config/examples/punggye_ri_layered.config` (DPRK 2017 reference). USGS
+`examples/33_dprk_2006/config.config` (DPRK 2017 reference). USGS
 event listing for the 2006-10-09 detection.
 
 ## Config
-Uses `config/examples/dprk_2006.config`.
+Uses `examples/33_dprk_2006/config.config`.
 
 ## Expected Output
 - `output/dprk_2006/*.SAC` -- synthetic seismograms at 3 stations

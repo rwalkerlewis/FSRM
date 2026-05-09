@@ -18,7 +18,7 @@ This workflow is validated by automated tests in Docker, including:
 
 - Docker image built from `Dockerfile.ci`
 - Existing build directory at `build/`
-- Example config files in `config/examples/`
+- Example config files in `examples/N_<event>/`
 
 Build and test baseline:
 
@@ -35,13 +35,13 @@ docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
 
 Use the compact layered example:
 
-- `config/examples/punggye_ri_layered.config`
+- `examples/05_punggye_ri_nuclear_test/config_full.config`
 
 Run:
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
-  ./fsrm ../config/examples/punggye_ri_layered.config
+  ./fsrm ../examples/05_punggye_ri_nuclear_test/config_full.config
 ```
 
 Expected behavior:
@@ -64,7 +64,7 @@ FSRM supports per-cell auxiliary material properties from Gmsh physical labels v
 
 Ready-to-run example config:
 
-- `config/examples/nuclear_twin_gmsh.config`
+- `examples/06_gmsh_multimaterial/config.config`
 
 Validated examples and tests:
 
@@ -84,13 +84,13 @@ This path combines mapped Gmsh material regions with an underground source and H
 
 Use:
 
-- `config/examples/nuclear_twin_gmsh.config`
+- `examples/06_gmsh_multimaterial/config.config`
 
 Run example:
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace/build fsrm-ci:local \
-  ./fsrm ../config/examples/nuclear_twin_gmsh.config
+  ./fsrm ../examples/06_gmsh_multimaterial/config.config
 ```
 
 Run validation test:

@@ -1,22 +1,33 @@
 #!/bin/bash
 # Example 27: Schooner (1968)
+# 
 set -e
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="${REPO_DIR}/build"
-CONFIG="${REPO_DIR}/config/examples/schooner_1968.config"
+CONFIG="${SCRIPT_DIR}/config.config"
+OUT_DIR="${SCRIPT_DIR}/output"
 
 if [ ! -f "${BUILD_DIR}/fsrm" ]; then
-    echo "Error: Build FSRM first (see build instructions in repository root)."
+    echo "Error: Build FSRM first."
+    echo "  mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && make -j\$(nproc)"
     exit 1
 fi
 
+source "${REPO_DIR}/scripts/run_with_mpi.sh"
+
+mkdir -p "${OUT_DIR}"
+cd "${SCRIPT_DIR}"
+
 echo "=== Example 27: Schooner (1968) ==="
-echo "  30 kt, 111 m depth, welded tuff/basalt, NTS Pahute Mesa (cratering)"
-echo "  Config: ${CONFIG}"
-cd "${BUILD_DIR}"
-mkdir -p output/schooner_1968
-./fsrm -c "${CONFIG}"
+echo "Config:  ${CONFIG}"
+echo "Output:  ${OUT_DIR}"
+echo "Ranks:   ${MPI_RANKS:-4}"
+echo ""
+
+run_with_mpi "${BUILD_DIR}/fsrm" -c "${CONFIG}"
+
 echo ""
 echo "=== Output Files ==="
-ls -lh output/schooner_1968/ 2>/dev/null || echo "No output files generated."
+ls -lh "${OUT_DIR}" 2>/dev/null || echo "No output files generated."
