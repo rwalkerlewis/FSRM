@@ -4,9 +4,9 @@ Every fact here is pinned to a specific file:line in the PyLith source tree
 recorded below. When a future FSRM session re-derives a fact about PyLith,
 the answer goes here so the next session does not re-derive it.
 
-For a feature-parity wishlist (what FSRM aspires to port) see
-`docs/PYLITH_COMPATIBILITY.md`. This document is a verified reference, not a
-wishlist.
+For the historical feature-parity wishlist (archived pass-12 when the fault-
+solver track was paused) see `docs/archive/PYLITH_COMPATIBILITY.md`. This
+document is a verified reference, not a wishlist.
 
 ## PyLith source location and pin
 

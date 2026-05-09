@@ -120,7 +120,7 @@ src/core/Simulator.cpp:2250).
 ### 2.3 What the current layout implies for extensions
 
 - Adding a cohesive-only aux field requires either a label-restricted
-  `DMAddField` (the approach reverted in docs/LAGRANGE_FIX_STATUS.md because
+  `DMAddField` (the approach reverted in docs/archive/LAGRANGE_FIX_STATUS.md because
   PETSc 3.25 region DS does not support volume assembly via
   DMPlexTSComputeIFunctionFEM) or a separate aux DM attached by label via
   `DMSetAuxiliaryVec(dm, label, value, 0, faultAuxVec)`.

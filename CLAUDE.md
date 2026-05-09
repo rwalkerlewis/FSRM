@@ -22,9 +22,9 @@ Secondary references:
 
 - `docs/HISTORIC_NUCLEAR_FIDELITY.md`: standing truth about what each historic-nuclear pass shipped.
 - `docs/HISTORIC_NUCLEAR_ROADMAP.md`: forward-looking roadmap with six fidelity axes. Pass-5 (in progress) marks axis 1 partial.
-- `docs/PYLITH_COMPATIBILITY.md`: Feature-parity wishlist (not a verified reference).
-- `docs/LAGRANGE_FIX_STATUS.md`: Historical record of PETSc 3.25 architectural blockers (superseded by `SOLVER_STATE.md` for current state; kept as decision trail).
-- `docs/FAULT_TEST_REGRESSION_AUDIT.md`: Test inventory and history.
+- `docs/archive/PYLITH_COMPATIBILITY.md`: Feature-parity wishlist (archived pass-12, no longer an active track).
+- `docs/archive/LAGRANGE_FIX_STATUS.md`: Historical record of PETSc 3.25 architectural blockers (archived pass-12; superseded by `SOLVER_STATE.md`).
+- `docs/archive/FAULT_TEST_REGRESSION_AUDIT.md`: Test inventory and history (archived pass-12; six fault tests now disabled by PR #119, see `SOLVER_STATE.md`).
 - `docs/NUMERICAL_METHODS.md`, `docs/PHYSICS_MODELS.md`: physics reference.
 
 ### Codebase Size
@@ -155,9 +155,9 @@ in addCohesivePenaltyToJacobian to match the displacement stiffness scale.
 
 Restricting the Lagrange field to cohesive cells via `DMAddField(dm, label, ...)`
 was investigated but PETSc 3.25 region DS does not support volume assembly via
-DMPlexTSComputeIFunctionFEM. See docs/LAGRANGE_FIX_STATUS.md for details.
+DMPlexTSComputeIFunctionFEM. See docs/archive/LAGRANGE_FIX_STATUS.md for the historical decision trail.
 
-Section B Option B from `docs/PYLITH_COMPATIBILITY.md` is partially landed:
+Section B Option B from `docs/archive/PYLITH_COMPATIBILITY.md` is partially landed:
 `addInteriorLagrangeResidual` (`src/core/Simulator.cpp:4180-4271`) zeros the Lagrange
 residual at non-cohesive DOFs after `DMPlexTSComputeIFunctionFEM`, and the disjoint
 loop inside `addCohesivePenaltyToJacobian` (`src/core/Simulator.cpp:4677-4720`) stamps
