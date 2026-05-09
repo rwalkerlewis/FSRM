@@ -18,6 +18,25 @@ pass-fidelity-doc anchor, and a one-line summary of what landed. When
 a pass opens a new axis (or splits an existing one), add a row
 preserving the leverage ordering.
 
+## Fidelity ladder (pass-8 explicit tiers)
+
+Pass-8 makes the radiation-transport, EOS, and opacity fidelity
+ladders explicit and (where the pass-8 implementation lands) selectable:
+
+| Axis | LOW | MED (pass-8 default) | HIGH | HIGHEST |
+|------|-----|----------------------|------|---------|
+| Radiation phase | `ZELDOVICH_RAIZER` (pass-7 closed-form end-state) | `MARSHAK_GREY` (1D radial grey diffusion + Newton T^4 closure) | `MARSHAK_MULTIGROUP` (header scaffold; pass-9) | `SN_TRANSPORT` (named only) |
+| Cavity EOS | `IDEAL_GAS` (pass-6 placeholder) | `TILLOTSON` (pass-7 default) | `ANEOS` / `SESAME` tabulated plasma EOS (pass-9 candidate) | first-principles QM-DFT EOS (named only) |
+| Opacity | `CONSTANT` (sanity-test) | `POWER_LAW_ZR` (pass-8 default; Z-R 1967 vol I sec 10 Kramers') | `TABULATED_TOPS` (LANL TOPS / SESAME 1980 series; pass-9 scaffold) | line-by-line transport (named only) |
+| Damage | pass-7 isotropic scalar damage | (no pass-8 movement) | anisotropic tensor damage (named) | continuum-discrete coupling (named only) |
+
+The RADIAL_LAGRANGIAN solver default selects `radiation_phase = ZELDOVICH_RAIZER` (LOW)
+to preserve byte-identical pass-7 behaviour for every config that
+does not opt in. Selecting `MARSHAK_GREY` (MED) engages the new
+Marshak diffusion solve. `MARSHAK_MULTIGROUP` and `SN_TRANSPORT`
+throw clear runtime_errors at solver construction time so a
+fat-fingered config does not silently produce wrong results.
+
 ## 1. Dynamic near-field source -- pass-5 + pass-6 + pass-7 (axis-1a closed)
 
 **Status.** Pass-5 (PR pending) lands the `[NEAR_FIELD_SOURCE]`
@@ -278,7 +297,8 @@ axis. It cross-references `docs/HISTORIC_NUCLEAR_FIDELITY.md`.
 | 4    | #113-#115 | (closes pass-3 inversion) | multi-cell moment-tensor distribution, factor-30 envelope on anchor tests |
 | 5    | #120 | 1 (partial) | DYNAMIC_PLASTIC config grammar, full 6-component Mdot_ij injection, R_cavity / R_plastic / Mdot history CSV; closed-form cavity-expansion kernel (axis-1a/1b deferred) |
 | 6    | #121 | 1 (axis-1a partial) | RadialLagrangianSolver behind solver_kind dispatch (CLOSED_FORM default preserves pass-5 byte-for-byte; RADIAL_LAGRANGIAN opt-in runs the new shock solver), HDF5+XDMF spatial profile pair, six physics-validation gates, ClosedFormFallback + RadialLagrangianAnchor integration tests; far-field amplitude under RADIAL_LAGRANGIAN ~factor 100-400 below the closed-form estimate (axis-1a calibration follow-up; see fidelity doc pass-6 entry) |
-| 7    | (this PR) | 1 (axis-1a closed) | TillotsonEOS host-rock evaluator + first-principles physics-based cavity initialization (Zel'dovich-Raizer end-state approximation, Newton energy-partition solve) + Wilkins (1980) literature AV defaults; Sedan 1962 amplitude ratio 2.24x (within factor-5 envelope); RADIAL_LAGRANGIAN promoted to default for DYNAMIC_PLASTIC; pass-6 standalone gates tightened to factor-10/30/3 envelopes; ParaView .pvsm verification (skipped in fsrm-ci, runnable via scripts/verify_pvsm.sh); strict pass-7 spec tolerances on six gates deferred to pass-8 (named candidates: tabulated plasma EOS, explicit Marshak phase, higher-order numerics, fitted alluvium Tillotson set) |
+| 7    | #122 (merged) | 1 (axis-1a closed) | TillotsonEOS host-rock evaluator + first-principles physics-based cavity initialization (Zel'dovich-Raizer end-state approximation, Newton energy-partition solve) + Wilkins (1980) literature AV defaults; Sedan 1962 amplitude ratio 2.24x (within factor-5 envelope); RADIAL_LAGRANGIAN promoted to default for DYNAMIC_PLASTIC; pass-6 standalone gates tightened to factor-10/30/3 envelopes; ParaView .pvsm verification (skipped in fsrm-ci, runnable via scripts/verify_pvsm.sh); strict pass-7 spec tolerances on six gates deferred to pass-8 (named candidates: tabulated plasma EOS, explicit Marshak phase, higher-order numerics, fitted alluvium Tillotson set) |
+| 8    | (this PR) | 1 (axis-1a Marshak), 5 (V&V infrastructure) | Marshak grey radiation-diffusion solver (1D radial, implicit backward-Euler, tridiagonal Thomas, outer Newton on T^4) coupled to Tillotson host-rock matter via emission-absorption; explicit fidelity ladder (LOW Z-R / MED Marshak grey / HIGH multigroup scaffold / HIGHEST S_n named); five Marshak physics gates (self-similar pure radiation, energy conservation, hand-off debouncing, opacity regime coverage, grey-vs-Z-R cross-check); IRIS waveform V&V infrastructure (production SACReader + 5-metric WaveformComparison library + ObsPy refresh tool + cached-tarball layout); iris_validation CTest label with three Salmon 1964 gates (cavity radius vs measured 17.4 m within factor 5, free-field velocity GTEST_SKIP'd as axis-1b work, far-field mb +/- 0.4) plus Chagan / Pokhran I cross-validation; Tillotson plasma-extrapolation warning surfaced as one-time PETSc message |
 
 When this pass merges, update this row with the merged PR number
 and the per-axis row to reflect any scope shifts.

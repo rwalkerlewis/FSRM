@@ -109,6 +109,105 @@ radial Lagrangian solve). Roadmap axis 1 in
 the closed-form kernel with a true 1D radial Lagrangian elastoplastic
 shock solver.
 
+### Pass-8 radiation transport phase
+
+Pass-8 (axis 1) replaces the pass-7 Zel'dovich-Raizer end-state
+approximation with an explicit numerical solve of the radiation-
+transport phase. The new
+`MarshakRadiationDiffusionSolver`
+(`include/domain/explosion/MarshakRadiationDiffusion.hpp`) runs from
+t = 0 (yield deposition) to t = t_rh (radiation-to-hydrodynamic
+transition) on the existing 1D radial Lagrangian mesh, coupled to
+the Tillotson host-rock matter via emission-absorption.
+
+#### Governing equations
+
+Grey radiation diffusion in 1D radial spherical symmetry:
+
+```
+dE_r/dt = (1/r^2) d/dr [ r^2 (c / (3 kappa_R rho)) dE_r/dr ]
+        + c kappa_P rho ( a T_m^4 - E_r )
+
+rho cv dT_m/dt = c kappa_P rho ( E_r - a T_m^4 )
+```
+
+with `a = 4 sigma_SB / c` the radiation constant, `kappa_R` the
+Rosseland mean opacity (controls diffusion), `kappa_P` the Planck
+mean opacity (controls emission/absorption), `T_m(rho, e)` the
+matter temperature from the Tillotson `temperature(rho, e)`
+accessor.
+
+#### Numerical scheme
+
+Operator-split per global timestep:
+
+  1. Hydro substep (pass-7 path: momentum, deviatoric stress, EOS).
+  2. Radiation-matter coupling: implicit backward-Euler in `E_r`.
+     Tridiagonal Thomas solve in 1D. Outer Newton iteration on the
+     `T_m^4` closure (Larsen 1988); typical 3-5 iterations to
+     converge below `radiation_newton_tolerance` (default 1e-6).
+  3. Energy update: per-cell matter energy increment
+     `de = cv (T_m_new - T_m_old)` is added to `e_int_`; the host
+     re-evaluates the EOS so the matter pressure picks up the
+     deposited radiation energy.
+
+Boundary conditions: zero-flux symmetry at `r = 0`; Marshak
+reservoir (E_r = a T_amb^4 with T_amb = 300 K) at the outer face.
+
+#### Hand-off criterion
+
+Per substep the solver returns the radiation-front index (outermost
+cell with `E_r > 1.5 a T_amb^4`) and `t_diff = (dr)^2 / D` at the
+front. The host computes `t_hydro = dr / max(|v|, c_s)` at the same
+cell. The radiation phase ends when `t_hydro < t_diff` for
+`radiation_handoff_debounce_steps` consecutive substeps. After
+hand-off the Marshak path is bypassed; the existing Lagrangian
+hydro continues from the post-hand-off state.
+
+#### Opacity model
+
+Power-law (Kramers'-type) parameterization
+(`include/domain/explosion/OpacityModel.hpp`):
+
+```
+kappa_R(rho, T) = kappa_R_0 (rho / rho_0)^a_R (T / T_0)^b_R
+kappa_P(rho, T) = kappa_P_0 (rho / rho_0)^a_P (T / T_0)^b_P
+```
+
+Exponents from Zel'dovich-Raizer 1967 vol I sec 10 (free-free
+ionized regime: a ~ 1, b ~ -3.5). Hard-coded sets per medium
+(granite, tuff, salt, alluvium); the `Physics.Marshak.OpacityRegimeCoverage`
+gate exercises all four across rho 1e2-5e3 kg/m^3 and T 1e4-1e7 K.
+
+#### Configuration
+
+```ini
+[NEAR_FIELD_SOURCE]
+radiation_phase = MARSHAK_GREY        # default ZELDOVICH_RAIZER
+opacity_model = POWER_LAW_ZR
+radiation_max_newton_iter = 10
+radiation_newton_tolerance = 1.0e-6
+radiation_handoff_debounce_steps = 3
+tillotson_extrapolation_warning_threshold_pa = 5e10
+```
+
+`radiation_phase = MARSHAK_MULTIGROUP` and `SN_TRANSPORT` are
+named scaffolds; selecting them throws a clear runtime_error at
+solver construction time. Tabulated opacities
+(`opacity_model = TABULATED_TOPS`) likewise throws.
+
+#### References
+
+  - Pomraning, G. C. (1973), ch IV (Marshak self-similar wave).
+  - Mihalas & Mihalas (1984), sec 96-97 (operator splitting,
+    backward-Euler stability for stiff coupling).
+  - Marshak, R. E. (1958), Phys. Fluids 1(1), pp. 24-29 (boundary
+    conditions for radiation diffusion).
+  - Zel'dovich & Raizer (1967), vol I ch V sec 10 (Kramers'
+    opacity), vol II ch X (radiation-to-hydrodynamic transition).
+  - Larsen, E. W. (1988), J. Comp. Phys 78, pp. 459-480
+    (linearised Newton on T^4 closure).
+
 ### Cavity and Damage Zones
 
 The explosion creates concentric zones of decreasing damage:

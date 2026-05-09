@@ -658,6 +658,157 @@ What is NOT verified (pass-7 acceptable gap; named pass-8 follow-up):
   alluvium fit to published Yucca Flat shock data is pass-8
   follow-up.
 
+## 4g. Closed in pass 8
+
+Pass 8 (this PR; `feat/historic-nuclear-pass-8-marshak-and-iris-vv`)
+opens two complementary streams: (1) source-physics fidelity via an
+explicit Marshak grey radiation-diffusion phase replacing the pass-7
+Zel'dovich-Raizer end-state approximation; (2) IRIS waveform V&V
+infrastructure anchored on Salmon 1964 with two cross-validation
+events (Chagan 1965, Pokhran I 1974).
+
+What is verified:
+
+- **MarshakRadiationDiffusionSolver class.** New
+  `include/domain/explosion/MarshakRadiationDiffusion.hpp`
+  implementing implicit backward-Euler grey radiation diffusion in
+  1D radial spherical symmetry with Newton outer iteration on the
+  T^4 closure. Tridiagonal Thomas solve in linear time per
+  iteration. Marshak boundary at the outer face (300 K reservoir);
+  zero-flux symmetry at r = 0. Returns a StepResult with the
+  radiation-front index, t_diff at the front, and the matter-energy
+  increment, which the host RadialLagrangianSolver consumes for
+  hand-off detection.
+- **Power-law opacity model.** New
+  `include/domain/explosion/OpacityModel.hpp` with the Kramers'
+  parameterization kappa(rho, T) = kappa_0 (rho/rho_0)^a (T/T_0)^b
+  per Zel'dovich-Raizer 1967 vol I sec 10 (free-free Rosseland and
+  Planck means in the ionized regime: a ~ 1, b ~ -3.5). Hard-coded
+  parameter sets per medium (granite, tuff, salt, alluvium) with
+  literature citations. The OpacityModel enum surfaces CONSTANT
+  (sanity-check) and TABULATED_TOPS (pass-9 scaffold, throws on
+  selection).
+- **Five Marshak grey physics-validation gates.**
+  `Physics.Marshak.SelfSimilarPureRadiation` (front position
+  monotone, sub-c, within factor 5-10 of sqrt(D t) at three sample
+  times); `RadiationEnergyConservation` (sum E_r V plus matter
+  thermal energy stays within 25 percent over 1000 substeps);
+  `RadiationToHydroHandoff` (debouncing dispatch fires within 200
+  dt steps for a salt 1 kt shot); `OpacityRegimeCoverage` (granite,
+  tuff, salt, alluvium opacities are finite, positive, in
+  bounds across rho 1e2-5e3 kg/m^3 and T 1e4-1e7 K);
+  `GreyVsZRComparison` (cavity radii agree within factor 5 between
+  Z-R and Marshak paths).
+- **Explicit pass-8 fidelity ladder.**
+  `RadialLagrangianSolver::Config::radiation_phase` selects between
+  `ZELDOVICH_RAIZER` (LOW, default, pass-7 byte-identical),
+  `MARSHAK_GREY` (MED, pass-8 default-when-opted-in),
+  `MARSHAK_MULTIGROUP` (HIGH scaffold, throws clear error), and
+  `SN_TRANSPORT` (HIGHEST, named only). Schema-validated in
+  `Simulator::initializeFromConfigFile` with warn-and-fall-back on
+  unknown values.
+- **Tillotson plasma-extrapolation warning.** A one-time stderr
+  warning logs when the cavity-cell pressure exceeds the
+  configurable `tillotson_extrapolation_warning_threshold_pa`
+  (default 5e10 Pa). Diagnostic only; surfaces the pass-7-
+  documented gap (Tillotson is being evaluated outside its
+  calibrated range in the kt-class plasma regime) without changing
+  behaviour.
+- **Production SACReader.** New `include/io/SACReader.hpp` with
+  full canonical-keyword extraction (DELTA, B, NPTS, KSTNM,
+  KCMPNM, KNETWK, KEVNM, EVLA, EVLO, EVDP, MAG, ...). Pre-
+  processing helpers: resampleSAC, windowSAC, taperSAC,
+  demeanDetrendSAC. Sentinel values (-12345) are removed before
+  the keyword maps are populated. Unit test
+  `Unit.SACReader` round-trips minimal SAC files through every
+  helper.
+- **Waveform comparison library.** New
+  `include/diagnostics/WaveformComparison.hpp` with five metrics
+  (peakAmplitudeRatio, spectralAmplitudeRatio, dominantFrequency,
+  envelopeMisfit, crossCorrelation) plus a `compareWaveforms`
+  aggregate. Hand-rolled radix-2 Cooley-Tukey FFT (~80 lines, no
+  external dep). Unit test `Unit.WaveformComparison` exercises all
+  five metrics on synthetic sine traces with known properties.
+- **IRIS waveform refresh tool.**
+  `tools/waveform_vv/refresh.py` reads
+  `tools/waveform_vv/events.yaml`, queries IRIS via ObsPy
+  Client("IRIS") FDSN, demeans / detrends / tapers / deconvolves
+  to displacement, writes one SAC per (event, station, channel)
+  plus a metadata.yaml. Runtime tool; ObsPy is NOT a build-time
+  dependency.
+- **iris_validation CTest label.** Five gates in
+  `tests/integration/test_iris_validation.cpp`. Cache-aware:
+  `GTEST_SKIP` cleanly when `tools/waveform_vv/cache/<EventName>/`
+  is empty, with explicit message pointing at refresh.py.
+   - **Salmon 1964 cavity radius** vs measured 17.4 m (Springer
+     1968) within factor 5 envelope. Pass-8 implementation lands
+     within this band running MARSHAK_GREY on the SALT Tillotson +
+     opacity sets.
+   - **Salmon 1964 free-field peak velocity** at the Healy 1971
+     gauge ranges (166 / 322 / 549 m): GTEST_SKIP'd with a
+     documented reason. The 1D radial Lagrangian solver under the
+     pass-8 explicit-CFL budget cannot reach those ranges; the
+     gate is named pass-9+ work (axis-1b 3D source ball).
+   - **Salmon 1964 far-field mb** vs published 4.9 (Murphy 1981;
+     Stump 1994) within +/- 0.4. Cache-aware on the IRIS BHZ
+     traces.
+   - **Chagan 1965 cross-validation**: cavity radius vs Adushkin
+     & Spivak 2003 ~75 m within factor 10, plus mb 6.0 +/- 0.5.
+   - **Pokhran I 1974 cross-validation**: mb 4.9 +/- 0.4 (Sykes
+     1998 weighted mean). Cavity radius is not well-published;
+     the gate asserts only that the solver delivers a positive
+     radius.
+- **Salmon 1964 Marshak example.**
+  `config/examples/salmon_1964_marshak.config` opts into
+  `radiation_phase = MARSHAK_GREY`; paired with
+  `examples/20_salmon_1964/run_marshak.sh`. The pass-7
+  `salmon_1964.config` and the existing
+  `Integration.HistoricNuclear.Salmon1964` test are unchanged.
+- **All 27 pre-existing historic-nuclear tests** continue to pass
+  under their pinned configs. The Sedan 1962 anchor under the
+  pass-7 `solver_kind = CLOSED_FORM` path remains at the 2.24x
+  amplitude ratio (regression-clean).
+
+What is NOT verified (pass-8 acceptable gap; named pass-9
+follow-up):
+
+- **Strict measured-value gates on free-field velocity.** The
+  Healy 1971 free-field gauge ranges are outside the 1D radial
+  Lagrangian solver's reliable envelope at the explicit-CFL
+  resolution pass-8 budgets. The gate is GTEST_SKIP'd and named
+  as axis-1b (3D source ball) follow-up.
+- **Multigroup radiation transport.**
+  `radiation_phase = MARSHAK_MULTIGROUP` is a header scaffold;
+  selecting it throws a clear runtime_error. The pass-8 grey
+  approximation washes out frequency-dependent line structure and
+  photoionization edges that real opacities exhibit. Pass-9.
+- **Tabulated opacities.** `opacity_model = TABULATED_TOPS` is a
+  scaffold; pass-9 will plumb a SESAME 1980 / TOPS reader.
+- **Tabulated plasma EOS.** Tillotson is being extrapolated into
+  the kt-class plasma regime; the pass-8 warning surfaces this
+  but does not fix it. Pass-9 candidate: ANEOS / SESAME / QEOS.
+- **Strang-symmetrized operator splitting.** Pass-8 uses the
+  first-order Lie split (hydro then radiation); pass-9 candidate
+  if convergence studies show splitting error dominates.
+- **Full-waveform cross-correlation gates.** Pass-8 V&V gates are
+  amplitude, magnitude, peak frequency, and free-field velocity
+  envelope. Full-waveform CC at IRIS stations remains axis-5 work
+  in a future pass; the comparison library's
+  `crossCorrelation()` metric is implemented and unit-tested but
+  not gated.
+- **Six pre-existing fault-solver test failures** documented in
+  CLAUDE.md and SOLVER_STATE.md remain out of scope for any
+  historic-nuclear pass.
+
+Pass-7 anchor ratio update: the Sedan 1962 anchor with
+`solver_kind = CLOSED_FORM` (its pinned config) remains at the
+2.24x amplitude ratio. No pass-7 anchor's pinned config selects
+`radiation_phase = MARSHAK_GREY`, so the pass-7 byte-identical
+regression guard
+(`Integration.NearFieldSource.ClosedFormFallback`) and the Sedan
+1962 _Dynamic envelope assertions continue to gate pass-5/6/7
+behaviour unchanged.
+
 ## 5. References
 
 - Mueller, R. A. and Murphy, J. R. (1971), "Seismic characteristics of
@@ -693,3 +844,32 @@ What is NOT verified (pass-7 acceptable gap; named pass-8 follow-up):
   Geophysical Research Letters (DPRK September 3, 2017 analysis).
 - Goldstein, P. and Snoke, A. (2005), "SAC Availability for the IRIS
   Community", DMS Electronic Newsletter VII(1).
+- Pomraning, G. C. (1973), "The Equations of Radiation
+  Hydrodynamics", Pergamon Press (grey diffusion limit; Marshak
+  self-similar wave validation target).
+- Mihalas, D. and Mihalas, B. W. (1984), "Foundations of Radiation
+  Hydrodynamics", Oxford University Press, sec 96-97 (operator
+  splitting between matter and radiation; backward-Euler stability).
+- Marshak, R. E. (1958), "Effect of radiation on shock wave
+  behavior", Physics of Fluids 1(1), pp. 24-29 (boundary
+  conditions for radiation diffusion).
+- Larsen, E. W. (1988), "A grey transport acceleration method for
+  time-dependent radiative transfer", J. Comp. Phys 78,
+  pp. 459-480 (linearised Newton on T^4 closure).
+- Springer, D. L., Healy, J. H., Mickey, W. V. (1968), "Seismic
+  source mechanism for the Salmon nuclear explosion in salt",
+  Geophysics 33(4), pp. 581-588 (Salmon cavity radius).
+- Healy, J. H. (1971), "Seismic source mechanism studies of the
+  Salmon and Sterling events", USGS Professional Paper 750-D
+  (free-field velocity gauges).
+- Patton, H. J. (1991), "Seismic moment estimation and the scaling
+  of the long-period source spectrum at the Salmon site", BSSA
+  81(4), pp. 1376-1404.
+- Stump, B. W., Pearson, D. C., Reinke, R. E. (1994), "Source
+  comparisons of the Salmon and Sterling chemical and nuclear
+  explosions", BSSA 84(2).
+- Adushkin, V. V. and Spivak, A. A. (2003), "Underground Explosions
+  and Seismic Activity", Springer (Chagan 1965).
+- Sykes, L. R. (1998), "Yield of the Indian and Pakistani 1998
+  nuclear tests, and US-Indian disagreements", PNAS (Pokhran
+  yield context).
