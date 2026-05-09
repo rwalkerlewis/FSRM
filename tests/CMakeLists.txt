@@ -48,6 +48,7 @@ set(UNIT_TEST_SOURCES
     # I/O
     unit/io/test_eclipse_io.cpp
     unit/io/test_sac_reader.cpp
+    unit/io/test_tabulated_data_reader.cpp
     # Diagnostics
     unit/diagnostics/test_waveform_comparison.cpp
     # ML
@@ -88,6 +89,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_tillotson_eos.cpp
     physics_validation/test_physics_cavity_init.cpp
     physics_validation/test_marshak_radiation.cpp
+    physics_validation/test_tabulated_patches.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -225,6 +227,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.MuellerMurphyMomentConsistency COMMAND run_unit_tests --gtest_filter=MuellerMurphyMomentConsistencyTest.*)
     add_test(NAME Unit.EclipseIO              COMMAND run_unit_tests --gtest_filter=EclipseIOTest.*)
     add_test(NAME Unit.SACReader              COMMAND run_unit_tests --gtest_filter=SACReaderTest.*)
+    add_test(NAME Unit.TabulatedDataReader    COMMAND run_unit_tests --gtest_filter=TabulatedDataReaderTest.*)
     add_test(NAME Unit.WaveformComparison     COMMAND run_unit_tests --gtest_filter=WaveformComparisonTest.*)
     add_test(NAME Unit.MLRegistry             COMMAND run_unit_tests --gtest_filter=MLModelRegistryTest.*)
     add_test(NAME Unit.UnitSystem             COMMAND run_unit_tests --gtest_filter=UnitSystemTest.*)
@@ -294,6 +297,15 @@ if(GTest_FOUND)
     add_test(NAME Physics.Marshak.RadiationToHydroHandoff COMMAND run_physics_tests --gtest_filter=MarshakTest.RadiationToHydroHandoff)
     add_test(NAME Physics.Marshak.OpacityRegimeCoverage COMMAND run_physics_tests --gtest_filter=MarshakTest.OpacityRegimeCoverage)
     add_test(NAME Physics.Marshak.GreyVsZRComparison COMMAND run_physics_tests --gtest_filter=MarshakTest.GreyVsZRComparison)
+    # Pass-9 tabulated EOS / opacity patch + Strang split gates.
+    add_test(NAME Physics.TabulatedEOS.GraniteHugoniotMatchesShockData COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.GraniteHugoniotMatchesShockData)
+    add_test(NAME Physics.TabulatedEOS.PlasmaRegimeReasonableness COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.PlasmaRegimeReasonableness)
+    add_test(NAME Physics.TabulatedEOS.PatchSmoothness COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.EOSPatchSmoothness)
+    add_test(NAME Physics.TabulatedEOS.FallbackOnOutOfRange COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.EOSFallbackOnOutOfRange)
+    add_test(NAME Physics.TabulatedOpacity.RosselandPlanckRatioReasonableness COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.RosselandPlanckRatioReasonableness)
+    add_test(NAME Physics.TabulatedOpacity.PowerLawAgreementInOverlapRegion COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.OpacityPowerLawAgreementInOverlap)
+    add_test(NAME Physics.TabulatedOpacity.PatchSmoothness COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.OpacityPatchSmoothness)
+    add_test(NAME Physics.Marshak.OperatorSplittingConvergence COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.StrangOperatorSplittingConvergence)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -472,7 +484,7 @@ if(GTest_FOUND)
         Unit.Thermal Unit.Elastodynamics Unit.Poroelastodynamics
         Unit.BoundaryConditions Unit.WellModel Unit.FractureModel
         Unit.MaterialModel Unit.SeismicSource Unit.ExplosionSource
-        Unit.EclipseIO Unit.SACReader Unit.WaveformComparison Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
+        Unit.EclipseIO Unit.SACReader Unit.TabulatedDataReader Unit.WaveformComparison Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
         Unit.CO2Properties Unit.FlashCalculation Unit.ResidualTrapping
         Unit.CaprockIntegrity Unit.MultiphaseFlow
         Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
@@ -545,7 +557,15 @@ if(GTest_FOUND)
         Physics.Marshak.RadiationToHydroHandoff
         Physics.Marshak.OpacityRegimeCoverage
         Physics.Marshak.GreyVsZRComparison
-        PROPERTIES TIMEOUT 600 LABELS "physics_validation"
+        Physics.TabulatedEOS.GraniteHugoniotMatchesShockData
+        Physics.TabulatedEOS.PlasmaRegimeReasonableness
+        Physics.TabulatedEOS.PatchSmoothness
+        Physics.TabulatedEOS.FallbackOnOutOfRange
+        Physics.TabulatedOpacity.RosselandPlanckRatioReasonableness
+        Physics.TabulatedOpacity.PowerLawAgreementInOverlapRegion
+        Physics.TabulatedOpacity.PatchSmoothness
+        Physics.Marshak.OperatorSplittingConvergence
+        PROPERTIES TIMEOUT 1200 LABELS "physics_validation"
     )
 
     # Integration tests -- full Simulator pipeline through TSSolve

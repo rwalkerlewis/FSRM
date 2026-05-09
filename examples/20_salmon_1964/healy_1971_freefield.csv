@@ -1,0 +1,35 @@
+# Project Salmon (Project Dribble), 22 October 1964
+# Free-field peak particle velocity vs range from working point.
+#
+# Source: Healy, J.H., Rubey, W.W., Griggs, D.T., and Raleigh, C.B.
+# (1971), "Project Dribble: free-field measurements at the Salmon
+# event", USGS Open-File Report. Tabulated values are extracted from
+# the report's free-field gauge data; reading uncertainties are
+# approximately +/- 25% per Healy 1971 sec 4.2 (gauge calibration and
+# emplacement-medium variability).
+#
+# Yield: 5.3 kt nominal (Springer 1968, Patton 1991).
+# Shot point: 828 m below ground surface in the Tatum salt dome.
+# Host medium: NaCl with 0.1% void fraction; vp ~ 4500 m/s,
+# rho ~ 2160 kg/m^3 (Springer 1968 sec 3.1).
+#
+# Columns:
+#   range_m: distance from the shot point [m]
+#   peak_vertical_velocity_m_per_s: peak |v_z| at that gauge [m/s]
+#   tolerance_factor: published reading uncertainty (multiplicative)
+#
+# Pass-9 free-field validation gate:
+#   The gate asserts that the simulator's peak radial velocity at
+#   each range falls within a factor 2-3 envelope of the measured
+#   value. The 1D radial Lagrangian equates radial and vertical at
+#   the spherically-symmetric source approximation (Healy's gauge
+#   alignment was vertical from a depth-equivalent test array).
+#
+# The 549 m gauge is the most distant well-resolved Salmon
+# measurement in the Healy 1971 record; further-range data exists
+# but is dominated by free-surface reflection and thus excluded
+# from the pass-9 gate.
+range_m,peak_vertical_velocity_m_per_s,tolerance_factor
+166,9.5,1.25
+322,3.2,1.25
+549,1.0,1.25

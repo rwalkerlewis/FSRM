@@ -98,21 +98,107 @@ void RadialLagrangianSolver::setConfig(const Config& c)
         rcfg.opacity_model = c.opacity_model;
         rcfg.opacity_params = c.opacity_params;
         rcfg.kappa_constant_m2_per_kg = c.kappa_constant_m2_per_kg;
+        // Pass-9: forward the tabulated opacity table paths and the
+        // sin^2 blend window. The Marshak solver lazy-loads on its
+        // initialize().
+        rcfg.tabulated_opacity_rosseland_path =
+            c.tabulated_opacity_rosseland_path;
+        rcfg.tabulated_opacity_planck_path =
+            c.tabulated_opacity_planck_path;
+        rcfg.tabulated_blend_lower_k = c.tabulated_opacity_blend_lower_k;
+        rcfg.tabulated_blend_upper_k = c.tabulated_opacity_blend_upper_k;
         rad_solver_->setConfig(rcfg);
     }
+
+    // Pass-9: invalidate the cavity EOS table on every setConfig so a
+    // re-config with a new path picks it up on the next cavityPressure
+    // call. The table itself is reloaded lazily.
+    cavity_eos_table_load_attempted_ = false;
+    cavity_eos_table_load_succeeded_ = false;
 }
 
 double RadialLagrangianSolver::cavityPressure(double rho, double e) const
 {
-    if (config_.cavity_eos == CavityEOS::TILLOTSON) {
-        const double p_til = cavity_tillotson_.pressure(rho, e);
-        return p_til > 0.0 ? p_til : 0.0;
+    // Pass-10 scaffold: TABULATED_FULL is named only.
+    if (config_.cavity_eos == CavityEOS::TABULATED_FULL) {
+        throw std::runtime_error(
+            "RadialLagrangianSolver: cavity_eos=TABULATED_FULL is "
+            "pass-10 work; pass-9 ships TILLOTSON_TABULATED_PATCH only.");
     }
-    // IDEAL_GAS: pass-6 placeholder, kept for regression.
-    const double rho_safe = (rho > 1.0e-6) ? rho : 1.0e-6;
-    const double e_safe = (e > 0.0) ? e : 0.0;
-    const double p_gas = (config_.gas_eos_gamma - 1.0) * rho_safe * e_safe;
-    return p_gas > 0.0 ? p_gas : 0.0;
+
+    // Tillotson is the baseline analytic; both TILLOTSON and
+    // TILLOTSON_TABULATED_PATCH start there.
+    const double p_til_raw = cavity_tillotson_.pressure(rho, e);
+    const double p_til = p_til_raw > 0.0 ? p_til_raw : 0.0;
+
+    if (config_.cavity_eos == CavityEOS::TILLOTSON) {
+        return p_til;
+    }
+
+    if (config_.cavity_eos == CavityEOS::IDEAL_GAS) {
+        const double rho_safe = (rho > 1.0e-6) ? rho : 1.0e-6;
+        const double e_safe = (e > 0.0) ? e : 0.0;
+        const double p_gas = (config_.gas_eos_gamma - 1.0) * rho_safe * e_safe;
+        return p_gas > 0.0 ? p_gas : 0.0;
+    }
+
+    // TILLOTSON_TABULATED_PATCH path.
+    //
+    // Lazy-load the EOS table on first call. The reader is mutable so
+    // const cavityPressure() can update it; if loading fails we keep
+    // the cavity_eos_table_load_succeeded_ flag at false and fall
+    // through to pure Tillotson for every call.
+    if (!cavity_eos_table_load_attempted_) {
+        cavity_eos_table_load_attempted_ = true;
+        if (!config_.tabulated_eos_table_path.empty()) {
+            std::string err;
+            cavity_eos_table_load_succeeded_ =
+                cavity_eos_table_.load(config_.tabulated_eos_table_path, err);
+            if (!cavity_eos_table_load_succeeded_) {
+                std::fprintf(stderr,
+                    "RadialLagrangianSolver: TILLOTSON_TABULATED_PATCH "
+                    "table load FAILED: %s. Falling back to Tillotson.\n",
+                    err.c_str());
+            }
+        } else {
+            std::fprintf(stderr,
+                "RadialLagrangianSolver: TILLOTSON_TABULATED_PATCH "
+                "selected but tabulated_eos_table_path is empty. "
+                "Falling back to Tillotson.\n");
+        }
+    }
+
+    if (!cavity_eos_table_load_succeeded_) {
+        return p_til;
+    }
+
+    // Sin^2 blend on the Tillotson pressure as the blend variable.
+    // Below blend_lower we use Tillotson exactly. Above blend_upper we
+    // use the tabulated value exactly. In between we sin^2-interpolate
+    // so dp/de is continuous across the regime boundary (no spurious
+    // shocks at the patch transition; see docs/EXPLOSION_IMPACT_PHYSICS.md
+    // Pass-9 section).
+    const double p_lo = config_.tabulated_eos_blend_lower_pa;
+    const double p_hi = config_.tabulated_eos_blend_upper_pa;
+    if (p_til <= p_lo) {
+        return p_til;
+    }
+    const double p_tab_raw = cavity_eos_table_.evaluate(rho, e);
+    if (std::isnan(p_tab_raw)) {
+        // Out-of-table coverage: fall back to Tillotson with the
+        // existing extrapolation warning.
+        return p_til;
+    }
+    const double p_tab = p_tab_raw > 0.0 ? p_tab_raw : 0.0;
+    if (p_til >= p_hi) {
+        return p_tab;
+    }
+    // Smooth interpolation. Use sin^2 of the rescaled blend variable so
+    // the first derivative matches both endpoints.
+    const double t = (p_til - p_lo) / (p_hi - p_lo);
+    const double s = std::sin(0.5 * M_PI * t);
+    const double w = s * s;
+    return (1.0 - w) * p_til + w * p_tab;
 }
 
 void RadialLagrangianSolver::solveCavityInitialState()
@@ -306,6 +392,15 @@ void RadialLagrangianSolver::initialize()
     }
     r_elastic_ = config_.radial_outer_factor * Rc_eq;
     r_outer_ = safeMax(r_elastic_ * 1.20, 1.5 * Rc_eq);
+    // Pass-9: explicit override for the free-field peak-velocity gate
+    // and any other test that needs to extend the radial domain past
+    // a few elastic radii. r_elastic_ remains at the factor-derived
+    // value so the moment-tensor extraction sphere stays where it
+    // belongs; only the outer-domain extent grows.
+    if (config_.radial_outer_radius_m > 0.0 &&
+        config_.radial_outer_radius_m > r_outer_) {
+        r_outer_ = config_.radial_outer_radius_m;
+    }
 
     allocate(N);
 
@@ -950,23 +1045,53 @@ bool RadialLagrangianSolver::radiationHandoffReached() const
 
 void RadialLagrangianSolver::substep(double dt)
 {
-    advanceFaces(dt);
-    updateDensity();
-    computeArtificialViscosity(dt);
-    momentumUpdate(dt);
-    deviatoricElasticPredictor(dt);
-    radialReturnPlasticity(dt);
-    updateInternalEnergy(dt);
-    updateEOS();
-    // Pass-8: operator-split radiation update on the post-hydro state.
-    // No-op under ZELDOVICH_RAIZER (default). Under MARSHAK_GREY, the
-    // tridiagonal solve advances E_r and T_m and deposits energy back
-    // into e_int_; we then re-evaluate the EOS so the matter pressure
-    // reflects the radiation deposition.
-    if (config_.radiation_phase == RadiationPhase::MARSHAK_GREY &&
-        radiation_phase_active_) {
-        marshakSubstep(dt);
+    // Pass-9: select between Lie (pass-8 default) and Strang
+    // (pass-9 default-when-coupled) operator splitting. Lie is
+    // first-order in dt; Strang is second-order. The split engages
+    // only when the radiation phase is active and MARSHAK_GREY is
+    // selected; otherwise the substep is the original pass-8 hydro-
+    // only path and Strang reduces to it byte-identically.
+    const bool radiation_engaged =
+        config_.radiation_phase == RadiationPhase::MARSHAK_GREY &&
+        radiation_phase_active_;
+    const bool use_strang =
+        radiation_engaged &&
+        config_.operator_splitting == OperatorSplitting::STRANG;
+
+    auto hydroBlock = [&](double sub_dt) {
+        advanceFaces(sub_dt);
+        updateDensity();
+        computeArtificialViscosity(sub_dt);
+        momentumUpdate(sub_dt);
+        deviatoricElasticPredictor(sub_dt);
+        radialReturnPlasticity(sub_dt);
+        updateInternalEnergy(sub_dt);
         updateEOS();
+    };
+
+    auto radiationBlock = [&](double sub_dt) {
+        marshakSubstep(sub_dt);
+        updateEOS();
+    };
+
+    if (use_strang) {
+        // Strang 1968: H(dt/2) -> R(dt) -> H(dt/2). Second-order
+        // accurate in dt for the global error.
+        hydroBlock(0.5 * dt);
+        radiationBlock(dt);
+        hydroBlock(0.5 * dt);
+    } else {
+        // Lie split: H(dt) -> R(dt). First-order. Pass-8 byte-identical
+        // when radiation_engaged and operator_splitting == LIE.
+        hydroBlock(dt);
+        if (radiation_engaged) {
+            radiationBlock(dt);
+        }
+    }
+
+    // Hand-off bookkeeping is the same under both splits; it inspects
+    // the post-step radiation_front state.
+    if (radiation_engaged) {
         if (radiationHandoffReached()) {
             ++handoff_consecutive_steps_;
             if (handoff_consecutive_steps_ >=

@@ -558,6 +558,22 @@ struct Simulator::ExplosionCoupling {
     double near_field_radiation_newton_tolerance = 1.0e-6;
     int near_field_radiation_handoff_debounce_steps = 3;
 
+    // Pass-9 (axis 1) tabulated EOS / opacity patch wiring and
+    // operator-splitting selector. Default values preserve pass-8
+    // byte-identical: cavity_eos remains TILLOTSON (the patch is opt-in
+    // by setting cavity_eos = TILLOTSON_TABULATED_PATCH), opacity_model
+    // remains POWER_LAW_ZR, operator_splitting defaults to LIE for
+    // pass-8 byte-identical regression unless STRANG is explicitly
+    // requested.
+    std::string near_field_operator_splitting = "LIE";
+    std::string near_field_tabulated_eos_table_path = "";
+    std::string near_field_tabulated_opacity_rosseland_path = "";
+    std::string near_field_tabulated_opacity_planck_path = "";
+    double near_field_tabulated_eos_blend_lower_pa = 5.0e10;
+    double near_field_tabulated_eos_blend_upper_pa = 6.0e10;
+    double near_field_tabulated_opacity_blend_lower_k = 1.0e5;
+    double near_field_tabulated_opacity_blend_upper_k = 1.26e5;
+
     RadialLagrangianSolver radial_solver;
 
     // Recorded near-field state. Populated in initializeFromConfigFile
@@ -1542,11 +1558,15 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     std::string ce_raw = reader.getString(
                         "NEAR_FIELD_SOURCE", "cavity_eos", "TILLOTSON");
                     for (auto& c : ce_raw) c = static_cast<char>(std::toupper(c));
-                    if (ce_raw != "TILLOTSON" && ce_raw != "IDEAL_GAS") {
+                    if (ce_raw != "TILLOTSON" &&
+                        ce_raw != "IDEAL_GAS" &&
+                        ce_raw != "TILLOTSON_TABULATED_PATCH" &&
+                        ce_raw != "TABULATED_FULL") {
                         if (rank == 0) {
                             PetscPrintf(comm,
                                 "NEAR_FIELD_SOURCE.cavity_eos=\"%s\" not "
-                                "recognised (expected TILLOTSON|IDEAL_GAS); "
+                                "recognised (expected TILLOTSON|IDEAL_GAS|"
+                                "TILLOTSON_TABULATED_PATCH|TABULATED_FULL); "
                                 "falling back to TILLOTSON.\n",
                                 ce_raw.c_str());
                         }
@@ -1624,18 +1644,58 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         c = static_cast<char>(std::toupper(c));
                     if (om_raw != "POWER_LAW_ZR" &&
                         om_raw != "CONSTANT" &&
-                        om_raw != "TABULATED_TOPS") {
+                        om_raw != "TABULATED_TOPS" &&
+                        om_raw != "TABULATED_PATCHED" &&
+                        om_raw != "TABULATED_FULL") {
                         if (rank == 0) {
                             PetscPrintf(comm,
                                 "NEAR_FIELD_SOURCE.opacity_model=\"%s\" not "
                                 "recognised (expected POWER_LAW_ZR|CONSTANT|"
-                                "TABULATED_TOPS); falling back to "
-                                "POWER_LAW_ZR.\n", om_raw.c_str());
+                                "TABULATED_PATCHED|TABULATED_FULL); falling "
+                                "back to POWER_LAW_ZR.\n", om_raw.c_str());
                         }
                         om_raw = "POWER_LAW_ZR";
                     }
                     explosion_->near_field_opacity_model = om_raw;
                 }
+                // Pass-9 sub-keys.
+                {
+                    std::string os_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "operator_splitting", "LIE");
+                    for (auto& c : os_raw)
+                        c = static_cast<char>(std::toupper(c));
+                    if (os_raw != "LIE" && os_raw != "STRANG") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.operator_splitting=\"%s\" "
+                                "not recognised (expected LIE|STRANG); "
+                                "falling back to LIE.\n", os_raw.c_str());
+                        }
+                        os_raw = "LIE";
+                    }
+                    explosion_->near_field_operator_splitting = os_raw;
+                }
+                explosion_->near_field_tabulated_eos_table_path =
+                    reader.getString("NEAR_FIELD_SOURCE",
+                                     "tabulated_eos_table_path", "");
+                explosion_->near_field_tabulated_opacity_rosseland_path =
+                    reader.getString("NEAR_FIELD_SOURCE",
+                                     "tabulated_opacity_rosseland_path", "");
+                explosion_->near_field_tabulated_opacity_planck_path =
+                    reader.getString("NEAR_FIELD_SOURCE",
+                                     "tabulated_opacity_planck_path", "");
+                explosion_->near_field_tabulated_eos_blend_lower_pa =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "tabulated_eos_blend_lower_pa", 5.0e10);
+                explosion_->near_field_tabulated_eos_blend_upper_pa =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "tabulated_eos_blend_upper_pa", 6.0e10);
+                explosion_->near_field_tabulated_opacity_blend_lower_k =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "tabulated_opacity_blend_lower_k", 1.0e5);
+                explosion_->near_field_tabulated_opacity_blend_upper_k =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "tabulated_opacity_blend_upper_k", 1.26e5);
                 explosion_->near_field_kappa_constant = reader.getDouble(
                     "NEAR_FIELD_SOURCE", "kappa_constant_m2_per_kg", 0.0);
                 explosion_->near_field_tillotson_warning_threshold_pa =
@@ -1824,10 +1884,23 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         explosion_->near_field_gas_eos_gamma;
                     rl_cfg.profile_output_cadence_us =
                         explosion_->near_field_profile_cadence_us;
-                    // Pass-7 cavity EOS dispatch.
+                    // Pass-7/9 cavity EOS dispatch. Pass-9 adds the
+                    // TILLOTSON_TABULATED_PATCH and TABULATED_FULL
+                    // options. The patch loads the tabulated EOS table
+                    // lazily on first cavityPressure() call.
                     if (explosion_->near_field_cavity_eos == "IDEAL_GAS") {
                         rl_cfg.cavity_eos =
                             RadialLagrangianSolver::CavityEOS::IDEAL_GAS;
+                    } else if (explosion_->near_field_cavity_eos ==
+                               "TILLOTSON_TABULATED_PATCH") {
+                        rl_cfg.cavity_eos =
+                            RadialLagrangianSolver::CavityEOS::
+                                TILLOTSON_TABULATED_PATCH;
+                    } else if (explosion_->near_field_cavity_eos ==
+                               "TABULATED_FULL") {
+                        rl_cfg.cavity_eos =
+                            RadialLagrangianSolver::CavityEOS::
+                                TABULATED_FULL;
                     } else {
                         rl_cfg.cavity_eos =
                             RadialLagrangianSolver::CavityEOS::TILLOTSON;
@@ -1889,6 +1962,14 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     } else if (explosion_->near_field_opacity_model ==
                                "TABULATED_TOPS") {
                         rl_cfg.opacity_model = OpacityModel::TABULATED_TOPS;
+                    } else if (explosion_->near_field_opacity_model ==
+                               "TABULATED_PATCHED") {
+                        rl_cfg.opacity_model =
+                            OpacityModel::TABULATED_PATCHED;
+                    } else if (explosion_->near_field_opacity_model ==
+                               "TABULATED_FULL") {
+                        rl_cfg.opacity_model =
+                            OpacityModel::TABULATED_FULL;
                     } else {
                         rl_cfg.opacity_model = OpacityModel::POWER_LAW_ZR;
                     }
@@ -1923,6 +2004,52 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         explosion_->near_field_radiation_newton_tolerance;
                     rl_cfg.radiation_handoff_debounce_steps =
                         explosion_->near_field_radiation_handoff_debounce_steps;
+
+                    // Pass-9 (axis 1) tabulated patch wiring. Auto-derive
+                    // table paths from the Tillotson set name when empty.
+                    auto resolve_path = [&](const std::string& explicit_path,
+                                            const std::string& subdir,
+                                            const std::string& suffix)
+                            -> std::string {
+                        if (!explicit_path.empty()) return explicit_path;
+                        std::string ts = explosion_->near_field_tillotson_set;
+                        if (ts.empty()) {
+                            std::string med = explosion_->medium_type;
+                            for (auto& c : med)
+                                c = static_cast<char>(std::toupper(c));
+                            if (med == "GRANITE" || med == "TUFF" ||
+                                med == "SALT" || med == "ALLUVIUM") {
+                                ts = med;
+                            } else {
+                                ts = "GRANITE";
+                            }
+                        }
+                        for (auto& c : ts)
+                            c = static_cast<char>(std::tolower(c));
+                        return std::string("tools/tabulated_data/tables/") +
+                               subdir + "/" + ts + "_" + suffix + ".h5";
+                    };
+                    rl_cfg.tabulated_eos_table_path = resolve_path(
+                        explosion_->near_field_tabulated_eos_table_path,
+                        "eos", "aneos");
+                    rl_cfg.tabulated_opacity_rosseland_path = resolve_path(
+                        explosion_->near_field_tabulated_opacity_rosseland_path,
+                        "opacity", "rosseland");
+                    rl_cfg.tabulated_opacity_planck_path = resolve_path(
+                        explosion_->near_field_tabulated_opacity_planck_path,
+                        "opacity", "planck");
+                    rl_cfg.tabulated_eos_blend_lower_pa =
+                        explosion_->near_field_tabulated_eos_blend_lower_pa;
+                    rl_cfg.tabulated_eos_blend_upper_pa =
+                        explosion_->near_field_tabulated_eos_blend_upper_pa;
+                    rl_cfg.tabulated_opacity_blend_lower_k =
+                        explosion_->near_field_tabulated_opacity_blend_lower_k;
+                    rl_cfg.tabulated_opacity_blend_upper_k =
+                        explosion_->near_field_tabulated_opacity_blend_upper_k;
+                    rl_cfg.operator_splitting =
+                        (explosion_->near_field_operator_splitting == "STRANG")
+                            ? RadialLagrangianSolver::OperatorSplitting::STRANG
+                            : RadialLagrangianSolver::OperatorSplitting::LIE;
 
                     explosion_->radial_solver.setConfig(rl_cfg);
                     explosion_->radial_solver.initialize();

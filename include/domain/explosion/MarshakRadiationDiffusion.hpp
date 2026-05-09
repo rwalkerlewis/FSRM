@@ -86,6 +86,7 @@
 
 #include "domain/explosion/OpacityModel.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
+#include "io/TabulatedData/TabulatedDataReader.hpp"
 
 namespace FSRM {
 
@@ -116,6 +117,19 @@ public:
         /// Radiation-front detection threshold: a cell is considered
         /// "in the radiation front" when E_r > front_factor * a T_amb^4.
         double front_factor = 1.5;
+
+        /// Pass-9 (axis 1) tabulated opacity patch wiring. Empty strings
+        /// disable the patch; populated paths trigger a one-time load on
+        /// initialize(). Failed loads degrade gracefully to the
+        /// configured analytic opacity model with a one-time warning.
+        std::string tabulated_opacity_rosseland_path;
+        std::string tabulated_opacity_planck_path;
+        /// Sin^2 blend window in temperature: Z-R power law for
+        /// T < lower; tabulated for T > upper; smooth interpolation in
+        /// between. Default [1.0e5, 1.26e5] K (partial-ionization
+        /// regime where Z-R is least accurate).
+        double tabulated_blend_lower_k = 1.0e5;
+        double tabulated_blend_upper_k = 1.26e5;
     };
 
     /// Per-step diagnostic returned to the host RadialLagrangianSolver.
@@ -175,10 +189,27 @@ public:
     void evaluateOpacity(double rho, double T,
                          double& kappa_R, double& kappa_P) const;
 
+    /// Pass-9 helper: opacity evaluator that respects the configured
+    /// model (POWER_LAW_ZR / CONSTANT / TABULATED_PATCHED). Returns
+    /// (kappa_R, kappa_P) in m^2/kg. Pure function of (rho, T) and the
+    /// loaded readers; safe to call from outside the solve loop.
+    void evaluateOpacityPatched(double rho, double T,
+                                double& kappa_R, double& kappa_P) const;
+
+    /// Diagnostic: are the tabulated opacity readers loaded? Used by
+    /// physics-validation tests to assert the patch is actually active.
+    bool tabulatedOpacityLoaded() const
+    {
+        return rosseland_table_.isLoaded() && planck_table_.isLoaded();
+    }
+
 private:
     Config config_;
     int N_ = 0;
     PowerLawOpacity power_law_;
+    io::TabulatedDataReader rosseland_table_;
+    io::TabulatedDataReader planck_table_;
+    bool opacity_table_load_attempted_ = false;
 
     // Workspace for the tridiagonal system.
     std::vector<double> a_lower_;
