@@ -976,6 +976,84 @@ even at CI-achievable resolution.
 - Strang, G. (1968), "On the construction and comparison of
   difference schemes", SIAM J. Num. Anal. 5(3), pp 506-517.
 
+## Pass-9 tabulated EOS / opacity and Strang splitting
+
+Pass-9 (axis 1a) advanced two rungs on the cavity-EOS and opacity
+ladders and added second-order time coupling. Ships:
+
+- `cavity_eos = TILLOTSON_TABULATED_PATCH`: Tillotson blended with a
+  Z-R partial-ionization plasma table (sin^2 in pressure across
+  [5e10, 6e10] Pa) sourced from
+  `tools/tabulated_data/tables/eos/<medium>_aneos.h5`.
+- `opacity_model = TABULATED_PATCHED`: Z-R blended with Mihalas-
+  Mihalas-corrected Rosseland/Planck means (sin^2 in temperature
+  across [1e5, 1.26e5] K) sourced from
+  `tools/tabulated_data/tables/opacity/<medium>_{rosseland,planck}.h5`.
+- `operator_splitting = STRANG`: second-order Strang splitting between
+  hydro and Marshak radiation. `LIE` remains the pass-8 byte-identical
+  default.
+- `radial_outer_radius_m`: direct outer-domain override (used in pass-9
+  to extend Salmon to 700 m for the free-field gate triage).
+
+Tabulated readers under `include/io/TabulatedData/TabulatedDataReader.hpp`
+require an HDF5 file with `source_citation` metadata; out-of-table
+queries fall back to the analytic with one-time stderr warnings.
+
+Pass-9 closed the Salmon FreeFieldPeakVelocity_166m and _322m gates at
+spec target (factor 2). Three residuals remained at end of pass-9:
+Salmon CavityRadius factor 3 (target 5 %), Marshak self-similar front
+factor 8 (target factor 2), Pokhran mb +/-0.4 (target +/-0.3).
+
+### Pass-9 references
+
+- Marsh, S. P. (1980), "LASL Shock Hugoniot Data", University of
+  California Press (granite Hugoniot reference).
+- Strang, G. (1968), "On the construction and comparison of difference
+  schemes", SIAM J. Num. Anal. 5(3), pp 506-517.
+
+## Pass-11 implicit diffusion, sponge BC, ANEOS extension
+
+Pass-11 (axis 1c implicit diffusion + 549 m BC + ANEOS extension)
+closed the Marshak self-similar gate to factor 2 and the radiation-
+energy conservation gate to 2 % via the new `DiffusionTimeIntegrator`
+strategy in `MarshakRadiationDiffusion.hpp`:
+
+- `time_integrator_diffusion = BACKWARD_EULER` (LOW/MED, default).
+- `time_integrator_diffusion = CRANK_NICOLSON` (HIGH, second order,
+  A-stable).
+- `time_integrator_diffusion = BDF2` (HIGHEST, second order, A-stable).
+  Pass-11 default for HIGH+ tiers.
+
+The 549 m free-field gate triage (sweep at radial_outer_radius_m =
+[700, 1000, 1500, 2000] m) shows the impedance BC at 700 m contaminates
+the gauge by factor ~3.4 at the closest two radii; pass-11 ships the
+Israeli-Orszag 1981 graded-damping sponge layer
+(`sponge_layer_enabled = true`) as the BC fix. The default remains the
+characteristic BC for byte-identical pass-9/10 reproducibility.
+
+Extended ANEOS Hugoniot match gates ship at 30 % envelope (Marsh 1980
+granite, McQueen 1970 salt). The 5 % spec target requires a Tillotson
+parameter refit, named explicitly as axis-4 in
+[HISTORIC_NUCLEAR_ROADMAP.md](HISTORIC_NUCLEAR_ROADMAP.md).
+
+The axis-1b 3D source ball scaffolding lands in pass-11:
+`Source3DBall.hpp` interface, `cavity_geometry` config knob
+(`THREE_DIMENSIONAL` throws until pass-13), design stub at
+[AXIS_1B_DESIGN.md](AXIS_1B_DESIGN.md). Pass-13 implements the 3D
+source ball on this scaffold.
+
+### Pass-11 references
+
+- Israeli, M. and Orszag, S. A. (1981), "Approximation of radiation
+  boundary conditions", J. Comp. Phys. 41, pp 115-135 (graded-damping
+  sponge layer).
+- Hairer, E. and Wanner, G. (1996), "Solving Ordinary Differential
+  Equations II: Stiff and Differential-Algebraic Problems", Springer
+  (BDF2, Crank-Nicolson stability).
+- McQueen, R. G., et al. (1970), "The Equation of State of Solids
+  from Shock Wave Studies", in High-Velocity Impact Phenomena (salt
+  Hugoniot reference).
+
 ## Validation and Verification
 
 ### Nuclear Explosion Validation

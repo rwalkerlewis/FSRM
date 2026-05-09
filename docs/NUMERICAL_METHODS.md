@@ -1,6 +1,50 @@
 # FSRM Numerical Methods
 
-Comprehensive documentation of the numerical approaches used to solve the governing equations in FSRM.
+Comprehensive documentation of the numerical approaches used to solve the
+governing equations in FSRM. The earlier sections cover the
+general-purpose FEM / Krylov / Newton machinery inherited from PETSc;
+the FSRM-specific source-physics numerics that ship across passes 5-11
+are summarized first.
+
+## FSRM-specific source-physics numerics (passes 5-11)
+
+The 1D radial Lagrangian source solver
+(`src/domain/explosion/RadialLagrangian.cpp`) and its companion
+radiation-diffusion solver
+(`src/domain/explosion/MarshakRadiationDiffusion.hpp`,
+`MultigroupRadiationDiffusion.hpp`) ship the following numerical
+ingredients. Each is selectable via the
+[FIDELITY_LADDER_GUIDE.md](FIDELITY_LADDER_GUIDE.md) tier knobs.
+
+| Component | Method | Reference |
+|---|---|---|
+| Hydrodynamics | Lagrangian finite-volume on staggered radial grid | Wilkins 1980 |
+| Artificial viscosity | Linear-quadratic Wilkins AV (c_l=0.06, c_q=1.5) | Wilkins 1980 |
+| Plastic return mapping | Drucker-Prager radial return | Simo & Hughes 1998 |
+| Cavity EOS | Tillotson two-region; ANEOS-derived patched/full tables | Tillotson 1962, ANEOS Marsh 1980 |
+| Outer BC | Outgoing-characteristic + Israeli-Orszag 1981 sponge layer (pass-11) | Israeli & Orszag 1981 |
+| Source extraction | Surface-integral moment at the elastic radius | Aki & Richards 1980 |
+| Radiation phase | Z-R closed-form / Marshak grey diffusion / Marshak multigroup | Zel'dovich & Raizer 1967, Marshak 1958, Mihalas & Mihalas 1984 |
+| Hydro time integrator | Explicit Euler (LOW/MED/HIGH) or RK3-SSP (HIGHEST) | Shu & Osher 1988 |
+| Diffusion time integrator | Backward Euler / Crank-Nicolson / BDF2 (pass-11 axis-1c) | Hairer & Wanner 1996 |
+| Hydro-radiation coupling | Lie or Strang operator splitting | Strang 1968 |
+| Newton coupling | T^4 nonlinear coupling, Newton residual tolerance ~1e-6 | -- |
+| Multigroup discretization | G coupled tridiagonal solves per Newton iteration (G=16 default, log-spaced 1e14-1e18 Hz) | Mihalas & Mihalas 1984 sec 82.2 |
+
+The CFL constant for the explicit hydro is set automatically from the
+local sound speed and mesh spacing. The pass-9 Strang convergence-order
+diagnostic (`operator_splitting_convergence_diagnostic = true`)
+instruments the Strang split at the substep level so that 2nd-order
+convergence can be verified against a manufactured-solution reference.
+
+For the per-pass narrative of which numerical ingredients landed when,
+see [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md). For
+the pass-11 axis-1c implicit-diffusion result that closed the Marshak
+self-similar gate to factor 2 and the radiation-energy conservation
+gate to 2 %, see [AXIS_1A_FIDELITY_REPORT.md](AXIS_1A_FIDELITY_REPORT.md).
+
+The remainder of this document covers the general-purpose PETSc-based
+FEM / Krylov / Newton machinery shared by every PetscDS callback.
 
 ---
 
