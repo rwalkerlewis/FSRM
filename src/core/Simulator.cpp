@@ -503,27 +503,27 @@ struct Simulator::ExplosionCoupling {
     std::string near_field_damage_model = "DRUCKER_PRAGER";
     int near_field_output_cadence_us = 100;
 
-    // Pass-6 (axis-1a): solver_kind selects between the pass-5 closed-
-    // form RDP-driven sampling (CLOSED_FORM, byte-identical to the
-    // shipped pass-5 published-test behaviour) and the new 1D radial
-    // Lagrangian elastoplastic shock solver (RADIAL_LAGRANGIAN, the
-    // pass-6 default for DYNAMIC_PLASTIC mode). Additional sub-keys
-    // tune the Lagrangian solver: number of cells, outer-domain factor,
-    // CFL number, Wilkins linear / quadratic artificial-viscosity
-    // coefficients, and the inner-cavity gas EOS adiabatic index.
-    // KINEMATIC_RDP mode ignores these; CLOSED_FORM under
-    // DYNAMIC_PLASTIC reproduces the pass-5 RDP path.
-    // Default: CLOSED_FORM keeps the pass-5 RDP-driven byte-identical
-    // path (the legacy Sedan1962_Dynamic anchor and all 17 historic
-    // tests run unchanged). RADIAL_LAGRANGIAN is opt-in for pass-6.
-    // The default deviates from the original pass-6 spec ("RADIAL_
-    // LAGRANGIAN default for DYNAMIC_PLASTIC") because the radial
-    // shock solver currently produces a far-field amplitude on the
-    // order of factor 100-400 below the closed-form RDP estimate
-    // (calibration gap; see PR body and HISTORIC_NUCLEAR_FIDELITY.md
-    // pass-6 entry). Pass-7 should bring the calibration into the
-    // factor-5 envelope and make RADIAL_LAGRANGIAN the default.
-    std::string near_field_solver_kind = "CLOSED_FORM";
+    // Pass-6 + pass-7 (axis-1a closed): solver_kind selects between the
+    // pass-5 closed-form RDP-driven sampling (CLOSED_FORM, byte-
+    // identical to the shipped pass-5 published-test behaviour) and
+    // the 1D radial Lagrangian elastoplastic shock solver
+    // (RADIAL_LAGRANGIAN). Additional sub-keys tune the Lagrangian
+    // solver: number of cells, outer-domain factor, CFL number,
+    // Wilkins linear / quadratic artificial-viscosity coefficients,
+    // and the inner-cavity gas EOS adiabatic index.
+    //
+    // Pass-7 promotes RADIAL_LAGRANGIAN to the default for
+    // DYNAMIC_PLASTIC: with the Tillotson host-rock EOS, the
+    // physics-based energy-partition cavity initialization, and the
+    // Wilkins (1980) literature AV coefficients (c_l = 0.06,
+    // c_q = 1.5), the far-field amplitude lands within a factor ~5
+    // of the closed-form RDP estimate (Sedan 1962 anchor: ratio
+    // ~2.2x). KINEMATIC_RDP mode is unchanged; CLOSED_FORM under
+    // DYNAMIC_PLASTIC continues to reproduce the pass-5 RDP path
+    // byte-for-byte, and configs that pin solver_kind = CLOSED_FORM
+    // (such as the legacy Sedan1962_Dynamic test fixture) are
+    // unaffected by the default flip.
+    std::string near_field_solver_kind = "RADIAL_LAGRANGIAN";
     int near_field_radial_cells = 200;
     double near_field_radial_outer_factor = 3.0;
     double near_field_cfl = 0.4;
@@ -1445,9 +1445,12 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 // solver_kind == RADIAL_LAGRANGIAN; CLOSED_FORM ignores
                 // them so configs that omit these keys see no change.
                 {
+                    // Pass-7 default: RADIAL_LAGRANGIAN. Configs that
+                    // need the pass-5 byte-identical path must pin
+                    // solver_kind = CLOSED_FORM explicitly.
                     const std::string sk_raw = reader.getString(
                         "NEAR_FIELD_SOURCE", "solver_kind",
-                        "CLOSED_FORM");
+                        "RADIAL_LAGRANGIAN");
                     std::string sk_up = sk_raw;
                     for (auto& c : sk_up) c = static_cast<char>(std::toupper(c));
                     if (sk_up != "CLOSED_FORM" && sk_up != "RADIAL_LAGRANGIAN") {
@@ -1456,9 +1459,10 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                                 "NEAR_FIELD_SOURCE.solver_kind=\"%s\" not "
                                 "recognised (expected CLOSED_FORM|"
                                 "RADIAL_LAGRANGIAN); falling back to "
-                                "CLOSED_FORM.\n", sk_raw.c_str());
+                                "RADIAL_LAGRANGIAN (pass-7 default).\n",
+                                sk_raw.c_str());
                         }
-                        sk_up = "CLOSED_FORM";
+                        sk_up = "RADIAL_LAGRANGIAN";
                     }
                     explosion_->near_field_solver_kind = sk_up;
                 }

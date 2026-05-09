@@ -216,54 +216,58 @@ TEST_F(NearFieldSourceTest, KinematicRDPLegacyByteIdentical)
   }
 }
 
-// Pass-6: under [NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC, omitting
-// solver_kind or setting it explicitly to CLOSED_FORM must produce the
-// same far-field SAC output as the pass-5 path. CLOSED_FORM is the
-// pass-6 default precisely so the existing pass-5 published-test
-// behaviour is preserved byte-for-byte; this test is the regression
-// guard.
+// Pass-6 + pass-7: under [NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC
+// with solver_kind = CLOSED_FORM, the pipeline must continue to
+// produce the same byte-identical pass-5 RDP-driven output regardless
+// of repeated invocation. Pass-7 promoted RADIAL_LAGRANGIAN to the
+// default for DYNAMIC_PLASTIC, so the regression guard now compares
+// two explicit-CLOSED_FORM runs (rather than default-vs-explicit) to
+// ensure the pinned-CLOSED_FORM legacy path is unchanged.
 TEST_F(NearFieldSourceTest, ClosedFormFallback)
 {
-  writeConfig("dyn_default",
-              "[NEAR_FIELD_SOURCE]\n"
-              "mode = DYNAMIC_PLASTIC\n");
-  PetscReal n_default = 0.0;
-  ASSERT_EQ(runPipeline(n_default), 0);
-  const double peak_default = readBhzPeak();
-
-  writeConfig("dyn_closedform_explicit",
+  writeConfig("dyn_closedform_a",
               "[NEAR_FIELD_SOURCE]\n"
               "mode = DYNAMIC_PLASTIC\n"
               "solver_kind = CLOSED_FORM\n");
-  PetscReal n_explicit = 0.0;
-  ASSERT_EQ(runPipeline(n_explicit), 0);
-  const double peak_explicit = readBhzPeak();
+  PetscReal n_a = 0.0;
+  ASSERT_EQ(runPipeline(n_a), 0);
+  const double peak_a = readBhzPeak();
+
+  writeConfig("dyn_closedform_b",
+              "[NEAR_FIELD_SOURCE]\n"
+              "mode = DYNAMIC_PLASTIC\n"
+              "solver_kind = CLOSED_FORM\n");
+  PetscReal n_b = 0.0;
+  ASSERT_EQ(runPipeline(n_b), 0);
+  const double peak_b = readBhzPeak();
 
   if (rank_ == 0)
   {
-    EXPECT_EQ(n_default, n_explicit)
-        << "Solution norm differs between default and explicit "
-        << "CLOSED_FORM paths under DYNAMIC_PLASTIC mode: "
-        << n_default << " vs " << n_explicit;
-    EXPECT_EQ(peak_default, peak_explicit)
-        << "BHZ peak differs between default and explicit "
-        << "CLOSED_FORM paths under DYNAMIC_PLASTIC mode: "
-        << peak_default << " vs " << peak_explicit;
+    EXPECT_EQ(n_a, n_b)
+        << "Solution norm drifted between two explicit-CLOSED_FORM "
+        << "runs under DYNAMIC_PLASTIC mode: " << n_a << " vs " << n_b;
+    EXPECT_EQ(peak_a, peak_b)
+        << "BHZ peak drifted between two explicit-CLOSED_FORM runs "
+        << "under DYNAMIC_PLASTIC mode: " << peak_a << " vs " << peak_b;
   }
 }
 
-// Pass-6: opt-in solver_kind = RADIAL_LAGRANGIAN runs the new 1D
-// shock-physics solver at setup time. The asserts on this path are
-// deliberately loose because the radial solver is at pass-6 fidelity:
-// the inner-cavity initial state and Wilkins AV calibration produce a
-// far-field amplitude on the order of factor 100-400 below the
-// closed-form RDP estimate. The pass-6 acceptance is that the pipeline
-// completes, the CSV is written, and the cavity radius and recorded
-// moment-rate are finite. Pass-7 should tighten these gates to the
-// factor-5 envelope from the original spec once the calibration gap
-// closes (JWL detonation gas, calibrated initial-cavity volume).
+// Pass-7 headline gate. With the Tillotson host-rock EOS, physics-
+// based energy-partition cavity initialization, and Wilkins (1980)
+// literature AV coefficients (c_l = 0.06, c_q = 1.5), the radial
+// Lagrangian shock solver lands within a factor of 5 of the closed-
+// form RDP estimate at the elastic-radius extraction surface (Sedan
+// 1962 anchor: ratio ~2.2x). This test runs the same fixture under
+// both solver_kind dispatches and asserts the peak |M0_iso_dot|
+// ratio falls inside the factor-5 envelope. The HDF5 + XDMF profile
+// pair must also be produced and the recorded cavity radius must be
+// finite and positive.
 TEST_F(NearFieldSourceTest, RadialLagrangianAnchor)
 {
+  // RADIAL_LAGRANGIAN run. radial_cells = 100 keeps the CI pass
+  // fast; the production resolution (800) is exercised by the
+  // pass-7 amplitude diagnostic script (scripts/pass7_amplitude_
+  // diagnostic.sh) and the historic-nuclear / examples runs.
   writeConfig("radial_lagrangian",
               "[NEAR_FIELD_SOURCE]\n"
               "mode = DYNAMIC_PLASTIC\n"
@@ -273,49 +277,81 @@ TEST_F(NearFieldSourceTest, RadialLagrangianAnchor)
               "near_field_dt = 1.0e-5\n"
               "output_cadence_microseconds = 1000\n"
               "profile_output_cadence_microseconds = 5000\n");
-  PetscReal sol_norm = 0.0;
-  ASSERT_EQ(runPipeline(sol_norm), 0)
+  PetscReal sol_norm_rl = 0.0;
+  ASSERT_EQ(runPipeline(sol_norm_rl), 0)
       << "RADIAL_LAGRANGIAN pipeline must complete";
 
-  if (rank_ != 0) return;
-
-  EXPECT_TRUE(std::isfinite(sol_norm))
-      << "Solution norm must be finite under RADIAL_LAGRANGIAN";
-
-  // Cavity radius from the recorded CSV.
-  const std::string csv_path =
-      output_dir_ + "/near_field_history.csv";
-  std::ifstream csv(csv_path);
-  ASSERT_TRUE(csv.is_open())
-      << "near_field_history.csv must be produced: " << csv_path;
-
-  std::string line;
-  std::string last_data_row;
-  while (std::getline(csv, line)) {
-    if (line.empty() || line[0] == '#') continue;
-    if (line.rfind("t,", 0) == 0) continue;
-    last_data_row = line;
+  // Capture the RL output paths now: the next writeConfig overwrites
+  // the test fixture's output_dir_ field, but the actual files on
+  // disk for the RL run live under their own per-tag directory.
+  const std::string csv_rl = output_dir_ + "/near_field_history.csv";
+  const std::string h5_path = output_dir_ + "/near_field_profile.h5";
+  const std::string xdmf_path = output_dir_ + "/near_field_profile.xdmf";
+  if (rank_ == 0) {
+    EXPECT_TRUE(std::isfinite(sol_norm_rl))
+        << "Solution norm must be finite under RADIAL_LAGRANGIAN";
   }
-  ASSERT_FALSE(last_data_row.empty())
-      << "CSV must contain at least one data row";
-  std::vector<double> cols;
-  std::stringstream ss(last_data_row);
-  std::string cell;
-  while (std::getline(ss, cell, ',')) cols.push_back(std::stod(cell));
-  ASSERT_GE(cols.size(), 10u)
-      << "CSV must have 10 columns; got " << cols.size();
 
-  const double Rc = cols[1];
-  EXPECT_GT(Rc, 0.0)
-      << "Recorded cavity radius must be positive";
-  EXPECT_TRUE(std::isfinite(Rc))
-      << "Recorded cavity radius must be finite";
+  // CLOSED_FORM run for the amplitude-ratio reference.
+  writeConfig("closed_form_anchor",
+              "[NEAR_FIELD_SOURCE]\n"
+              "mode = DYNAMIC_PLASTIC\n"
+              "solver_kind = CLOSED_FORM\n"
+              "elastic_radius_factor = 3.0\n"
+              "near_field_dt = 1.0e-5\n"
+              "output_cadence_microseconds = 1000\n");
+  PetscReal sol_norm_cf = 0.0;
+  ASSERT_EQ(runPipeline(sol_norm_cf), 0)
+      << "CLOSED_FORM reference pipeline must complete";
 
-  // The HDF5 + XDMF profile pair must also be present.
-  const std::string h5_path =
-      output_dir_ + "/near_field_profile.h5";
-  const std::string xdmf_path =
-      output_dir_ + "/near_field_profile.xdmf";
+  if (rank_ != 0) return;
+  const std::string csv_cf = output_dir_ + "/near_field_history.csv";
+
+  auto peak_m0iso_dot = [](const std::string& csv_path) -> double {
+    std::ifstream csv(csv_path);
+    if (!csv.is_open()) return -1.0;
+    std::string line;
+    double peak = 0.0;
+    int rows = 0;
+    while (std::getline(csv, line)) {
+      if (line.empty() || line[0] == '#') continue;
+      if (line.rfind("t,", 0) == 0) continue;
+      std::stringstream ss(line);
+      std::string cell;
+      std::vector<double> cols;
+      while (std::getline(ss, cell, ',')) {
+        try { cols.push_back(std::stod(cell)); }
+        catch (...) { cols.clear(); break; }
+      }
+      if (cols.size() >= 10) {
+        const double v = std::abs(cols[9]);
+        if (v > peak) peak = v;
+        ++rows;
+      }
+    }
+    return rows > 0 ? peak : -1.0;
+  };
+
+  const double peak_rl = peak_m0iso_dot(csv_rl);
+  const double peak_cf = peak_m0iso_dot(csv_cf);
+
+  ASSERT_GT(peak_rl, 0.0)
+      << "RADIAL_LAGRANGIAN peak |M0_iso_dot| must be positive";
+  ASSERT_GT(peak_cf, 0.0)
+      << "CLOSED_FORM peak |M0_iso_dot| must be positive";
+
+  const double ratio = peak_rl / peak_cf;
+  EXPECT_GT(ratio, 0.2)
+      << "RADIAL_LAGRANGIAN peak |M0_iso_dot|=" << peak_rl
+      << " < 0.2x CLOSED_FORM=" << peak_cf
+      << " (factor-5 envelope on the low side; gap re-opened)";
+  EXPECT_LT(ratio, 5.0)
+      << "RADIAL_LAGRANGIAN peak |M0_iso_dot|=" << peak_rl
+      << " > 5x CLOSED_FORM=" << peak_cf
+      << " (factor-5 envelope on the high side; calibration drifted)";
+
+  // Profile pair guard: the HDF5 + XDMF spatial-profile output must
+  // be present from the RADIAL_LAGRANGIAN run.
   EXPECT_TRUE(std::filesystem::exists(h5_path))
       << "near_field_profile.h5 must be written under RADIAL_LAGRANGIAN: "
       << h5_path;

@@ -623,9 +623,16 @@ TEST_F(HistoricNuclearTest, Sedan1962_Dynamic)
       "mode = UNIFORM_SPHERE\n"
       "support_radius_factor = 50.0\n"
       "min_cells = 1\n";
+  // Pin solver_kind = CLOSED_FORM. The test fixture and the
+  // R_cavity / amplitude assertions below are calibrated to the
+  // pass-5 RDP-driven path. Pass-7 promotes RADIAL_LAGRANGIAN to
+  // the new default for DYNAMIC_PLASTIC, but this test pins the
+  // legacy path explicitly so the historic-nuclear-Dynamic anchor
+  // continues to gate pass-5 behaviour byte-for-byte.
   const std::string nf =
       "[NEAR_FIELD_SOURCE]\n"
       "mode = DYNAMIC_PLASTIC\n"
+      "solver_kind = CLOSED_FORM\n"
       "elastic_radius_factor = 3.0\n"
       "near_field_dt = 1.0e-5\n"
       "damage_model = DRUCKER_PRAGER\n"
