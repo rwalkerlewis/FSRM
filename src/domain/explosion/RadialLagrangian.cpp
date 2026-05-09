@@ -155,12 +155,16 @@ void RadialLagrangianSolver::solveCavityInitialState()
     // Tillotson parameters drive the cavity-state target.
     const TillotsonParameters& tp = config_.tillotson_params;
     rho_v_init_ = rho_0_solid;
-    // Target specific internal energy at full vaporization plus a
-    // thermal pad of E_cv. The Newton iteration solves for R_v that
-    // makes the integrated energy partition consume E_yield exactly.
-    const double e_v_target = 2.0 * tp.E_cv;
+    // Target specific internal energy: full vaporization (E_cv).
+    // Keeping e_v = E_cv puts the cavity in the just-vaporized
+    // compressed-branch state; for granite this evaluates the
+    // Tillotson form to ~50 GPa cavity pressure, plenty to drive
+    // the surrounding shock. The energy partition then becomes
+    //   E_yield = m_v * E_cv + m_v * g * h_eff
+    // (latent-heat-only plus the small overburden potential).
+    const double e_v_target = tp.E_cv;
     e_v_init_ = e_v_target;
-    const double e_thermal = e_v_target - tp.E_cv;
+    const double e_thermal = e_v_target - tp.E_cv;  // 0 by construction
 
     // Closed-form initial guess from the latent + thermal balance
     // (ignoring the small overburden potential):
@@ -204,16 +208,19 @@ void RadialLagrangianSolver::solveCavityInitialState()
             1.0 / 3.0);
     }
 
-    // Clamp R_v to a sensible band around the empirical NTS cavity
-    // radius. The Z-R end-state cavity is the *vaporization* radius,
-    // typically 0.3 to 1.0 times the eventual NTS cavity radius (the
-    // ratio depends on host strength and overburden). A cap at 1.5
-    // times the NTS Rc prevents the Newton iteration from running
-    // away in pathological parameter regimes.
+    // Clamp R_v to a sensible upper band around the empirical NTS
+    // cavity radius. The Z-R end-state cavity is the *vaporization*
+    // radius, which is typically much smaller than the eventual NTS
+    // cavity radius (the bulk cavity expansion happens during the
+    // hydrodynamic phase that follows). A cap at 1.5 times the NTS
+    // Rc prevents the Newton iteration from running away in
+    // pathological parameter regimes. We do NOT clamp from below
+    // beyond a small absolute floor because the analytic latent-heat
+    // estimate for kt yields can give R_v values well below 0.05
+    // times the eventual NTS cavity radius.
     const double Rc_eq = safeMax(1.0, src_.cavityRadius());
-    const double R_v_min = 0.05 * Rc_eq;
     const double R_v_max = 1.5 * Rc_eq;
-    if (R_v < R_v_min) R_v = R_v_min;
+    if (R_v < 1.0e-3) R_v = 1.0e-3;
     if (R_v > R_v_max) R_v = R_v_max;
     Rc_init_ = R_v;
 }

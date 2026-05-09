@@ -82,6 +82,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_dynamic_plastic_cavity.cpp
     physics_validation/test_radial_lagrangian.cpp
     physics_validation/test_tillotson_eos.cpp
+    physics_validation/test_physics_cavity_init.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -272,6 +273,9 @@ if(GTest_FOUND)
     add_test(NAME Physics.TillotsonEOS.GraniteVaporizationEnergyBalance COMMAND run_physics_tests --gtest_filter=TillotsonEOSTest.GraniteVaporizationEnergyBalance)
     add_test(NAME Physics.TillotsonEOS.GraniteSoundSpeedConsistency COMMAND run_physics_tests --gtest_filter=TillotsonEOSTest.GraniteSoundSpeedConsistency)
     add_test(NAME Physics.TillotsonEOS.SaltAndAlluviumParameterSetSelfConsistency COMMAND run_physics_tests --gtest_filter=TillotsonEOSTest.SaltAndAlluviumParameterSetSelfConsistency)
+    # Pass-7: physics-based cavity-initialization validation gates.
+    add_test(NAME Physics.RadialLagrangian.PhysicsBasedCavityEnergyConservation COMMAND run_physics_tests --gtest_filter=PhysicsCavityInitTest.PhysicsBasedCavityEnergyConservation)
+    add_test(NAME Physics.RadialLagrangian.PhysicsBasedCavityRadius COMMAND run_physics_tests --gtest_filter=PhysicsCavityInitTest.PhysicsBasedCavityRadius)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -506,6 +510,8 @@ if(GTest_FOUND)
         Physics.TillotsonEOS.GraniteVaporizationEnergyBalance
         Physics.TillotsonEOS.GraniteSoundSpeedConsistency
         Physics.TillotsonEOS.SaltAndAlluviumParameterSetSelfConsistency
+        Physics.RadialLagrangian.PhysicsBasedCavityEnergyConservation
+        Physics.RadialLagrangian.PhysicsBasedCavityRadius
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
