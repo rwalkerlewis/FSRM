@@ -51,6 +51,7 @@
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/explosion/OpacityModel.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
+#include "io/TabulatedData/TabulatedDataReader.hpp"
 
 namespace FSRM {
 
@@ -85,8 +86,21 @@ public:
     ///    a Newton solve on a closed energy-partition equation
     ///    rather than chosen by hand. See solveCavityInitialState
     ///    in RadialLagrangian.cpp.
-    enum class CavityEOS { IDEAL_GAS, TILLOTSON };
+    enum class CavityEOS {
+        IDEAL_GAS,
+        TILLOTSON,
+        TILLOTSON_TABULATED_PATCH, ///< Pass-9 HIGH default. Tillotson for p < blend_lower_pa, tabulated above.
+        TABULATED_FULL              ///< Pass-10 scaffold; throws in pass-9.
+    };
     enum class CavityInitialization { PHYSICS_BASED, MANUAL };
+
+    /// Pass-9 (axis 1) operator splitting between hydro and radiation.
+    /// LIE: pass-8 default (hydro then radiation). First-order in dt.
+    /// STRANG: hydro/2 -> radiation -> hydro/2. Second-order in dt
+    ///   (Strang 1968). Default-when-coupled in pass-9; users opt out
+    ///   via [NEAR_FIELD_SOURCE] operator_splitting = LIE for byte-
+    ///   identical regression with pass-8.
+    enum class OperatorSplitting { LIE, STRANG };
 
     /// Pass-8: explicit radiation-phase fidelity ladder.
     ///   ZELDOVICH_RAIZER: pass-7 default, kept as LOW fidelity. Closed-
@@ -159,6 +173,28 @@ public:
         /// Hand-off debouncing: number of consecutive substeps the
         /// hand-off criterion must hold before the radiation phase ends.
         int radiation_handoff_debounce_steps = 3;
+
+        /// Pass-9 (axis 1) tabulated EOS / opacity patch wiring.
+        /// File paths are resolved relative to the CWD; empty strings
+        /// auto-derive from medium + tillotson parameter set name.
+        std::string tabulated_eos_table_path;
+        std::string tabulated_opacity_rosseland_path;
+        std::string tabulated_opacity_planck_path;
+        /// Pressure band over which the EOS dispatch sin^2-blends from
+        /// Tillotson to tabulated. Default 5e10 to 6e10 Pa, the
+        /// Tillotson extrapolation regime threshold.
+        double tabulated_eos_blend_lower_pa = 5.0e10;
+        double tabulated_eos_blend_upper_pa = 6.0e10;
+        /// Temperature band over which the opacity dispatch sin^2-blends
+        /// from Z-R power law to tabulated. Default 1.0e5 to 1.26e5 K,
+        /// the partial-ionization regime where Z-R is most uncertain.
+        double tabulated_opacity_blend_lower_k = 1.0e5;
+        double tabulated_opacity_blend_upper_k = 1.26e5;
+
+        /// Pass-9 operator-splitting selector. Default STRANG (second
+        /// order). Set to LIE explicitly to recover pass-8 behaviour
+        /// byte-identical for regression.
+        OperatorSplitting operator_splitting = OperatorSplitting::STRANG;
     };
 
     /// Snapshot of the radial state at a single time. Layout matches the
@@ -411,6 +447,13 @@ private:
     double matter_energy_change_from_radiation_ = 0.0;
     double t_diff_at_front_ = 0.0;
     bool tillotson_warning_logged_ = false;
+
+    // Pass-9 (axis 1) tabulated EOS reader for the cavity cells.
+    // Lazily loaded on first cavityPressure() call when
+    // cavity_eos == TILLOTSON_TABULATED_PATCH or TABULATED_FULL.
+    mutable io::TabulatedDataReader cavity_eos_table_;
+    mutable bool cavity_eos_table_load_attempted_ = false;
+    mutable bool cavity_eos_table_load_succeeded_ = false;
 };
 
 } // namespace FSRM

@@ -45,12 +45,59 @@ double MarshakRadiationDiffusionSolver::harmonicMean(double a, double b)
 
 void MarshakRadiationDiffusionSolver::initialize(int N)
 {
+    if (config_.opacity_model == OpacityModel::TABULATED_FULL) {
+        throw std::runtime_error(
+            "MarshakRadiationDiffusionSolver: opacity_model=TABULATED_FULL "
+            "is pass-10 work; pass-9 ships TABULATED_PATCHED only.");
+    }
     if (config_.opacity_model == OpacityModel::TABULATED_TOPS) {
+        // Pass-8 retained TABULATED_TOPS as a throwing stub; pass-9
+        // promotes TABULATED_PATCHED to a working option but TOPS
+        // remains a named-only legacy alias for any external code that
+        // still references it.
         throw std::runtime_error(
             "MarshakRadiationDiffusionSolver: opacity_model=TABULATED_TOPS "
-            "is a pass-9 scaffold; not implemented in pass-8. Set "
-            "opacity_model=POWER_LAW_ZR or CONSTANT.");
+            "is the pass-8 legacy throwing stub; use TABULATED_PATCHED in "
+            "pass-9.");
     }
+
+    // Pass-9: lazy-load tabulated opacity tables when configured. Both
+    // Rosseland and Planck are needed to apply the patch; if only one
+    // path is configured, log a warning and degrade to power-law for
+    // both means (the other has no analytic counterpart in our
+    // power-law framework that the patch could blend with).
+    if (!opacity_table_load_attempted_ &&
+        config_.opacity_model == OpacityModel::TABULATED_PATCHED) {
+        opacity_table_load_attempted_ = true;
+        const bool both_paths =
+            !config_.tabulated_opacity_rosseland_path.empty() &&
+            !config_.tabulated_opacity_planck_path.empty();
+        if (!both_paths) {
+            std::fprintf(stderr,
+                "MarshakRadiationDiffusionSolver: TABULATED_PATCHED "
+                "requires both rosseland and planck table paths; one or "
+                "both are empty. Falling back to POWER_LAW_ZR.\n");
+        } else {
+            std::string err_R, err_P;
+            const bool rok = rosseland_table_.load(
+                config_.tabulated_opacity_rosseland_path, err_R);
+            const bool pok = planck_table_.load(
+                config_.tabulated_opacity_planck_path, err_P);
+            if (!rok) {
+                std::fprintf(stderr,
+                    "MarshakRadiationDiffusionSolver: Rosseland table "
+                    "load FAILED: %s. Falling back to POWER_LAW_ZR for "
+                    "Rosseland.\n", err_R.c_str());
+            }
+            if (!pok) {
+                std::fprintf(stderr,
+                    "MarshakRadiationDiffusionSolver: Planck table "
+                    "load FAILED: %s. Falling back to POWER_LAW_ZR for "
+                    "Planck.\n", err_P.c_str());
+            }
+        }
+    }
+
     N_ = N > 0 ? N : 0;
     a_lower_.assign(N_, 0.0);
     b_diag_.assign(N_, 0.0);
@@ -72,6 +119,12 @@ void MarshakRadiationDiffusionSolver::evaluateOpacity(double rho, double T,
                                                      double& kappa_R,
                                                      double& kappa_P) const
 {
+    evaluateOpacityPatched(rho, T, kappa_R, kappa_P);
+}
+
+void MarshakRadiationDiffusionSolver::evaluateOpacityPatched(
+    double rho, double T, double& kappa_R, double& kappa_P) const
+{
     switch (config_.opacity_model) {
     case OpacityModel::CONSTANT: {
         const double k = config_.kappa_constant_m2_per_kg > 0.0
@@ -82,15 +135,53 @@ void MarshakRadiationDiffusionSolver::evaluateOpacity(double rho, double T,
         return;
     }
     case OpacityModel::POWER_LAW_ZR: {
-        // Use the cached evaluator via a const-correct helper. Local
-        // copy of the evaluator gives us a pure-function call.
         PowerLawOpacity ev(config_.opacity_params);
         kappa_R = ev.rosseland(rho, T);
         kappa_P = ev.planck(rho, T);
         return;
     }
+    case OpacityModel::TABULATED_PATCHED: {
+        // Pass-9 sin^2 patch in temperature. Z-R for T < lower; tabulated
+        // for T > upper; smooth blend in between. Out-of-table queries
+        // (rho or T outside the table coverage) fall back to Z-R with
+        // the reader's one-time warning.
+        PowerLawOpacity ev(config_.opacity_params);
+        const double k_R_pl = ev.rosseland(rho, T);
+        const double k_P_pl = ev.planck(rho, T);
+        const double T_lo = config_.tabulated_blend_lower_k;
+        const double T_hi = config_.tabulated_blend_upper_k;
+        if (T <= T_lo || !rosseland_table_.isLoaded() ||
+            !planck_table_.isLoaded()) {
+            kappa_R = k_R_pl;
+            kappa_P = k_P_pl;
+            return;
+        }
+        const double k_R_tab_raw = rosseland_table_.evaluate(rho, T);
+        const double k_P_tab_raw = planck_table_.evaluate(rho, T);
+        if (std::isnan(k_R_tab_raw) || std::isnan(k_P_tab_raw)) {
+            // Out-of-table coverage; reader has logged the warning.
+            kappa_R = k_R_pl;
+            kappa_P = k_P_pl;
+            return;
+        }
+        if (T >= T_hi) {
+            kappa_R = k_R_tab_raw;
+            kappa_P = k_P_tab_raw;
+            return;
+        }
+        // Sin^2 blend in T.
+        const double t = (T - T_lo) / (T_hi - T_lo);
+        const double s = std::sin(0.5 * 3.14159265358979323846 * t);
+        const double w = s * s;
+        kappa_R = (1.0 - w) * k_R_pl + w * k_R_tab_raw;
+        kappa_P = (1.0 - w) * k_P_pl + w * k_P_tab_raw;
+        return;
+    }
+    case OpacityModel::TABULATED_FULL:
     case OpacityModel::TABULATED_TOPS:
     default:
+        // Should be caught by initialize(); zero opacity here is a
+        // diagnostic for "fell through unexpectedly".
         kappa_R = 0.0;
         kappa_P = 0.0;
         return;

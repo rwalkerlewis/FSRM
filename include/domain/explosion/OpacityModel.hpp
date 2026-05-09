@@ -61,15 +61,31 @@ namespace FSRM {
 /**
  * @brief Closed enum for the opacity model family. POWER_LAW_ZR is the
  *        pass-8 default. CONSTANT is a sanity-check (used by the Marshak
- *        self-similar test). TABULATED_TOPS is a pass-9 scaffold; the
- *        Marshak solver throws a clear "not implemented" error when
- *        constructed against TABULATED_TOPS.
+ *        self-similar test).
+ *
+ * Pass-9 (axis 1, see docs/HISTORIC_NUCLEAR_ROADMAP.md "Pass-9 tabulated
+ * data patches") promotes the tabulated path to two real options:
+ *   TABULATED_PATCHED: Z-R power law for T < blend_lower_K, tabulated
+ *     for T > blend_upper_K, sin^2 blend in between. The default
+ *     blend [1.0e5, 1.26e5] K is the regime where Z-R is most uncertain
+ *     (rock-plasma partial ionization). Out-of-table queries log a
+ *     one-time stderr warning and fall back to the analytic Z-R power
+ *     law.
+ *   TABULATED_FULL: pure tabulated everywhere; no fallback. Scaffolded
+ *     for pass-10 (HIGHEST tier). Selecting this in pass-9 throws a
+ *     clear "not implemented" error.
+ *
+ * The legacy TABULATED_TOPS name is kept as an alias for backward
+ * compatibility with pass-8 source files; it now maps to
+ * TABULATED_PATCHED.
  */
 enum class OpacityModel
 {
     POWER_LAW_ZR,
     CONSTANT,
-    TABULATED_TOPS
+    TABULATED_PATCHED,    ///< Pass-9: Z-R for T < blend_lower; tabulated for T > blend_upper; sin^2 blend.
+    TABULATED_FULL,       ///< Pass-10 scaffold: pure tabulated everywhere. Throws in pass-9.
+    TABULATED_TOPS        ///< Legacy pass-8 scaffold name; pass-9 keeps as throwing-stub alias.
 };
 
 /**
