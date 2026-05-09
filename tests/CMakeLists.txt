@@ -59,6 +59,7 @@ set(FUNCTIONAL_TEST_SOURCES
     functional/test_module_lifecycle.cpp
     functional/test_solver_convergence.cpp
     functional/test_well_operations.cpp
+    functional/test_paraview_state_load.cpp
 )
 
 set(PHYSICS_VALIDATION_TEST_SOURCES
@@ -239,6 +240,10 @@ if(GTest_FOUND)
     add_test(NAME Functional.ModuleLifecycle  COMMAND run_functional_tests --gtest_filter=ModuleLifecycleTest.*)
     add_test(NAME Functional.SolverConvergence COMMAND run_functional_tests --gtest_filter=SolverConvergenceTest.*)
     add_test(NAME Functional.WellOperations   COMMAND run_functional_tests --gtest_filter=WellOperationsTest.*)
+    # Pass-7: ParaView state-file load verification. Skipped under
+    # fsrm-ci (pvpython not installed); developers run the script
+    # standalone via scripts/verify_pvsm.sh.
+    add_test(NAME Functional.ParaView.NearFieldCavityStateLoads COMMAND run_functional_tests --gtest_filter=ParaViewStateLoadTest.NearFieldCavityStateLoads)
 
     # --- Physics validation (MMS) tests ---
     add_test(NAME Physics.MMS.Diffusion       COMMAND run_physics_tests --gtest_filter=MMSDiffusionTest.*)
@@ -466,6 +471,7 @@ if(GTest_FOUND)
     set_tests_properties(
         Functional.SimulatorInit Functional.ModuleLifecycle
         Functional.SolverConvergence Functional.WellOperations
+        Functional.ParaView.NearFieldCavityStateLoads
         Functional.DynamicRuptureSetup.MeshSplitting
         Functional.DynamicRuptureSetup.LockedFault
         Functional.DynamicRuptureSetup.FaultGeometryFromConfig
