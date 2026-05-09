@@ -18,7 +18,7 @@ pass-fidelity-doc anchor, and a one-line summary of what landed. When
 a pass opens a new axis (or splits an existing one), add a row
 preserving the leverage ordering.
 
-## 1. Dynamic near-field source -- pass-5 (partial)
+## 1. Dynamic near-field source -- pass-5 + pass-6 + pass-7 (axis-1a closed)
 
 **Status.** Pass-5 (PR pending) lands the `[NEAR_FIELD_SOURCE]`
 config grammar and a `DYNAMIC_PLASTIC` mode that drives the far-field
@@ -59,27 +59,120 @@ within 20% of medium-aware NTS analytic, peak/u_far within factor 30,
 > 100 sample rows recorded). All 17 pre-existing historic tests run
 unchanged under the default `KINEMATIC_RDP` path.
 
-**Deferred to pass-N+1.** The pass-5 `DYNAMIC_PLASTIC` path uses
-the existing 1D solver whose internal `step()` integrates a
-closed-form exponential cavity-expansion kernel rather than a
-finite-difference radial momentum + constitutive update. The
-strength model, damage model, and EOS data structures plumbed
-through the solver are referenced in the recorded diagnostics but
-do not drive the cavity expansion itself. Two follow-ups:
+**Pass-6 (axis-1a partial).** Pass-6 lands a real 1D radial
+Lagrangian finite-volume elastoplastic shock solver
+(`include/domain/explosion/RadialLagrangian.hpp`) behind a new
+`solver_kind` sub-key under `[NEAR_FIELD_SOURCE]`. The solver
+implements explicit CFL-bounded time stepping, Wilkins linear +
+quadratic artificial viscosity for shock capture, Drucker-Prager
+radial return (consuming the existing `PressureDependentStrength`),
+Mie-Gruneisen EOS for solid cells with an ideal-gas inner cavity,
+non-reflecting outgoing-characteristic outer BC, and surface-
+integral moment-tensor extraction at the configured elastic radius.
+A new HDF5 + XDMF spatial-profile pair (`near_field_profile.h5/.xdmf`)
+captures the radial state at the configured `profile_output_cadence`
+for ParaView animation of the cavity-formation transient.
 
-  - **Pass-N+1a.** Replace the closed-form kernel with a true 1D
-    radial Lagrangian finite-volume solver: explicit shock-friendly
-    time-stepping, Drucker-Prager radial-return per cell,
-    Mie-Gruneisen EOS evaluation per cell, surface-integral moment
-    tensor extraction. The pass-5 dispatch path and history CSV
-    do not need to change; only the substitution at the solver
-    interface.
-  - **Pass-N+1b.** Replace the 1D radial solver with a 3D
+`solver_kind = CLOSED_FORM` (pass-6 default) preserves the pass-5
+RDP-driven path byte-for-byte; `Integration.NearFieldSource.
+ClosedFormFallback` is the regression guard.
+
+`solver_kind = RADIAL_LAGRANGIAN` (opt-in) runs the new shock
+solver. The radial path produces a far-field amplitude on the order
+of factor 100 to 400 below the closed-form RDP estimate at the
+elastic radius. This is a calibration gap in the inner-cavity
+initial state (gas EOS partition, initial cavity radius) and the
+Wilkins AV coefficients, not a structural bug; the qualitative
+behaviour (positive cavity radius, monotone shock-front expansion,
+non-reflecting outer BC, finite energy bookkeeping) matches what a
+real shock-physics solver should produce. Pass-7 follow-up: replace
+the ideal-gas inner-cavity placeholder with a JWL detonation-products
+EOS, calibrate the initial cavity radius from device-physics data,
+and tighten the AV coefficients so RADIAL_LAGRANGIAN can be
+promoted to the default within the original spec's factor-5
+envelope.
+
+**Pass-6 deliverables.**
+
+  - 1D radial Lagrangian finite-volume solver lands behind the
+    `solver_kind` dispatch.
+  - Six standalone physics-validation gates
+    (`Physics.RadialLagrangian.PureElasticSphericalWave`,
+    `OutgoingBC`, `SedovTaylorEarlyTime`, `NTSCavityRadiusScaling`,
+    `EnergyConservation`, `MeshRefinementConvergence`) verify the
+    solver completes, conserves energy within an order of magnitude,
+    and produces monotone cavity expansion across resolutions.
+  - Two new integration gates:
+    `Integration.NearFieldSource.ClosedFormFallback` (regression
+    guard) and `Integration.NearFieldSource.RadialLagrangianAnchor`
+    (opt-in: pipeline completes, finite outputs, HDF5 + XDMF
+    spatial-profile files written).
+  - All 17 pre-existing historic tests run unchanged under the
+    default `KINEMATIC_RDP` and the default `CLOSED_FORM` paths.
+
+**Pass-7 (axis-1a closed).** Pass-7 closes the pass-6 amplitude
+calibration gap. The implementation replaces the chemical-detonation
+JWL placeholder suggested at the end of pass-6 with the physically-
+correct path: a Tillotson EOS for the host rock under post-radiation-
+phase plasma conditions, a first-principles Newton energy-partition
+solve for the inner-cavity initial state at the radiation-to-
+hydrodynamic transition time (Zel'dovich-Raizer 1967 end-state
+approximation; vapor density at the solid density), and Wilkins
+(1980) literature AV coefficients (`c_l = 0.06`, `c_q = 1.5`).
+
+The Sedan 1962 anchor lands at a 2.24x amplitude ratio relative to
+the closed-form RDP estimate, well inside the factor-5 envelope from
+the original pass-7 spec. `solver_kind = RADIAL_LAGRANGIAN` is now
+the default for `[NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC`.
+`Integration.NearFieldSource.RadialLagrangianAnchor` asserts the
+factor-5 envelope; `Integration.NearFieldSource.ClosedFormFallback`
+preserves the byte-identical pass-5 regression guard via two
+explicit-`CLOSED_FORM` runs after the default flip; the
+`Sedan1962_Dynamic` historic-nuclear test fixture is pinned to
+`solver_kind = CLOSED_FORM` so its legacy assertions continue to
+gate pass-5 behavior.
+
+**Pass-7 deliverables.**
+
+  - `TillotsonEOS` class with four host-rock parameter sets
+    (granite, tuff, salt, alluvium-placeholder) and four standalone
+    EOS validation gates.
+  - `solveCavityInitialState()` Newton iteration on the closed
+    energy-partition equation; two physics-validation gates
+    (`PhysicsBasedCavityEnergyConservation`,
+    `PhysicsBasedCavityRadius`).
+  - Wilkins AV defaults at literature values; pass-6 `0.5 / 2.0`
+    preserved by explicit `art_visc_linear` /
+    `art_visc_quadratic` overrides.
+  - `solver_kind = RADIAL_LAGRANGIAN` default; six pass-6 physics
+    gates tightened to factor-10 / factor-30 / factor-3 envelopes.
+  - `scripts/pass7_amplitude_diagnostic.sh` runs the headline
+    diagnostic outside CI at production resolution.
+  - `scripts/verify_pvsm.sh` and
+    `Functional.ParaView.NearFieldCavityStateLoads` close the
+    pass-6 ParaView verification debt.
+
+**Deferred (axis-1a residual follow-up + axis-1b).**
+
+  - **Pass-8 axis-1a residual.** The strict pass-7 spec tolerances
+    on the six standalone gates (5 percent peak amplitude,
+    1 percent reflected energy, 10 percent Sedov prefactor, 20
+    percent NTS cavity for all four media, 2 percent energy
+    conservation, documented convergence order) remain open. They
+    require either (a) tabulated EOS in the plasma regime
+    (ANEOS / SESAME / QEOS) replacing extrapolated Tillotson,
+    (b) an explicit Marshak-wave radiation-transport phase
+    replacing the Zel'dovich-Raizer end-state approximation, or
+    (c) a higher-order numerical scheme replacing the explicit
+    Wilkins-AV finite-volume update. The alluvium Tillotson
+    parameter set is also a placeholder and needs a purpose-built
+    fit. Pass-8 should pick the highest-leverage of these.
+  - **Axis-1b.** Replace the 1D radial solver with a 3D
     Drucker-Prager subdomain on the source ball, dropping the
-    spherical-symmetry assumption. This is the spec-as-written
-    ambition of the pass-5 task and is multi-week scope; the pass-5
-    config grammar and dispatch path were authored to substitute
-    cleanly into either an axis-1a or axis-1b implementation.
+    spherical-symmetry assumption. This is the original pass-5
+    spec ambition and is multi-week scope; the pass-5 + pass-6 +
+    pass-7 dispatch path was authored to substitute cleanly into
+    axis-1b.
 
 ## 2. Topography and curved free surface
 
@@ -183,7 +276,9 @@ axis. It cross-references `docs/HISTORIC_NUCLEAR_FIDELITY.md`.
 | 2    | #111 | (precondition) | time-domain Mueller-Murphy moment rate as Fourier pair of RDP, medium_type plumbed end-to-end |
 | 3    | #112 | 4 (partial), 6 (partial) | per-layer Q to aux fields, t*(f) post-FFT envelope, MESH_REFINEMENT plumbing |
 | 4    | #113-#115 | (closes pass-3 inversion) | multi-cell moment-tensor distribution, factor-30 envelope on anchor tests |
-| 5    | (this PR) | 1 (partial) | DYNAMIC_PLASTIC config grammar, full 6-component Mdot_ij injection, R_cavity / R_plastic / Mdot history CSV; closed-form cavity-expansion kernel (axis-1a/1b deferred) |
+| 5    | #120 | 1 (partial) | DYNAMIC_PLASTIC config grammar, full 6-component Mdot_ij injection, R_cavity / R_plastic / Mdot history CSV; closed-form cavity-expansion kernel (axis-1a/1b deferred) |
+| 6    | #121 | 1 (axis-1a partial) | RadialLagrangianSolver behind solver_kind dispatch (CLOSED_FORM default preserves pass-5 byte-for-byte; RADIAL_LAGRANGIAN opt-in runs the new shock solver), HDF5+XDMF spatial profile pair, six physics-validation gates, ClosedFormFallback + RadialLagrangianAnchor integration tests; far-field amplitude under RADIAL_LAGRANGIAN ~factor 100-400 below the closed-form estimate (axis-1a calibration follow-up; see fidelity doc pass-6 entry) |
+| 7    | (this PR) | 1 (axis-1a closed) | TillotsonEOS host-rock evaluator + first-principles physics-based cavity initialization (Zel'dovich-Raizer end-state approximation, Newton energy-partition solve) + Wilkins (1980) literature AV defaults; Sedan 1962 amplitude ratio 2.24x (within factor-5 envelope); RADIAL_LAGRANGIAN promoted to default for DYNAMIC_PLASTIC; pass-6 standalone gates tightened to factor-10/30/3 envelopes; ParaView .pvsm verification (skipped in fsrm-ci, runnable via scripts/verify_pvsm.sh); strict pass-7 spec tolerances on six gates deferred to pass-8 (named candidates: tabulated plasma EOS, explicit Marshak phase, higher-order numerics, fitted alluvium Tillotson set) |
 
-When pass-5 merges, update this row with the merged PR number and
-the per-axis row to reflect any scope shifts.
+When this pass merges, update this row with the merged PR number
+and the per-axis row to reflect any scope shifts.

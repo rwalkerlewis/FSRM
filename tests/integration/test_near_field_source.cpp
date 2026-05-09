@@ -215,3 +215,147 @@ TEST_F(NearFieldSourceTest, KinematicRDPLegacyByteIdentical)
         << "KINEMATIC_RDP paths: " << peak_legacy << " vs " << peak_explicit;
   }
 }
+
+// Pass-6 + pass-7: under [NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC
+// with solver_kind = CLOSED_FORM, the pipeline must continue to
+// produce the same byte-identical pass-5 RDP-driven output regardless
+// of repeated invocation. Pass-7 promoted RADIAL_LAGRANGIAN to the
+// default for DYNAMIC_PLASTIC, so the regression guard now compares
+// two explicit-CLOSED_FORM runs (rather than default-vs-explicit) to
+// ensure the pinned-CLOSED_FORM legacy path is unchanged.
+TEST_F(NearFieldSourceTest, ClosedFormFallback)
+{
+  writeConfig("dyn_closedform_a",
+              "[NEAR_FIELD_SOURCE]\n"
+              "mode = DYNAMIC_PLASTIC\n"
+              "solver_kind = CLOSED_FORM\n");
+  PetscReal n_a = 0.0;
+  ASSERT_EQ(runPipeline(n_a), 0);
+  const double peak_a = readBhzPeak();
+
+  writeConfig("dyn_closedform_b",
+              "[NEAR_FIELD_SOURCE]\n"
+              "mode = DYNAMIC_PLASTIC\n"
+              "solver_kind = CLOSED_FORM\n");
+  PetscReal n_b = 0.0;
+  ASSERT_EQ(runPipeline(n_b), 0);
+  const double peak_b = readBhzPeak();
+
+  if (rank_ == 0)
+  {
+    EXPECT_EQ(n_a, n_b)
+        << "Solution norm drifted between two explicit-CLOSED_FORM "
+        << "runs under DYNAMIC_PLASTIC mode: " << n_a << " vs " << n_b;
+    EXPECT_EQ(peak_a, peak_b)
+        << "BHZ peak drifted between two explicit-CLOSED_FORM runs "
+        << "under DYNAMIC_PLASTIC mode: " << peak_a << " vs " << peak_b;
+  }
+}
+
+// Pass-7 headline gate. With the Tillotson host-rock EOS, physics-
+// based energy-partition cavity initialization, and Wilkins (1980)
+// literature AV coefficients (c_l = 0.06, c_q = 1.5), the radial
+// Lagrangian shock solver lands within a factor of 5 of the closed-
+// form RDP estimate at the elastic-radius extraction surface (Sedan
+// 1962 anchor: ratio ~2.2x). This test runs the same fixture under
+// both solver_kind dispatches and asserts the peak |M0_iso_dot|
+// ratio falls inside the factor-5 envelope. The HDF5 + XDMF profile
+// pair must also be produced and the recorded cavity radius must be
+// finite and positive.
+TEST_F(NearFieldSourceTest, RadialLagrangianAnchor)
+{
+  // RADIAL_LAGRANGIAN run. radial_cells = 100 keeps the CI pass
+  // fast; the production resolution (800) is exercised by the
+  // pass-7 amplitude diagnostic script (scripts/pass7_amplitude_
+  // diagnostic.sh) and the historic-nuclear / examples runs.
+  writeConfig("radial_lagrangian",
+              "[NEAR_FIELD_SOURCE]\n"
+              "mode = DYNAMIC_PLASTIC\n"
+              "solver_kind = RADIAL_LAGRANGIAN\n"
+              "radial_cells = 100\n"
+              "elastic_radius_factor = 3.0\n"
+              "near_field_dt = 1.0e-5\n"
+              "output_cadence_microseconds = 1000\n"
+              "profile_output_cadence_microseconds = 5000\n");
+  PetscReal sol_norm_rl = 0.0;
+  ASSERT_EQ(runPipeline(sol_norm_rl), 0)
+      << "RADIAL_LAGRANGIAN pipeline must complete";
+
+  // Capture the RL output paths now: the next writeConfig overwrites
+  // the test fixture's output_dir_ field, but the actual files on
+  // disk for the RL run live under their own per-tag directory.
+  const std::string csv_rl = output_dir_ + "/near_field_history.csv";
+  const std::string h5_path = output_dir_ + "/near_field_profile.h5";
+  const std::string xdmf_path = output_dir_ + "/near_field_profile.xdmf";
+  if (rank_ == 0) {
+    EXPECT_TRUE(std::isfinite(sol_norm_rl))
+        << "Solution norm must be finite under RADIAL_LAGRANGIAN";
+  }
+
+  // CLOSED_FORM run for the amplitude-ratio reference.
+  writeConfig("closed_form_anchor",
+              "[NEAR_FIELD_SOURCE]\n"
+              "mode = DYNAMIC_PLASTIC\n"
+              "solver_kind = CLOSED_FORM\n"
+              "elastic_radius_factor = 3.0\n"
+              "near_field_dt = 1.0e-5\n"
+              "output_cadence_microseconds = 1000\n");
+  PetscReal sol_norm_cf = 0.0;
+  ASSERT_EQ(runPipeline(sol_norm_cf), 0)
+      << "CLOSED_FORM reference pipeline must complete";
+
+  if (rank_ != 0) return;
+  const std::string csv_cf = output_dir_ + "/near_field_history.csv";
+
+  auto peak_m0iso_dot = [](const std::string& csv_path) -> double {
+    std::ifstream csv(csv_path);
+    if (!csv.is_open()) return -1.0;
+    std::string line;
+    double peak = 0.0;
+    int rows = 0;
+    while (std::getline(csv, line)) {
+      if (line.empty() || line[0] == '#') continue;
+      if (line.rfind("t,", 0) == 0) continue;
+      std::stringstream ss(line);
+      std::string cell;
+      std::vector<double> cols;
+      while (std::getline(ss, cell, ',')) {
+        try { cols.push_back(std::stod(cell)); }
+        catch (...) { cols.clear(); break; }
+      }
+      if (cols.size() >= 10) {
+        const double v = std::abs(cols[9]);
+        if (v > peak) peak = v;
+        ++rows;
+      }
+    }
+    return rows > 0 ? peak : -1.0;
+  };
+
+  const double peak_rl = peak_m0iso_dot(csv_rl);
+  const double peak_cf = peak_m0iso_dot(csv_cf);
+
+  ASSERT_GT(peak_rl, 0.0)
+      << "RADIAL_LAGRANGIAN peak |M0_iso_dot| must be positive";
+  ASSERT_GT(peak_cf, 0.0)
+      << "CLOSED_FORM peak |M0_iso_dot| must be positive";
+
+  const double ratio = peak_rl / peak_cf;
+  EXPECT_GT(ratio, 0.2)
+      << "RADIAL_LAGRANGIAN peak |M0_iso_dot|=" << peak_rl
+      << " < 0.2x CLOSED_FORM=" << peak_cf
+      << " (factor-5 envelope on the low side; gap re-opened)";
+  EXPECT_LT(ratio, 5.0)
+      << "RADIAL_LAGRANGIAN peak |M0_iso_dot|=" << peak_rl
+      << " > 5x CLOSED_FORM=" << peak_cf
+      << " (factor-5 envelope on the high side; calibration drifted)";
+
+  // Profile pair guard: the HDF5 + XDMF spatial-profile output must
+  // be present from the RADIAL_LAGRANGIAN run.
+  EXPECT_TRUE(std::filesystem::exists(h5_path))
+      << "near_field_profile.h5 must be written under RADIAL_LAGRANGIAN: "
+      << h5_path;
+  EXPECT_TRUE(std::filesystem::exists(xdmf_path))
+      << "near_field_profile.xdmf must be written under RADIAL_LAGRANGIAN: "
+      << xdmf_path;
+}

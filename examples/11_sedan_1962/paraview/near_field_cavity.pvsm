@@ -1,44 +1,32 @@
 <!--
-  near_field_cavity.pvsm -- pass-5 ParaView state stub for the Sedan
-  1962 anchor event under [NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC.
+  near_field_cavity.pvsm -- pass-6 ParaView state for the Sedan 1962
+  anchor event under [NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC.
 
-  Loads the near-field history CSV emitted by the 1D solver
-  (../output/sedan_1962_dynamic/near_field_history.csv) and configures
-  a camera positioned to look at the source ball.
+  Pass-6 ships two data products:
 
-  This is a minimal stub. After running run_dynamic.sh, open this file
-  in ParaView 5.10+ and:
+    1. near_field_history.csv        Pass-5 history (cavity radius,
+                                     plastic radius, 6-component
+                                     moment-rate tensor over time)
+    2. near_field_profile.xdmf       Pass-6 HDF5+XDMF spatial profile
+                                     time-series (radial state vs
+                                     time at the configured cadence)
 
-  1. Confirm the CSV reader source loaded the history file. The file
-     is one row per sampled time (default cadence 100 us); columns are
-     t, R_cavity, R_plastic, Mxx_dot, ..., M0_iso_dot.
+  This state file loads both, configures the XYChartView with the
+  pass-5 CSV columns plotted vs t and the spatial-profile reader on
+  top of the XDMF wrapper. Open in ParaView 5.10+:
 
-  2. Add a "Plot Data" representation, set X axis = t and Y axes =
-     R_cavity, R_plastic, M0_iso_dot.
+      paraview --state=near_field_cavity.pvsm
 
-  3. Use "Plot Selection Over Time" or "Plot Data Over Time" to see
-     the time series of cavity expansion and moment-rate plateau.
-
-  See paraview/README.md for the matching Python state script which
-  is easier to load programmatically (pvbatch state.py).
+  The Animation Time slider plays through the cavity-formation
+  transient; the chart annotates the running cavity radius from the
+  CSV.
 -->
 <ParaView>
   <ServerManagerState version="5.10.1">
-    <Proxy group="views" type="XYChartView" id="100" servers="21">
-      <Property name="ViewSize" id="100.ViewSize" number_of_elements="2">
-        <Element index="0" value="1024"/>
-        <Element index="1" value="768"/>
-      </Property>
-      <Property name="ChartTitle" id="100.ChartTitle" number_of_elements="1">
-        <Element index="0" value="Sedan 1962 -- Near-Field Cavity History"/>
-      </Property>
-      <Property name="LeftAxisTitle" id="100.LeftAxisTitle" number_of_elements="1">
-        <Element index="0" value="Cavity / plastic radius (m)"/>
-      </Property>
-      <Property name="BottomAxisTitle" id="100.BottomAxisTitle" number_of_elements="1">
-        <Element index="0" value="Time (s)"/>
-      </Property>
-    </Proxy>
+
+    <!-- ============================================================
+         CSV history reader (pass-5).
+         ============================================================ -->
     <Proxy group="sources" type="CSVReader" id="101" servers="1">
       <Property name="FileName" id="101.FileName" number_of_elements="1">
         <Element index="0" value="../output/sedan_1962_dynamic/near_field_history.csv"/>
@@ -53,11 +41,110 @@
         <Element index="0" value="0"/>
       </Property>
     </Proxy>
+
+    <!-- ============================================================
+         XDMF reader for the pass-6 spatial profile time series.
+         The XdmfReader proxy reads the XDMF wrapper which references
+         the HDF5 file by relative path (near_field_profile.h5).
+         ============================================================ -->
+    <Proxy group="sources" type="XdmfReader" id="102" servers="1">
+      <Property name="FileName" id="102.FileName" number_of_elements="1">
+        <Element index="0" value="../output/sedan_1962_dynamic/near_field_profile.xdmf"/>
+      </Property>
+    </Proxy>
+
+    <!-- ============================================================
+         XYChartView for the moment-rate / cavity history.
+         SeriesVisibility flags are the standard pass-5 columns; the
+         user can toggle additional series in the Properties panel.
+         ============================================================ -->
+    <Proxy group="views" type="XYChartView" id="100" servers="21">
+      <Property name="ViewSize" id="100.ViewSize" number_of_elements="2">
+        <Element index="0" value="1024"/>
+        <Element index="1" value="768"/>
+      </Property>
+      <Property name="ChartTitle" id="100.ChartTitle" number_of_elements="1">
+        <Element index="0" value="Sedan 1962 -- Near-Field Cavity Formation"/>
+      </Property>
+      <Property name="LeftAxisTitle" id="100.LeftAxisTitle" number_of_elements="1">
+        <Element index="0" value="Cavity / plastic radius (m)"/>
+      </Property>
+      <Property name="RightAxisTitle" id="100.RightAxisTitle" number_of_elements="1">
+        <Element index="0" value="M0_iso_dot (N*m/s)"/>
+      </Property>
+      <Property name="BottomAxisTitle" id="100.BottomAxisTitle" number_of_elements="1">
+        <Element index="0" value="Time (s)"/>
+      </Property>
+      <Property name="LegendVisibility" id="100.LegendVisibility" number_of_elements="1">
+        <Element index="0" value="1"/>
+      </Property>
+    </Proxy>
+
+    <!-- ============================================================
+         Chart representation: bind CSV columns to the XYChartView.
+         The SeriesVisibility array enables R_cavity, R_plastic, and
+         M0_iso_dot. UseIndexForXAxis=0 + XArrayName=t plots vs time.
+         ============================================================ -->
+    <Proxy group="representations" type="XYChartRepresentation" id="103" servers="21">
+      <Property name="Input" id="103.Input" number_of_elements="1">
+        <Proxy value="101"/>
+      </Property>
+      <Property name="UseIndexForXAxis" id="103.UseIndexForXAxis" number_of_elements="1">
+        <Element index="0" value="0"/>
+      </Property>
+      <Property name="XArrayName" id="103.XArrayName" number_of_elements="1">
+        <Element index="0" value="t"/>
+      </Property>
+      <Property name="SeriesVisibility" id="103.SeriesVisibility" number_of_elements="6">
+        <Element index="0" value="R_cavity"/>
+        <Element index="1" value="1"/>
+        <Element index="2" value="R_plastic"/>
+        <Element index="3" value="1"/>
+        <Element index="4" value="M0_iso_dot"/>
+        <Element index="5" value="1"/>
+      </Property>
+      <Property name="SeriesLabel" id="103.SeriesLabel" number_of_elements="6">
+        <Element index="0" value="R_cavity"/>
+        <Element index="1" value="Cavity radius"/>
+        <Element index="2" value="R_plastic"/>
+        <Element index="3" value="Plastic radius"/>
+        <Element index="4" value="M0_iso_dot"/>
+        <Element index="5" value="Isotropic moment rate"/>
+      </Property>
+      <Property name="SeriesColor" id="103.SeriesColor" number_of_elements="12">
+        <Element index="0" value="R_cavity"/>
+        <Element index="1" value="0.89"/>
+        <Element index="2" value="0.10"/>
+        <Element index="3" value="0.11"/>
+        <Element index="4" value="R_plastic"/>
+        <Element index="5" value="0.22"/>
+        <Element index="6" value="0.49"/>
+        <Element index="7" value="0.72"/>
+        <Element index="8" value="M0_iso_dot"/>
+        <Element index="9" value="0.30"/>
+        <Element index="10" value="0.69"/>
+        <Element index="11" value="0.29"/>
+      </Property>
+      <Property name="SeriesPlotCorner" id="103.SeriesPlotCorner" number_of_elements="6">
+        <Element index="0" value="R_cavity"/>
+        <Element index="1" value="0"/>
+        <Element index="2" value="R_plastic"/>
+        <Element index="3" value="0"/>
+        <Element index="4" value="M0_iso_dot"/>
+        <Element index="5" value="1"/>
+      </Property>
+    </Proxy>
+
     <ProxyCollection name="views">
       <Item id="100" name="NearFieldChart"/>
     </ProxyCollection>
     <ProxyCollection name="sources">
       <Item id="101" name="near_field_history"/>
+      <Item id="102" name="near_field_profile"/>
     </ProxyCollection>
+    <ProxyCollection name="representations">
+      <Item id="103" name="HistoryChart"/>
+    </ProxyCollection>
+
   </ServerManagerState>
 </ParaView>
