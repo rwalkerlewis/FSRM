@@ -1405,6 +1405,62 @@ TEST_F(HistoricNuclearTest, LopNor1976)
   }
 }
 
+// Lop Nor 1996 (final Chinese underground test, 1996-07-29): mb 5.0,
+// ~5 kt central yield estimate. Open-basin emplacement in weathered
+// granite under Tertiary sediment, less topography contamination than
+// the 1976 Tian Shan tunnel sites. Pass-12 housekeeping smoke test.
+TEST_F(HistoricNuclearTest, LopNor1996)
+{
+  std::vector<LayerDef> layers = {
+    {2000.0, 1950.0, 4.10e9,  3.02e9,  2100.0},  // Tertiary sediment cover
+    {1950.0, 1500.0, 2.83e10, 2.55e10, 2650.0},  // Mesozoic / weathered granite
+    {1500.0,    0.0, 3.65e10, 3.47e10, 2750.0},  // Pre-Cambrian basement
+  };
+  // P-wave travel time from 800 m source through granite ~0.15 s;
+  // 0.3 s gives margin.
+  writeConfig("lop_nor_1996", 5.0, 800.0, 2000.0, layers, 0.3, "GRANITE");
+
+  PetscReal sol_norm = 0.0;
+  PetscErrorCode ierr = runPipeline(sol_norm);
+
+  ASSERT_EQ(ierr, 0) << "Lop Nor 1996 (~5 kt, basin granite) pipeline must complete";
+  EXPECT_GT(sol_norm, 0.0);
+  EXPECT_TRUE(std::isfinite(sol_norm));
+  if (rank_ == 0)
+  {
+    EXPECT_TRUE(checkSACOutput());
+    assertFarFieldAndPolarity("Lop Nor 1996");
+  }
+}
+
+// Pokhran II Shakti-I (Indian thermonuclear, 1998-05-11): mb 5.2,
+// ~20 kt central seismic estimate (43 kt announced; well-documented
+// yield discrepancy). Granitic gneiss host rock in the Marwar craton.
+// Pass-12 housekeeping smoke test; the multi-shot superposition with
+// Shakti-II is not modeled.
+TEST_F(HistoricNuclearTest, PokhranII1998)
+{
+  std::vector<LayerDef> layers = {
+    {2000.0, 1950.0, 3.96e9,  1.62e9,  2000.0},  // Alluvium / weathered top
+    {1950.0, 1500.0, 3.06e10, 2.76e10, 2700.0},  // Granitic gneiss host rock
+    {1500.0,    0.0, 3.65e10, 3.73e10, 2800.0},  // Pre-Cambrian basement
+  };
+  // Shallow shot: 210 m source through granite ~0.04 s; 0.2 s margin.
+  writeConfig("pokhran_ii_1998", 20.0, 210.0, 2000.0, layers, 0.2, "GRANITE");
+
+  PetscReal sol_norm = 0.0;
+  PetscErrorCode ierr = runPipeline(sol_norm);
+
+  ASSERT_EQ(ierr, 0) << "Pokhran II Shakti-I (~20 kt, granitic gneiss) pipeline must complete";
+  EXPECT_GT(sol_norm, 0.0);
+  EXPECT_TRUE(std::isfinite(sol_norm));
+  if (rank_ == 0)
+  {
+    EXPECT_TRUE(checkSACOutput());
+    assertFarFieldAndPolarity("Pokhran II 1998");
+  }
+}
+
 // DPRK 2017 (Sixth NK Underground Test, 2017-09-03): mb 6.3, ~250 kt,
 // granite host rock under volcanic tuff overburden, ~600 m below the
 // summit of Mt. Mantap. Pass-12 housekeeping smoke test: runs the
