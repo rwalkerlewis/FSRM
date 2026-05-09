@@ -1599,6 +1599,77 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                             ? 0.0
                             : explosion_->nf_history_R_plastic.back());
                 }
+
+                // Pass-5 near-field history CSV. Written on rank 0 to
+                // <SEISMOMETERS.output_dir>/near_field_history.csv if a
+                // seismometer output directory is configured (the
+                // historic-nuclear examples set it), else to
+                // ./near_field_history.csv. Columns:
+                //   t [s], R_cavity [m], R_plastic [m],
+                //   Mxx, Myy, Mzz, Mxy, Mxz, Myz [N*m],
+                //   M0_iso = (Mxx + Myy + Mzz) / 3 [N*m]
+                // The CSV is the model-side payload pass-5 produces for
+                // ParaView (Table-To-Points + Plot-Over-Time) and for
+                // the test gates that assert the recorded cavity
+                // radius, scalar moment, etc. A native HDF5 dataset
+                // landing alongside this CSV is roadmap follow-up; the
+                // CSV format is intentionally self-describing so the
+                // history is consumable even without an XDMF wrapper.
+                if (rank == 0 &&
+                    !explosion_->nf_history_times.empty()) {
+                    std::string nf_dir = seismo_out_cfg_.output_dir.empty()
+                        ? std::string(".")
+                        : seismo_out_cfg_.output_dir;
+                    std::error_code ec_dir;
+                    std::filesystem::create_directories(nf_dir, ec_dir);
+                    const std::string nf_path =
+                        nf_dir + "/near_field_history.csv";
+                    std::ofstream csv(nf_path);
+                    if (csv) {
+                        csv << "# FSRM pass-5 near-field history\n"
+                            << "# yield_kt=" << yield_kt
+                            << " depth_of_burial=" << depth_m
+                            << " medium=" << explosion_->medium_type
+                            << "\n"
+                            << "# elastic_radius=" << explosion_->nf_elastic_radius
+                            << " cavity_radius=" << explosion_->nf_cavity_radius
+                            << " elastic_radius_factor="
+                            << explosion_->elastic_radius_factor
+                            << "\n"
+                            << "# near_field_dt=" << explosion_->near_field_dt
+                            << " output_cadence_us="
+                            << explosion_->near_field_output_cadence_us
+                            << " damage_model="
+                            << explosion_->near_field_damage_model
+                            << "\n"
+                            << "t,R_cavity,R_plastic,"
+                            << "Mxx,Myy,Mzz,Mxy,Mxz,Myz,M0_iso\n";
+                        csv << std::scientific;
+                        csv.precision(8);
+                        for (size_t i = 0;
+                             i < explosion_->nf_history_times.size(); ++i) {
+                            const auto& mv = explosion_->nf_history_M[i];
+                            const double m0iso =
+                                (mv[0] + mv[1] + mv[2]) / 3.0;
+                            csv << explosion_->nf_history_times[i] << ","
+                                << explosion_->nf_history_R_cavity[i] << ","
+                                << explosion_->nf_history_R_plastic[i] << ","
+                                << mv[0] << "," << mv[1] << "," << mv[2] << ","
+                                << mv[3] << "," << mv[4] << "," << mv[5] << ","
+                                << m0iso << "\n";
+                        }
+                        csv.close();
+                        PetscPrintf(comm,
+                            "  Near-field history CSV: %s "
+                            "(%zu rows)\n",
+                            nf_path.c_str(),
+                            explosion_->nf_history_times.size());
+                    } else {
+                        PetscPrintf(comm,
+                            "  WARNING: failed to open %s for writing\n",
+                            nf_path.c_str());
+                    }
+                }
             }
         }
     }
