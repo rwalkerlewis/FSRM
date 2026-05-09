@@ -81,6 +81,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_near_field_explosion.cpp
     physics_validation/test_dynamic_plastic_cavity.cpp
     physics_validation/test_radial_lagrangian.cpp
+    physics_validation/test_tillotson_eos.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -266,6 +267,11 @@ if(GTest_FOUND)
     add_test(NAME Physics.RadialLagrangian.NTSCavityRadiusScaling COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.NTSCavityRadiusScaling)
     add_test(NAME Physics.RadialLagrangian.EnergyConservation COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.EnergyConservation)
     add_test(NAME Physics.RadialLagrangian.MeshRefinementConvergence COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.MeshRefinementConvergence)
+    # Pass-7: Tillotson EOS validation gates.
+    add_test(NAME Physics.TillotsonEOS.GraniteHugoniotCompression COMMAND run_physics_tests --gtest_filter=TillotsonEOSTest.GraniteHugoniotCompression)
+    add_test(NAME Physics.TillotsonEOS.GraniteVaporizationEnergyBalance COMMAND run_physics_tests --gtest_filter=TillotsonEOSTest.GraniteVaporizationEnergyBalance)
+    add_test(NAME Physics.TillotsonEOS.GraniteSoundSpeedConsistency COMMAND run_physics_tests --gtest_filter=TillotsonEOSTest.GraniteSoundSpeedConsistency)
+    add_test(NAME Physics.TillotsonEOS.SaltAndAlluviumParameterSetSelfConsistency COMMAND run_physics_tests --gtest_filter=TillotsonEOSTest.SaltAndAlluviumParameterSetSelfConsistency)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -496,6 +502,10 @@ if(GTest_FOUND)
         Physics.RadialLagrangian.NTSCavityRadiusScaling
         Physics.RadialLagrangian.EnergyConservation
         Physics.RadialLagrangian.MeshRefinementConvergence
+        Physics.TillotsonEOS.GraniteHugoniotCompression
+        Physics.TillotsonEOS.GraniteVaporizationEnergyBalance
+        Physics.TillotsonEOS.GraniteSoundSpeedConsistency
+        Physics.TillotsonEOS.SaltAndAlluviumParameterSetSelfConsistency
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
