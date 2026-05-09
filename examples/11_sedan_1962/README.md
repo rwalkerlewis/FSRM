@@ -24,8 +24,8 @@ Features used:
 
 Two configs ship with this example:
 
-- `config/examples/sedan_1962.config` -- baseline KINEMATIC_RDP path.
-- `config/examples/sedan_1962_dynamic.config` -- pass-5 DYNAMIC_PLASTIC
+- `examples/11_sedan_1962/config.config` -- baseline KINEMATIC_RDP path.
+- `examples/11_sedan_1962/config.config` -- pass-5 DYNAMIC_PLASTIC
   path. Pass-7 promoted RADIAL_LAGRANGIAN to the new default for
   DYNAMIC_PLASTIC, but this fixture pins `solver_kind = CLOSED_FORM`
   explicitly so the legacy RDP-driven cavity radius and far-field
@@ -75,7 +75,7 @@ Pass-7 RADIAL_LAGRANGIAN opt-in (delete or override the explicit
 ./run_dynamic.sh
 
 # Pass-7 RADIAL_LAGRANGIAN: open
-# config/examples/sedan_1962_dynamic.config and either remove the
+# examples/11_sedan_1962/config.config and either remove the
 # `solver_kind = CLOSED_FORM` line (the new default is
 # RADIAL_LAGRANGIAN) or replace it with `solver_kind =
 # RADIAL_LAGRANGIAN`. Add `radial_cells = 200` and

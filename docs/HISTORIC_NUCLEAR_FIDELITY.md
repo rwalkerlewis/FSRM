@@ -624,7 +624,7 @@ What is verified:
   meaningful regression at the calibration the solver delivers
   today.
 - **`Integration.HistoricNuclear.Sedan1962_Dynamic` and
-  `config/examples/sedan_1962_dynamic.config`** are pinned to
+  `examples/11_sedan_1962/config_dynamic.config`** are pinned to
   `solver_kind = CLOSED_FORM` so the legacy RDP-driven cavity
   radius and far-field amplitude assertions continue to gate
   pass-5 byte-identical behavior after the default flip.
@@ -759,7 +759,7 @@ What is verified:
      the gate asserts only that the solver delivers a positive
      radius.
 - **Salmon 1964 Marshak example.**
-  `config/examples/salmon_1964_marshak.config` opts into
+  `examples/20_salmon_1964/config_marshak.config` opts into
   `radiation_phase = MARSHAK_GREY`; paired with
   `examples/20_salmon_1964/run_marshak.sh`. The pass-7
   `salmon_1964.config` and the existing

@@ -1,24 +1,33 @@
 #!/bin/bash
 # Run SCEC TPV5 dynamic rupture benchmark
+# 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="${SCRIPT_DIR}/../../build"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+BUILD_DIR="${REPO_DIR}/build"
+CONFIG="${SCRIPT_DIR}/config.config"
+OUT_DIR="${SCRIPT_DIR}/output"
 
-if [ ! -x "${BUILD_DIR}/fsrm" ]; then
-    echo "Error: fsrm executable not found at ${BUILD_DIR}/fsrm"
-    echo "Build first: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j\$(nproc)"
+if [ ! -f "${BUILD_DIR}/fsrm" ]; then
+    echo "Error: Build FSRM first."
+    echo "  mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && make -j\$(nproc)"
     exit 1
 fi
 
-cd "${BUILD_DIR}"
-./fsrm -c "${SCRIPT_DIR}/config.config" \
-    -ts_type alpha2 \
-    -snes_max_it 50 \
-    -snes_rtol 1e-6 \
-    -snes_atol 1e-6 \
-    -pc_type lu \
-    -ksp_type preonly \
-    -snes_linesearch_type basic \
-    -ts_max_snes_failures 100 \
-    "$@"
+source "${REPO_DIR}/scripts/run_with_mpi.sh"
+
+mkdir -p "${OUT_DIR}"
+cd "${SCRIPT_DIR}"
+
+echo "=== Run SCEC TPV5 dynamic rupture benchmark ==="
+echo "Config:  ${CONFIG}"
+echo "Output:  ${OUT_DIR}"
+echo "Ranks:   ${MPI_RANKS:-4}"
+echo ""
+
+run_with_mpi "${BUILD_DIR}/fsrm" -c "${CONFIG}"
+
+echo ""
+echo "=== Output Files ==="
+ls -lh "${OUT_DIR}" 2>/dev/null || echo "No output files generated."

@@ -21,7 +21,7 @@ Uses:
 
 ## Config
 
-Uses `config/examples/locked_fault_compression.config`.
+Uses `examples/04_locked_fault/config.config`.
 
 ## Expected Output
 
@@ -38,7 +38,7 @@ The fault slip should be negligible (< 5e-4 relative to applied displacement).
 Or manually:
 ```bash
 cd /path/to/build
-./fsrm -c ../config/examples/locked_fault_compression.config
+./fsrm -c ../examples/04_locked_fault/config.config
 ```
 
 ## Verified By

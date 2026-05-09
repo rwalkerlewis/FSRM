@@ -426,7 +426,7 @@ post-processing script under scripts/, kept out of the simulator binary.
 extension, executable is `fsrm`).
 
 New config keys go under [FAULT] and [FAULT_POROELASTIC] with a .config
-example under config/examples/ and a matching runnable script under
+example under examples/N_<event>/ and a matching runnable script under
 examples/NN_rate_state_friction/run.sh invoking `./fsrm -c ...`.
 
 ### Rule 12. No em dashes or contractions in code comments or documentation.

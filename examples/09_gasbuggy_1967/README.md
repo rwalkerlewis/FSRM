@@ -21,7 +21,7 @@ Features used:
 | Pictured Cliffs Ss | 1600-5000 | 4500 | 2600 | 2500 |
 
 ## Config
-Uses `config/examples/gasbuggy_1967.config`.
+Uses `examples/09_gasbuggy_1967/config.config`.
 
 ## Expected Output
 - `output/gasbuggy_1967/*.SAC` -- synthetic seismograms at 3 stations

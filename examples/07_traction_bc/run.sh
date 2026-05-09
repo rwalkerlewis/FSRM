@@ -1,30 +1,33 @@
 #!/bin/bash
 # Example 07: Traction Boundary Condition
 # Uniaxial stress with 1 MPa traction on top face
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="${REPO_DIR}/build"
-CONFIG="${REPO_DIR}/config/examples/traction_bc.config"
+CONFIG="${SCRIPT_DIR}/config.config"
+OUT_DIR="${SCRIPT_DIR}/output"
 
 if [ ! -f "${BUILD_DIR}/fsrm" ]; then
-    echo "Error: Build FSRM first. Run: cd build && cmake .. && make -j\$(nproc)"
+    echo "Error: Build FSRM first."
+    echo "  mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && make -j\$(nproc)"
     exit 1
 fi
 
+source "${REPO_DIR}/scripts/run_with_mpi.sh"
+
+mkdir -p "${OUT_DIR}"
+cd "${SCRIPT_DIR}"
+
 echo "=== Example 07: Traction Boundary Condition ==="
-echo "Config: ${CONFIG}"
-echo ""
-echo "Physics: Uniaxial stress with 1 MPa traction on top face"
-echo "Analytical: u_z(100m) = -0.01 m"
+echo "Config:  ${CONFIG}"
+echo "Output:  ${OUT_DIR}"
+echo "Ranks:   ${MPI_RANKS:-4}"
 echo ""
 
-cd "${BUILD_DIR}"
-./fsrm -c "${CONFIG}"
+run_with_mpi "${BUILD_DIR}/fsrm" -c "${CONFIG}"
 
 echo ""
 echo "=== Output Files ==="
-ls -lh output/solution*.h5 2>/dev/null || echo "  (no HDF5 output)"
-ls -lh output_SUMMARY.txt 2>/dev/null || echo "  (no summary)"
+ls -lh "${OUT_DIR}" 2>/dev/null || echo "No output files generated."

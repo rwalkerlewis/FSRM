@@ -23,7 +23,7 @@ Uses:
 
 ## Config
 
-Uses `config/examples/punggye_ri_layered.config`.
+Uses `examples/05_punggye_ri_nuclear_test/config.config`.
 
 ## Expected Output
 
@@ -44,7 +44,7 @@ The seismograms should show:
 Or manually (this example takes longer due to wave propagation):
 ```bash
 cd /path/to/build
-./fsrm -c ../config/examples/punggye_ri_layered.config
+./fsrm -c ../examples/05_punggye_ri_nuclear_test/config.config
 ```
 
 ## Visualization

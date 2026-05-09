@@ -2,7 +2,7 @@
 # Compare CPU vs GPU performance on the same problem
 set -e
 
-CONFIG="${1:-config/examples/punggye_ri_layered.config}"
+CONFIG="${1:-examples/05_punggye_ri_nuclear_test/config_full.config}"
 
 echo "=== CPU run ==="
 docker run --rm -v "$(pwd):/workspace" -w /workspace/build fsrm-ci:local \

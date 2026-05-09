@@ -23,7 +23,7 @@ References: Wen et al. 2006; Yang et al. 2003 (Lop Nor basement
 velocity structure).
 
 ## Config
-Uses `config/examples/lop_nor_1976.config`.
+Uses `examples/38_lop_nor_1976/config.config`.
 
 ## Expected Output
 - `output/lop_nor_1976/*.SAC` -- synthetic seismograms at 3 stations

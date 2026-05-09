@@ -13,7 +13,7 @@ This exercises the time-dependent prescribed slip feature:
 
 ## Config
 
-`config/examples/time_dependent_slip.config`
+`examples/08_time_dependent_slip/config.config`
 
 ## Fault Parameters
 
@@ -36,7 +36,7 @@ Or manually:
 
 ```bash
 cd build
-./fsrm -c ../config/examples/time_dependent_slip.config
+./fsrm -c ../examples/08_time_dependent_slip/config.config
 ```
 
 ## Expected Output

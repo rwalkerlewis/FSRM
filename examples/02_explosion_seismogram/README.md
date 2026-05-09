@@ -16,7 +16,7 @@ Uses:
 
 ## Config
 
-Uses `config/examples/explosion_seismogram.config`.
+Uses `examples/02_explosion_seismogram/config.config`.
 
 ## Expected Output
 
@@ -43,7 +43,7 @@ The seismograms should show:
 Or manually:
 ```bash
 cd /path/to/build
-./fsrm -c ../config/examples/explosion_seismogram.config
+./fsrm -c ../examples/02_explosion_seismogram/config.config
 ```
 
 ## Visualization

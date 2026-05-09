@@ -25,7 +25,7 @@ Reference: Adushkin & Spivak 2015 (Semipalatinsk well-log summary;
 Soviet PNE cratering shots).
 
 ## Config
-Uses `config/examples/chagan_1965.config`.
+Uses `examples/30_chagan_1965/config.config`.
 
 ## Expected Output
 - `output/chagan_1965/*.SAC` -- synthetic seismograms at 3 stations

@@ -22,7 +22,7 @@ Features used:
 Reference: Sikka et al. 2000 (Pokhran Test Range geology).
 
 ## Config
-Uses `config/examples/pokhran_i_1974.config`.
+Uses `examples/32_pokhran_i_1974/config.config`.
 
 ## Expected Output
 - `output/pokhran_i_1974/*.SAC` -- synthetic seismograms at 3 stations

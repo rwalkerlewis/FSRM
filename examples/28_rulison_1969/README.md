@@ -25,7 +25,7 @@ References: Lombard et al. 1971; Reynolds et al. 1971 (Rulison
 Piceance Basin geology).
 
 ## Config
-Uses `config/examples/rulison_1969.config`.
+Uses `examples/28_rulison_1969/config.config`.
 
 ## Expected Output
 - `output/rulison_1969/*.SAC` -- synthetic seismograms at 3 stations

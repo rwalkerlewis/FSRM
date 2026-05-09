@@ -17,8 +17,8 @@ static char help[] = "FSRM - Full Service Reservoir Model\n"
                     "  -ksp_type <type>  Linear solver: gmres, bcgs, cg\n"
                     "  -pc_type <type>   Preconditioner: ilu, asm, gamg, hypre\n\n"
                     "Examples:\n"
-                    "  ./fsrm -c config/examples/uniaxial_compression.config\n"
-                    "  mpirun -np 4 ./fsrm -c config/examples/punggye_ri_layered.config\n\n"
+                    "  ./fsrm -c examples/01_uniaxial_compression/config.config\n"
+                    "  mpirun -np 4 ./fsrm -c examples/05_punggye_ri_nuclear_test/config_full.config\n\n"
                     "  # Generate template configuration\n"
                     "  ./fsrm -generate_config my_config.config\n\n";
 

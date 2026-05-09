@@ -22,7 +22,7 @@ Features used:
 References: Springer et al. 1968; Patton 1991; Stump et al. 1994.
 
 ## Config
-Uses `config/examples/salmon_1964.config`.
+Uses `examples/20_salmon_1964/config.config`.
 
 ## Expected Output
 - `output/salmon_1964/*.SAC` -- synthetic seismograms at 3 stations
@@ -46,7 +46,7 @@ field measurements, and a published moment tensor.
 
 ### Pass-8 config + run
 
-`config/examples/salmon_1964_marshak.config` is identical to
+`examples/20_salmon_1964/config.config` is identical to
 `salmon_1964.config` except the `[NEAR_FIELD_SOURCE]` block opts
 into `radiation_phase = MARSHAK_GREY` (the new explicit grey
 radiation-diffusion solver) and adds a `[WAVEFORM_VV]` section

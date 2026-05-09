@@ -21,7 +21,7 @@ Features used:
 References: Springer & Kinnaman 1971; Carlos 1995.
 
 ## Config
-Uses `config/examples/rainier_1957.config`.
+Uses `examples/19_rainier_1957/config.config`.
 
 ## Expected Output
 - `output/rainier_1957/*.SAC` -- synthetic seismograms at 3 stations

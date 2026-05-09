@@ -22,7 +22,7 @@ Uses:
 
 ## Config
 
-Uses `config/examples/nuclear_twin_gmsh.config`.
+Uses `examples/06_gmsh_multimaterial/config.config`.
 Requires mesh: `meshes/test_two_material.msh`.
 
 ## Expected Output
@@ -41,7 +41,7 @@ regions, with reflections and refractions at the material interface.
 Or manually:
 ```bash
 cd /path/to/build
-./fsrm -c ../config/examples/nuclear_twin_gmsh.config
+./fsrm -c ../examples/06_gmsh_multimaterial/config.config
 ```
 
 ## Verified By

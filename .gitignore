@@ -2,6 +2,10 @@
 build/
 build-*/
 
+# Per-example output directories produced by examples/*/run.sh
+examples/*/output/
+examples/*/output_*/
+
 # Compiled object files
 *.o
 *.obj

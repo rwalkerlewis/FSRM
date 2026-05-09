@@ -23,7 +23,7 @@ Features used:
 References: Hamilton & Healy 1969; McKeown & Dickey 1969.
 
 ## Config
-Uses `config/examples/faultless_1968.config`.
+Uses `examples/25_faultless_1968/config.config`.
 
 ## Expected Output
 - `output/faultless_1968/*.SAC` -- synthetic seismograms at 3 stations

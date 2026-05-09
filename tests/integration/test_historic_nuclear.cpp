@@ -805,7 +805,7 @@ TEST_F(HistoricNuclearTest, NtsPahuteMesa)
 // uses the same pipeline and seven quantitative assertions as the original
 // five tests above. Velocity models cite published references in the
 // docstring above each TEST_F; production configs in
-// `config/examples/<event>.config` carry the full citation block.
+// `examples/N_<event>/config.config` carry the full citation block.
 // =============================================================================
 
 // Rainier, NTS Area 12 (1957-09-19): 1.7 kt, 274 m, bedded tuff
@@ -1221,7 +1221,7 @@ TEST_F(HistoricNuclearTest, PokhranI_1974)
 
 // DPRK 2006, Punggye-ri Mt. Mantap (2006-10-09): ~0.7 kt (mb 4.1), 470 m,
 // granite. First DPRK test. Velocity model: Mt. Mantap layered model
-// shared with `config/examples/punggye_ri_layered.config`.
+// shared with `examples/05_punggye_ri_nuclear_test/config_full.config`.
 //
 // Status: BLOCKED on the 4x4x4 CI mesh. At 0.7 kt this is the smallest
 // declared DPRK shot; even with the 2-layer simplification used for
@@ -1258,7 +1258,7 @@ TEST_F(HistoricNuclearTest, DPRK2006)
 // granite. Same Mt. Mantap geology as DPRK 2006.
 //
 // Test geology simplification: the 3-layer production config in
-// `config/examples/dprk_2009.config` carries a competent-granite basal
+// `examples/34_dprk_2009/config.config` carries a competent-granite basal
 // layer (vp=5800 m/s); the test fixture collapses to a 2-layer model
 // with fractured-granite extending to z=0 (vp=4500 m/s). The 100x
 // envelope in `assertFarFieldAndPolarity` uses
@@ -1373,7 +1373,7 @@ TEST_F(HistoricNuclearTest, DPRK2016b)
 // First PRC underground test. Velocity model: Wen et al. 2006; Yang et al. 2003.
 //
 // Test geology simplification: the 4-layer production config in
-// `config/examples/lop_nor_1976.config` carries competent and deep
+// `examples/38_lop_nor_1976/config.config` carries competent and deep
 // granite basal layers (vp=5500, 6000 m/s); the test fixture collapses
 // to a 2-layer model with weathered granite extending to z=0
 // (vp=3500 m/s) for the same single-cell-source rationale documented

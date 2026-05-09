@@ -6,28 +6,28 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="${REPO_DIR}/build"
-CONFIG="${REPO_DIR}/config/examples/nuclear_twin_gmsh.config"
+CONFIG="${SCRIPT_DIR}/config.config"
+OUT_DIR="${SCRIPT_DIR}/output"
 
 if [ ! -f "${BUILD_DIR}/fsrm" ]; then
     echo "Error: Build FSRM first."
+    echo "  mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON && make -j\$(nproc)"
     exit 1
 fi
 
-if [ ! -f "${REPO_DIR}/meshes/test_two_material.msh" ]; then
-    echo "Error: Mesh file meshes/test_two_material.msh not found."
-    exit 1
-fi
+source "${REPO_DIR}/scripts/run_with_mpi.sh"
+
+mkdir -p "${OUT_DIR}"
+cd "${SCRIPT_DIR}"
 
 echo "=== Example 06: Gmsh Multi-Material ==="
-echo "Config: ${CONFIG}"
+echo "Config:  ${CONFIG}"
+echo "Output:  ${OUT_DIR}"
+echo "Ranks:   ${MPI_RANKS:-4}"
 echo ""
 
-cd "${BUILD_DIR}"
-./fsrm -c "${CONFIG}"
+run_with_mpi "${BUILD_DIR}/fsrm" -c "${CONFIG}"
 
 echo ""
 echo "=== Output Files ==="
-ls -lh output/nuclear_twin_gmsh/solution.h5 2>/dev/null && echo "  solution.h5 -- HDF5 displacement snapshots"
-ls -lh output/solution.h5 2>/dev/null && echo "  solution.h5 -- HDF5 displacement snapshots"
-echo ""
-echo "To visualize: Open the HDF5 output in ParaView"
+ls -lh "${OUT_DIR}" 2>/dev/null || echo "No output files generated."

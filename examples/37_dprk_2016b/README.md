@@ -21,11 +21,11 @@ Features used:
 | Competent granite     | 1000-2000 | 5800 | 3349 | 2650 |
 
 References: Mt. Mantap velocity model from existing
-`config/examples/punggye_ri_layered.config`. USGS event listing for the
+`examples/37_dprk_2016b/config.config`. USGS event listing for the
 2016-09-09 detection.
 
 ## Config
-Uses `config/examples/dprk_2016b.config`.
+Uses `examples/37_dprk_2016b/config.config`.
 
 ## Expected Output
 - `output/dprk_2016b/*.SAC` -- synthetic seismograms at 3 stations

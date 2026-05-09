@@ -20,7 +20,7 @@ Features used:
 | Competent Granite/Gneiss | 500-5000 | 6000 | 3464 | 2700 |
 
 ## Config
-Uses `config/examples/degelen_mountain.config`.
+Uses `examples/12_degelen_mountain/config.config`.
 
 ## Expected Output
 - `output/degelen_mountain/*.SAC` -- synthetic seismograms at 3 stations
