@@ -95,6 +95,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_pass11_diffusion.cpp
     physics_validation/test_pass11_outer_bc.cpp
     physics_validation/test_pass11_aneos_hugoniot.cpp
+    physics_validation/test_pass11_axis_1b_scaffold.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -336,6 +337,9 @@ if(GTest_FOUND)
     add_test(NAME Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep COMMAND run_physics_tests --gtest_filter=Pass11OuterBCTest.Salmon549mFreeFieldBCSweep)
     add_test(NAME Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage COMMAND run_physics_tests --gtest_filter=Pass11ANEOSHugoniotTest.GraniteHugoniotMatchesShockData_FullCoverage)
     add_test(NAME Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage COMMAND run_physics_tests --gtest_filter=Pass11ANEOSHugoniotTest.SaltHugoniotMatchesShockData_FullCoverage)
+    add_test(NAME Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.ThreeDimensionalCavityGeometryThrows)
+    add_test(NAME Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.SphericalCavityGeometryDoesNotThrow)
+    add_test(NAME Physics.Pass11Axis1bScaffold.Source3DBallFactoryThrows COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.Source3DBallFactoryThrows)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -617,6 +621,9 @@ if(GTest_FOUND)
         Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep
         Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage
         Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage
+        Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows
+        Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow
+        Physics.Pass11Axis1bScaffold.Source3DBallFactoryThrows
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 
