@@ -45,38 +45,37 @@ double MarshakRadiationDiffusionSolver::harmonicMean(double a, double b)
 
 void MarshakRadiationDiffusionSolver::initialize(int N)
 {
-    if (config_.opacity_model == OpacityModel::TABULATED_FULL) {
-        throw std::runtime_error(
-            "MarshakRadiationDiffusionSolver: opacity_model=TABULATED_FULL "
-            "is pass-10 work; pass-9 ships TABULATED_PATCHED only.");
-    }
     if (config_.opacity_model == OpacityModel::TABULATED_TOPS) {
         // Pass-8 retained TABULATED_TOPS as a throwing stub; pass-9
         // promotes TABULATED_PATCHED to a working option but TOPS
         // remains a named-only legacy alias for any external code that
-        // still references it.
+        // still references it. Pass-10 keeps the alias.
         throw std::runtime_error(
             "MarshakRadiationDiffusionSolver: opacity_model=TABULATED_TOPS "
-            "is the pass-8 legacy throwing stub; use TABULATED_PATCHED in "
-            "pass-9.");
+            "is the pass-8 legacy throwing stub; use TABULATED_PATCHED "
+            "(grey) or TABULATED_FULL (pass-10) instead.");
     }
 
-    // Pass-9: lazy-load tabulated opacity tables when configured. Both
-    // Rosseland and Planck are needed to apply the patch; if only one
-    // path is configured, log a warning and degrade to power-law for
-    // both means (the other has no analytic counterpart in our
-    // power-law framework that the patch could blend with).
+    // Pass-9/10: lazy-load tabulated opacity tables when configured.
+    // TABULATED_PATCHED uses a sin^2 blend with the Z-R baseline; pass-10
+    // TABULATED_FULL skips the blend and uses the table everywhere with
+    // a Z-R safety net only for out-of-table queries.
     if (!opacity_table_load_attempted_ &&
-        config_.opacity_model == OpacityModel::TABULATED_PATCHED) {
+        (config_.opacity_model == OpacityModel::TABULATED_PATCHED ||
+         config_.opacity_model == OpacityModel::TABULATED_FULL)) {
         opacity_table_load_attempted_ = true;
         const bool both_paths =
             !config_.tabulated_opacity_rosseland_path.empty() &&
             !config_.tabulated_opacity_planck_path.empty();
+        const char* mode_name =
+            config_.opacity_model == OpacityModel::TABULATED_FULL
+                ? "TABULATED_FULL"
+                : "TABULATED_PATCHED";
         if (!both_paths) {
             std::fprintf(stderr,
-                "MarshakRadiationDiffusionSolver: TABULATED_PATCHED "
-                "requires both rosseland and planck table paths; one or "
-                "both are empty. Falling back to POWER_LAW_ZR.\n");
+                "MarshakRadiationDiffusionSolver: %s requires both "
+                "rosseland and planck table paths; one or both are empty. "
+                "Falling back to POWER_LAW_ZR.\n", mode_name);
         } else {
             std::string err_R, err_P;
             const bool rok = rosseland_table_.load(
@@ -177,11 +176,32 @@ void MarshakRadiationDiffusionSolver::evaluateOpacityPatched(
         kappa_P = (1.0 - w) * k_P_pl + w * k_P_tab_raw;
         return;
     }
-    case OpacityModel::TABULATED_FULL:
+    case OpacityModel::TABULATED_FULL: {
+        // Pass-10 grey TABULATED_FULL: pure tabulated everywhere with
+        // a POWER_LAW_ZR safety net for out-of-table queries. The
+        // pass-9 sin^2 blend window is removed entirely so users get
+        // exactly what the table says (one-time stderr warning logged
+        // by the reader on first OOR hit).
+        if (!rosseland_table_.isLoaded() || !planck_table_.isLoaded()) {
+            PowerLawOpacity ev(config_.opacity_params);
+            kappa_R = ev.rosseland(rho, T);
+            kappa_P = ev.planck(rho, T);
+            return;
+        }
+        const double k_R_tab = rosseland_table_.evaluate(rho, T);
+        const double k_P_tab = planck_table_.evaluate(rho, T);
+        if (std::isnan(k_R_tab) || std::isnan(k_P_tab)) {
+            PowerLawOpacity ev(config_.opacity_params);
+            kappa_R = ev.rosseland(rho, T);
+            kappa_P = ev.planck(rho, T);
+            return;
+        }
+        kappa_R = k_R_tab;
+        kappa_P = k_P_tab;
+        return;
+    }
     case OpacityModel::TABULATED_TOPS:
     default:
-        // Should be caught by initialize(); zero opacity here is a
-        // diagnostic for "fell through unexpectedly".
         kappa_R = 0.0;
         kappa_P = 0.0;
         return;

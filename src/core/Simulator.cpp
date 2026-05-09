@@ -566,6 +566,16 @@ struct Simulator::ExplosionCoupling {
     // pass-8 byte-identical regression unless STRANG is explicitly
     // requested.
     std::string near_field_operator_splitting = "LIE";
+    // Pass-10 (axis 1a closeout): time integrator and multigroup wiring.
+    // Defaults preserve pass-9 byte-identical behaviour (EXPLICIT_EULER
+    // hydro substep). RK3_SSP and TVD_RK2 are opt-in via the config.
+    std::string near_field_time_integrator = "EXPLICIT_EULER";
+    int near_field_radiation_n_groups = 16;
+    double near_field_radiation_freq_min_hz = 1.0e14;
+    double near_field_radiation_freq_max_hz = 1.0e18;
+    int near_field_radiation_n_simpson = 17;
+    bool near_field_output_per_group_radiation = false;
+    bool near_field_op_split_convergence_diag = false;
     std::string near_field_tabulated_eos_table_path = "";
     std::string near_field_tabulated_opacity_rosseland_path = "";
     std::string near_field_tabulated_opacity_planck_path = "";
@@ -1664,17 +1674,71 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         "NEAR_FIELD_SOURCE", "operator_splitting", "LIE");
                     for (auto& c : os_raw)
                         c = static_cast<char>(std::toupper(c));
-                    if (os_raw != "LIE" && os_raw != "STRANG") {
+                    if (os_raw != "LIE" && os_raw != "STRANG" &&
+                        os_raw != "LIE_MULTIGROUP" &&
+                        os_raw != "STRANG_MULTIGROUP") {
                         if (rank == 0) {
                             PetscPrintf(comm,
                                 "NEAR_FIELD_SOURCE.operator_splitting=\"%s\" "
-                                "not recognised (expected LIE|STRANG); "
+                                "not recognised (expected LIE|STRANG|"
+                                "LIE_MULTIGROUP|STRANG_MULTIGROUP); "
                                 "falling back to LIE.\n", os_raw.c_str());
                         }
                         os_raw = "LIE";
                     }
                     explosion_->near_field_operator_splitting = os_raw;
                 }
+                // Pass-10 (axis 1a closeout) sub-keys.
+                {
+                    std::string ti_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "time_integrator",
+                        "EXPLICIT_EULER");
+                    for (auto& c : ti_raw)
+                        c = static_cast<char>(std::toupper(c));
+                    if (ti_raw != "EXPLICIT_EULER" &&
+                        ti_raw != "TVD_RK2" &&
+                        ti_raw != "RK3_SSP") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.time_integrator=\"%s\" "
+                                "not recognised (expected EXPLICIT_EULER|"
+                                "TVD_RK2|RK3_SSP); falling back to "
+                                "EXPLICIT_EULER.\n", ti_raw.c_str());
+                        }
+                        ti_raw = "EXPLICIT_EULER";
+                    }
+                    explosion_->near_field_time_integrator = ti_raw;
+                }
+                explosion_->near_field_radiation_n_groups =
+                    static_cast<int>(reader.getDouble(
+                        "NEAR_FIELD_SOURCE",
+                        "radiation_n_groups", 16.0));
+                if (explosion_->near_field_radiation_n_groups < 1) {
+                    explosion_->near_field_radiation_n_groups = 1;
+                }
+                if (explosion_->near_field_radiation_n_groups > 256) {
+                    explosion_->near_field_radiation_n_groups = 256;
+                }
+                explosion_->near_field_radiation_freq_min_hz =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "radiation_freq_min_hz", 1.0e14);
+                explosion_->near_field_radiation_freq_max_hz =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "radiation_freq_max_hz", 1.0e18);
+                explosion_->near_field_radiation_n_simpson =
+                    static_cast<int>(reader.getDouble(
+                        "NEAR_FIELD_SOURCE",
+                        "radiation_simpson_points", 17.0));
+                if (explosion_->near_field_radiation_n_simpson < 3) {
+                    explosion_->near_field_radiation_n_simpson = 3;
+                }
+                explosion_->near_field_output_per_group_radiation =
+                    reader.getBool("NEAR_FIELD_SOURCE",
+                                   "output_per_group_radiation", false);
+                explosion_->near_field_op_split_convergence_diag =
+                    reader.getBool(
+                        "NEAR_FIELD_SOURCE",
+                        "operator_splitting_convergence_diagnostic", false);
                 explosion_->near_field_tabulated_eos_table_path =
                     reader.getString("NEAR_FIELD_SOURCE",
                                      "tabulated_eos_table_path", "");
@@ -2046,10 +2110,53 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         explosion_->near_field_tabulated_opacity_blend_lower_k;
                     rl_cfg.tabulated_opacity_blend_upper_k =
                         explosion_->near_field_tabulated_opacity_blend_upper_k;
-                    rl_cfg.operator_splitting =
-                        (explosion_->near_field_operator_splitting == "STRANG")
-                            ? RadialLagrangianSolver::OperatorSplitting::STRANG
-                            : RadialLagrangianSolver::OperatorSplitting::LIE;
+                    if (explosion_->near_field_operator_splitting ==
+                        "STRANG") {
+                        rl_cfg.operator_splitting =
+                            RadialLagrangianSolver::OperatorSplitting::STRANG;
+                    } else if (explosion_->near_field_operator_splitting ==
+                               "LIE_MULTIGROUP") {
+                        rl_cfg.operator_splitting =
+                            RadialLagrangianSolver::OperatorSplitting::
+                                LIE_MULTIGROUP;
+                    } else if (explosion_->near_field_operator_splitting ==
+                               "STRANG_MULTIGROUP") {
+                        rl_cfg.operator_splitting =
+                            RadialLagrangianSolver::OperatorSplitting::
+                                STRANG_MULTIGROUP;
+                    } else {
+                        rl_cfg.operator_splitting =
+                            RadialLagrangianSolver::OperatorSplitting::LIE;
+                    }
+
+                    // Pass-10: time integrator dispatch.
+                    if (explosion_->near_field_time_integrator == "TVD_RK2") {
+                        rl_cfg.time_integrator =
+                            RadialLagrangianSolver::TimeIntegrator::TVD_RK2;
+                    } else if (explosion_->near_field_time_integrator ==
+                               "RK3_SSP") {
+                        rl_cfg.time_integrator =
+                            RadialLagrangianSolver::TimeIntegrator::RK3_SSP;
+                    } else {
+                        rl_cfg.time_integrator =
+                            RadialLagrangianSolver::TimeIntegrator::
+                                EXPLICIT_EULER;
+                    }
+
+                    // Pass-10: multigroup grid configuration. Active
+                    // only when radiation_phase = MARSHAK_MULTIGROUP.
+                    rl_cfg.multigroup_grid.n_groups =
+                        explosion_->near_field_radiation_n_groups;
+                    rl_cfg.multigroup_grid.nu_min_hz =
+                        explosion_->near_field_radiation_freq_min_hz;
+                    rl_cfg.multigroup_grid.nu_max_hz =
+                        explosion_->near_field_radiation_freq_max_hz;
+                    rl_cfg.multigroup_grid.n_simpson_points =
+                        explosion_->near_field_radiation_n_simpson;
+                    rl_cfg.output_per_group_radiation =
+                        explosion_->near_field_output_per_group_radiation;
+                    rl_cfg.operator_splitting_convergence_diagnostic =
+                        explosion_->near_field_op_split_convergence_diag;
 
                     explosion_->radial_solver.setConfig(rl_cfg);
                     explosion_->radial_solver.initialize();

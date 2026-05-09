@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
+#include <tuple>
 
 #include "domain/explosion/MarshakRadiationDiffusion.hpp"
 
@@ -74,19 +75,42 @@ void RadialLagrangianSolver::setConfig(const Config& c)
     // not allocate a new EOS each call.
     cavity_tillotson_.setParameters(c.tillotson_params);
 
-    // Pass-8: lazily construct the Marshak solver only when the user
-    // opts into MARSHAK_GREY. The MULTIGROUP and SN_TRANSPORT options
-    // are scaffolded but not implemented; throw a clear error early
-    // rather than producing silently wrong results.
-    if (c.radiation_phase == RadiationPhase::MARSHAK_MULTIGROUP) {
-        throw std::runtime_error(
-            "RadialLagrangianSolver: radiation_phase=MARSHAK_MULTIGROUP "
-            "is a pass-9 scaffold; pass-8 implements MARSHAK_GREY only.");
-    }
+    // Pass-8/10: lazily construct the radiation solver under MARSHAK_GREY
+    // (pass-8) or MARSHAK_MULTIGROUP (pass-10). SN_TRANSPORT remains
+    // a named-only ladder rung and throws.
     if (c.radiation_phase == RadiationPhase::SN_TRANSPORT) {
         throw std::runtime_error(
             "RadialLagrangianSolver: radiation_phase=SN_TRANSPORT is "
-            "named only; no pass-8 implementation.");
+            "named only; pass-10 implements MARSHAK_MULTIGROUP as the "
+            "HIGHEST tier on the radiation ladder.");
+    }
+    // Pass-10 dispatch matrix: TABULATED_PATCHED + MULTIGROUP is not
+    // a valid pairing. The per-group analytic opacity model is the
+    // documented opacity path under MULTIGROUP; the 2D patched table
+    // is the documented opacity path under GREY only.
+    if (c.radiation_phase == RadiationPhase::MARSHAK_MULTIGROUP &&
+        c.opacity_model == OpacityModel::TABULATED_PATCHED) {
+        throw std::runtime_error(
+            "RadialLagrangianSolver: opacity_model=TABULATED_PATCHED is "
+            "incompatible with radiation_phase=MARSHAK_MULTIGROUP; the "
+            "multigroup path uses the per-group analytic opacity model "
+            "(Mihalas-Mihalas 1984 sec 82.2). Use opacity_model="
+            "TABULATED_FULL to opt into the multigroup analytic path "
+            "explicitly, or POWER_LAW_ZR for the legacy baseline.");
+    }
+    if (c.radiation_phase == RadiationPhase::MARSHAK_MULTIGROUP) {
+        if (!mg_rad_solver_) {
+            mg_rad_solver_.reset(new MultigroupRadiationDiffusionSolver());
+        }
+        MultigroupRadiationDiffusionSolver::Config mcfg;
+        mcfg.group_grid = c.multigroup_grid;
+        mcfg.max_newton_iter = c.radiation_max_newton_iter;
+        mcfg.newton_tolerance = c.radiation_newton_tolerance;
+        mcfg.opacity_params = c.opacity_params;
+        mcfg.T_ambient_K = 300.0;
+        mcfg.front_factor = 1.5;
+        mg_rad_solver_->setConfig(mcfg);
+        mg_num_groups_ = mcfg.group_grid.n_groups;
     }
     if (c.radiation_phase == RadiationPhase::MARSHAK_GREY) {
         if (!rad_solver_) {
@@ -119,15 +143,8 @@ void RadialLagrangianSolver::setConfig(const Config& c)
 
 double RadialLagrangianSolver::cavityPressure(double rho, double e) const
 {
-    // Pass-10 scaffold: TABULATED_FULL is named only.
-    if (config_.cavity_eos == CavityEOS::TABULATED_FULL) {
-        throw std::runtime_error(
-            "RadialLagrangianSolver: cavity_eos=TABULATED_FULL is "
-            "pass-10 work; pass-9 ships TILLOTSON_TABULATED_PATCH only.");
-    }
-
-    // Tillotson is the baseline analytic; both TILLOTSON and
-    // TILLOTSON_TABULATED_PATCH start there.
+    // Tillotson is the baseline analytic; TILLOTSON, TILLOTSON_TABULATED_PATCH,
+    // and TABULATED_FULL all evaluate it as a fallback.
     const double p_til_raw = cavity_tillotson_.pressure(rho, e);
     const double p_til = p_til_raw > 0.0 ? p_til_raw : 0.0;
 
@@ -142,12 +159,8 @@ double RadialLagrangianSolver::cavityPressure(double rho, double e) const
         return p_gas > 0.0 ? p_gas : 0.0;
     }
 
-    // TILLOTSON_TABULATED_PATCH path.
-    //
-    // Lazy-load the EOS table on first call. The reader is mutable so
-    // const cavityPressure() can update it; if loading fails we keep
-    // the cavity_eos_table_load_succeeded_ flag at false and fall
-    // through to pure Tillotson for every call.
+    // TILLOTSON_TABULATED_PATCH and TABULATED_FULL share the
+    // table-loading path; the dispatch below distinguishes them.
     if (!cavity_eos_table_load_attempted_) {
         cavity_eos_table_load_attempted_ = true;
         if (!config_.tabulated_eos_table_path.empty()) {
@@ -156,15 +169,17 @@ double RadialLagrangianSolver::cavityPressure(double rho, double e) const
                 cavity_eos_table_.load(config_.tabulated_eos_table_path, err);
             if (!cavity_eos_table_load_succeeded_) {
                 std::fprintf(stderr,
-                    "RadialLagrangianSolver: TILLOTSON_TABULATED_PATCH "
-                    "table load FAILED: %s. Falling back to Tillotson.\n",
-                    err.c_str());
+                    "RadialLagrangianSolver: cavity_eos table load FAILED: "
+                    "%s. Falling back to Tillotson.\n", err.c_str());
             }
         } else {
             std::fprintf(stderr,
-                "RadialLagrangianSolver: TILLOTSON_TABULATED_PATCH "
-                "selected but tabulated_eos_table_path is empty. "
-                "Falling back to Tillotson.\n");
+                "RadialLagrangianSolver: %s selected but "
+                "tabulated_eos_table_path is empty. Falling back to "
+                "Tillotson.\n",
+                config_.cavity_eos == CavityEOS::TABULATED_FULL
+                    ? "TABULATED_FULL"
+                    : "TILLOTSON_TABULATED_PATCH");
         }
     }
 
@@ -172,12 +187,18 @@ double RadialLagrangianSolver::cavityPressure(double rho, double e) const
         return p_til;
     }
 
-    // Sin^2 blend on the Tillotson pressure as the blend variable.
-    // Below blend_lower we use Tillotson exactly. Above blend_upper we
-    // use the tabulated value exactly. In between we sin^2-interpolate
-    // so dp/de is continuous across the regime boundary (no spurious
-    // shocks at the patch transition; see docs/EXPLOSION_IMPACT_PHYSICS.md
-    // Pass-9 section).
+    // Pass-10 TABULATED_FULL: no patch. Direct table lookup with a
+    // Tillotson safety net for out-of-table queries (one-time stderr
+    // warning; the table reader logs the warning on first OOR hit).
+    if (config_.cavity_eos == CavityEOS::TABULATED_FULL) {
+        const double p_tab_raw = cavity_eos_table_.evaluate(rho, e);
+        if (std::isnan(p_tab_raw)) {
+            return p_til;
+        }
+        return p_tab_raw > 0.0 ? p_tab_raw : 0.0;
+    }
+
+    // TILLOTSON_TABULATED_PATCH: pass-9 sin^2 blend on Tillotson pressure.
     const double p_lo = config_.tabulated_eos_blend_lower_pa;
     const double p_hi = config_.tabulated_eos_blend_upper_pa;
     if (p_til <= p_lo) {
@@ -185,16 +206,12 @@ double RadialLagrangianSolver::cavityPressure(double rho, double e) const
     }
     const double p_tab_raw = cavity_eos_table_.evaluate(rho, e);
     if (std::isnan(p_tab_raw)) {
-        // Out-of-table coverage: fall back to Tillotson with the
-        // existing extrapolation warning.
         return p_til;
     }
     const double p_tab = p_tab_raw > 0.0 ? p_tab_raw : 0.0;
     if (p_til >= p_hi) {
         return p_tab;
     }
-    // Smooth interpolation. Use sin^2 of the rescaled blend variable so
-    // the first derivative matches both endpoints.
     const double t = (p_til - p_lo) / (p_hi - p_lo);
     const double s = std::sin(0.5 * M_PI * t);
     const double w = s * s;
@@ -563,6 +580,45 @@ void RadialLagrangianSolver::initialize()
             T_m_cell_[i] = T_i;
             E_r_cell_[i] = a * T_i * T_i * T_i * T_i;
         }
+        radiation_phase_active_ = true;
+    }
+    if (config_.radiation_phase == RadiationPhase::MARSHAK_MULTIGROUP) {
+        if (!mg_rad_solver_) {
+            mg_rad_solver_.reset(new MultigroupRadiationDiffusionSolver());
+            MultigroupRadiationDiffusionSolver::Config mcfg;
+            mcfg.group_grid = config_.multigroup_grid;
+            mcfg.max_newton_iter = config_.radiation_max_newton_iter;
+            mcfg.newton_tolerance = config_.radiation_newton_tolerance;
+            mcfg.opacity_params = config_.opacity_params;
+            mg_rad_solver_->setConfig(mcfg);
+        }
+        mg_rad_solver_->initialize(N);
+        mg_num_groups_ = mg_rad_solver_->numGroups();
+        T_m_cell_.assign(N, 0.0);
+        E_r_g_.assign(static_cast<std::size_t>(N) * mg_num_groups_, 0.0);
+        // Seed per-group radiation field at the matter equilibrium for
+        // the cell's local T using the MultigroupOpacityEvaluator's
+        // band-integrated Planck integrals: E_r^g(0) = 4 pi B_g(T) / c.
+        const double T_amb = 300.0;
+        const double T_cavity =
+            cavity_tillotson_.temperature(rho_v_init_ > 0.0 ? rho_v_init_
+                                                            : src_.host_density,
+                                          e_v_init_);
+        const double T_cavity_safe = T_cavity > T_amb ? T_cavity : T_amb;
+        const double FOUR_PI_LOC = 12.5663706143591729539;
+        const double C_LIGHT = RadiationConstants::SPEED_OF_LIGHT_M_PER_S;
+        const auto& opacity = mg_rad_solver_->opacityEvaluator();
+        for (int i = 0; i < N; ++i) {
+            const double T_i = is_gas_[i] ? T_cavity_safe : T_amb;
+            T_m_cell_[i] = T_i;
+            for (int g = 0; g < mg_num_groups_; ++g) {
+                const std::size_t k =
+                    static_cast<std::size_t>(i) * mg_num_groups_ + g;
+                const double Bg = opacity.bandIntegratedPlanck(g, T_i);
+                E_r_g_[k] = FOUR_PI_LOC * Bg / C_LIGHT;
+            }
+        }
+        mg_spectral_at_front_.assign(mg_num_groups_, 0.0);
         radiation_phase_active_ = true;
     }
 
@@ -1018,6 +1074,37 @@ void RadialLagrangianSolver::marshakSubstep(double dt)
     }
 }
 
+void RadialLagrangianSolver::multigroupSubstep(double dt)
+{
+    if (!mg_rad_solver_ || N_ == 0 || !radiation_phase_active_) return;
+    if (config_.radiation_phase != RadiationPhase::MARSHAK_MULTIGROUP) return;
+
+    const auto result = mg_rad_solver_->step(
+        dt, r_cell_, r_face_, rho_, e_int_, E_r_g_, T_m_cell_,
+        cavity_tillotson_, is_gas_);
+
+    radiation_front_index_ = result.radiation_front_index;
+    radiation_front_radius_ = result.radiation_front_radius_m;
+    radiation_energy_total_ = result.total_radiation_energy_J;
+    matter_energy_change_from_radiation_ +=
+        result.total_matter_energy_change_J;
+    t_diff_at_front_ = result.t_diff_at_front_s;
+
+    // Per-group front spectrum. The diagnostic populates the
+    // mg_spectral_at_front_ vector with the per-group radiation energy
+    // density at the radiation front cell (used by the multigroup
+    // physics-validation gates and by the per-group HDF5 output).
+    if (mg_num_groups_ > 0 && radiation_front_index_ >= 0 &&
+        radiation_front_index_ < N_) {
+        for (int g = 0; g < mg_num_groups_; ++g) {
+            const std::size_t k =
+                static_cast<std::size_t>(radiation_front_index_) *
+                    mg_num_groups_ + g;
+            mg_spectral_at_front_[g] = E_r_g_[k];
+        }
+    }
+}
+
 bool RadialLagrangianSolver::radiationHandoffReached() const
 {
     if (!radiation_phase_active_) return false;
@@ -1045,20 +1132,27 @@ bool RadialLagrangianSolver::radiationHandoffReached() const
 
 void RadialLagrangianSolver::substep(double dt)
 {
-    // Pass-9: select between Lie (pass-8 default) and Strang
-    // (pass-9 default-when-coupled) operator splitting. Lie is
-    // first-order in dt; Strang is second-order. The split engages
-    // only when the radiation phase is active and MARSHAK_GREY is
-    // selected; otherwise the substep is the original pass-8 hydro-
-    // only path and Strang reduces to it byte-identically.
-    const bool radiation_engaged =
+    // Pass-9/10: dispatch on (operator_splitting, radiation_phase,
+    // time_integrator). Default LIE + EXPLICIT_EULER + ZELDOVICH_RAIZER
+    // is the pass-9 byte-identical hydro-only path.
+    const bool grey_engaged =
         config_.radiation_phase == RadiationPhase::MARSHAK_GREY &&
         radiation_phase_active_;
+    const bool multigroup_engaged =
+        config_.radiation_phase == RadiationPhase::MARSHAK_MULTIGROUP &&
+        radiation_phase_active_;
+    const bool radiation_engaged = grey_engaged || multigroup_engaged;
+
+    // Strang split engages only when radiation is active AND the user
+    // selected a Strang variant. The pass-10 LIE_MULTIGROUP /
+    // STRANG_MULTIGROUP variants are aliases for LIE / STRANG when the
+    // radiation phase is MULTIGROUP; we honour them for grammar.
     const bool use_strang =
         radiation_engaged &&
-        config_.operator_splitting == OperatorSplitting::STRANG;
+        (config_.operator_splitting == OperatorSplitting::STRANG ||
+         config_.operator_splitting == OperatorSplitting::STRANG_MULTIGROUP);
 
-    auto hydroBlock = [&](double sub_dt) {
+    auto explicitEulerHydroBlock = [&](double sub_dt) {
         advanceFaces(sub_dt);
         updateDensity();
         computeArtificialViscosity(sub_dt);
@@ -1069,10 +1163,102 @@ void RadialLagrangianSolver::substep(double dt)
         updateEOS();
     };
 
-    auto radiationBlock = [&](double sub_dt) {
-        marshakSubstep(sub_dt);
-        updateEOS();
+    // Pass-10 higher-order time integrators wrap the explicit-Euler
+    // hydro operator in a convex combination so the same pointwise
+    // update logic applies. The hydro state is the (face position,
+    // face velocity, cell density via mass conservation, cell
+    // deviator, cell internal energy, cell pressure via EOS) tuple;
+    // saveHydroState() / restoreHydroState() snapshot it for the
+    // Shu-Osher 1988 SSP formulae.
+    auto saveHydroState = [&]() {
+        return std::tuple<std::vector<double>, std::vector<double>,
+                          std::vector<double>, std::vector<double>,
+                          std::vector<double>, std::vector<double>>{
+            r_face_, v_face_, rho_, s_rr_, e_int_, p_};
     };
+    // restoreHydroState is implemented via blendHydroState(state, 1, 0)
+    // when needed; not used directly under TVD_RK2 / RK3_SSP since the
+    // SSP forms only need convex blends.
+    auto blendHydroState = [&](const auto& s_old, double w_old,
+                               double w_new) {
+        // Convex combination y = w_old * y_old + w_new * y_new applied
+        // to face/cell state. r_face contributes via the position; v
+        // and density by direct interpolation.
+        const auto& rf = std::get<0>(s_old);
+        const auto& vf = std::get<1>(s_old);
+        const auto& rh = std::get<2>(s_old);
+        const auto& sr = std::get<3>(s_old);
+        const auto& ei = std::get<4>(s_old);
+        const auto& pp = std::get<5>(s_old);
+        for (size_t i = 0; i < r_face_.size(); ++i) {
+            r_face_[i] = w_old * rf[i] + w_new * r_face_[i];
+            v_face_[i] = w_old * vf[i] + w_new * v_face_[i];
+        }
+        for (int i = 0; i < N_; ++i) {
+            rho_[i] = w_old * rh[i] + w_new * rho_[i];
+            s_rr_[i] = w_old * sr[i] + w_new * s_rr_[i];
+            e_int_[i] = w_old * ei[i] + w_new * e_int_[i];
+            p_[i] = w_old * pp[i] + w_new * p_[i];
+            r_cell_[i] = 0.5 * (r_face_[i] + r_face_[i + 1]);
+        }
+    };
+
+    auto hydroBlock = [&](double sub_dt) {
+        switch (config_.time_integrator) {
+        case TimeIntegrator::EXPLICIT_EULER:
+        default:
+            explicitEulerHydroBlock(sub_dt);
+            return;
+        case TimeIntegrator::TVD_RK2: {
+            // Heun's method (TVD RK2):
+            //   y1 = y_n + dt L(y_n)
+            //   y_{n+1} = (1/2) y_n + (1/2) (y1 + dt L(y1))
+            const auto state0 = saveHydroState();
+            explicitEulerHydroBlock(sub_dt);          // y1 = y_n + L(y_n)
+            const auto state1 = saveHydroState();
+            explicitEulerHydroBlock(sub_dt);          // L(y1) advance
+            // y_{n+1} = (1/2) y_n + (1/2)(state2)
+            blendHydroState(state0, 0.5, 0.5);
+            (void)state1;
+            return;
+        }
+        case TimeIntegrator::RK3_SSP: {
+            // Shu-Osher 1988 SSP3:
+            //   y1  = y_n + dt L(y_n)
+            //   y1' = y1 + dt L(y1)
+            //   y2  = (3/4) y_n + (1/4) y1'
+            //   y2' = y2 + dt L(y2)
+            //   y_{n+1} = (1/3) y_n + (2/3) y2'
+            const auto state0 = saveHydroState();
+            explicitEulerHydroBlock(sub_dt);          // -> y1
+            explicitEulerHydroBlock(sub_dt);          // -> y1' = y1 + dt L(y1)
+            blendHydroState(state0, 0.75, 0.25);      // -> y2 = 3/4 y_n + 1/4 y1'
+            explicitEulerHydroBlock(sub_dt);          // -> y2' = y2 + dt L(y2)
+            blendHydroState(state0, 1.0/3.0, 2.0/3.0);// -> y_{n+1} = 1/3 y_n + 2/3 y2'
+            return;
+        }
+        }
+    };
+
+    auto radiationBlock = [&](double sub_dt) {
+        if (grey_engaged) {
+            marshakSubstep(sub_dt);
+            updateEOS();
+        } else if (multigroup_engaged) {
+            multigroupSubstep(sub_dt);
+            updateEOS();
+        }
+    };
+
+    // Pass-10 inner-substep diagnostic: record dt of the first substep
+    // each global step. The OperatorSplittingConvergence_InstrumentedSubstep
+    // test holds inner dt fixed across outer-step resolutions.
+    if (config_.operator_splitting_convergence_diagnostic) {
+        if (diag_inner_substep_count_ == 0) {
+            diag_inner_substep_dt_ = dt;
+        }
+        ++diag_inner_substep_count_;
+    }
 
     if (use_strang) {
         // Strang 1968: H(dt/2) -> R(dt) -> H(dt/2). Second-order

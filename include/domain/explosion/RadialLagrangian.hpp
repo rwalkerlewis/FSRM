@@ -48,6 +48,7 @@
 #include <vector>
 
 #include "domain/explosion/MarshakRadiationDiffusion.hpp"
+#include "domain/explosion/MultigroupRadiationDiffusion.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/explosion/OpacityModel.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
@@ -100,7 +101,19 @@ public:
     ///   (Strang 1968). Default-when-coupled in pass-9; users opt out
     ///   via [NEAR_FIELD_SOURCE] operator_splitting = LIE for byte-
     ///   identical regression with pass-8.
-    enum class OperatorSplitting { LIE, STRANG };
+    /// LIE_MULTIGROUP / STRANG_MULTIGROUP (pass-10): same split shape
+    /// applied to the multigroup radiation block. The split engages
+    /// only when radiation_phase = MARSHAK_MULTIGROUP.
+    enum class OperatorSplitting { LIE, STRANG, LIE_MULTIGROUP, STRANG_MULTIGROUP };
+
+    /// Pass-10 (axis 1a closeout) explicit time-integrator selector.
+    /// EXPLICIT_EULER preserves the pass-9 byte-identical hydro
+    /// substep. TVD_RK2 (Heun's method) and RK3_SSP (Shu-Osher 1988
+    /// strong-stability-preserving Runge-Kutta) raise the explicit
+    /// stability budget; the host substep CFL safety factor stays
+    /// fixed but the higher-order schemes tolerate larger physical
+    /// timesteps without splitting symptoms.
+    enum class TimeIntegrator { EXPLICIT_EULER, TVD_RK2, RK3_SSP };
 
     /// Pass-8: explicit radiation-phase fidelity ladder.
     ///   ZELDOVICH_RAIZER: pass-7 default, kept as LOW fidelity. Closed-
@@ -202,6 +215,33 @@ public:
         /// order). Set to LIE explicitly to recover pass-8 behaviour
         /// byte-identical for regression.
         OperatorSplitting operator_splitting = OperatorSplitting::STRANG;
+
+        /// Pass-10 multigroup configuration. Activated when
+        /// radiation_phase = MARSHAK_MULTIGROUP. Defaults reproduce
+        /// the pass-10 spec (16 log-spaced groups from 1e14 to 1e18 Hz).
+        FrequencyGroupGrid multigroup_grid;
+        /// Pass-10 per-group radiation-energy output. When true the
+        /// host writes per-group E_r^g(r,t) in the spatial-profile
+        /// HDF5 / XDMF file. Default false to keep file sizes
+        /// manageable (G x N additional doubles per snapshot).
+        bool output_per_group_radiation = false;
+
+        /// Pass-10 time integrator. Default EXPLICIT_EULER preserves
+        /// the pass-9 byte-identical hydro substep. RK3_SSP and TVD_RK2
+        /// extend the explicit stability budget; useful for the 549 m
+        /// free-field gauge where the radial domain extends beyond a
+        /// few elastic radii and the explicit-CFL safety cap would
+        /// otherwise truncate the propagating wave at production
+        /// resolution.
+        TimeIntegrator time_integrator = TimeIntegrator::EXPLICIT_EULER;
+
+        /// Pass-10 Strang inner-substep convergence diagnostic. When
+        /// true the solver records the inner-CFL substep dt at the
+        /// first hydro/radiation engagement of each step and exposes
+        /// it via getDiagnosticInnerSubstepDt(). Used by the
+        /// OperatorSplittingConvergence_InstrumentedSubstep test to
+        /// hold inner substep dt fixed while varying the outer step.
+        bool operator_splitting_convergence_diagnostic = false;
     };
 
     /// Snapshot of the radial state at a single time. Layout matches the
@@ -325,6 +365,20 @@ public:
         return handoff_consecutive_steps_;
     }
 
+    /// Pass-10 multigroup diagnostics. Returns the per-group radiation
+    /// energy density at the front cell, in J/m^3. Empty under
+    /// non-MULTIGROUP phases.
+    const std::vector<double>& getMultigroupSpectralEnergyAtFront() const {
+        return mg_spectral_at_front_;
+    }
+    int getMultigroupNumGroups() const { return mg_num_groups_; }
+
+    /// Pass-10 Strang inner-substep diagnostic. The host's CFL-limited
+    /// substep dt at the most recent step is exposed for the
+    /// OperatorSplittingConvergence_InstrumentedSubstep test.
+    double getDiagnosticInnerSubstepDt() const { return diag_inner_substep_dt_; }
+    int getDiagnosticInnerSubstepCount() const { return diag_inner_substep_count_; }
+
 private:
     void allocate(int N);
     void cflLimit(double& dt) const;
@@ -363,6 +417,18 @@ private:
     /// radiation_phase != MARSHAK_GREY or radiation_phase_active_ is
     /// false (post hand-off).
     void marshakSubstep(double dt);
+
+    /// Pass-10: per-substep MARSHAK_MULTIGROUP coupling solve. Mutates
+    /// e_int_, the multigroup E_r_g_ field, and T_m_cell_ in place.
+    /// No-op when radiation_phase != MARSHAK_MULTIGROUP or the
+    /// hand-off has fired.
+    void multigroupSubstep(double dt);
+
+    /// Pass-10 hydro substep dispatcher: runs the existing pass-9
+    /// hydro block under EXPLICIT_EULER (preserving byte-identical
+    /// pass-9 behaviour), or wraps it in TVD_RK2 / RK3_SSP convex
+    /// combinations of the same explicit Euler operator.
+    void hydroBlockTimeIntegrated(double dt);
 
     /// Pass-8: hand-off criterion check. Returns true when t_hydro <
     /// t_diff at the radiation-front cell for the current substep.
@@ -454,6 +520,18 @@ private:
     double matter_energy_change_from_radiation_ = 0.0;
     double t_diff_at_front_ = 0.0;
     bool tillotson_warning_logged_ = false;
+
+    // Pass-10 multigroup radiation-phase state. Allocated only when
+    // radiation_phase == MARSHAK_MULTIGROUP. Lays the per-group field
+    // out as E_r_g_[i*G + g].
+    std::unique_ptr<MultigroupRadiationDiffusionSolver> mg_rad_solver_;
+    std::vector<double> E_r_g_;        ///< Multigroup radiation energy [J/m^3] (N*G).
+    int mg_num_groups_ = 0;
+    std::vector<double> mg_spectral_at_front_;  ///< Per-group E_r at front cell.
+
+    // Pass-10 inner-substep diagnostic for the Strang convergence test.
+    double diag_inner_substep_dt_ = 0.0;
+    int diag_inner_substep_count_ = 0;
 
     // Pass-9 (axis 1) tabulated EOS reader for the cavity cells.
     // Lazily loaded on first cavityPressure() call when
