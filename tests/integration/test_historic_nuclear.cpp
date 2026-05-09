@@ -1405,6 +1405,37 @@ TEST_F(HistoricNuclearTest, LopNor1976)
   }
 }
 
+// DPRK 2017 (Sixth NK Underground Test, 2017-09-03): mb 6.3, ~250 kt,
+// granite host rock under volcanic tuff overburden, ~600 m below the
+// summit of Mt. Mantap. Pass-12 housekeeping smoke test: runs the
+// pipeline with the 3-layer Pabian/Coblentz 2018 / Wen et al 2018
+// crustal model and verifies SAC output at the configured stations.
+// `examples/39_dprk_2017/config.config` is the production-resolution
+// counterpart for visualization runs.
+TEST_F(HistoricNuclearTest, DPRK2017)
+{
+  std::vector<LayerDef> layers = {
+    {2000.0, 1900.0, 4.21e9,  3.72e9,  2200.0},  // Volcanic tuff / weathered overburden
+    {1900.0, 1000.0, 3.20e10, 2.94e10, 2700.0},  // Competent granite host rock
+    {1000.0,    0.0, 3.65e10, 3.73e10, 2800.0},  // Pre-Cambrian metamorphic basement
+  };
+  // P-wave travel time from 600 m source through granite (vp=5800)
+  // ~0.10 s; 0.3 s gives margin for the multi-layer arrival train.
+  writeConfig("dprk_2017", 250.0, 600.0, 2000.0, layers, 0.3, "GRANITE");
+
+  PetscReal sol_norm = 0.0;
+  PetscErrorCode ierr = runPipeline(sol_norm);
+
+  ASSERT_EQ(ierr, 0) << "DPRK 2017 (~250 kt, granite under tuff) pipeline must complete";
+  EXPECT_GT(sol_norm, 0.0);
+  EXPECT_TRUE(std::isfinite(sol_norm));
+  if (rank_ == 0)
+  {
+    EXPECT_TRUE(checkSACOutput());
+    assertFarFieldAndPolarity("DPRK 2017");
+  }
+}
+
 // Far-field amplitude regression: re-runs Sedan 1962 once with the
 // pass-3 single-cell injection and once with the pass-4 GAUSSIAN
 // distribution, writing both rows into the regression CSV. The CSV
