@@ -1,0 +1,6 @@
+# Python dependencies for FSRM showcase figure scripts.
+# Install with: pip install -r tools/figures/requirements.txt
+matplotlib>=3.5
+numpy>=1.21
+h5py>=3.6
+obspy>=1.3
