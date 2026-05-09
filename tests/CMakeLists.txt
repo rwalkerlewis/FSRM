@@ -92,6 +92,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_tabulated_patches.cpp
     physics_validation/test_multigroup_radiation.cpp
     physics_validation/test_pass10_integrators.cpp
+    physics_validation/test_pass11_diffusion.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -321,6 +322,14 @@ if(GTest_FOUND)
     add_test(NAME Physics.Pass10Integrator.RK3SSPMatchesEulerInWeakRegime COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.RK3SSPMatchesEulerInWeakRegime)
     add_test(NAME Physics.Pass10Integrator.StrangSubstepDiagnosticExposesInnerDt COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.StrangSubstepDiagnosticExposesInnerDt)
     add_test(NAME Physics.Pass10Integrator.LieEulerEulerByteIdenticalToPass9 COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.LieEulerEulerByteIdenticalToPass9)
+    # Pass-11 (axis 1c) implicit diffusion-time-integrator gates.
+    add_test(NAME Physics.Pass11Diffusion.CrankNicolsonConvergenceOrder COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.CrankNicolsonConvergenceOrder)
+    add_test(NAME Physics.Pass11Diffusion.BDF2ConvergenceOrder COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.BDF2ConvergenceOrder)
+    add_test(NAME Physics.Pass11Diffusion.BackwardEulerObservedOrderIsFirst COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.BackwardEulerObservedOrderIsFirst)
+    add_test(NAME Physics.Pass11Diffusion.CrankNicolsonOscillationStability COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.CrankNicolsonOscillationStability)
+    add_test(NAME Physics.Pass11Diffusion.BackwardEulerByteIdenticalToPass10 COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.BackwardEulerByteIdenticalToPass10)
+    add_test(NAME Physics.MarshakMultigroup.SelfSimilarPureRadiation_BDF2 COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.MultigroupSelfSimilarPureRadiation_BDF2)
+    add_test(NAME Physics.MarshakMultigroup.RadiationEnergyConservation_BDF2 COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.MultigroupRadiationEnergyConservation_BDF2)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -591,6 +600,13 @@ if(GTest_FOUND)
         Physics.Pass10Integrator.RK3SSPMatchesEulerInWeakRegime
         Physics.Pass10Integrator.StrangSubstepDiagnosticExposesInnerDt
         Physics.Pass10Integrator.LieEulerEulerByteIdenticalToPass9
+        Physics.Pass11Diffusion.CrankNicolsonConvergenceOrder
+        Physics.Pass11Diffusion.BDF2ConvergenceOrder
+        Physics.Pass11Diffusion.BackwardEulerObservedOrderIsFirst
+        Physics.Pass11Diffusion.CrankNicolsonOscillationStability
+        Physics.Pass11Diffusion.BackwardEulerByteIdenticalToPass10
+        Physics.MarshakMultigroup.SelfSimilarPureRadiation_BDF2
+        Physics.MarshakMultigroup.RadiationEnergyConservation_BDF2
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 
