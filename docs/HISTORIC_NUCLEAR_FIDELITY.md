@@ -1146,3 +1146,141 @@ their pinned configs without modification. The 79 active integration
 tests pass; the 63 active physics-validation tests pass (the six
 disabled tests are pre-existing fault-solver issues out of axis-1a
 scope).
+
+## 4j. Closed in pass 11 (axis-1c implicit diffusion + 549 m BC + ANEOS extension + 1b scaffold)
+
+**Branch.** `feat/historic-nuclear-pass-11-axis-1c-and-bc-cleanup`.
+
+**Scope.** Pass-11 packs four named axis-1 cleanup deliverables in
+one PR: (1) axis-1c implicit time stepping for the per-group
+radiation-diffusion solve, (2) 549 m free-field BC triage with
+Israeli-Orszag 1981 sponge layer fix, (3) extended ANEOS Hugoniot
+validation for granite and salt, (4) axis-1b 3D source ball
+scaffolding for pass-12.
+
+### What landed
+
+**Axis-1c: DiffusionTimeIntegrator strategy.**
+
+- `include/domain/explosion/DiffusionTimeIntegrator.hpp` ships an
+  abstract strategy with three concrete subclasses
+  (`BackwardEulerIntegrator`, `CrankNicolsonIntegrator`,
+  `BDF2Integrator`). The interface exposes seven scalars per step
+  that parameterise the canonical assembly form, so a single
+  per-cell-per-group inner loop in `MarshakRadiationDiffusion.cpp`
+  and `MultigroupRadiationDiffusion.cpp` covers all three integrators
+  without duplication.
+- `BackwardEuler` is the pass-10 byte-identical default. The
+  `Physics.Pass11Diffusion.BackwardEulerByteIdenticalToPass10` gate
+  asserts bit-equal output between explicit-BE selection and the
+  default config under the multigroup solver.
+- `CrankNicolson` follows Larsen 1988 sec 3 time-centred
+  linearisation of the matter coupling. Documented oscillation
+  failure mode on stiff initial conditions; the
+  `CrankNicolsonOscillationStability` gate bounds the negative
+  excursion below ambient at < 0.1% of the initial peak and
+  asserts BDF2 stays monotone.
+- `BDF2` carries an `E^{n-1}` prior-step buffer and bootstraps the
+  first step with backward-Euler. Closes the Marshak self-similar
+  gate from factor 2.5 to factor 2 and the radiation-energy
+  conservation gate from 10% to 2% under the multigroup solver.
+- New `time_integrator_diffusion` config knob in
+  `RadialLagrangianSolver::Config`; the diffusion ladder gains:
+  LOW = BACKWARD_EULER, MED = BACKWARD_EULER, HIGH = CRANK_NICOLSON,
+  HIGHEST = BDF2.
+
+**549 m free-field BC triage and sponge layer.**
+
+- `Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep` runs the
+  Salmon 1964 setup at radial_outer_radius_m = [700, 1000, 1500,
+  2000] m. Sweep evidence: peak velocity at 549 m drops by factor
+  ~3.4 from r_outer = 700 m to 1000 m, indicating the impedance BC
+  at 700 m contaminates the gauge.
+- New Israeli-Orszag 1981 graded-damping sponge layer in
+  `RadialLagrangianSolver::applySpongeLayerDamping`. Gated by the
+  new `sponge_layer_enabled` config knob (default false to preserve
+  pass-10 byte-identical regression). Quadratic damping ramp from
+  zero at the inner edge of the sponge zone to
+  sponge_layer_max_damping at the outer face.
+- `Physics.Pass11OuterBC.OuterBoundaryAbsorption_OutgoingPlanarWave`
+  validates the impedance BC accumulates positive radiated energy
+  through the outer face monotonically.
+
+**Extended ANEOS Hugoniot validation.**
+
+- `Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage`
+  validates the granite tabulated EOS reproduces Marsh 1980 LASL
+  Hugoniot data points within 30% (cross-validated against Trunin
+  1989 in the high-pressure regime). At least half the sampled
+  points (4 total at u_p = {0.5, 1.0, 1.5, 2.0} km/s) match within
+  the envelope.
+- `Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage`
+  validates the salt tabulated EOS against McQueen 1970 NaCl data
+  (cross-validated against Carter 1979).
+- The 5% spec target requires a Tillotson parameter refit, named
+  axis-4 follow-up. `tools/tabulated_data/README.md` documents the
+  pass-11 validation status and the closure path.
+
+**Axis-1b 3D source ball scaffolding.**
+
+- `include/domain/explosion/Source3DBall.hpp` defines the abstract
+  interface with `Source3DBallConfig` and `Source3DBallState` types.
+  `makeSource3DBall` factory throws "pass-12 work" on construction.
+- `cavity_geometry` config knob in `RadialLagrangianSolver::Config`;
+  `THREE_DIMENSIONAL` selection triggers a clear pass-12 / axis-1b
+  diagnostic via `setConfig` throw.
+- `docs/AXIS_1B_DESIGN.md` design stub describes the prospective
+  unstructured-tet mesh strategy, 3D Drucker-Prager extension,
+  asymmetric overburden BC, 3D radiation discretization choice
+  (FV cell-centred recommended), and surface-integral moment-tensor
+  extraction handoff to axis-1d.
+- Three regression gates verify the throw-on-selection contract.
+
+### Tests added (11 new gates, all passing)
+
+- `Physics.Pass11Diffusion.CrankNicolsonConvergenceOrder` (Cauchy in
+  [1.7, 2.3])
+- `Physics.Pass11Diffusion.BDF2ConvergenceOrder` (Cauchy in [1.7, 2.3])
+- `Physics.Pass11Diffusion.BackwardEulerObservedOrderIsFirst`
+- `Physics.Pass11Diffusion.CrankNicolsonOscillationStability`
+- `Physics.Pass11Diffusion.BackwardEulerByteIdenticalToPass10`
+- `Physics.MarshakMultigroup.SelfSimilarPureRadiation_BDF2`
+- `Physics.MarshakMultigroup.RadiationEnergyConservation_BDF2`
+- `Physics.Pass11OuterBC.OuterBoundaryAbsorption_OutgoingPlanarWave`
+- `Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep`
+- `Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage`
+- `Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage`
+- `Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows`
+- `Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow`
+- `Physics.Pass11Axis1bScaffold.Source3DBallFactoryThrows`
+
+### Verified gate envelopes (pass-11 highlights)
+
+- Marshak SelfSimilarPureRadiation: **factor 2** under HIGHEST tier
+  with `time_integrator_diffusion = BDF2` (was factor 2.5 in pass-10).
+- Marshak RadiationEnergyConservation: **2%** drift over 1000 steps
+  under BDF2 (was 10% in pass-10).
+- Granite + Salt Hugoniot match: 30% envelope at half or more sample
+  points (5% spec target deferred to axis-4 Tillotson refit).
+
+### Residual (named axis-X follow-ups)
+
+- **Salmon CavityRadius (factor 3) / Chagan CavityRadius (factor 5).**
+  Pass-12 axis-1b 3D source ball lands the implementation on the
+  pass-11 scaffold.
+- **549 m FreeFieldPeakVelocity (factor 4 envelope).** Pass-11 ships
+  the sponge BC. Closure to factor 2 requires either a stricter spec
+  sweep with sponge enabled in HIGHEST tier or axis-1d 3D far-field
+  coupling.
+- **Granite / Salt Hugoniot 5% target.** Axis-4 Tillotson parameter
+  refit.
+
+### Backward compatibility
+
+All pass-10 byte-identical guards intact. Default config picks
+`time_integrator_diffusion = BACKWARD_EULER`, `cavity_geometry =
+SPHERICAL`, `sponge_layer_enabled = false`. The pre-existing 27
+historic-nuclear tests pass under their pinned configs without
+modification. The 12 pass-9 / pass-10 Marshak / Multigroup gates
+pass under the new strategy class with byte-identical assembly
+output.
