@@ -280,6 +280,41 @@ value = 60.0           # At reference point
 gradient_z = 0.03      # 30°C/km geothermal gradient
 ```
 
+## Source Distribution (Underground Nuclear Tests)
+
+### [SOURCE_DISTRIBUTION]
+
+Optional pass-4 grammar that controls how the moment tensor for an
+`[EXPLOSION_SOURCE]` is injected into the FEM residual. The default
+preserves the pre-pass-4 single-cell injection so existing configs are
+byte-identical when the section is absent.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `mode` | enum | SINGLE_CELL | `SINGLE_CELL` (legacy delta-function injection in the cell containing the source), `GAUSSIAN` (cell-volume Riemann sum of `M_ij * exp(-r^2/(2*sigma^2))`), `UNIFORM_SPHERE` (cell-volume Riemann sum of `M_ij` uniformly inside the support ball) |
+| `support_radius_factor` | double | 1.0 | Multiplier on the cavity radius `Rc` (medium-aware via `EXPLOSION_SOURCE.medium_type`); the support ball has radius `support_radius_factor * Rc`. For GAUSSIAN the ball is also truncated at `3*sigma` |
+| `gaussian_sigma_factor` | double | 0.5 | For `mode = GAUSSIAN`, sigma in the weight function = `gaussian_sigma_factor * Rc`. Ignored for other modes |
+| `min_cells` | int | 1 | Degeneracy guard: if fewer than `min_cells` cells globally lie inside the support ball, the runtime falls back to `SINGLE_CELL` injection with a single rank-0 warning |
+
+The integrated moment density equals `M0` in all modes -- the per-cell
+weights `w_c * V_c` are normalized via `MPI_Allreduce` so they sum to 1
+globally, preserving the low-frequency RDP plateau across distribution
+choices. See `docs/HISTORIC_NUCLEAR_FIDELITY.md` section 4c for the
+historic-nuclear envelope that these modes shrink, and
+`tests/integration/test_source_distribution.cpp` for the M0
+conservation, fallback, and refinement-inversion verification tests.
+
+Example:
+```ini
+[SOURCE_DISTRIBUTION]
+# Spread the moment tensor over a Gaussian-weighted ball of radius
+# 5 * Rc with sigma = 2 * Rc (truncated at 3 * sigma = 6 * Rc).
+mode = GAUSSIAN
+support_radius_factor = 5.0
+gaussian_sigma_factor = 2.0
+min_cells = 1
+```
+
 ## Solver Settings
 
 ### [SOLVER]

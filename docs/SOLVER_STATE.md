@@ -243,6 +243,11 @@ One line per session. New lines go at the BOTTOM.
   per-layer Q, frequency-dependent t*, layered absorbing-BC test). Does
   not modify Jacobian / cohesive code paths; default fault subset count
   unchanged at 10/16.
+- pass-4: pass-4 multi-cell moment-tensor source distribution
+  (`[SOURCE_DISTRIBUTION]` config grammar in `addExplosionSourceToResidual`;
+  Integration.SourceDistribution.*, 5 tests; historic-nuclear _Distributed
+  variants, 7 tests). Does not modify Jacobian / cohesive code paths;
+  default fault subset count unchanged at 10/16.
 
 ## Quantitative timeline
 
