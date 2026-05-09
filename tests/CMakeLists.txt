@@ -47,6 +47,7 @@ set(UNIT_TEST_SOURCES
     unit/physics/test_cavity_scaling.cpp
     # I/O
     unit/io/test_eclipse_io.cpp
+    unit/io/test_sac_reader.cpp
     # ML
     unit/ml/test_ml_registry.cpp
     # Utilities
@@ -220,6 +221,7 @@ if(GTest_FOUND)
     add_test(NAME Unit.ExplosionSource        COMMAND run_unit_tests --gtest_filter=ExplosionSourceKernelTest.*)
     add_test(NAME Unit.MuellerMurphyMomentConsistency COMMAND run_unit_tests --gtest_filter=MuellerMurphyMomentConsistencyTest.*)
     add_test(NAME Unit.EclipseIO              COMMAND run_unit_tests --gtest_filter=EclipseIOTest.*)
+    add_test(NAME Unit.SACReader              COMMAND run_unit_tests --gtest_filter=SACReaderTest.*)
     add_test(NAME Unit.MLRegistry             COMMAND run_unit_tests --gtest_filter=MLModelRegistryTest.*)
     add_test(NAME Unit.UnitSystem             COMMAND run_unit_tests --gtest_filter=UnitSystemTest.*)
     add_test(NAME Unit.CoordinateSystem       COMMAND run_unit_tests --gtest_filter=CoordinateSystemTest.*)
@@ -457,7 +459,7 @@ if(GTest_FOUND)
         Unit.Thermal Unit.Elastodynamics Unit.Poroelastodynamics
         Unit.BoundaryConditions Unit.WellModel Unit.FractureModel
         Unit.MaterialModel Unit.SeismicSource Unit.ExplosionSource
-        Unit.EclipseIO Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
+        Unit.EclipseIO Unit.SACReader Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
         Unit.CO2Properties Unit.FlashCalculation Unit.ResidualTrapping
         Unit.CaprockIntegrity Unit.MultiphaseFlow
         Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
