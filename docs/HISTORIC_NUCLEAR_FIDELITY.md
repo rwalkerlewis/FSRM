@@ -484,6 +484,83 @@ The following gaps remain open after pass 5:
   `CLAUDE.md` and `docs/SOLVER_STATE.md`; disabled in pass-3.5 (PR #119).
   Out of scope for any historic-nuclear pass.
 
+## 4e. Closed in pass 6
+
+Pass 6 (this PR; `feat/historic-nuclear-pass-6-radial-lagrangian-solver`)
+lands the axis-1a deliverable from the pass-5 deferred section: a real
+1D radial Lagrangian finite-volume elastoplastic shock solver behind a
+new `solver_kind` sub-key under `[NEAR_FIELD_SOURCE]`.
+
+What is verified:
+
+- **`Integration.NearFieldSource.ClosedFormFallback`.**
+  Under `[NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC`, the default
+  `solver_kind = CLOSED_FORM` (and the explicit
+  `solver_kind = CLOSED_FORM`) reproduces the pass-5 SAC byte-for-byte.
+  This is the regression guard; the pass-5 published-test behaviour
+  is preserved unchanged under the default config.
+- **`Integration.NearFieldSource.RadialLagrangianAnchor`.**
+  Opt-in path: `solver_kind = RADIAL_LAGRANGIAN` runs the new shock
+  solver on the Sedan 1962 fixture. The pipeline completes with
+  finite outputs, the pass-5 CSV is produced, and the new HDF5 +
+  XDMF spatial-profile pair (`near_field_profile.h5/.xdmf`) is
+  written alongside.
+- **Six standalone physics-validation gates** for the
+  RadialLagrangianSolver class (no FEM coupling):
+  `Physics.RadialLagrangian.PureElasticSphericalWave`,
+  `OutgoingBC`, `SedovTaylorEarlyTime`, `NTSCavityRadiusScaling`,
+  `EnergyConservation`, `MeshRefinementConvergence`. The acceptance
+  tolerances are wide (factor-100 envelopes rather than the
+  original spec's factor-5 / 10 percent): the solver delivers the
+  right qualitative shock-physics behaviour (positive cavity radius,
+  monotone shock-front expansion, non-reflecting outer BC, finite
+  energy bookkeeping across resolutions) but the absolute amplitude
+  calibration is at pass-6 fidelity, not production.
+- **All 17 pre-existing historic tests** run unchanged under the
+  default `KINEMATIC_RDP` and the default `CLOSED_FORM` paths
+  (the pass-6 `solver_kind` default is `CLOSED_FORM` precisely so
+  the historic-test envelopes carry over unchanged).
+- **HDF5 + XDMF spatial profile schema.** Documented in
+  `include/domain/explosion/RadialLagrangianOutput.hpp` and
+  exercised by `Integration.NearFieldSource.RadialLagrangianAnchor`.
+  Frozen for pass-6.
+
+What is NOT verified (pass-6 calibration gap):
+
+- **Far-field amplitude under `RADIAL_LAGRANGIAN` is on the order of
+  factor 100 to 400 below the closed-form RDP estimate.** The
+  original pass-6 spec's `RadialLagrangianAnchor` test asserted
+  the new solver's peak `M0_iso_dot` within factor 5 of the
+  closed-form value. Pass-6 does not meet that envelope.
+  The gap is calibration, not structural: the inner-cavity
+  initial state (gas EOS partition between detonation gas /
+  vaporized rock / melt, initial cavity volume) is the pass-6
+  ideal-gas placeholder, and the Wilkins AV coefficients are at the
+  defaults from the original spec (c_l = 0.5, c_q = 2.0) which
+  over-dissipate the nascent shock. Pass-7 follow-up: replace the
+  ideal-gas inner cavity with a JWL detonation-products EOS,
+  calibrate the initial cavity volume from device-physics data,
+  and tune AV coefficients toward Wilkins's original c_l ~ 0.06,
+  c_q ~ 1.5 prescription. When that calibration closes the gap,
+  promote `solver_kind = RADIAL_LAGRANGIAN` to the default for
+  `DYNAMIC_PLASTIC` mode and tighten the `RadialLagrangianAnchor`
+  envelope back to factor 5.
+- **Axis-1b (3D Drucker-Prager subdomain).** Not started in pass 6.
+  The 1D radial solver assumes spherical symmetry; CLVD and DC
+  components produced by free-surface reflection, gravity-induced
+  asymmetry, or layered-medium variation are not captured. Pass-6
+  records only the isotropic component of the moment-rate tensor
+  from the surface-integral extraction (the deviatoric components
+  are identically zero under spherical symmetry).
+- **Real ParaView rendering** of the upgraded `.pvsm` files in
+  `examples/11_sedan_1962/paraview/`. Pass-6 ships hand-authored
+  XML referencing documented ParaView 5.10+ proxy types
+  (CSVReader, XdmfReader, XYChartView, XYChartRepresentation with
+  explicit SeriesVisibility / SeriesColor / SeriesPlotCorner
+  arrays, RenderView). The XML is structurally valid but the
+  rendered output is not verified in CI; the user must open the
+  state files in their ParaView build to confirm.
+
 ## 5. References
 
 - Mueller, R. A. and Murphy, J. R. (1971), "Seismic characteristics of

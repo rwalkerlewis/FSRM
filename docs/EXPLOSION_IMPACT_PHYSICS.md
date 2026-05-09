@@ -593,6 +593,62 @@ mpirun -np 128 fsrm -c config/impact_event.config
 
 ---
 
+## Pass-6 spatial profile output (RADIAL_LAGRANGIAN)
+
+Pass-6 (axis-1a, see `docs/HISTORIC_NUCLEAR_ROADMAP.md`) lands a 1D
+radial Lagrangian elastoplastic shock solver behind a new
+`solver_kind` sub-key under `[NEAR_FIELD_SOURCE]`. When
+`solver_kind = RADIAL_LAGRANGIAN`, the Simulator records spatial
+snapshots of the radial state at the configured cadence and emits
+two files alongside the pass-5 history CSV:
+
+- `near_field_profile.h5` -- HDF5 file with the spatial profile
+  time series.
+- `near_field_profile.xdmf` -- ParaView wrapper around the HDF5
+  exposing the cell-centred datasets as cell-data on a polyline
+  mesh.
+
+HDF5 schema (frozen for pass-6; consumers depend on it):
+
+```
+/time                 (n_snap,)  double, simulation time [s]
+/num_cells            scalar     int, cell count N
+/profiles/<i>/r        (N+1,)    double, face radii [m]
+/profiles/<i>/r_cell   (N,)      double, cell-centred radii [m]
+/profiles/<i>/v_r      (N+1,)    double, face velocities [m/s]
+/profiles/<i>/rho      (N,)      double, density [kg/m^3]
+/profiles/<i>/p        (N,)      double, pressure [Pa]
+/profiles/<i>/sigma_rr (N,)      double, total radial stress [Pa]
+/profiles/<i>/sigma_tt (N,)      double, total hoop stress [Pa]
+/profiles/<i>/eps_p    (N,)      double, equivalent plastic strain
+/profiles/<i>/damage   (N,)      double, scalar damage [0,1]
+/profiles/<i>/yield_indicator (N,) double, 1.0 if cell yielded
+```
+
+The pass-6 solver is a 1D radial finite-volume Lagrangian formulation
+in spherical symmetry. Per cell: density, specific internal energy,
+pressure (compression positive), total radial and hoop stresses.
+Per face: position and radial velocity (staggered grid). The per-step
+update sequence runs CFL-bounded explicit time stepping with Wilkins
+linear + quadratic artificial viscosity for shock capture, an elastic
+predictor for the deviatoric stress, Drucker-Prager radial return on
+the existing `PressureDependentStrength` data, Mie-Gruneisen EOS for
+solid cells with an ideal-gas EOS for the inner cavity, energy update
+including plastic dissipation, damage evolution from the existing
+`DamageEvolutionModel`, and an outgoing-characteristic outer
+boundary condition. The moment-tensor extraction integrates traction
+over a fixed Eulerian sphere at the configured elastic radius;
+spherical symmetry collapses the tensor to a purely diagonal
+isotropic form, so CLVD content requires the deferred axis-1b 3D
+subdomain. Implementation lives in
+`src/domain/explosion/RadialLagrangian.cpp` (~600 lines).
+
+`solver_kind = CLOSED_FORM` (pass-6 default for `DYNAMIC_PLASTIC`)
+preserves the pass-5 RDP-driven path byte-for-byte and writes only
+the pass-5 CSV. The spatial-profile HDF5 + XDMF pair is
+`RADIAL_LAGRANGIAN`-only because the closed-form kernel is 0D
+analytic and has no meaningful radial profile.
+
 ## Validation and Verification
 
 ### Nuclear Explosion Validation

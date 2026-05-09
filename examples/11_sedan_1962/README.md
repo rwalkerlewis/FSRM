@@ -42,10 +42,21 @@ relative to the far-field cell scale (Lz / nz = 500 m). See
 Baseline (`run.sh`):
 - `output/sedan_1962/*.SAC` -- synthetic seismograms at 3 stations
 
-Dynamic-plastic (`run_dynamic.sh`):
+Dynamic-plastic (`run_dynamic.sh`, default `solver_kind = CLOSED_FORM`):
 - `output/sedan_1962_dynamic/*.SAC` -- synthetic seismograms
 - `output/sedan_1962_dynamic/near_field_history.csv` -- recorded 1D
   solver moment-rate tensor and cavity / plastic radius time series
+
+Pass-6 RADIAL_LAGRANGIAN opt-in (append to the dynamic config or use
+`Integration.NearFieldSource.RadialLagrangianAnchor` as a template):
+- All of the above, plus
+- `output/sedan_1962_dynamic/near_field_profile.h5` -- pass-6 HDF5
+  spatial-profile time series (radial state at the configured
+  cadence: r, v_r, rho, p, sigma_rr, sigma_tt, eps_p, damage,
+  yield_indicator). Schema in
+  `include/domain/explosion/RadialLagrangianOutput.hpp`.
+- `output/sedan_1962_dynamic/near_field_profile.xdmf` -- ParaView
+  wrapper around the HDF5.
 
 ## Running
 
@@ -53,24 +64,38 @@ Dynamic-plastic (`run_dynamic.sh`):
 # Baseline KINEMATIC_RDP path:
 ./run.sh
 
-# Pass-5 DYNAMIC_PLASTIC path:
+# Pass-5 DYNAMIC_PLASTIC path (default solver_kind = CLOSED_FORM):
 ./run_dynamic.sh
+
+# Pass-6 RADIAL_LAGRANGIAN opt-in: append the following block to
+# config/examples/sedan_1962_dynamic.config under [NEAR_FIELD_SOURCE]
+# and re-run:
+#
+#   solver_kind = RADIAL_LAGRANGIAN
+#   radial_cells = 200
+#   profile_output_cadence_microseconds = 5000
 ```
 
-## Visualization (pass-5)
+## Visualization
 
-Three ParaView state files in `paraview/` configure the rendering of
-the dynamic-plastic outputs:
+Three ParaView state files in `paraview/` configure rendering of the
+dynamic-plastic outputs:
 
 - `paraview/near_field_cavity.pvsm` -- XY chart of cavity / plastic
-  radius and moment-rate trace over time.
+  radius and isotropic moment rate from `near_field_history.csv`,
+  plus the pass-6 spatial-profile XDMF as a sibling source. Series
+  visibility, colours, and right-axis assignment for the moment
+  rate are pre-configured.
 - `paraview/far_field_propagation.pvsm` -- 3D wavefield render of
   `output/solution.h5`.
 - `paraview/combined.pvsm` -- multi-view layout of both.
 
-These are minimal hand-authored stubs (the FSRM build environment does
-not run ParaView in CI so they cannot be visually verified end-to-end);
-see `paraview/README.md` for what to refine after first opening.
+These are hand-authored XML referencing documented ParaView 5.10+
+proxy types (CSVReader, XdmfReader, XYChartView,
+XYChartRepresentation, RenderView). The XML is structurally valid
+but the rendered output is not verified in CI (the FSRM build
+environment does not run ParaView headless); see `paraview/README.md`
+for the verification status and what to confirm after first open.
 
 ## Verified By
 
@@ -80,4 +105,11 @@ see `paraview/README.md` for what to refine after first opening.
 - `Integration.HistoricNuclear.Sedan1962_Dynamic` -- pass-5
   DYNAMIC_PLASTIC source: cavity radius within 20% of medium-aware
   NTS analytic, peak/u_far within factor 30, near_field_history.csv
-  emitted with > 100 sample rows
+  emitted with > 100 sample rows. Continues to pass under the pass-6
+  default `solver_kind = CLOSED_FORM`.
+- `Integration.NearFieldSource.ClosedFormFallback` (pass-6) -- regression
+  guard: under DYNAMIC_PLASTIC, default solver_kind reproduces the
+  pass-5 SAC byte-for-byte.
+- `Integration.NearFieldSource.RadialLagrangianAnchor` (pass-6) -- opt-in
+  RADIAL_LAGRANGIAN path: pipeline completes, finite outputs,
+  near_field_profile.h5 and .xdmf emitted alongside the pass-5 CSV.
