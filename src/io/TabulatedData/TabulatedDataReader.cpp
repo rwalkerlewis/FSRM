@@ -45,21 +45,22 @@ bool readScalarString(hid_t loc, const std::string& name, std::string& out)
         return false;
     }
     if (H5Tis_variable_str(dtype)) {
+        // Variable-length string. h5py writes these with UTF-8 char
+        // set; read with the file's native dtype to avoid the "no
+        // datatype conversion path" error that the simple
+        // H5Tcopy(H5T_C_S1) + H5Tset_size(VARIABLE) recipe triggers
+        // when the file is UTF-8 encoded but the memory type is
+        // ASCII.
         char* str_buf = nullptr;
-        hid_t mem_type = H5Tcopy(H5T_C_S1);
-        H5Tset_size(mem_type, H5T_VARIABLE);
-        herr_t st = H5Dread(dset, mem_type, H5S_ALL, H5S_ALL,
+        herr_t st = H5Dread(dset, dtype, H5S_ALL, H5S_ALL,
                             H5P_DEFAULT, &str_buf);
         if (st >= 0 && str_buf) {
             out = str_buf;
+            // Reclaim the variable-length buffer that HDF5 allocated.
+            hid_t space = H5Dget_space(dset);
+            H5Dvlen_reclaim(dtype, space, H5P_DEFAULT, &str_buf);
+            H5Sclose(space);
         }
-        if (str_buf) {
-            // HDF5 internal allocation; free with H5free_memory or
-            // standard free depending on version. H5free_memory is the
-            // portable choice in 1.8+.
-            H5free_memory(str_buf);
-        }
-        H5Tclose(mem_type);
         H5Tclose(dtype);
         H5Dclose(dset);
         return st >= 0;
