@@ -1,0 +1,63 @@
+<!--
+  near_field_cavity.pvsm -- pass-5 ParaView state stub for the Sedan
+  1962 anchor event under [NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC.
+
+  Loads the near-field history CSV emitted by the 1D solver
+  (../output/sedan_1962_dynamic/near_field_history.csv) and configures
+  a camera positioned to look at the source ball.
+
+  This is a minimal stub. After running run_dynamic.sh, open this file
+  in ParaView 5.10+ and:
+
+  1. Confirm the CSV reader source loaded the history file. The file
+     is one row per sampled time (default cadence 100 us); columns are
+     t, R_cavity, R_plastic, Mxx_dot, ..., M0_iso_dot.
+
+  2. Add a "Plot Data" representation, set X axis = t and Y axes =
+     R_cavity, R_plastic, M0_iso_dot.
+
+  3. Use "Plot Selection Over Time" or "Plot Data Over Time" to see
+     the time series of cavity expansion and moment-rate plateau.
+
+  See paraview/README.md for the matching Python state script which
+  is easier to load programmatically (pvbatch state.py).
+-->
+<ParaView>
+  <ServerManagerState version="5.10.1">
+    <Proxy group="views" type="XYChartView" id="100" servers="21">
+      <Property name="ViewSize" id="100.ViewSize" number_of_elements="2">
+        <Element index="0" value="1024"/>
+        <Element index="1" value="768"/>
+      </Property>
+      <Property name="ChartTitle" id="100.ChartTitle" number_of_elements="1">
+        <Element index="0" value="Sedan 1962 -- Near-Field Cavity History"/>
+      </Property>
+      <Property name="LeftAxisTitle" id="100.LeftAxisTitle" number_of_elements="1">
+        <Element index="0" value="Cavity / plastic radius (m)"/>
+      </Property>
+      <Property name="BottomAxisTitle" id="100.BottomAxisTitle" number_of_elements="1">
+        <Element index="0" value="Time (s)"/>
+      </Property>
+    </Proxy>
+    <Proxy group="sources" type="CSVReader" id="101" servers="1">
+      <Property name="FileName" id="101.FileName" number_of_elements="1">
+        <Element index="0" value="../output/sedan_1962_dynamic/near_field_history.csv"/>
+      </Property>
+      <Property name="HaveHeaders" id="101.HaveHeaders" number_of_elements="1">
+        <Element index="0" value="1"/>
+      </Property>
+      <Property name="FieldDelimiterCharacters" id="101.FieldDelimiterCharacters" number_of_elements="1">
+        <Element index="0" value=","/>
+      </Property>
+      <Property name="MergeConsecutiveDelimiters" id="101.MergeConsecutiveDelimiters" number_of_elements="1">
+        <Element index="0" value="0"/>
+      </Property>
+    </Proxy>
+    <ProxyCollection name="views">
+      <Item id="100" name="NearFieldChart"/>
+    </ProxyCollection>
+    <ProxyCollection name="sources">
+      <Item id="101" name="near_field_history"/>
+    </ProxyCollection>
+  </ServerManagerState>
+</ParaView>

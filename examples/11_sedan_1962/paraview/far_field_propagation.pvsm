@@ -1,0 +1,69 @@
+<!--
+  far_field_propagation.pvsm -- pass-5 ParaView state stub for the
+  Sedan 1962 anchor event far-field 3D wavefield.
+
+  Loads the PETSc HDF5 mesh + solution file
+  (../output/solution.h5) which contains the DMPlex topology and the
+  displacement / velocity vector fields written by Simulator::writeOutput.
+
+  This is a minimal stub. After running run_dynamic.sh, open this file
+  in ParaView 5.10+ and:
+
+  1. Confirm the HDF5 reader source loaded solution.h5. Use the
+     "Reader" combo box at the top of the Properties panel to select
+     "Generic HDF5 Reader" or "VisIt HDF5 Reader" if the default
+     reader does not see the dataset structure.
+
+  2. Apply a Clip filter through the source center to expose the
+     wavefield interior; colour by velocity magnitude or
+     displacement magnitude.
+
+  3. Add the seismometer station glyphs:
+       - SPALL: (15000, 15000, 5000)
+       - STA05: (20000, 15000, 5000)
+       - STA10: (25000, 15000, 5000)
+
+  See paraview/README.md for the matching Python state script which
+  is easier to load programmatically (pvbatch state.py).
+-->
+<ParaView>
+  <ServerManagerState version="5.10.1">
+    <Proxy group="views" type="RenderView" id="200" servers="21">
+      <Property name="ViewSize" id="200.ViewSize" number_of_elements="2">
+        <Element index="0" value="1280"/>
+        <Element index="1" value="720"/>
+      </Property>
+      <Property name="Background" id="200.Background" number_of_elements="3">
+        <Element index="0" value="0.32"/>
+        <Element index="1" value="0.34"/>
+        <Element index="2" value="0.43"/>
+      </Property>
+      <Property name="CameraPosition" id="200.CameraPosition" number_of_elements="3">
+        <Element index="0" value="40000"/>
+        <Element index="1" value="-15000"/>
+        <Element index="2" value="20000"/>
+      </Property>
+      <Property name="CameraFocalPoint" id="200.CameraFocalPoint" number_of_elements="3">
+        <Element index="0" value="15000"/>
+        <Element index="1" value="15000"/>
+        <Element index="2" value="2500"/>
+      </Property>
+      <Property name="CameraViewUp" id="200.CameraViewUp" number_of_elements="3">
+        <Element index="0" value="0"/>
+        <Element index="1" value="0"/>
+        <Element index="2" value="1"/>
+      </Property>
+    </Proxy>
+    <Proxy group="sources" type="VisItPDBReader" id="201" servers="1">
+      <Property name="FileName" id="201.FileName" number_of_elements="1">
+        <Element index="0" value="../output/solution.h5"/>
+      </Property>
+    </Proxy>
+    <ProxyCollection name="views">
+      <Item id="200" name="FarFieldView"/>
+    </ProxyCollection>
+    <ProxyCollection name="sources">
+      <Item id="201" name="solution"/>
+    </ProxyCollection>
+  </ServerManagerState>
+</ParaView>
