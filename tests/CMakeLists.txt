@@ -47,6 +47,9 @@ set(UNIT_TEST_SOURCES
     unit/physics/test_cavity_scaling.cpp
     # I/O
     unit/io/test_eclipse_io.cpp
+    unit/io/test_sac_reader.cpp
+    # Diagnostics
+    unit/diagnostics/test_waveform_comparison.cpp
     # ML
     unit/ml/test_ml_registry.cpp
     # Utilities
@@ -84,6 +87,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_radial_lagrangian.cpp
     physics_validation/test_tillotson_eos.cpp
     physics_validation/test_physics_cavity_init.cpp
+    physics_validation/test_marshak_radiation.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -144,6 +148,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_absorbing_bc_layered.cpp
     integration/test_source_distribution.cpp
     integration/test_near_field_source.cpp
+    integration/test_iris_validation.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -219,6 +224,8 @@ if(GTest_FOUND)
     add_test(NAME Unit.ExplosionSource        COMMAND run_unit_tests --gtest_filter=ExplosionSourceKernelTest.*)
     add_test(NAME Unit.MuellerMurphyMomentConsistency COMMAND run_unit_tests --gtest_filter=MuellerMurphyMomentConsistencyTest.*)
     add_test(NAME Unit.EclipseIO              COMMAND run_unit_tests --gtest_filter=EclipseIOTest.*)
+    add_test(NAME Unit.SACReader              COMMAND run_unit_tests --gtest_filter=SACReaderTest.*)
+    add_test(NAME Unit.WaveformComparison     COMMAND run_unit_tests --gtest_filter=WaveformComparisonTest.*)
     add_test(NAME Unit.MLRegistry             COMMAND run_unit_tests --gtest_filter=MLModelRegistryTest.*)
     add_test(NAME Unit.UnitSystem             COMMAND run_unit_tests --gtest_filter=UnitSystemTest.*)
     add_test(NAME Unit.CoordinateSystem       COMMAND run_unit_tests --gtest_filter=CoordinateSystemTest.*)
@@ -281,6 +288,12 @@ if(GTest_FOUND)
     # Pass-7: physics-based cavity-initialization validation gates.
     add_test(NAME Physics.RadialLagrangian.PhysicsBasedCavityEnergyConservation COMMAND run_physics_tests --gtest_filter=PhysicsCavityInitTest.PhysicsBasedCavityEnergyConservation)
     add_test(NAME Physics.RadialLagrangian.PhysicsBasedCavityRadius COMMAND run_physics_tests --gtest_filter=PhysicsCavityInitTest.PhysicsBasedCavityRadius)
+
+    add_test(NAME Physics.Marshak.SelfSimilarPureRadiation COMMAND run_physics_tests --gtest_filter=MarshakTest.SelfSimilarPureRadiation)
+    add_test(NAME Physics.Marshak.RadiationEnergyConservation COMMAND run_physics_tests --gtest_filter=MarshakTest.RadiationEnergyConservation)
+    add_test(NAME Physics.Marshak.RadiationToHydroHandoff COMMAND run_physics_tests --gtest_filter=MarshakTest.RadiationToHydroHandoff)
+    add_test(NAME Physics.Marshak.OpacityRegimeCoverage COMMAND run_physics_tests --gtest_filter=MarshakTest.OpacityRegimeCoverage)
+    add_test(NAME Physics.Marshak.GreyVsZRComparison COMMAND run_physics_tests --gtest_filter=MarshakTest.GreyVsZRComparison)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -429,6 +442,15 @@ if(GTest_FOUND)
     add_test(NAME Integration.NearFieldSource.ClosedFormFallback COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.ClosedFormFallback)
     add_test(NAME Integration.NearFieldSource.RadialLagrangianAnchor COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.RadialLagrangianAnchor)
 
+    # Pass-8 IRIS waveform V&V gates. Cache-aware: GTEST_SKIP when
+    # tools/waveform_vv/cache/<EventName>/ is empty, with explicit
+    # message pointing the user at refresh.py.
+    add_test(NAME Integration.IRISValidation.Salmon1964CavityRadius COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Salmon1964CavityRadiusMatchesMeasured)
+    add_test(NAME Integration.IRISValidation.Salmon1964FreeFieldPeakVelocity COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Salmon1964FreeFieldPeakVelocity)
+    add_test(NAME Integration.IRISValidation.Salmon1964FarFieldMb COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Salmon1964FarFieldBodyWaveMagnitude)
+    add_test(NAME Integration.IRISValidation.Chagan1965CrossValidation COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Chagan1965CrossValidation)
+    add_test(NAME Integration.IRISValidation.PokhranI1974CrossValidation COMMAND run_integration_tests --gtest_filter=IRISValidationTest.PokhranI1974CrossValidation)
+
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
     add_test(NAME Performance.Scaling         COMMAND run_performance_tests --gtest_filter=ScalingTest.*)
@@ -450,7 +472,7 @@ if(GTest_FOUND)
         Unit.Thermal Unit.Elastodynamics Unit.Poroelastodynamics
         Unit.BoundaryConditions Unit.WellModel Unit.FractureModel
         Unit.MaterialModel Unit.SeismicSource Unit.ExplosionSource
-        Unit.EclipseIO Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
+        Unit.EclipseIO Unit.SACReader Unit.WaveformComparison Unit.MLRegistry Unit.UnitSystem Unit.CoordinateSystem
         Unit.CO2Properties Unit.FlashCalculation Unit.ResidualTrapping
         Unit.CaprockIntegrity Unit.MultiphaseFlow
         Unit.FaultMechanics Unit.FaultCohesiveDyn Unit.CoulombStressTransfer
@@ -518,6 +540,11 @@ if(GTest_FOUND)
         Physics.TillotsonEOS.SaltAndAlluviumParameterSetSelfConsistency
         Physics.RadialLagrangian.PhysicsBasedCavityEnergyConservation
         Physics.RadialLagrangian.PhysicsBasedCavityRadius
+        Physics.Marshak.SelfSimilarPureRadiation
+        Physics.Marshak.RadiationEnergyConservation
+        Physics.Marshak.RadiationToHydroHandoff
+        Physics.Marshak.OpacityRegimeCoverage
+        Physics.Marshak.GreyVsZRComparison
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
@@ -597,6 +624,17 @@ if(GTest_FOUND)
         Integration.NearFieldSource.ClosedFormFallback
         Integration.NearFieldSource.RadialLagrangianAnchor
         PROPERTIES TIMEOUT 600 LABELS "integration"
+    )
+
+    # Pass-8: dedicated iris_validation label. Tests skip cleanly
+    # when the cache is empty so this label is CI-safe by default.
+    set_tests_properties(
+        Integration.IRISValidation.Salmon1964CavityRadius
+        Integration.IRISValidation.Salmon1964FreeFieldPeakVelocity
+        Integration.IRISValidation.Salmon1964FarFieldMb
+        Integration.IRISValidation.Chagan1965CrossValidation
+        Integration.IRISValidation.PokhranI1974CrossValidation
+        PROPERTIES TIMEOUT 1200 LABELS "iris_validation;integration"
     )
 
     # Disabled fault-solver tests pending architectural fixes.

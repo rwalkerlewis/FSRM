@@ -43,10 +43,13 @@
 
 #include <array>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "domain/explosion/MarshakRadiationDiffusion.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
+#include "domain/explosion/OpacityModel.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
 
 namespace FSRM {
@@ -85,6 +88,25 @@ public:
     enum class CavityEOS { IDEAL_GAS, TILLOTSON };
     enum class CavityInitialization { PHYSICS_BASED, MANUAL };
 
+    /// Pass-8: explicit radiation-phase fidelity ladder.
+    ///   ZELDOVICH_RAIZER: pass-7 default, kept as LOW fidelity. Closed-
+    ///     form Z-R end-state cavity init; no numerical solve. The
+    ///     pass-7 amplitude regression guard exercises this path.
+    ///   MARSHAK_GREY: pass-8 MED fidelity. Calls
+    ///     MarshakRadiationDiffusionSolver per global timestep until
+    ///     the radiation-to-hydrodynamic hand-off criterion fires.
+    ///   MARSHAK_MULTIGROUP: pass-9 scaffold. Multigroup transport
+    ///     headers land in pass-8 but selecting this option throws
+    ///     a clear "not implemented" error.
+    ///   SN_TRANSPORT: named only; no implementation in pass-8 or pass-9.
+    enum class RadiationPhase
+    {
+        ZELDOVICH_RAIZER,
+        MARSHAK_GREY,
+        MARSHAK_MULTIGROUP,
+        SN_TRANSPORT
+    };
+
     struct Config
     {
         int radial_cells = 200;             ///< Number of FV cells along radius.
@@ -114,6 +136,29 @@ public:
         /// becomes a pure-elastic shock solver. Used by the
         /// PureElasticSphericalWave / OutgoingBC / Sedov physics tests.
         bool disable_plasticity = false;
+
+        /// Pass-8 radiation-phase controls (see RadiationPhase above).
+        /// Default ZELDOVICH_RAIZER preserves the pass-7 byte-identical
+        /// path: no Marshak code path runs, no operator split engages.
+        RadiationPhase radiation_phase = RadiationPhase::ZELDOVICH_RAIZER;
+        OpacityModel opacity_model = OpacityModel::POWER_LAW_ZR;
+        PowerLawOpacityParameters opacity_params =
+            PowerLawOpacitySets::granite();
+        /// CONSTANT-only: user-supplied opacity in m^2/kg. Used by the
+        /// SelfSimilarPureRadiation Marshak gate to remove the Z-R
+        /// power-law parameterization from the verification target.
+        double kappa_constant_m2_per_kg = 0.0;
+        /// Tillotson plasma-regime extrapolation warning threshold [Pa].
+        /// When the Tillotson EOS returns a pressure exceeding this in
+        /// the cavity cell, a one-time PETSc warning is logged. Pass-8
+        /// observability for the user; not a fatal error.
+        double tillotson_extrapolation_warning_threshold_pa = 5.0e10;
+        /// Marshak Newton outer-loop tolerances.
+        int radiation_max_newton_iter = 10;
+        double radiation_newton_tolerance = 1.0e-6;
+        /// Hand-off debouncing: number of consecutive substeps the
+        /// hand-off criterion must hold before the radiation phase ends.
+        int radiation_handoff_debounce_steps = 3;
     };
 
     /// Snapshot of the radial state at a single time. Layout matches the
@@ -137,6 +182,15 @@ public:
 
     RadialLagrangianSolver();
     ~RadialLagrangianSolver() = default;
+
+    // Move-only: the embedded MarshakRadiationDiffusionSolver
+    // unique_ptr makes the class non-copyable. Explicit defaults
+    // preserve the existing tests that return RadialLagrangianSolver
+    // by value via NRVO / move construction.
+    RadialLagrangianSolver(const RadialLagrangianSolver&) = delete;
+    RadialLagrangianSolver& operator=(const RadialLagrangianSolver&) = delete;
+    RadialLagrangianSolver(RadialLagrangianSolver&&) = default;
+    RadialLagrangianSolver& operator=(RadialLagrangianSolver&&) = default;
 
     void setSource(const UndergroundExplosionSource& src);
     void setEOS(const MieGruneisenEOS& eos);
@@ -213,6 +267,21 @@ public:
     double getInitialCavityVaporSpecificEnergy() const { return e_v_init_; }
     double getRadiationTransitionTime() const { return t_rh_used_; }
 
+    /// Pass-8 radiation-phase diagnostics. When radiation_phase ==
+    /// MARSHAK_GREY, the per-step result populates these accessors.
+    /// Under ZELDOVICH_RAIZER (default) all return 0/false and the
+    /// Marshak code path never runs.
+    bool getRadiationPhaseActive() const { return radiation_phase_active_; }
+    int getRadiationFrontIndex() const { return radiation_front_index_; }
+    double getRadiationFrontRadius() const { return radiation_front_radius_; }
+    double getRadiationEnergyTotal() const { return radiation_energy_total_; }
+    double getMatterEnergyChangeFromRadiation() const {
+        return matter_energy_change_from_radiation_;
+    }
+    int getRadiationHandoffStepCount() const {
+        return handoff_consecutive_steps_;
+    }
+
 private:
     void allocate(int N);
     void cflLimit(double& dt) const;
@@ -243,6 +312,21 @@ private:
     /// (p = (gamma - 1) rho e); TILLOTSON evaluates the configured
     /// parameter set against (rho, e) of the cavity cell.
     double cavityPressure(double rho, double e) const;
+
+    /// Pass-8: per-substep radiation-matter coupling solve under
+    /// MARSHAK_GREY. Mutates e_int_, p_, and updates the radiation
+    /// state vectors. Called from substep() after the existing hydro
+    /// update, before the EOS / damage updates. No-op when
+    /// radiation_phase != MARSHAK_GREY or radiation_phase_active_ is
+    /// false (post hand-off).
+    void marshakSubstep(double dt);
+
+    /// Pass-8: hand-off criterion check. Returns true when t_hydro <
+    /// t_diff at the radiation-front cell for the current substep.
+    /// The host increments the debounce counter and ends the radiation
+    /// phase only after radiation_handoff_debounce_steps consecutive
+    /// hits.
+    bool radiationHandoffReached() const;
 
     static double cellVolumeSpherical(double r_lo, double r_hi);
     static double faceAreaSpherical(double r);
@@ -313,6 +397,20 @@ private:
     double radiated_energy_out_ = 0.0;
 
     bool initialized_ = false;
+
+    // Pass-8 Marshak radiation-phase state. Allocated and seeded only
+    // when radiation_phase == MARSHAK_GREY; otherwise empty.
+    std::unique_ptr<MarshakRadiationDiffusionSolver> rad_solver_;
+    std::vector<double> E_r_cell_;     ///< Radiation energy density [J/m^3].
+    std::vector<double> T_m_cell_;     ///< Matter temperature [K].
+    bool radiation_phase_active_ = false;
+    int handoff_consecutive_steps_ = 0;
+    int radiation_front_index_ = 0;
+    double radiation_front_radius_ = 0.0;
+    double radiation_energy_total_ = 0.0;
+    double matter_energy_change_from_radiation_ = 0.0;
+    double t_diff_at_front_ = 0.0;
+    bool tillotson_warning_logged_ = false;
 };
 
 } // namespace FSRM

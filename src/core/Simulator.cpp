@@ -546,6 +546,18 @@ struct Simulator::ExplosionCoupling {
     double near_field_initial_cavity_radius = -1.0;
     double near_field_radiation_transition_time = -1.0;
 
+    // Pass-8 radiation-phase plumbing. Default ZELDOVICH_RAIZER
+    // preserves the pass-7 byte-identical path; MARSHAK_GREY opts in
+    // to the new explicit grey radiation-diffusion solve coupled to
+    // the Tillotson host-rock matter via emission-absorption.
+    std::string near_field_radiation_phase = "ZELDOVICH_RAIZER";
+    std::string near_field_opacity_model = "POWER_LAW_ZR";
+    double near_field_kappa_constant = 0.0;
+    double near_field_tillotson_warning_threshold_pa = 5.0e10;
+    int near_field_radiation_max_newton_iter = 10;
+    double near_field_radiation_newton_tolerance = 1.0e-6;
+    int near_field_radiation_handoff_debounce_steps = 3;
+
     RadialLagrangianSolver radial_solver;
 
     // Recorded near-field state. Populated in initializeFromConfigFile
@@ -1573,6 +1585,88 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     reader.getDouble("NEAR_FIELD_SOURCE",
                                      "radiation_transition_time_s", -1.0);
 
+                // Pass-8 sub-keys. radiation_phase selects the
+                // radiation-transport fidelity tier (LOW: ZELDOVICH_RAIZER
+                // pass-7 default, kept for byte-identical regression;
+                // MED: MARSHAK_GREY pass-8 default-when-opted-in;
+                // HIGH/HIGHEST: scaffolds that throw at solver-init
+                // time). opacity_model selects the kappa(rho, T)
+                // parameterization used by MARSHAK_*. Schema-validate
+                // and warn-and-fall-back on unknown strings.
+                {
+                    std::string rp_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "radiation_phase",
+                        "ZELDOVICH_RAIZER");
+                    for (auto& c : rp_raw)
+                        c = static_cast<char>(std::toupper(c));
+                    if (rp_raw != "ZELDOVICH_RAIZER" &&
+                        rp_raw != "MARSHAK_GREY" &&
+                        rp_raw != "MARSHAK_MULTIGROUP" &&
+                        rp_raw != "SN_TRANSPORT") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.radiation_phase=\"%s\" "
+                                "not recognised (expected ZELDOVICH_RAIZER|"
+                                "MARSHAK_GREY|MARSHAK_MULTIGROUP|"
+                                "SN_TRANSPORT); falling back to "
+                                "ZELDOVICH_RAIZER (pass-8 LOW tier).\n",
+                                rp_raw.c_str());
+                        }
+                        rp_raw = "ZELDOVICH_RAIZER";
+                    }
+                    explosion_->near_field_radiation_phase = rp_raw;
+                }
+                {
+                    std::string om_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "opacity_model",
+                        "POWER_LAW_ZR");
+                    for (auto& c : om_raw)
+                        c = static_cast<char>(std::toupper(c));
+                    if (om_raw != "POWER_LAW_ZR" &&
+                        om_raw != "CONSTANT" &&
+                        om_raw != "TABULATED_TOPS") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.opacity_model=\"%s\" not "
+                                "recognised (expected POWER_LAW_ZR|CONSTANT|"
+                                "TABULATED_TOPS); falling back to "
+                                "POWER_LAW_ZR.\n", om_raw.c_str());
+                        }
+                        om_raw = "POWER_LAW_ZR";
+                    }
+                    explosion_->near_field_opacity_model = om_raw;
+                }
+                explosion_->near_field_kappa_constant = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "kappa_constant_m2_per_kg", 0.0);
+                explosion_->near_field_tillotson_warning_threshold_pa =
+                    reader.getDouble(
+                        "NEAR_FIELD_SOURCE",
+                        "tillotson_extrapolation_warning_threshold_pa",
+                        5.0e10);
+                explosion_->near_field_radiation_max_newton_iter =
+                    static_cast<int>(reader.getDouble(
+                        "NEAR_FIELD_SOURCE",
+                        "radiation_max_newton_iter", 10.0));
+                if (explosion_->near_field_radiation_max_newton_iter < 1) {
+                    explosion_->near_field_radiation_max_newton_iter = 1;
+                }
+                explosion_->near_field_radiation_newton_tolerance =
+                    reader.getDouble(
+                        "NEAR_FIELD_SOURCE",
+                        "radiation_newton_tolerance", 1.0e-6);
+                if (explosion_->near_field_radiation_newton_tolerance <= 0.0) {
+                    explosion_->near_field_radiation_newton_tolerance = 1.0e-6;
+                }
+                explosion_->near_field_radiation_handoff_debounce_steps =
+                    static_cast<int>(reader.getDouble(
+                        "NEAR_FIELD_SOURCE",
+                        "radiation_handoff_debounce_steps", 3.0));
+                if (explosion_->near_field_radiation_handoff_debounce_steps <
+                    1) {
+                    explosion_->near_field_radiation_handoff_debounce_steps =
+                        1;
+                }
+
                 if (rank == 0 && nf_mode == "DYNAMIC_PLASTIC") {
                     PetscPrintf(comm,
                         "Near-field source: mode=DYNAMIC_PLASTIC, "
@@ -1768,6 +1862,68 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         explosion_->near_field_initial_cavity_radius;
                     rl_cfg.radiation_transition_time_s =
                         explosion_->near_field_radiation_transition_time;
+
+                    // Pass-8 radiation-phase dispatch.
+                    if (explosion_->near_field_radiation_phase ==
+                        "MARSHAK_GREY") {
+                        rl_cfg.radiation_phase =
+                            RadialLagrangianSolver::RadiationPhase::
+                                MARSHAK_GREY;
+                    } else if (explosion_->near_field_radiation_phase ==
+                               "MARSHAK_MULTIGROUP") {
+                        rl_cfg.radiation_phase =
+                            RadialLagrangianSolver::RadiationPhase::
+                                MARSHAK_MULTIGROUP;
+                    } else if (explosion_->near_field_radiation_phase ==
+                               "SN_TRANSPORT") {
+                        rl_cfg.radiation_phase =
+                            RadialLagrangianSolver::RadiationPhase::
+                                SN_TRANSPORT;
+                    } else {
+                        rl_cfg.radiation_phase =
+                            RadialLagrangianSolver::RadiationPhase::
+                                ZELDOVICH_RAIZER;
+                    }
+                    if (explosion_->near_field_opacity_model == "CONSTANT") {
+                        rl_cfg.opacity_model = OpacityModel::CONSTANT;
+                    } else if (explosion_->near_field_opacity_model ==
+                               "TABULATED_TOPS") {
+                        rl_cfg.opacity_model = OpacityModel::TABULATED_TOPS;
+                    } else {
+                        rl_cfg.opacity_model = OpacityModel::POWER_LAW_ZR;
+                    }
+                    // Opacity parameter set follows the Tillotson set
+                    // (same medium label). User can override implicitly
+                    // via tillotson_parameter_set or explicitly via
+                    // medium_type; pass-8 keeps the two coupled.
+                    {
+                        std::string ts =
+                            explosion_->near_field_tillotson_set;
+                        if (ts.empty()) {
+                            std::string med = explosion_->medium_type;
+                            for (auto& c : med)
+                                c = static_cast<char>(std::toupper(c));
+                            if (med == "GRANITE" || med == "TUFF" ||
+                                med == "SALT" || med == "ALLUVIUM") {
+                                ts = med;
+                            } else {
+                                ts = "GRANITE";
+                            }
+                        }
+                        rl_cfg.opacity_params =
+                            PowerLawOpacitySets::byName(ts);
+                    }
+                    rl_cfg.kappa_constant_m2_per_kg =
+                        explosion_->near_field_kappa_constant;
+                    rl_cfg.tillotson_extrapolation_warning_threshold_pa =
+                        explosion_->near_field_tillotson_warning_threshold_pa;
+                    rl_cfg.radiation_max_newton_iter =
+                        explosion_->near_field_radiation_max_newton_iter;
+                    rl_cfg.radiation_newton_tolerance =
+                        explosion_->near_field_radiation_newton_tolerance;
+                    rl_cfg.radiation_handoff_debounce_steps =
+                        explosion_->near_field_radiation_handoff_debounce_steps;
+
                     explosion_->radial_solver.setConfig(rl_cfg);
                     explosion_->radial_solver.initialize();
                 }

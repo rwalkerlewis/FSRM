@@ -27,6 +27,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <stdexcept>
+
+#include "domain/explosion/MarshakRadiationDiffusion.hpp"
 
 namespace FSRM {
 
@@ -69,6 +73,33 @@ void RadialLagrangianSolver::setConfig(const Config& c)
     // parameter set so the per-step inner-cell pressure update does
     // not allocate a new EOS each call.
     cavity_tillotson_.setParameters(c.tillotson_params);
+
+    // Pass-8: lazily construct the Marshak solver only when the user
+    // opts into MARSHAK_GREY. The MULTIGROUP and SN_TRANSPORT options
+    // are scaffolded but not implemented; throw a clear error early
+    // rather than producing silently wrong results.
+    if (c.radiation_phase == RadiationPhase::MARSHAK_MULTIGROUP) {
+        throw std::runtime_error(
+            "RadialLagrangianSolver: radiation_phase=MARSHAK_MULTIGROUP "
+            "is a pass-9 scaffold; pass-8 implements MARSHAK_GREY only.");
+    }
+    if (c.radiation_phase == RadiationPhase::SN_TRANSPORT) {
+        throw std::runtime_error(
+            "RadialLagrangianSolver: radiation_phase=SN_TRANSPORT is "
+            "named only; no pass-8 implementation.");
+    }
+    if (c.radiation_phase == RadiationPhase::MARSHAK_GREY) {
+        if (!rad_solver_) {
+            rad_solver_.reset(new MarshakRadiationDiffusionSolver());
+        }
+        MarshakRadiationDiffusionSolver::Config rcfg;
+        rcfg.max_newton_iter = c.radiation_max_newton_iter;
+        rcfg.newton_tolerance = c.radiation_newton_tolerance;
+        rcfg.opacity_model = c.opacity_model;
+        rcfg.opacity_params = c.opacity_params;
+        rcfg.kappa_constant_m2_per_kg = c.kappa_constant_m2_per_kg;
+        rad_solver_->setConfig(rcfg);
+    }
 }
 
 double RadialLagrangianSolver::cavityPressure(double rho, double e) const
@@ -395,6 +426,50 @@ void RadialLagrangianSolver::initialize()
     extract_initialized_ = false;
     M_iso_.fill(0.0);
     Mdot_iso_.fill(0.0);
+
+    // Pass-8: seed the radiation field if MARSHAK_GREY is selected.
+    // We seed E_r at the matter equilibrium a*T^4 in every cell,
+    // with T_m at the cavity vapor temperature (from the Tillotson
+    // temperature lookup at (rho_v_init_, e_v_init_)) inside the gas
+    // region and at T_ambient = 300 K outside. The radiation phase
+    // is marked active; the host substep loop will run the Marshak
+    // solver until the hand-off criterion ends it.
+    radiation_phase_active_ = false;
+    handoff_consecutive_steps_ = 0;
+    radiation_front_index_ = 0;
+    radiation_front_radius_ = 0.0;
+    radiation_energy_total_ = 0.0;
+    matter_energy_change_from_radiation_ = 0.0;
+    t_diff_at_front_ = 0.0;
+    tillotson_warning_logged_ = false;
+    if (config_.radiation_phase == RadiationPhase::MARSHAK_GREY) {
+        if (!rad_solver_) {
+            rad_solver_.reset(new MarshakRadiationDiffusionSolver());
+            MarshakRadiationDiffusionSolver::Config rcfg;
+            rcfg.max_newton_iter = config_.radiation_max_newton_iter;
+            rcfg.newton_tolerance = config_.radiation_newton_tolerance;
+            rcfg.opacity_model = config_.opacity_model;
+            rcfg.opacity_params = config_.opacity_params;
+            rcfg.kappa_constant_m2_per_kg = config_.kappa_constant_m2_per_kg;
+            rad_solver_->setConfig(rcfg);
+        }
+        rad_solver_->initialize(N);
+        E_r_cell_.assign(N, 0.0);
+        T_m_cell_.assign(N, 0.0);
+        const double T_amb = 300.0;
+        const double a = RadiationConstants::RADIATION_CONSTANT_A_J_PER_M3_K4;
+        const double T_cavity =
+            cavity_tillotson_.temperature(rho_v_init_ > 0.0 ? rho_v_init_
+                                                            : src_.host_density,
+                                          e_v_init_);
+        const double T_cavity_safe = T_cavity > T_amb ? T_cavity : T_amb;
+        for (int i = 0; i < N; ++i) {
+            const double T_i = is_gas_[i] ? T_cavity_safe : T_amb;
+            T_m_cell_[i] = T_i;
+            E_r_cell_[i] = a * T_i * T_i * T_i * T_i;
+        }
+        radiation_phase_active_ = true;
+    }
 
     current_time_ = 0.0;
     initialized_ = true;
@@ -808,6 +883,71 @@ void RadialLagrangianSolver::recordMomentExtraction()
     sigma_rr_extract_prev_ = sigma_rr_extract;
 }
 
+void RadialLagrangianSolver::marshakSubstep(double dt)
+{
+    if (!rad_solver_ || N_ == 0 || !radiation_phase_active_) return;
+    if (config_.radiation_phase != RadiationPhase::MARSHAK_GREY) return;
+
+    // Operator split: the Marshak solver sees the post-hydro (rho, v,
+    // e_int) state. It mutates e_int_, E_r_cell_, T_m_cell_ in place;
+    // the host re-evaluates the EOS afterward to pick up the new
+    // matter pressure from the deposited radiation energy.
+    const auto result = rad_solver_->step(
+        dt, r_cell_, r_face_, rho_, e_int_, E_r_cell_, T_m_cell_,
+        cavity_tillotson_, is_gas_);
+
+    radiation_front_index_ = result.radiation_front_index;
+    radiation_front_radius_ = result.radiation_front_radius_m;
+    radiation_energy_total_ = result.total_radiation_energy_J;
+    matter_energy_change_from_radiation_ +=
+        result.total_matter_energy_change_J;
+    t_diff_at_front_ = result.t_diff_at_front_s;
+
+    // Pass-8 Tillotson plasma-extrapolation warning: emit one rank-0
+    // line when the cavity-cell pressure exceeds the configured
+    // threshold. Diagnostic only; does not change behaviour.
+    if (!tillotson_warning_logged_ && N_ > 0) {
+        const double p_max =
+            cavity_tillotson_.pressure(rho_[0], e_int_[0]);
+        if (p_max > config_.tillotson_extrapolation_warning_threshold_pa) {
+            std::fprintf(stderr,
+                "RadialLagrangianSolver/Marshak: Tillotson cavity-cell "
+                "pressure %.3e Pa exceeds extrapolation warning threshold "
+                "%.3e Pa at t = %.3e s; the EOS is being evaluated in a "
+                "regime beyond its calibrated range. Tabulated plasma "
+                "EOS (e.g. ANEOS / SESAME) is named as a pass-9 follow-up.\n",
+                p_max, config_.tillotson_extrapolation_warning_threshold_pa,
+                current_time_);
+            tillotson_warning_logged_ = true;
+        }
+    }
+}
+
+bool RadialLagrangianSolver::radiationHandoffReached() const
+{
+    if (!radiation_phase_active_) return false;
+    if (radiation_front_index_ <= 0) return false;
+    if (radiation_front_index_ >= N_) return false;
+
+    // Compare t_diff at the radiation front with t_hydro at the same
+    // cell. t_hydro = dr / max(|v|, c_s). When the matter velocity
+    // (or sound speed) is fast enough that the hydrodynamic crossing
+    // time is shorter than the radiation diffusion time, the
+    // hydrodynamic phase has caught the radiation front.
+    const int i = radiation_front_index_;
+    const double dr = r_face_[i + 1] - r_face_[i];
+    const double v_face_avg = 0.5 * (std::abs(v_face_[i]) +
+                                     std::abs(v_face_[i + 1]));
+    const double c_s = (i < static_cast<int>(p_.size()))
+        ? std::sqrt(std::max(1.0,
+            (cavity_tillotson_.getParameters().a + 1.0) *
+                std::max(0.0, p_[i]) / std::max(1e-6, rho_[i])))
+        : cp_ref_;
+    const double speed = std::max(c_s, v_face_avg);
+    const double t_hydro = (speed > 1e-9) ? dr / speed : 1e30;
+    return t_hydro < t_diff_at_front_;
+}
+
 void RadialLagrangianSolver::substep(double dt)
 {
     advanceFaces(dt);
@@ -818,6 +958,25 @@ void RadialLagrangianSolver::substep(double dt)
     radialReturnPlasticity(dt);
     updateInternalEnergy(dt);
     updateEOS();
+    // Pass-8: operator-split radiation update on the post-hydro state.
+    // No-op under ZELDOVICH_RAIZER (default). Under MARSHAK_GREY, the
+    // tridiagonal solve advances E_r and T_m and deposits energy back
+    // into e_int_; we then re-evaluate the EOS so the matter pressure
+    // reflects the radiation deposition.
+    if (config_.radiation_phase == RadiationPhase::MARSHAK_GREY &&
+        radiation_phase_active_) {
+        marshakSubstep(dt);
+        updateEOS();
+        if (radiationHandoffReached()) {
+            ++handoff_consecutive_steps_;
+            if (handoff_consecutive_steps_ >=
+                config_.radiation_handoff_debounce_steps) {
+                radiation_phase_active_ = false;
+            }
+        } else {
+            handoff_consecutive_steps_ = 0;
+        }
+    }
     updateDamage(dt);
     // Radiated energy out: sample the instantaneous power at the outer
     // face and integrate over dt before applying the outgoing-wave BC.
