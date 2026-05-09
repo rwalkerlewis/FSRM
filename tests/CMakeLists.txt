@@ -445,6 +445,8 @@ if(GTest_FOUND)
     add_test(NAME Integration.HistoricNuclear.DPRK2017 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DPRK2017)
     add_test(NAME Integration.HistoricNuclear.LopNor1996 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.LopNor1996)
     add_test(NAME Integration.HistoricNuclear.PokhranII1998 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.PokhranII1998)
+    add_test(NAME Integration.HistoricNuclear.JVE1988 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.JVE1988)
+    add_test(NAME Integration.HistoricNuclear.Mururoa1996 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Mururoa1996)
     # Pass-4 (multi-cell-moment-tensor) historic-nuclear distributed variants.
     # The five anchor tests rerun under [SOURCE_DISTRIBUTION] mode = GAUSSIAN
     # support_radius_factor = 5.0, gaussian_sigma_factor = 2.0 (asserts at
@@ -699,6 +701,8 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.DPRK2017
         Integration.HistoricNuclear.LopNor1996
         Integration.HistoricNuclear.PokhranII1998
+        Integration.HistoricNuclear.JVE1988
+        Integration.HistoricNuclear.Mururoa1996
         Integration.MPI.SalmonSerialVsParallelEquivalence
         Integration.MPI.DPRK2017SerialVsParallelEquivalence
         Integration.HistoricNuclear.Gasbuggy1967_Distributed
