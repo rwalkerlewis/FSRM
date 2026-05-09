@@ -148,6 +148,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_absorbing_bc_layered.cpp
     integration/test_source_distribution.cpp
     integration/test_near_field_source.cpp
+    integration/test_iris_validation.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -441,6 +442,15 @@ if(GTest_FOUND)
     add_test(NAME Integration.NearFieldSource.ClosedFormFallback COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.ClosedFormFallback)
     add_test(NAME Integration.NearFieldSource.RadialLagrangianAnchor COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.RadialLagrangianAnchor)
 
+    # Pass-8 IRIS waveform V&V gates. Cache-aware: GTEST_SKIP when
+    # tools/waveform_vv/cache/<EventName>/ is empty, with explicit
+    # message pointing the user at refresh.py.
+    add_test(NAME Integration.IRISValidation.Salmon1964CavityRadius COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Salmon1964CavityRadiusMatchesMeasured)
+    add_test(NAME Integration.IRISValidation.Salmon1964FreeFieldPeakVelocity COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Salmon1964FreeFieldPeakVelocity)
+    add_test(NAME Integration.IRISValidation.Salmon1964FarFieldMb COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Salmon1964FarFieldBodyWaveMagnitude)
+    add_test(NAME Integration.IRISValidation.Chagan1965CrossValidation COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Chagan1965CrossValidation)
+    add_test(NAME Integration.IRISValidation.PokhranI1974CrossValidation COMMAND run_integration_tests --gtest_filter=IRISValidationTest.PokhranI1974CrossValidation)
+
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
     add_test(NAME Performance.Scaling         COMMAND run_performance_tests --gtest_filter=ScalingTest.*)
@@ -614,6 +624,17 @@ if(GTest_FOUND)
         Integration.NearFieldSource.ClosedFormFallback
         Integration.NearFieldSource.RadialLagrangianAnchor
         PROPERTIES TIMEOUT 600 LABELS "integration"
+    )
+
+    # Pass-8: dedicated iris_validation label. Tests skip cleanly
+    # when the cache is empty so this label is CI-safe by default.
+    set_tests_properties(
+        Integration.IRISValidation.Salmon1964CavityRadius
+        Integration.IRISValidation.Salmon1964FreeFieldPeakVelocity
+        Integration.IRISValidation.Salmon1964FarFieldMb
+        Integration.IRISValidation.Chagan1965CrossValidation
+        Integration.IRISValidation.PokhranI1974CrossValidation
+        PROPERTIES TIMEOUT 1200 LABELS "iris_validation;integration"
     )
 
     # Disabled fault-solver tests pending architectural fixes.
