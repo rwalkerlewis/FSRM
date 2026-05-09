@@ -1,137 +1,78 @@
 # FSRM Documentation
 
-This directory contains the complete documentation for FSRM (Fully-coupled Subsurface Reservoir Model).
+Reference documentation for FSRM (Full Service Reservoir Model). Navigate
+by topic below; the standing references for current state are
+[SOLVER_STATE.md](SOLVER_STATE.md), [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md),
+and [AXIS_1A_FIDELITY_REPORT.md](AXIS_1A_FIDELITY_REPORT.md).
 
-## Documentation Structure
+## Getting started
 
-| File | Description |
-|------|-------------|
-| [QUICK_START.md](QUICK_START.md) | Get started in 5 minutes |
-| [USER_GUIDE.md](USER_GUIDE.md) | Complete user manual |
-| [CONFIGURATION.md](CONFIGURATION.md) | Configuration file reference |
-| [CODE_INTERACTION_DIAGRAMS.md](CODE_INTERACTION_DIAGRAMS.md) | **How the code modules interact (diagrams)** |
-| [PHYSICS_MODELS.md](PHYSICS_MODELS.md) | Physics and mathematical models |
-| [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) | **Unified physics kernel and GPU architecture** |
-| [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md) | Numerical approaches and algorithms |
-| [API_REFERENCE.md](API_REFERENCE.md) | C++ API documentation |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Cloud, HPC, and GPU deployment |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Building, testing, and contributing |
-| [BENCHMARKS.md](BENCHMARKS.md) | Validation and benchmark results |
-| [UNIT_SYSTEM.md](UNIT_SYSTEM.md) | Unit conversion and specifications |
-| [COORDINATE_SYSTEMS.md](COORDINATE_SYSTEMS.md) | Geographic coordinate transformations |
-| [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md) | Gmsh and unstructured mesh support |
-| [GMSH_MESH_GUIDE.md](GMSH_MESH_GUIDE.md) | Complete guide to creating Gmsh meshes |
-| [ADAPTIVE_MESH_REFINEMENT.md](ADAPTIVE_MESH_REFINEMENT.md) | AMR for unstructured grids |
-| [ECLIPSE_FEATURES.md](ECLIPSE_FEATURES.md) | Eclipse reservoir simulator compatibility |
-| [FOURIER_NEURAL_OPERATOR.md](FOURIER_NEURAL_OPERATOR.md) | Neural network PDE solver |
-| [IMEX_TRANSITION.md](IMEX_TRANSITION.md) | Implicit-Explicit time integration |
-| [RESFRAC_EQUIVALENT_CAPABILITIES.md](RESFRAC_EQUIVALENT_CAPABILITIES.md) | Hydraulic fracturing capabilities |
-| [SEISSOL_COMPARISON.md](SEISSOL_COMPARISON.md) | Comparison with SeisSol earthquake simulator |
-| [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) | **Nuclear tests, impacts, EMP, radiation** |
-| [NUCLEAR_TEST_DIGITAL_TWIN.md](NUCLEAR_TEST_DIGITAL_TWIN.md) | Verified underground nuclear digital twin workflow |
-| [PYLITH_COMPATIBILITY.md](PYLITH_COMPATIBILITY.md) | PyLith-compatible features (traction BCs, fault slip) |
-| [VOLCANO_MODELING.md](VOLCANO_MODELING.md) | **Comprehensive volcanic system simulation** |
-| [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md) | **Earthquake-tsunami coupling and inundation** |
+| Document | What it covers |
+|---|---|
+| [QUICK_START.md](QUICK_START.md) | Five-minute build-and-run guide |
+| [USER_GUIDE.md](USER_GUIDE.md) | End-to-end user manual; configs, runs, output |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Building, testing, contributing |
 
-## Quick Links
+## Configuration and API
 
-### For New Users
-- **Start Here**: [QUICK_START.md](QUICK_START.md)
-- **Running Simulations**: [USER_GUIDE.md](USER_GUIDE.md)
-- **Configuration Options**: [CONFIGURATION.md](CONFIGURATION.md)
+| Document | What it covers |
+|---|---|
+| [CONFIGURATION.md](CONFIGURATION.md) | Config-file key reference |
+| [FIDELITY_LADDER_GUIDE.md](FIDELITY_LADDER_GUIDE.md) | LOW / MED / HIGH / HIGHEST tier selection across all six ladders |
+| [API_REFERENCE.md](API_REFERENCE.md) | Public C++ API |
+| [CODE_INTERACTION_DIAGRAMS.md](CODE_INTERACTION_DIAGRAMS.md) | Module interaction diagrams |
 
-### For Developers
-- **Building**: [DEVELOPMENT.md](DEVELOPMENT.md)
-- **Testing**: [BENCHMARKS.md](BENCHMARKS.md)
-- **API Reference**: [API_REFERENCE.md](API_REFERENCE.md)
-- **Code Interactions**: [CODE_INTERACTION_DIAGRAMS.md](CODE_INTERACTION_DIAGRAMS.md)
+## Physics and numerics
 
-### By Topic
-- **Physics**: [PHYSICS_MODELS.md](PHYSICS_MODELS.md)
-- **System Architecture**: [CODE_INTERACTION_DIAGRAMS.md](CODE_INTERACTION_DIAGRAMS.md)
-- **Physics Kernels & GPU**: [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) ⭐
-- **Numerical Methods**: [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md)
-- **GPU Deployment**: [DEPLOYMENT.md](DEPLOYMENT.md#gpu-configuration)
-- **Neural Networks**: [FOURIER_NEURAL_OPERATOR.md](FOURIER_NEURAL_OPERATOR.md)
-- **Time Integration**: [IMEX_TRANSITION.md](IMEX_TRANSITION.md)
-- **Units**: [UNIT_SYSTEM.md](UNIT_SYSTEM.md)
-- **Coordinates**: [COORDINATE_SYSTEMS.md](COORDINATE_SYSTEMS.md)
-- **Meshes**: [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md), [GMSH_MESH_GUIDE.md](GMSH_MESH_GUIDE.md)
-- **AMR**: [ADAPTIVE_MESH_REFINEMENT.md](ADAPTIVE_MESH_REFINEMENT.md)
-- **Hydraulic Fracturing**: [RESFRAC_EQUIVALENT_CAPABILITIES.md](RESFRAC_EQUIVALENT_CAPABILITIES.md)
-- **Eclipse Compatibility**: [ECLIPSE_FEATURES.md](ECLIPSE_FEATURES.md)
-- **Explosions & Impacts**: [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) ⭐
-- **Nuclear Twin Workflow**: [NUCLEAR_TEST_DIGITAL_TWIN.md](NUCLEAR_TEST_DIGITAL_TWIN.md)
-- **Volcanoes**: [VOLCANO_MODELING.md](VOLCANO_MODELING.md) ⭐
-- **Tsunamis**: [TSUNAMI_MODELING.md](TSUNAMI_MODELING.md) ⭐
+| Document | What it covers |
+|---|---|
+| [EXPLOSION_IMPACT_PHYSICS.md](EXPLOSION_IMPACT_PHYSICS.md) | Underground explosion source physics, per-pass detail |
+| [PHYSICS_MODELS.md](PHYSICS_MODELS.md) | Constitutive models (Drucker-Prager, Tillotson, ANEOS, Mihalas-Mihalas) |
+| [NUMERICAL_METHODS.md](NUMERICAL_METHODS.md) | Discretization choices (Lagrangian FV, Wilkins AV, multigroup diffusion, Strang, BDF2, RK3-SSP, sponge BC) |
+| [WAVEFORM_VV.md](WAVEFORM_VV.md) | IRIS waveform comparison infrastructure |
 
-## Key Concepts
+## Verification
 
-### Configuration-Driven Simulations
+| Document | What it covers |
+|---|---|
+| [BENCHMARKS.md](BENCHMARKS.md) | Per-gate envelope status across all axes |
+| [AXIS_1A_FIDELITY_REPORT.md](AXIS_1A_FIDELITY_REPORT.md) | Canonical cross-pass axis-1a result |
+| [HISTORIC_NUCLEAR_FIDELITY.md](HISTORIC_NUCLEAR_FIDELITY.md) | Per-pass detail for the historic-nuclear program |
+| [TEST_RESULTS.md](TEST_RESULTS.md) | `ctest` output snapshot |
 
-FSRM is designed so that **all simulation parameters can be specified in text configuration files**. No C++ code changes are needed to:
+## Roadmap
 
-- Define rock and fluid properties
-- Set up wells, fractures, and faults
-- Configure physics models and solver options
-- Specify boundary and initial conditions
-- Select input/output units
+| Document | What it covers |
+|---|---|
+| [HISTORIC_NUCLEAR_ROADMAP.md](HISTORIC_NUCLEAR_ROADMAP.md) | Forward-looking six-axis roadmap |
+| [AXIS_1B_DESIGN.md](AXIS_1B_DESIGN.md) | 3D source ball design (pass-13 implementation track) |
+| [NUCLEAR_TEST_DIGITAL_TWIN.md](NUCLEAR_TEST_DIGITAL_TWIN.md) | Long-range vision document |
 
-Example:
-```bash
-# Run with a configuration file
-mpirun -np 4 fsrm -c config/my_simulation.config
-```
+## Solver state
 
-### Supported Physics
+| Document | What it covers |
+|---|---|
+| [SOLVER_STATE.md](SOLVER_STATE.md) | Current fault-solver state, pass/fail, bottlenecks |
+| [PYLITH_REFERENCE.md](PYLITH_REFERENCE.md) | Verified PyLith architecture pins |
 
-1. **Fluid Flow**: Single-phase, black oil, compositional
-2. **Geomechanics**: Elastic, viscoelastic, poroelastic, plasticity
-3. **Thermal**: Heat conduction and convection
-4. **Fractures**: Natural fractures (DFN), hydraulic fracturing (PKN/KGD/P3D)
-5. **Faults**: Coulomb and rate-state friction, induced seismicity
-6. **Dynamics**: Wave propagation, static triggering, dynamic rupture
-7. **Coupling**: Full THM (Thermo-Hydro-Mechanical) coupling
-8. **Explosions & Impacts**: Underground/atmospheric explosions, crater formation, EMP ⭐
-9. **Volcanoes**: Magma chambers, conduit flow, eruption columns, PDCs, lava flows ⭐
-10. **Tsunamis**: Shallow water equations, seafloor deformation, inundation ⭐
-11. **Infrasound**: Atmospheric acoustic propagation ⭐
+## Mesh and coordinates
 
-### Output Formats
+| Document | What it covers |
+|---|---|
+| [GMSH_MESH_GUIDE.md](GMSH_MESH_GUIDE.md) | Gmsh mesh authoring guide |
+| [UNSTRUCTURED_MESHES.md](UNSTRUCTURED_MESHES.md) | DMPlex unstructured-mesh support |
+| [COORDINATE_SYSTEMS.md](COORDINATE_SYSTEMS.md) | Geographic and local coordinates |
+| [UNIT_SYSTEM.md](UNIT_SYSTEM.md) | Units and conversions |
 
-- HDF5 (efficient large-scale data) - **Default**
-- VTK (ParaView visualization)
-- Eclipse (industry-compatible)
+## Sessions archive
 
-### GPU Acceleration
+[sessions/](sessions/) holds per-session work reports from the bring-up
+and fault-solver development phases (sessions 2-32). They are point-in-
+time and are not refreshed; prefer the standing references above for
+current state.
 
-FSRM supports GPU acceleration for 5-50× speedup on large problems:
+## Archive
 
-| Physics Kernel | GPU Support | Typical Speedup |
-|----------------|-------------|-----------------|
-| Single-Phase Flow | ✓ | 2-5× |
-| Elastodynamics | ✓ | 5-20× |
-| Poroelastodynamics | ✓ | 5-50× |
-| Black Oil | ✓ | 3-8× |
-| Thermal | ✓ | 2-5× |
-| Geomechanics | ✓ | 3-10× |
-| Hydrodynamic | ✓ | 10-50× |
-| Tsunami | ✓ | 10-50× |
-| Infrasound | ✓ | 5-30× |
-| Atmospheric Blast | ✓ | 5-20× |
-| Crater Formation | ✓ | 10-30× |
-| Volcano (multi-physics) | ✓ | 5-20× |
-
-**Supported Platforms:**
-- NVIDIA CUDA (11.0+)
-- AMD ROCm/HIP (5.0+)
-- Multi-GPU with MPI
-- Automatic CPU fallback
-
-See:
-- [PHYSICS_AND_GPU_ARCHITECTURE.md](PHYSICS_AND_GPU_ARCHITECTURE.md) - Kernel architecture
-- [DEPLOYMENT.md](DEPLOYMENT.md#gpu-configuration) - GPU setup and configuration
-
-## License
-
-FSRM is open source software licensed under the [MIT License](../LICENSE).
+[archive/](archive/) holds retired physics docs that no longer describe
+active work (NEM roadmap, fault-solver decision trail, PyLith feature-
+parity wishlist).
