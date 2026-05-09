@@ -183,6 +183,15 @@ public:
     RadialLagrangianSolver();
     ~RadialLagrangianSolver() = default;
 
+    // Move-only: the embedded MarshakRadiationDiffusionSolver
+    // unique_ptr makes the class non-copyable. Explicit defaults
+    // preserve the existing tests that return RadialLagrangianSolver
+    // by value via NRVO / move construction.
+    RadialLagrangianSolver(const RadialLagrangianSolver&) = delete;
+    RadialLagrangianSolver& operator=(const RadialLagrangianSolver&) = delete;
+    RadialLagrangianSolver(RadialLagrangianSolver&&) = default;
+    RadialLagrangianSolver& operator=(RadialLagrangianSolver&&) = default;
+
     void setSource(const UndergroundExplosionSource& src);
     void setEOS(const MieGruneisenEOS& eos);
     void setStrength(const PressureDependentStrength& strength);
