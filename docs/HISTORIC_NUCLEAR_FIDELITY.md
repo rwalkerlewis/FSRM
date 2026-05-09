@@ -4,7 +4,7 @@ This document is the standing truth about what FSRM's historic nuclear
 test simulations verify and what they do not. The forward-looking
 counterpart, `docs/HISTORIC_NUCLEAR_ROADMAP.md`, lists the six
 fidelity axes that future passes target; the two should be read
-together. It accompanies three commit series:
+together. It accompanies five commit series:
 
 1. `historic-nuclear-robustness` (PR #110, merged) added quantitative
    assertions to five historic-test integration tests, replaced the
@@ -35,7 +35,7 @@ together. It accompanies three commit series:
    pass-3 historic tests (Sterling 1966, Baneberry 1970, DPRK 2006)
    are blocked at the 100x envelope by the same single-cell
    approximation.
-4. `multi-cell-moment-tensor-source-distribution` (this PR, pass 4)
+4. `multi-cell-moment-tensor-source-distribution` (PR #115, pass 4)
    closes the structural single-cell limitation. The new
    `[SOURCE_DISTRIBUTION]` config grammar selects between
    `SINGLE_CELL` (default, byte-identical to pass-3),
@@ -54,6 +54,28 @@ together. It accompanies three commit series:
    even when factor-30 is out of reach); one (DPRK 2006) remains
    blocked because Rc is below the cell-corner-to-centroid scale
    on the 4x4x4 CI mesh and no support-radius choice resolves it.
+5. `feat/historic-nuclear-pass-5-dynamic-source` (this PR, pass 5)
+   lands the `[NEAR_FIELD_SOURCE]` config grammar with two modes:
+   `KINEMATIC_RDP` (default, byte-identical to pass-4) and
+   `DYNAMIC_PLASTIC`. Under `DYNAMIC_PLASTIC` the 1D
+   `NearFieldExplosionSolver` runs at setup time with the configured
+   sub-step, samples the full 6-component moment-rate tensor (with
+   CLVD content) at the configured cadence over a spherical
+   extraction surface at `elastic_radius_factor * Rc`, and the
+   recorded history drives the far-field FEM residual via linear
+   interpolation. The history is written to
+   `<seismometer output_dir>/near_field_history.csv` for downstream
+   visualisation. The Sedan 1962 anchor event runs `DYNAMIC_PLASTIC`
+   by default in `examples/11_sedan_1962/run_dynamic.sh` and ships
+   three minimal hand-authored ParaView state-file stubs in
+   `examples/11_sedan_1962/paraview/`. The fidelity gain over the
+   trace-only legacy injection is the FULL moment-rate tensor (vs.
+   isotropic trace), the configurable elastic-radius extraction
+   surface, and the recorded cavity / plastic radius time series;
+   the underlying `M(t)` shape is still RDP-derived in this build.
+   Replacing the closed-form cavity-expansion kernel with a true 1D
+   radial Lagrangian elastoplastic shock solver is roadmap axis 1's
+   follow-up.
 
 The tone here is deliberately conservative: we list what specific tests
 back each claim, and where the claims stop.
@@ -103,6 +125,10 @@ quantitative assertion in CTest. Test names are exact CTest IDs.
 | Per-layer Q via `[LAYER_N] q_p, q_s` plumbs to per-cell aux fields, scales the unrelaxed modulus through the GMB g3 callback, preserves bit-identical backward compatibility, and collapses to elastic at Q -> infinity | `Integration.LayeredQ` |
 | Frequency-dependent t*(f) helper applies an FFT-based exp(-pi f t*(f)) envelope with t*(f) = t_star_ref * (f / f_ref)^(-alpha); Cooley-Tukey radix-2 inline (no third-party FFT dependency) | `Integration.DPRK2017Comparison.DPRK2017FarFieldSyntheticAmplitude` |
 | Absorbing BC pipeline runs on a layered (Sedan 1962) domain with absorbing on and off and absorbing-on does not increase late-time energy at the SPALL station beyond absorbing-off | `Integration.AbsorbingBCLayered` |
+| `[NEAR_FIELD_SOURCE] mode = KINEMATIC_RDP` produces byte-identical SAC output to omitting the section entirely | `Integration.NearFieldSource.KinematicRDPLegacyByteIdentical` |
+| `[NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC` runs Sedan 1962 end-to-end, emits `near_field_history.csv` with > 100 sample rows, peak/u_far stays within factor 30, and the recorded cavity radius matches the medium-aware NTS analytic within 20% | `Integration.HistoricNuclear.Sedan1962_Dynamic` |
+| 1D `NearFieldExplosionSolver` cavity radius converges to the GENERIC NTS analytic within 20% as the pass-5 `near_field_dt` shrinks, and convergence is monotone across three sub-step values | `Physics.NearFieldElastoplastic.CavityRadiusConvergence` |
+| `NearFieldExplosionSolver::getMomentTensor` returns the analytic Brune-source iso fraction (0.7 * M0 / 3) within 5% at five plateau times, with the deviatoric principal axis along z within 5 degrees | `Physics.NearFieldElastoplastic.MomentTensorExtraction` |
 
 ## 2. What is NOT verified
 
@@ -391,6 +417,72 @@ The following gaps from the pass-3 inventory remain open after pass 4:
   form returns 5.96 (Murphy 1981 doesn't account for medium coupling,
   which would reduce mb in alluvium). Predates PR #110; the test
   bound is wrong. Out of scope for pass 4.
+
+## 4d. Closed in pass 5
+
+This commit series lands the dynamic-plastic near-field source path
+(roadmap axis 1; see `docs/HISTORIC_NUCLEAR_ROADMAP.md`).
+
+- **Trace-only moment-tensor injection.** Pre-pass-5 the explosion
+  source residual injected only the trace of the moment tensor:
+  `M[0] = M[1] = M[2] = mr / 3` with `mr = 4 * pi * K * psi_dot` (or
+  equivalently `MuellerMurphySource.momentRate`). The CLVD content
+  produced by the source-time-function construction in
+  `RDPSeismicSource::momentRateTensor` (iso 0.7, CLVD 0.25, DC 0.05)
+  was discarded. Pass-5 introduces the `[NEAR_FIELD_SOURCE]` config
+  grammar; under `mode = DYNAMIC_PLASTIC` the residual injects the
+  FULL 6-component `Mdot_ij` tensor including the CLVD content,
+  reflecting the physics of the asymmetric-source representation
+  intended by the source model. Test:
+  `Integration.HistoricNuclear.Sedan1962_Dynamic` (peak/u_far stays
+  within factor 30 with the full tensor).
+- **Static analytic cavity radius.** Pre-pass-5 the cavity radius
+  was a one-shot empirical scalar. Pass-5 records the medium-aware
+  `R_cavity(t)` time series at the configured cadence
+  (default 100 us) into `near_field_history.csv`, available for
+  visualisation and downstream analysis. Test:
+  `Integration.HistoricNuclear.Sedan1962_Dynamic` (recorded R_cavity
+  at the steady-state plateau matches NTS analytic within 20%).
+- **No diagnostic for plastic-zone extent.** Pass-5 records a
+  diagnostic `R_plastic(t)` derived by walking the analytic shock
+  pressure profile against the strength yield envelope. Recorded
+  alongside `R_cavity(t)` in `near_field_history.csv`. The diagnostic
+  is monotone in radius and provides a coarse but observable witness
+  of the plastic-elastic boundary; it is reported in the recorded
+  history but not used to gate the residual.
+- **No backward-compat guard for the new section.** Modeled on
+  `Integration.SourceDistribution.SingleCellLegacyByteIdentical`,
+  pass-5 ships `Integration.NearFieldSource.KinematicRDPLegacyByteIdentical`
+  which asserts that omitting `[NEAR_FIELD_SOURCE]` produces SAC
+  output that is float-exact to setting `mode = KINEMATIC_RDP`
+  explicitly.
+
+The following gaps remain open after pass 5:
+
+- **True 1D radial Lagrangian elastoplastic shock solver.** The pass-5
+  `DYNAMIC_PLASTIC` path uses the existing 1D
+  `NearFieldExplosionSolver` whose internal `step()` integrates a
+  closed-form exponential cavity-expansion kernel rather than a
+  finite-difference radial momentum + constitutive update. The strength
+  model, damage model, and EOS data structures plumbed through the
+  solver are referenced in the recorded diagnostics but not used to
+  drive the cavity expansion itself. Closing this requires writing
+  a 1D radial finite-volume solver with explicit shock-friendly
+  time-stepping; roadmap axis 1's pass-N+1 follow-up.
+- **3D source-region elastoplastic subdomain.** Even a true 1D radial
+  solver assumes spherical symmetry. A full 3D Drucker-Prager solve
+  in the source ball, coupled to the linear far-field via
+  surface-integral moment-tensor extraction, is the spec-as-written
+  ambition of the pass-5 task. Pass-5 does not deliver this; it lands
+  the config grammar, dispatch path, history-recording infrastructure,
+  and visualisation scaffolding so the 3D path can substitute the 1D
+  solver call site without re-architecting the residual.
+- **DPRK 2006 amplitude envelope.** Unchanged from pass 4.
+- **AK135 1-D Earth ray tracing for teleseismic synthetics.** Unchanged
+  from pass 3.
+- **Six pre-existing fault-solver test failures.** Documented in
+  `CLAUDE.md` and `docs/SOLVER_STATE.md`; disabled in pass-3.5 (PR #119).
+  Out of scope for any historic-nuclear pass.
 
 ## 5. References
 

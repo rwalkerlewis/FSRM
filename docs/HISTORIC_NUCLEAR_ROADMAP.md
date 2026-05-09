@@ -18,43 +18,68 @@ pass-fidelity-doc anchor, and a one-line summary of what landed. When
 a pass opens a new axis (or splits an existing one), add a row
 preserving the leverage ordering.
 
-## 1. Dynamic near-field source -- pass-5 (in progress)
+## 1. Dynamic near-field source -- pass-5 (partial)
 
 **Status.** Pass-5 (PR pending) lands the `[NEAR_FIELD_SOURCE]`
 config grammar and a `DYNAMIC_PLASTIC` mode that drives the far-field
-linear-elastic problem from the existing
-`NearFieldExplosionSolver` 1D spherically symmetric elastoplastic
-shock + damage solver instead of from the analytic
-Mueller-Murphy / RDP closed form. The moment tensor M(t) is
-extracted by surface integration on a sphere at
-`elastic_radius_factor * cavity_radius` and handed to the existing
-distributed-injection pipeline. `KINEMATIC_RDP` remains the default
-and produces byte-identical output for configs that omit the
-section. Sedan 1962 is the anchor event that runs `DYNAMIC_PLASTIC`
-by default in `examples/11_sedan_1962/`.
+linear-elastic problem from the recorded history of the existing 1D
+`NearFieldExplosionSolver`. Under `DYNAMIC_PLASTIC` the solver runs
+at setup time with the configured sub-step, samples the full
+6-component moment-rate tensor at the configured cadence over a
+spherical extraction surface at `elastic_radius_factor * Rc`, and
+records the cavity radius and a diagnostic plastic radius alongside
+the moment-rate tensor in `near_field_history.csv` for downstream
+visualisation. `addExplosionSourceToResidual` interpolates from this
+history and injects the FULL `Mdot_ij` tensor (with iso + CLVD + DC
+content) into the far-field residual.
 
-**Why.** Currently cavity radius and damage-zone scalars are
-precomputed analytic constants; nothing about cavity expansion,
-shock decay, damage formation, or spall is solved. This is the
-largest single fidelity gap and the most visually compelling
-artifact for ParaView (the source ball is where the physics
-actually happens; the far field just transmits it).
+`KINEMATIC_RDP` remains the default and produces byte-identical
+output for configs that omit the section
+(`Integration.NearFieldSource.KinematicRDPLegacyByteIdentical`
+guards the guarantee). Sedan 1962 is the anchor event that runs
+`DYNAMIC_PLASTIC` in `examples/11_sedan_1962/run_dynamic.sh`.
 
-**Acceptance.** `[NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC` runs
-end-to-end on the Sedan 1962 anchor event with HDF5 fields written
-during the dynamic phase, the `_Dynamic` integration test asserts
-cavity radius matches medium-aware analytic within 20% and
-peak/u_far within factor 30, and existing 17 historic tests run
+**Why.** Pre-pass-5 the explosion source residual injected only the
+trace of the moment tensor: the CLVD content produced by the
+source-time-function construction was discarded. The cavity radius
+was a one-shot empirical scalar; nothing about its time evolution
+or the surrounding plastic-zone extent was reported. This is a
+visible fidelity gap because the source ball is where the physics
+actually happens; the far field just transmits it.
+
+**What pass-5 actually delivered.** The fidelity gain over
+`KINEMATIC_RDP` is (a) the full 6-component moment-rate tensor
+(including CLVD content) drives the far field instead of just the
+trace, (b) the elastic-radius extraction surface is configurable and
+reported, (c) the recorded `R_cavity(t)`, `R_plastic(t)`, and
+`Mdot_ij(t)` time series are written to a self-describing CSV at
+the configured cadence for ParaView visualisation. The Sedan 1962
+anchor `_Dynamic` integration test gates these claims (cavity radius
+within 20% of medium-aware NTS analytic, peak/u_far within factor 30,
+> 100 sample rows recorded). All 17 pre-existing historic tests run
 unchanged under the default `KINEMATIC_RDP` path.
 
-**Deferred to a future pass.** A full 3D Drucker-Prager subdomain
-solve (no spherical symmetry assumption) is a multi-week effort and
-would graduate to its own axis if pursued. Pass-5 leverages the 1D
-solver because the physics it captures (dynamic cavity expansion,
-shock decay, damage evolution) is what makes the moment-tensor
-history non-analytic; the radial-symmetry assumption is appropriate
-for contained underground explosions in approximately homogeneous
-media.
+**Deferred to pass-N+1.** The pass-5 `DYNAMIC_PLASTIC` path uses
+the existing 1D solver whose internal `step()` integrates a
+closed-form exponential cavity-expansion kernel rather than a
+finite-difference radial momentum + constitutive update. The
+strength model, damage model, and EOS data structures plumbed
+through the solver are referenced in the recorded diagnostics but
+do not drive the cavity expansion itself. Two follow-ups:
+
+  - **Pass-N+1a.** Replace the closed-form kernel with a true 1D
+    radial Lagrangian finite-volume solver: explicit shock-friendly
+    time-stepping, Drucker-Prager radial-return per cell,
+    Mie-Gruneisen EOS evaluation per cell, surface-integral moment
+    tensor extraction. The pass-5 dispatch path and history CSV
+    do not need to change; only the substitution at the solver
+    interface.
+  - **Pass-N+1b.** Replace the 1D radial solver with a 3D
+    Drucker-Prager subdomain on the source ball, dropping the
+    spherical-symmetry assumption. This is the spec-as-written
+    ambition of the pass-5 task and is multi-week scope; the pass-5
+    config grammar and dispatch path were authored to substitute
+    cleanly into either an axis-1a or axis-1b implementation.
 
 ## 2. Topography and curved free surface
 
@@ -158,7 +183,7 @@ axis. It cross-references `docs/HISTORIC_NUCLEAR_FIDELITY.md`.
 | 2    | #111 | (precondition) | time-domain Mueller-Murphy moment rate as Fourier pair of RDP, medium_type plumbed end-to-end |
 | 3    | #112 | 4 (partial), 6 (partial) | per-layer Q to aux fields, t*(f) post-FFT envelope, MESH_REFINEMENT plumbing |
 | 4    | #113-#115 | (closes pass-3 inversion) | multi-cell moment-tensor distribution, factor-30 envelope on anchor tests |
-| 5    | (this PR) | 1 (in progress) | DYNAMIC_PLASTIC near-field source, M(t) extraction at elastic radius |
+| 5    | (this PR) | 1 (partial) | DYNAMIC_PLASTIC config grammar, full 6-component Mdot_ij injection, R_cavity / R_plastic / Mdot history CSV; closed-form cavity-expansion kernel (axis-1a/1b deferred) |
 
 When pass-5 merges, update this row with the merged PR number and
 the per-axis row to reflect any scope shifts.

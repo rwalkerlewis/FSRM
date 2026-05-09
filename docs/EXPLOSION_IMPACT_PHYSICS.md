@@ -58,6 +58,57 @@ Underground nuclear explosions create a sequence of phenomena that can be modele
 4. **Chimney Collapse** (seconds - minutes): Cavity roof collapses
 5. **Seismic Wave Generation**: P, S, and surface waves radiate outward
 
+### Dynamic near-field source (pass-5)
+
+The far-field FEM problem can be driven by either a kinematic moment
+rate (the legacy path) or by the recorded history of a 1D
+NearFieldExplosionSolver (pass-5). The selection lives in the
+`[NEAR_FIELD_SOURCE]` config section:
+
+```ini
+[NEAR_FIELD_SOURCE]
+mode = DYNAMIC_PLASTIC          # or KINEMATIC_RDP (default)
+elastic_radius_factor = 3.0     # extraction surface = factor * Rc
+near_field_dt = 1e-5            # solver sub-step
+damage_model = DRUCKER_PRAGER
+output_cadence_microseconds = 100
+```
+
+`KINEMATIC_RDP` is the default and preserves byte-identical output
+for configs that omit the section (the
+`Integration.NearFieldSource.KinematicRDPLegacyByteIdentical` test
+guards this guarantee).
+
+`DYNAMIC_PLASTIC` runs the 1D `NearFieldExplosionSolver` at setup
+time with the configured sub-step, samples the full 6-component
+moment-rate tensor (with iso + CLVD + double-couple split) at the
+configured cadence over a spherical extraction surface at
+`elastic_radius_factor * Rc`, and writes the recorded history to
+`<seismometer output_dir>/near_field_history.csv`.
+`addExplosionSourceToResidual` interpolates from this history and
+injects the FULL `Mdot_ij` tensor (not just the isotropic trace) into
+the far-field linear-elastic problem.
+
+The fidelity gain over `KINEMATIC_RDP` is:
+
+  (a) the full moment-rate tensor including the CLVD content drives
+      the far field, instead of the trace-only injection;
+  (b) the elastic-radius extraction surface is configurable and
+      reported via the recorded `R_cavity` and `R_plastic` time
+      series;
+  (c) the history CSV exposes the cavity-expansion and plastic-radius
+      time series to downstream visualisation (ParaView, the Sedan
+      1962 anchor example committed under
+      `examples/11_sedan_1962/paraview/`).
+
+The underlying `M(t)` shape is still RDP-derived in this build (the
+1D solver couples its strength model, damage model, and Mie-Gruneisen
+EOS to a closed-form cavity-expansion kernel rather than a true
+radial Lagrangian solve). Roadmap axis 1 in
+`docs/HISTORIC_NUCLEAR_ROADMAP.md` tracks the follow-up to replace
+the closed-form kernel with a true 1D radial Lagrangian elastoplastic
+shock solver.
+
 ### Cavity and Damage Zones
 
 The explosion creates concentric zones of decreasing damage:
