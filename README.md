@@ -98,7 +98,7 @@ Every feature below has automated tests with quantitative pass/fail criteria. Ru
 | NearField-FEM coupling | `Integration.NearFieldCoupled` | COUPLED_ANALYTIC 1D solver to 3D FEM moment rate |
 | Per-face traction BC | `Integration.TractionBC` | Manual assembly, uniaxial analytical |
 | Time-dependent slip ramp | `Integration.TimeDependentSlip` | Linear slip ramp with onset/rise time |
-| Historic: Gasbuggy 1967 | `Integration.HistoricNuclear.Gasbuggy1967` | 29 kt, 4-layer Lewis Shale, SAC output, far-field amplitude / onset / polarity / mb (see [HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md)) |
+| Historic: Gasbuggy 1967 | `Integration.HistoricNuclear.Gasbuggy1967` | 29 kt, 4-layer Lewis Shale, SAC output, far-field amplitude / onset / polarity / mb (see [HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md), forward-looking [HISTORIC_NUCLEAR_ROADMAP](docs/HISTORIC_NUCLEAR_ROADMAP.md)) |
 | Historic: Gnome 1961 | `Integration.HistoricNuclear.Gnome1961` | 3.1 kt, 4-layer Salado Salt, SAC output, quantitative checks |
 | Historic: Sedan 1962 | `Integration.HistoricNuclear.Sedan1962` | 104 kt, 3-layer alluvium, SAC output, quantitative checks |
 | Historic: Degelen Mountain | `Integration.HistoricNuclear.DegelenMountain` | 50 kt, 3-layer granite, SAC output, quantitative checks |

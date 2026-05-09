@@ -1,8 +1,10 @@
 # Historic Nuclear Test Fidelity
 
 This document is the standing truth about what FSRM's historic nuclear
-test simulations verify and what they do not. It accompanies three
-commit series:
+test simulations verify and what they do not. The forward-looking
+counterpart, `docs/HISTORIC_NUCLEAR_ROADMAP.md`, lists the six
+fidelity axes that future passes target; the two should be read
+together. It accompanies three commit series:
 
 1. `historic-nuclear-robustness` (PR #110, merged) added quantitative
    assertions to five historic-test integration tests, replaced the
