@@ -1,0 +1,87 @@
+# Pass-8 IRIS waveform V&V event manifest.
+#
+# Each entry describes one historic event the comparison library
+# anchors on. Fields:
+#   origin_time:     YYYY-MM-DDTHH:MM:SS UTC, ISO 8601.
+#   event_lat / event_lon / event_depth_km
+#   network_codes:   IRIS network codes to query (FDSN syntax).
+#   stations:        per-station entries with code, channels, and
+#                    distance_km (great-circle to event).
+#   pre_origin_s / post_origin_s: time window in seconds before /
+#                    after origin_time to fetch.
+#   notes:           free-text caveats. Pre-FDSN events may have gaps.
+#
+# Refresh tool: tools/waveform_vv/refresh.py reads this manifest and
+# downloads via ObsPy Client("IRIS"). The cache is committed to the
+# repo and read by the C++ iris_validation tests.
+
+events:
+  Salmon1964:
+    origin_time: 1964-10-22T16:00:00.300
+    event_lat: 31.142
+    event_lon: -89.567
+    event_depth_km: 0.828
+    yield_kt: 5.3
+    medium: SALT
+    published_mb: 4.9
+    measured_cavity_radius_m: 17.4
+    networks: [II, IU, US]
+    stations:
+      - {code: RGSD, channels: [BHZ, BHN, BHE], distance_km: 200.0}
+      - {code: BMSD, channels: [BHZ, BHN, BHE], distance_km: 700.0}
+      - {code: JCT,  channels: [BHZ, BHN, BHE], distance_km: 1500.0}
+      - {code: COL,  channels: [BHZ, BHN, BHE], distance_km: 5500.0}
+    pre_origin_s: 30.0
+    post_origin_s: 600.0
+    notes: |
+      Project Dribble (Salmon) is the canonical kt-class radiation-
+      coupled-hydro calibration event in salt. Post-shot drillback
+      measured a 17.4 m cavity (Springer 1968; Patton 1991). Free-
+      field velocities at three ranges (166 m, 322 m, 549 m) are in
+      Healy 1971 USGS Project Dribble report, well-instrumented.
+      Pre-1976 IRIS coverage is sparse; use the closest available
+      stations from the period.
+  Chagan1965:
+    origin_time: 1965-01-15T05:59:59
+    event_lat: 49.935
+    event_lon: 79.011
+    event_depth_km: 0.178
+    yield_kt: 140.0
+    medium: ALLUVIUM
+    published_mb: 6.0
+    measured_cavity_radius_m: 75.0
+    networks: [II, IU]
+    stations:
+      - {code: TLG, channels: [BHZ, BHN, BHE], distance_km: 800.0}
+      - {code: KZA, channels: [BHZ, BHN, BHE], distance_km: 600.0}
+      - {code: AAK, channels: [BHZ, BHN, BHE], distance_km: 1200.0}
+    pre_origin_s: 30.0
+    post_origin_s: 600.0
+    notes: |
+      Soviet Atomic Lake test, alluvium-over-granite at Semipalatinsk.
+      Cratered (Lake Chagan crater radius ~ 100 m, cavity radius
+      cited at 65-80 m by Adushkin & Spivak 2003). Pre-FDSN; only
+      WWSSN-era analog records exist for many stations. Many IRIS
+      queries will return empty for this event.
+  PokhranI_1974:
+    origin_time: 1974-05-18T07:34:55
+    event_lat: 27.099
+    event_lon: 71.717
+    event_depth_km: 0.107
+    yield_kt: 12.0
+    medium: GRANITE
+    published_mb: 4.9
+    measured_cavity_radius_m: 0.0   # not well published
+    networks: [II, IU]
+    stations:
+      - {code: NIL, channels: [BHZ, BHN, BHE], distance_km: 1500.0}
+      - {code: KEV, channels: [BHZ, BHN, BHE], distance_km: 4500.0}
+    pre_origin_s: 30.0
+    post_origin_s: 600.0
+    notes: |
+      Indian Smiling Buddha test, Pokhran shot range, granite.
+      Cavity radius is not well-published; the cavity-radius gate in
+      Integration.IRISValidation.PokhranI_1974 is GTEST_SKIP'd
+      with a documented reason. Far-field mb is published with some
+      controversy (US 4.8, Indian 5.0 +/-); the gate uses the
+      Sykes 1998 weighted mean of 4.9 +/- 0.4.
