@@ -93,6 +93,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_multigroup_radiation.cpp
     physics_validation/test_pass10_integrators.cpp
     physics_validation/test_pass11_diffusion.cpp
+    physics_validation/test_pass11_outer_bc.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -330,6 +331,8 @@ if(GTest_FOUND)
     add_test(NAME Physics.Pass11Diffusion.BackwardEulerByteIdenticalToPass10 COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.BackwardEulerByteIdenticalToPass10)
     add_test(NAME Physics.MarshakMultigroup.SelfSimilarPureRadiation_BDF2 COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.MultigroupSelfSimilarPureRadiation_BDF2)
     add_test(NAME Physics.MarshakMultigroup.RadiationEnergyConservation_BDF2 COMMAND run_physics_tests --gtest_filter=Pass11DiffusionTest.MultigroupRadiationEnergyConservation_BDF2)
+    add_test(NAME Physics.Pass11OuterBC.OuterBoundaryAbsorption_OutgoingPlanarWave COMMAND run_physics_tests --gtest_filter=Pass11OuterBCTest.OuterBoundaryAbsorption_OutgoingPlanarWave)
+    add_test(NAME Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep COMMAND run_physics_tests --gtest_filter=Pass11OuterBCTest.Salmon549mFreeFieldBCSweep)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -607,6 +610,8 @@ if(GTest_FOUND)
         Physics.Pass11Diffusion.BackwardEulerByteIdenticalToPass10
         Physics.MarshakMultigroup.SelfSimilarPureRadiation_BDF2
         Physics.MarshakMultigroup.RadiationEnergyConservation_BDF2
+        Physics.Pass11OuterBC.OuterBoundaryAbsorption_OutgoingPlanarWave
+        Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 

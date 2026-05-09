@@ -425,6 +425,15 @@ private:
     void updateEOS();
     void updateDamage(double dt);
     void absorbingOuterBC();
+    /// Pass-11 (axis 1c) Israeli-Orszag 1981 graded sponge layer.
+    /// When config_.sponge_layer_enabled, the last
+    /// sponge_layer_thickness_fraction of the radial domain has its
+    /// face velocities damped by a quadratic ramp from 0 at the inner
+    /// edge of the sponge to sponge_layer_max_damping at the outer
+    /// face. The sponge runs alongside the impedance BC; the bulk of
+    /// the absorbed energy is dissipated in the sponge before reaching
+    /// the outer characteristic.
+    void applySpongeLayerDamping(double dt);
     void recordMomentExtraction();
 
     /// Pass-7: solve for the (R_v, rho_v, e_v) inner-cavity state at

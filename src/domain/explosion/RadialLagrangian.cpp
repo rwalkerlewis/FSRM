@@ -959,6 +959,34 @@ void RadialLagrangianSolver::updateDamage(double dt)
     }
 }
 
+void RadialLagrangianSolver::applySpongeLayerDamping(double dt)
+{
+    // Israeli & Orszag 1981 graded-damping sponge layer. Velocity in
+    // the last sponge_layer_thickness_fraction of the radial domain
+    // is multiplied by exp(-damping * dt) per substep, with the
+    // damping coefficient ramping quadratically from zero at the
+    // inner edge of the sponge to sponge_layer_max_damping (in units
+    // of 1/dt) at the outer face. The exponential form keeps the
+    // sponge stable even when sponge_layer_max_damping * dt is large.
+    if (!config_.sponge_layer_enabled || N_ < 2 || r_outer_ <= 0.0) return;
+    const double r_o = r_face_[N_];
+    const double r_i = r_face_[0];
+    const double L = safeMax(1.0e-12, r_o - r_i);
+    const double sponge_thickness =
+        config_.sponge_layer_thickness_fraction * L;
+    if (sponge_thickness <= 0.0) return;
+    const double r_sponge_start = r_o - sponge_thickness;
+    const double max_damping = config_.sponge_layer_max_damping / safeMax(1.0e-30, dt);
+    for (int i = 0; i <= N_; ++i) {
+        const double r = r_face_[i];
+        if (r < r_sponge_start) continue;
+        const double s = (r - r_sponge_start) / sponge_thickness;
+        const double damping = max_damping * s * s;
+        const double factor = std::exp(-damping * dt);
+        v_face_[i] *= factor;
+    }
+}
+
 void RadialLagrangianSolver::absorbingOuterBC()
 {
     // Outgoing characteristic: the outermost cell's stress perturbation
@@ -1314,6 +1342,12 @@ void RadialLagrangianSolver::substep(double dt)
         const double power = -A * sigma_rr * v_face_[N_];
         radiated_energy_out_ += safeMax(0.0, power) * dt;
     }
+    // Pass-11 sponge layer (no-op when sponge_layer_enabled is false).
+    // Damp face velocities in the outer fraction of the domain before
+    // applying the impedance BC; the sponge zone dissipates the bulk
+    // of the outgoing energy so the impedance BC sees a much smaller
+    // residual amplitude.
+    applySpongeLayerDamping(dt);
     absorbingOuterBC();
 
     // Energy bookkeeping. Kinetic = sum (m_face * v_face^2 / 2).
