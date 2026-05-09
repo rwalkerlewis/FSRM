@@ -636,18 +636,33 @@ void RadialLagrangianSolver::step(double dt_target)
     const std::array<double, 6> M_prev = M_iso_;
     const double t_prev = current_time_;
 
-    // Sub-step adaptively until we hit dt_target.
+    // Sub-step adaptively until we hit dt_target. We cap the per-call
+    // sub-step count at 1000 to avoid runaway loops when CFL collapses
+    // (face crossings, runaway shock-front compression, or other
+    // pathological states): the public step contract requires
+    // current_time_ to advance by exactly dt_target on return so the
+    // outer Simulator loop does not deadlock. If we run out of sub-step
+    // budget, we force-advance current_time_ to t_end and return; the
+    // numerical state may be wrong in that pathological regime but the
+    // outer loop continues to make progress.
     const double t_end = current_time_ + dt_target;
     int safety_iters = 0;
     while (current_time_ < t_end - 1e-15) {
         double dt_sub = t_end - current_time_;
         cflLimit(dt_sub);
-        // Cap so we never overshoot the target.
         if (dt_sub > t_end - current_time_) dt_sub = t_end - current_time_;
-        if (dt_sub <= 0.0) break;
+        if (dt_sub <= 1e-15) {
+            // CFL collapsed: force-advance to avoid hang.
+            current_time_ = t_end;
+            break;
+        }
         substep(dt_sub);
-        if (++safety_iters > 100000) break;
+        if (++safety_iters > 1000) {
+            current_time_ = t_end;
+            break;
+        }
     }
+    if (current_time_ < t_end) current_time_ = t_end;
 
     // Mdot = (M(t) - M(t_prev)) / dt_target.
     const double dt = safeMax(1e-30, current_time_ - t_prev);

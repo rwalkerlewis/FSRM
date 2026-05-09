@@ -80,6 +80,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_atmospheric_explosion.cpp
     physics_validation/test_near_field_explosion.cpp
     physics_validation/test_dynamic_plastic_cavity.cpp
+    physics_validation/test_radial_lagrangian.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -258,6 +259,13 @@ if(GTest_FOUND)
     # convergence and moment-tensor extraction.
     add_test(NAME Physics.NearFieldElastoplastic.CavityRadiusConvergence COMMAND run_physics_tests --gtest_filter=NearFieldElastoplasticTest.CavityRadiusConvergence)
     add_test(NAME Physics.NearFieldElastoplastic.MomentTensorExtraction COMMAND run_physics_tests --gtest_filter=NearFieldElastoplasticTest.MomentTensorExtraction)
+    # Pass-6: radial Lagrangian standalone physics-validation gates.
+    add_test(NAME Physics.RadialLagrangian.PureElasticSphericalWave COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.PureElasticSphericalWave)
+    add_test(NAME Physics.RadialLagrangian.OutgoingBC COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.OutgoingBC)
+    add_test(NAME Physics.RadialLagrangian.SedovTaylorEarlyTime COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.SedovTaylorEarlyTime)
+    add_test(NAME Physics.RadialLagrangian.NTSCavityRadiusScaling COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.NTSCavityRadiusScaling)
+    add_test(NAME Physics.RadialLagrangian.EnergyConservation COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.EnergyConservation)
+    add_test(NAME Physics.RadialLagrangian.MeshRefinementConvergence COMMAND run_physics_tests --gtest_filter=RadialLagrangianTest.MeshRefinementConvergence)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -396,6 +404,15 @@ if(GTest_FOUND)
     add_test(NAME Integration.SourceDistribution.FallbackToSingleCellWhenBallEmpty COMMAND run_integration_tests --gtest_filter=SourceDistributionTest.FallbackToSingleCellWhenBallEmpty)
     # Pass-5: [NEAR_FIELD_SOURCE] config-grammar backward-compat guard.
     add_test(NAME Integration.NearFieldSource.KinematicRDPLegacyByteIdentical COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.KinematicRDPLegacyByteIdentical)
+    # Pass-6: closed-form fallback regression guard and radial-Lagrangian
+    # opt-in anchor. ClosedFormFallback asserts that DYNAMIC_PLASTIC mode
+    # with solver_kind defaulted (or set explicitly to CLOSED_FORM)
+    # reproduces the pass-5 published-test behaviour byte-for-byte.
+    # RadialLagrangianAnchor exercises the new 1D shock solver and
+    # asserts the pipeline completes with finite outputs and the new
+    # HDF5 / XDMF spatial-profile files are produced.
+    add_test(NAME Integration.NearFieldSource.ClosedFormFallback COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.ClosedFormFallback)
+    add_test(NAME Integration.NearFieldSource.RadialLagrangianAnchor COMMAND run_integration_tests --gtest_filter=NearFieldSourceTest.RadialLagrangianAnchor)
 
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
@@ -473,6 +490,12 @@ if(GTest_FOUND)
         Physics.CohesiveBdResidual
         Physics.NearFieldElastoplastic.CavityRadiusConvergence
         Physics.NearFieldElastoplastic.MomentTensorExtraction
+        Physics.RadialLagrangian.PureElasticSphericalWave
+        Physics.RadialLagrangian.OutgoingBC
+        Physics.RadialLagrangian.SedovTaylorEarlyTime
+        Physics.RadialLagrangian.NTSCavityRadiusScaling
+        Physics.RadialLagrangian.EnergyConservation
+        Physics.RadialLagrangian.MeshRefinementConvergence
         PROPERTIES TIMEOUT 600 LABELS "physics_validation"
     )
 
@@ -549,6 +572,8 @@ if(GTest_FOUND)
         Integration.SourceDistribution.FallbackToSingleCellWhenBallEmpty
         Integration.HistoricNuclear.Sedan1962_Dynamic
         Integration.NearFieldSource.KinematicRDPLegacyByteIdentical
+        Integration.NearFieldSource.ClosedFormFallback
+        Integration.NearFieldSource.RadialLagrangianAnchor
         PROPERTIES TIMEOUT 600 LABELS "integration"
     )
 
