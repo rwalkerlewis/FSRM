@@ -15,6 +15,7 @@
 #include "domain/explosion/ExplosionImpactPhysics.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/explosion/RadialLagrangian.hpp"
+#include "domain/explosion/RadialLagrangianOutput.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
 #include "io/VelocityModelReader.hpp"
 
@@ -1685,6 +1686,17 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 ShockAttenuationModel shock_env;
                 shock_env.setFromSource(dpc_src);
 
+                // Pass-6 spatial-profile snapshot accumulation. Used
+                // only when solver_kind = RADIAL_LAGRANGIAN; CLOSED_FORM
+                // does not produce a meaningful spatial profile (it is
+                // a 0D analytic kernel).
+                std::vector<RadialLagrangianSolver::RadialProfile> rl_profiles;
+                const double profile_cadence_s =
+                    std::max(1.0e-9,
+                             explosion_->near_field_profile_cadence_us *
+                                 1.0e-6);
+                double next_profile_sample = 0.0;
+
                 double next_sample = 0.0;
                 double dpc_t = 0.0;
                 while (dpc_t <= dpc_end + 0.5 * nf_dt) {
@@ -1764,6 +1776,16 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         next_sample += cadence_s;
                     }
                     if (use_radial_lagrangian) {
+                        // Spatial-profile snapshot at the configured
+                        // profile cadence. Stored on rank 0 only so
+                        // we do not duplicate per-rank.
+                        if (rank == 0 &&
+                            dpc_t >= next_profile_sample - 0.5 * nf_dt) {
+                            RadialLagrangianSolver::RadialProfile prof;
+                            explosion_->radial_solver.getRadialProfile(prof);
+                            rl_profiles.push_back(std::move(prof));
+                            next_profile_sample += profile_cadence_s;
+                        }
                         explosion_->radial_solver.step(nf_dt);
                     } else {
                         explosion_->nf_solver.prestep(dpc_t, nf_dt);
@@ -1875,6 +1897,43 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         PetscPrintf(comm,
                             "  WARNING: failed to open %s for writing\n",
                             nf_path.c_str());
+                    }
+                }
+
+                // Pass-6 spatial-profile output (RADIAL_LAGRANGIAN only).
+                // Writes near_field_profile.h5 (HDF5 with one group per
+                // snapshot) and near_field_profile.xdmf (ParaView
+                // wrapper) alongside the pass-5 CSV. Schema and
+                // semantics frozen for pass-6; see
+                // include/domain/explosion/RadialLagrangianOutput.hpp.
+                if (rank == 0 && use_radial_lagrangian &&
+                    !rl_profiles.empty()) {
+                    std::string nf_dir = seismo_out_cfg_.output_dir.empty()
+                        ? std::string(".")
+                        : seismo_out_cfg_.output_dir;
+                    std::error_code ec_dir;
+                    std::filesystem::create_directories(nf_dir, ec_dir);
+                    const std::string h5_path =
+                        nf_dir + "/near_field_profile.h5";
+                    const std::string xdmf_path =
+                        nf_dir + "/near_field_profile.xdmf";
+                    bool ok_h5 = writeRadialProfilesHDF5(h5_path,
+                                                          rl_profiles);
+                    bool ok_xdmf = writeRadialProfilesXDMF(
+                        xdmf_path, "near_field_profile.h5", rl_profiles);
+                    if (ok_h5 && ok_xdmf) {
+                        PetscPrintf(comm,
+                            "  Near-field profile HDF5: %s "
+                            "(%zu snapshots)\n",
+                            h5_path.c_str(), rl_profiles.size());
+                        PetscPrintf(comm,
+                            "  Near-field profile XDMF: %s\n",
+                            xdmf_path.c_str());
+                    } else {
+                        PetscPrintf(comm,
+                            "  WARNING: HDF5/XDMF profile write "
+                            "failed (h5=%d xdmf=%d)\n",
+                            ok_h5 ? 1 : 0, ok_xdmf ? 1 : 0);
                     }
                 }
             }
