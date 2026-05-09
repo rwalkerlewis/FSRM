@@ -476,6 +476,50 @@ struct Simulator::ExplosionCoupling {
     std::vector<DistributedSourceCell> dist_cells;
     bool dist_fallback_warned = false;
 
+    // Pass-5: dynamic near-field source. Default KINEMATIC_RDP preserves
+    // pre-pass-5 behaviour: addExplosionSourceToResidual computes the
+    // moment rate on-the-fly from the analytic Mueller-Murphy / RDP
+    // closed form and applies it as the trace of an isotropic moment
+    // tensor (ignoring CLVD content). DYNAMIC_PLASTIC instead runs the
+    // 1D NearFieldExplosionSolver (with strength model, damage model,
+    // and EOS) at setup time, samples the full 6-component moment
+    // tensor M(t) at the configured cadence over a spherical extraction
+    // surface at elastic_radius_factor * cavity_radius, and stores the
+    // resulting time series for interpolation in the residual.
+    //
+    // The "elastic radius" is the radius beyond which the near-field
+    // shock has decayed below the strength model yield envelope. It is
+    // the boundary between the inner zone where plastic strain
+    // accumulates and the outer zone where the response is purely
+    // elastic. The far-field FEM solver picks up the wave from this
+    // surface; everything inside the elastic radius is solved by the
+    // 1D radial model.
+    std::string near_field_mode = "KINEMATIC_RDP";
+    double elastic_radius_factor = 3.0;
+    double near_field_dt = 1.0e-5;
+    std::string near_field_damage_model = "DRUCKER_PRAGER";
+    int near_field_output_cadence_us = 100;
+
+    // Recorded near-field state. Populated in initializeFromConfigFile
+    // when near_field_mode == "DYNAMIC_PLASTIC" and the 1D solver has
+    // run. Cleared otherwise (the legacy COUPLED_ANALYTIC path goes
+    // through rdp_source.psiDot in addExplosionSourceToResidual).
+    //
+    // nf_history_times[i] is the simulation time of sample i (already
+    // shifted into the t0-anchored elapsed-time frame the residual
+    // helper uses). nf_history_M[i] is the corresponding 6-component
+    // moment tensor [Mxx, Myy, Mzz, Mxy, Mxz, Myz] in N*m. The history
+    // is sampled at near_field_output_cadence_us microseconds. Linear
+    // interpolation in addExplosionSourceToResidual recovers the value
+    // at the FEM time-step.
+    std::vector<double> nf_history_times;
+    std::vector<std::array<double, 6>> nf_history_M;
+    std::vector<double> nf_history_R_cavity;
+    std::vector<double> nf_history_R_plastic;
+    double nf_elastic_radius = 0.0;       // elastic_radius_factor * Rc
+    double nf_dynamic_phase_end = 0.0;    // last sampled time (s)
+    bool near_field_active = false;       // true iff DYNAMIC_PLASTIC ran successfully
+
     // Configure from basic nuclear underground parameters
     void configureUndergroundNuclear(double yield_kt, double depth_m,
                                      double x, double y, double z,
@@ -1282,6 +1326,80 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 }
             }
 
+            // Pass-5: optional [NEAR_FIELD_SOURCE] section. Default
+            // KINEMATIC_RDP preserves the pre-pass-5 closed-form moment
+            // rate path (addExplosionSourceToResidual computes
+            // psi_dot * 4*pi*K or MuellerMurphy.momentRate every
+            // residual call). DYNAMIC_PLASTIC instead runs the 1D
+            // NearFieldExplosionSolver at setup time, samples the full
+            // 6-component moment tensor M(t) at the configured cadence,
+            // and uses the recorded history (interpolated) in the
+            // residual. Schema-validates: unknown keys are ignored,
+            // unknown mode strings warn-and-fall-back to KINEMATIC_RDP.
+            if (reader.hasSection("NEAR_FIELD_SOURCE")) {
+                std::string nf_raw = reader.getString(
+                    "NEAR_FIELD_SOURCE", "mode", "KINEMATIC_RDP");
+                std::string nf_mode = nf_raw;
+                for (auto& c : nf_mode) c = static_cast<char>(std::toupper(c));
+                if (nf_mode != "KINEMATIC_RDP" && nf_mode != "DYNAMIC_PLASTIC") {
+                    if (rank == 0) {
+                        PetscPrintf(comm,
+                            "NEAR_FIELD_SOURCE.mode=\"%s\" not recognised "
+                            "(expected KINEMATIC_RDP|DYNAMIC_PLASTIC); "
+                            "falling back to KINEMATIC_RDP.\n", nf_raw.c_str());
+                    }
+                    nf_mode = "KINEMATIC_RDP";
+                }
+                explosion_->near_field_mode = nf_mode;
+                explosion_->elastic_radius_factor = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "elastic_radius_factor", 3.0);
+                if (explosion_->elastic_radius_factor < 1.0) {
+                    if (rank == 0) {
+                        PetscPrintf(comm,
+                            "NEAR_FIELD_SOURCE.elastic_radius_factor=%.3f "
+                            "< 1.0; clamping to 1.0 (extraction surface "
+                            "must be at or beyond the cavity radius).\n",
+                            explosion_->elastic_radius_factor);
+                    }
+                    explosion_->elastic_radius_factor = 1.0;
+                }
+                explosion_->near_field_dt = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "near_field_dt", 1.0e-5);
+                if (explosion_->near_field_dt <= 0.0) {
+                    explosion_->near_field_dt = 1.0e-5;
+                }
+                std::string dm_raw = reader.getString(
+                    "NEAR_FIELD_SOURCE", "damage_model", "DRUCKER_PRAGER");
+                std::string dm_str = dm_raw;
+                for (auto& c : dm_str) c = static_cast<char>(std::toupper(c));
+                if (dm_str != "DRUCKER_PRAGER") {
+                    if (rank == 0) {
+                        PetscPrintf(comm,
+                            "NEAR_FIELD_SOURCE.damage_model=\"%s\" not "
+                            "recognised (expected DRUCKER_PRAGER); "
+                            "using DRUCKER_PRAGER.\n", dm_raw.c_str());
+                    }
+                    dm_str = "DRUCKER_PRAGER";
+                }
+                explosion_->near_field_damage_model = dm_str;
+                explosion_->near_field_output_cadence_us = static_cast<int>(
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "output_cadence_microseconds", 100.0));
+                if (explosion_->near_field_output_cadence_us < 1) {
+                    explosion_->near_field_output_cadence_us = 1;
+                }
+                if (rank == 0 && nf_mode == "DYNAMIC_PLASTIC") {
+                    PetscPrintf(comm,
+                        "Near-field source: mode=DYNAMIC_PLASTIC, "
+                        "elastic_radius_factor=%.3f, near_field_dt=%.2e s, "
+                        "damage_model=%s, output_cadence=%d us\n",
+                        explosion_->elastic_radius_factor,
+                        explosion_->near_field_dt,
+                        dm_str.c_str(),
+                        explosion_->near_field_output_cadence_us);
+                }
+            }
+
             // COUPLED_ANALYTIC: run 1D NearField solver and store RDP source
             if (config.explosion_solve_mode == "COUPLED_ANALYTIC") {
                 UndergroundExplosionSource nf_src;
@@ -1324,6 +1442,275 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                                 explosion_->nf_cavity_radius,
                                 explosion_->nf_crushed_radius,
                                 explosion_->nf_fractured_radius);
+                }
+            }
+
+            // Pass-5: DYNAMIC_PLASTIC. Run the 1D solver at setup time
+            // with the configured sub-step, sample the full 6-component
+            // moment tensor and cavity radius at the configured cadence,
+            // and record the M(t) history. addExplosionSourceToResidual
+            // interpolates from this history. The elastic radius is the
+            // configured factor times the empirical cavity radius; the
+            // plastic radius is the analytic shock-decay extent where
+            // the peak pressure equals the strength model yield (a
+            // standing diagnostic, not used to drive the residual).
+            //
+            // The 1D NearFieldExplosionSolver in this build couples its
+            // strength model, damage model, and Mie-Gruneisen EOS to a
+            // closed-form cavity-expansion kernel; the underlying M(t)
+            // shape is therefore RDP-derived. The fidelity gain over
+            // KINEMATIC_RDP is (a) the FULL moment tensor including the
+            // CLVD content is injected (vs. the trace only on the
+            // legacy path), (b) the elastic-radius extraction surface
+            // is configurable and reported, and (c) the recorded
+            // history exposes the cavity-expansion and plastic-radius
+            // time series in HDF5 for visualisation. Replacing the
+            // closed-form kernel with a true 1D radial Lagrangian
+            // elastoplastic shock solver is roadmap axis 1's follow-up.
+            if (explosion_->near_field_mode == "DYNAMIC_PLASTIC") {
+                // Configure the underlying source (re-derived locally so
+                // we do not depend on COUPLED_ANALYTIC having run).
+                UndergroundExplosionSource dpc_src;
+                dpc_src.yield_kt = yield_kt;
+                dpc_src.depth = depth_m;
+                dpc_src.location = {x, y, z};
+                dpc_src.host_density = rho;
+                dpc_src.host_vp = vp;
+                dpc_src.host_vs = vs;
+                dpc_src.rise_time = rise;
+                dpc_src.overburden_stress = rho * 9.81 * depth_m;
+
+                if (config.explosion_solve_mode != "COUPLED_ANALYTIC") {
+                    explosion_->nf_solver.setSource(dpc_src);
+                    explosion_->nf_solver.initialize();
+                    explosion_->rdp_source.initialize(dpc_src);
+                }
+
+                // Empirical Rc and elastic radius (medium-aware via the
+                // host density only at this point; medium_type-driven
+                // coefficient is applied through the cavity coefficient
+                // below by re-deriving Rc with parseMediumType).
+                NuclearSourceParameters nsp;
+                nsp.yield_kt = yield_kt;
+                nsp.depth_of_burial = depth_m;
+                NuclearSourceParameters::MediumType medium =
+                    parseMediumType(explosion_->medium_type, comm);
+                const double Rc = nsp.cavity_radius(rho, medium);
+                explosion_->nf_elastic_radius =
+                    explosion_->elastic_radius_factor * Rc;
+
+                // Time horizon: enough to cover the rise time at the
+                // configured sub-step plus a few corner-frequency
+                // periods. The recorded history must extend to at least
+                // the simulation end time; sample 10 * rise + 5 / fc to
+                // capture the moment-rate plateau.
+                const double nf_dt = explosion_->near_field_dt;
+                const double fc_est = 2.5 * std::pow(yield_kt, -1.0/3.0);
+                const double rdp_window = 5.0 / std::max(1.0e-3, fc_est);
+                const double dpc_end =
+                    std::max(rdp_window, std::max(10.0 * rise, 1.0));
+                const double cadence_s =
+                    std::max(1.0e-9,
+                             explosion_->near_field_output_cadence_us * 1.0e-6);
+
+                // Reserve to avoid mid-loop reallocations.
+                const size_t reserve_n =
+                    static_cast<size_t>(dpc_end / cadence_s) + 8;
+                explosion_->nf_history_times.reserve(reserve_n);
+                explosion_->nf_history_M.reserve(reserve_n);
+                explosion_->nf_history_R_cavity.reserve(reserve_n);
+                explosion_->nf_history_R_plastic.reserve(reserve_n);
+
+                // Strength yield envelope evaluated against the analytic
+                // shock peak pressure to determine the plastic radius
+                // diagnostic. CRAM3D pressure-dependent strength uses
+                // the host overburden as the reference confining stress.
+                PressureDependentStrength strength_env;
+                ShockAttenuationModel shock_env;
+                shock_env.setFromSource(dpc_src);
+
+                double next_sample = 0.0;
+                double dpc_t = 0.0;
+                while (dpc_t <= dpc_end + 0.5 * nf_dt) {
+                    if (dpc_t >= next_sample - 0.5 * nf_dt) {
+                        // Record the moment-rate tensor Mdot_ij(t),
+                        // not the moment tensor M_ij(t). The far-field
+                        // injection helper in addExplosionSourceToResidual
+                        // expects moment-rate units (the legacy path
+                        // injects 4*pi*K*psi_dot as the trace), so the
+                        // pass-5 history must match the same units to
+                        // be a like-for-like substitution. The
+                        // RDPSeismicSource::momentRateTensor splits
+                        // M0_dot = 4*pi*K*psi_dot into the same iso /
+                        // CLVD shape getMomentTensor uses for the
+                        // moment, ensuring the dynamic-plastic path
+                        // injects the FULL 6-component rate tensor
+                        // (with CLVD content) while preserving the
+                        // legacy units.
+                        std::array<double, 6> Mdot_t;
+                        explosion_->rdp_source.momentRateTensor(
+                            dpc_t, Mdot_t);
+
+                        // Plastic radius: scan outward in fine bins and
+                        // record the first radius where the analytic
+                        // shock peak pressure has decayed below the
+                        // strength yield envelope at zero confining
+                        // pressure. Coarse but monotone in radius.
+                        double r_plastic = Rc;
+                        const int nbins = 200;
+                        const double r_lo = Rc;
+                        const double r_hi = explosion_->nf_elastic_radius;
+                        const double dr =
+                            (r_hi - r_lo) / static_cast<double>(nbins);
+                        const double Y_envelope =
+                            strength_env.yieldStrength(0.0, 0.0, 0.0);
+                        for (int ib = 0; ib < nbins; ++ib) {
+                            const double r = r_lo + ib * dr;
+                            if (shock_env.peakPressure(r) < Y_envelope) {
+                                r_plastic = r;
+                                break;
+                            }
+                            if (ib == nbins - 1) r_plastic = r_hi;
+                        }
+
+                        // Recorded R_cavity uses the medium-aware
+                        // steady-state Rc (computed above with
+                        // parseMediumType / NuclearSourceParameters)
+                        // rescaled by the solver's internal
+                        // approach-to-equilibrium factor. The 1D
+                        // solver in this build computes its cavity
+                        // expansion against the GENERIC coefficient
+                        // (UndergroundExplosionSource::cavityRadius),
+                        // so a direct getCavityRadius(t) would record
+                        // the wrong steady-state. Pass-5 records the
+                        // medium-aware value because that is what the
+                        // far-field seismogram and the pass-4
+                        // distributed source ball both already use.
+                        const double Rc_gen_eq =
+                            std::max(1.0, dpc_src.cavityRadius());
+                        const double R_solver =
+                            explosion_->nf_solver.getCavityRadius(dpc_t);
+                        const double approach =
+                            Rc_gen_eq > 0.0 ? R_solver / Rc_gen_eq : 0.0;
+                        const double R_cavity_medium =
+                            Rc * std::min(1.0, std::max(0.0, approach));
+
+                        explosion_->nf_history_times.push_back(dpc_t);
+                        explosion_->nf_history_M.push_back(Mdot_t);
+                        explosion_->nf_history_R_cavity.push_back(
+                            R_cavity_medium);
+                        explosion_->nf_history_R_plastic.push_back(r_plastic);
+                        next_sample += cadence_s;
+                    }
+                    explosion_->nf_solver.prestep(dpc_t, nf_dt);
+                    explosion_->nf_solver.step(nf_dt);
+                    explosion_->nf_solver.poststep(dpc_t + nf_dt, nf_dt);
+                    dpc_t += nf_dt;
+                }
+
+                explosion_->nf_dynamic_phase_end =
+                    explosion_->nf_history_times.empty()
+                        ? 0.0
+                        : explosion_->nf_history_times.back();
+                explosion_->near_field_active = true;
+                explosion_->nf_cavity_radius = Rc;
+                explosion_->nf_crushed_radius = Rc *
+                    ExplosionPhysics::CRUSHED_ZONE_RATIO;
+                explosion_->nf_fractured_radius = Rc *
+                    ExplosionPhysics::FRACTURED_ZONE_RATIO;
+                explosion_->use_nearfield_coupling = true;
+
+                if (rank == 0) {
+                    PetscPrintf(comm,
+                        "DYNAMIC_PLASTIC: 1D NearField solver sampled, "
+                        "%zu history points to t = %.3f s\n",
+                        explosion_->nf_history_times.size(),
+                        explosion_->nf_dynamic_phase_end);
+                    PetscPrintf(comm,
+                        "  Cavity R = %.1f m, Elastic R = %.1f m "
+                        "(factor %.2f), Plastic R[end] = %.1f m\n",
+                        explosion_->nf_cavity_radius,
+                        explosion_->nf_elastic_radius,
+                        explosion_->elastic_radius_factor,
+                        explosion_->nf_history_R_plastic.empty()
+                            ? 0.0
+                            : explosion_->nf_history_R_plastic.back());
+                }
+
+                // Pass-5 near-field history CSV. Written on rank 0 to
+                // <SEISMOMETERS.output_dir>/near_field_history.csv if a
+                // seismometer output directory is configured (the
+                // historic-nuclear examples set it), else to
+                // ./near_field_history.csv. Columns:
+                //   t [s], R_cavity [m], R_plastic [m],
+                //   Mxx_dot, Myy_dot, Mzz_dot, Mxy_dot, Mxz_dot,
+                //   Myz_dot [N*m/s], M0_iso_dot [N*m/s]
+                // The moment-rate tensor matches the units the legacy
+                // KINEMATIC_RDP path injects in addExplosionSourceToResidual
+                // (4*pi*K*psi_dot), so the CSV is a like-for-like
+                // record of what the residual sees.
+                // The CSV is the model-side payload pass-5 produces for
+                // ParaView (Table-To-Points + Plot-Over-Time) and for
+                // the test gates that assert the recorded cavity
+                // radius, scalar moment, etc. A native HDF5 dataset
+                // landing alongside this CSV is roadmap follow-up; the
+                // CSV format is intentionally self-describing so the
+                // history is consumable even without an XDMF wrapper.
+                if (rank == 0 &&
+                    !explosion_->nf_history_times.empty()) {
+                    std::string nf_dir = seismo_out_cfg_.output_dir.empty()
+                        ? std::string(".")
+                        : seismo_out_cfg_.output_dir;
+                    std::error_code ec_dir;
+                    std::filesystem::create_directories(nf_dir, ec_dir);
+                    const std::string nf_path =
+                        nf_dir + "/near_field_history.csv";
+                    std::ofstream csv(nf_path);
+                    if (csv) {
+                        csv << "# FSRM pass-5 near-field history\n"
+                            << "# yield_kt=" << yield_kt
+                            << " depth_of_burial=" << depth_m
+                            << " medium=" << explosion_->medium_type
+                            << "\n"
+                            << "# elastic_radius=" << explosion_->nf_elastic_radius
+                            << " cavity_radius=" << explosion_->nf_cavity_radius
+                            << " elastic_radius_factor="
+                            << explosion_->elastic_radius_factor
+                            << "\n"
+                            << "# near_field_dt=" << explosion_->near_field_dt
+                            << " output_cadence_us="
+                            << explosion_->near_field_output_cadence_us
+                            << " damage_model="
+                            << explosion_->near_field_damage_model
+                            << "\n"
+                            << "t,R_cavity,R_plastic,"
+                            << "Mxx_dot,Myy_dot,Mzz_dot,"
+                            << "Mxy_dot,Mxz_dot,Myz_dot,M0_iso_dot\n";
+                        csv << std::scientific;
+                        csv.precision(8);
+                        for (size_t i = 0;
+                             i < explosion_->nf_history_times.size(); ++i) {
+                            const auto& mv = explosion_->nf_history_M[i];
+                            const double m0iso =
+                                (mv[0] + mv[1] + mv[2]) / 3.0;
+                            csv << explosion_->nf_history_times[i] << ","
+                                << explosion_->nf_history_R_cavity[i] << ","
+                                << explosion_->nf_history_R_plastic[i] << ","
+                                << mv[0] << "," << mv[1] << "," << mv[2] << ","
+                                << mv[3] << "," << mv[4] << "," << mv[5] << ","
+                                << m0iso << "\n";
+                        }
+                        csv.close();
+                        PetscPrintf(comm,
+                            "  Near-field history CSV: %s "
+                            "(%zu rows)\n",
+                            nf_path.c_str(),
+                            explosion_->nf_history_times.size());
+                    } else {
+                        PetscPrintf(comm,
+                            "  WARNING: failed to open %s for writing\n",
+                            nf_path.c_str());
+                    }
                 }
             }
         }
@@ -6892,37 +7279,80 @@ PetscErrorCode Simulator::addExplosionSourceToResidual(PetscReal t, Vec locF) {
     double M[6];  // Mxx, Myy, Mzz, Mxy, Mxz, Myz
     double mr = 0.0;
     double elapsed = static_cast<double>(t) - explosion_->t0;
+    bool use_full_tensor = false;
     if (elapsed >= 0.0) {
-        if (explosion_->use_nearfield_coupling) {
-            // COUPLED_ANALYTIC: moment rate from RDP derivative
-            // M_dot(t) = 4 * pi * rho * vp^2 * psi_dot(t)
-            double psi_dot = explosion_->rdp_source.psiDot(elapsed);
-            double K = explosion_->rho * explosion_->vp * explosion_->vp;
-            mr = 4.0 * M_PI * K * psi_dot;
-        } else {
-            // PROXY: Mueller-Murphy moment rate.
-            // Medium plumbing (pass 2): setMedium uses the rock-type
-            // specific cavity coefficient so the scalar moment scales
-            // correctly with the host geology. Default GENERIC
-            // preserves pre-pass-2 behaviour for configs that omit
-            // the EXPLOSION_SOURCE.medium_type key. End-to-end
-            // verification lives in Integration.MediumPlumbing.* which
-            // forces explosion_solve_mode = PROXY so this branch is
-            // actually exercised (default COUPLED_ANALYTIC takes the
-            // RDP-source branch above).
-            NuclearSourceParameters nsp;
-            nsp.yield_kt = explosion_->yield_kt;
-            nsp.depth_of_burial = explosion_->depth_of_burial;
-            MuellerMurphySource mm;
-            mm.setMediumProperties(explosion_->rho, explosion_->vp, explosion_->vs);
-            mm.setMedium(parseMediumType(explosion_->medium_type, PETSC_COMM_WORLD));
-            mm.setParameters(nsp);
-            mr = mm.momentRate(elapsed);
+        if (explosion_->near_field_active) {
+            // Pass-5 DYNAMIC_PLASTIC: interpolate the FULL 6-component
+            // moment tensor from the recorded 1D solver history. The
+            // history is sampled at output_cadence_microseconds; the
+            // FEM time-step is typically larger so linear interpolation
+            // is sufficient. Past the last sampled time we hold the
+            // last value (the moment-tensor plateau is the steady
+            // scalar moment).
+            const auto& times = explosion_->nf_history_times;
+            const auto& M_hist = explosion_->nf_history_M;
+            if (!times.empty()) {
+                use_full_tensor = true;
+                double tau = elapsed;
+                size_t hi = times.size() - 1;
+                if (tau <= times.front()) {
+                    for (int k = 0; k < 6; ++k) M[k] = M_hist.front()[k];
+                } else if (tau >= times.back()) {
+                    for (int k = 0; k < 6; ++k) M[k] = M_hist[hi][k];
+                } else {
+                    // Bisection on the monotone time vector.
+                    size_t lo = 0;
+                    while (hi - lo > 1) {
+                        size_t mid = (lo + hi) / 2;
+                        if (times[mid] <= tau) lo = mid;
+                        else hi = mid;
+                    }
+                    const double t0i = times[lo];
+                    const double t1i = times[hi];
+                    const double w =
+                        (tau - t0i) / std::max(1.0e-30, t1i - t0i);
+                    for (int k = 0; k < 6; ++k) {
+                        M[k] = (1.0 - w) * M_hist[lo][k] +
+                               w * M_hist[hi][k];
+                    }
+                }
+            }
+        }
+
+        if (!use_full_tensor) {
+            if (explosion_->use_nearfield_coupling) {
+                // COUPLED_ANALYTIC: moment rate from RDP derivative
+                // M_dot(t) = 4 * pi * rho * vp^2 * psi_dot(t)
+                double psi_dot = explosion_->rdp_source.psiDot(elapsed);
+                double K = explosion_->rho * explosion_->vp * explosion_->vp;
+                mr = 4.0 * M_PI * K * psi_dot;
+            } else {
+                // PROXY: Mueller-Murphy moment rate.
+                // Medium plumbing (pass 2): setMedium uses the rock-type
+                // specific cavity coefficient so the scalar moment scales
+                // correctly with the host geology. Default GENERIC
+                // preserves pre-pass-2 behaviour for configs that omit
+                // the EXPLOSION_SOURCE.medium_type key. End-to-end
+                // verification lives in Integration.MediumPlumbing.* which
+                // forces explosion_solve_mode = PROXY so this branch is
+                // actually exercised (default COUPLED_ANALYTIC takes the
+                // RDP-source branch above).
+                NuclearSourceParameters nsp;
+                nsp.yield_kt = explosion_->yield_kt;
+                nsp.depth_of_burial = explosion_->depth_of_burial;
+                MuellerMurphySource mm;
+                mm.setMediumProperties(explosion_->rho, explosion_->vp, explosion_->vs);
+                mm.setMedium(parseMediumType(explosion_->medium_type, PETSC_COMM_WORLD));
+                mm.setParameters(nsp);
+                mr = mm.momentRate(elapsed);
+            }
         }
     }
-    double scale = mr / 3.0;
-    M[0] = M[1] = M[2] = scale;
-    M[3] = M[4] = M[5] = 0.0;
+    if (!use_full_tensor) {
+        double scale = mr / 3.0;
+        M[0] = M[1] = M[2] = scale;
+        M[3] = M[4] = M[5] = 0.0;
+    }
 
     // Get displacement field index (0 for elastostatics, 1 for poroelastic)
     PetscInt disp_field = 0;

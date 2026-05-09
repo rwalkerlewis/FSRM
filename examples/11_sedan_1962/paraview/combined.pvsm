@@ -1,0 +1,82 @@
+<!--
+  combined.pvsm -- pass-5 ParaView state stub combining the near-field
+  cavity time series and the far-field 3D wavefield in a multi-view
+  layout.
+
+  Loads:
+    - ../output/sedan_1962_dynamic/near_field_history.csv (1D history)
+    - ../output/solution.h5                                (3D far-field)
+
+  This is a minimal stub. After running run_dynamic.sh, open this file
+  in ParaView 5.10+. The intended layout is:
+
+  +-------------------------+-----------------------+
+  |                         |                       |
+  |   Far-field 3D wave-    |  Near-field cavity    |
+  |   field (clip + glyph)  |  history (XY chart)   |
+  |                         |                       |
+  +-------------------------+-----------------------+
+
+  See paraview/README.md for the matching Python state script.
+-->
+<ParaView>
+  <ServerManagerState version="5.10.1">
+    <Proxy group="views" type="RenderView" id="300" servers="21">
+      <Property name="ViewSize" id="300.ViewSize" number_of_elements="2">
+        <Element index="0" value="640"/>
+        <Element index="1" value="720"/>
+      </Property>
+      <Property name="CameraPosition" id="300.CameraPosition" number_of_elements="3">
+        <Element index="0" value="40000"/>
+        <Element index="1" value="-15000"/>
+        <Element index="2" value="20000"/>
+      </Property>
+      <Property name="CameraFocalPoint" id="300.CameraFocalPoint" number_of_elements="3">
+        <Element index="0" value="15000"/>
+        <Element index="1" value="15000"/>
+        <Element index="2" value="2500"/>
+      </Property>
+      <Property name="CameraViewUp" id="300.CameraViewUp" number_of_elements="3">
+        <Element index="0" value="0"/>
+        <Element index="1" value="0"/>
+        <Element index="2" value="1"/>
+      </Property>
+    </Proxy>
+    <Proxy group="views" type="XYChartView" id="301" servers="21">
+      <Property name="ViewSize" id="301.ViewSize" number_of_elements="2">
+        <Element index="0" value="640"/>
+        <Element index="1" value="720"/>
+      </Property>
+      <Property name="ChartTitle" id="301.ChartTitle" number_of_elements="1">
+        <Element index="0" value="Near-field history (Sedan 1962)"/>
+      </Property>
+      <Property name="LeftAxisTitle" id="301.LeftAxisTitle" number_of_elements="1">
+        <Element index="0" value="R / Mdot"/>
+      </Property>
+      <Property name="BottomAxisTitle" id="301.BottomAxisTitle" number_of_elements="1">
+        <Element index="0" value="Time (s)"/>
+      </Property>
+    </Proxy>
+    <Proxy group="sources" type="VisItPDBReader" id="302" servers="1">
+      <Property name="FileName" id="302.FileName" number_of_elements="1">
+        <Element index="0" value="../output/solution.h5"/>
+      </Property>
+    </Proxy>
+    <Proxy group="sources" type="CSVReader" id="303" servers="1">
+      <Property name="FileName" id="303.FileName" number_of_elements="1">
+        <Element index="0" value="../output/sedan_1962_dynamic/near_field_history.csv"/>
+      </Property>
+      <Property name="HaveHeaders" id="303.HaveHeaders" number_of_elements="1">
+        <Element index="0" value="1"/>
+      </Property>
+    </Proxy>
+    <ProxyCollection name="views">
+      <Item id="300" name="FarFieldView"/>
+      <Item id="301" name="NearFieldChart"/>
+    </ProxyCollection>
+    <ProxyCollection name="sources">
+      <Item id="302" name="solution"/>
+      <Item id="303" name="near_field_history"/>
+    </ProxyCollection>
+  </ServerManagerState>
+</ParaView>

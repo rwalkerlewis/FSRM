@@ -20,6 +20,8 @@ Read in this order when resuming work:
 
 Secondary references:
 
+- `docs/HISTORIC_NUCLEAR_FIDELITY.md`: standing truth about what each historic-nuclear pass shipped.
+- `docs/HISTORIC_NUCLEAR_ROADMAP.md`: forward-looking roadmap with six fidelity axes. Pass-5 (in progress) marks axis 1 partial.
 - `docs/PYLITH_COMPATIBILITY.md`: Feature-parity wishlist (not a verified reference).
 - `docs/LAGRANGE_FIX_STATUS.md`: Historical record of PETSc 3.25 architectural blockers (superseded by `SOLVER_STATE.md` for current state; kept as decision trail).
 - `docs/FAULT_TEST_REGRESSION_AUDIT.md`: Test inventory and history.
@@ -120,6 +122,12 @@ run() -> TSSolve
 ```
 
 FormFunction uses DMPlexTSComputeIFunctionFEM for volume residual (including BdResidual on cohesive cells for fault constraints), plus addExplosionSourceToResidual (displacement DOFs via moment tensor equivalent nodal forces) and addInjectionToResidual (pressure DOFs) for point sources, plus addFaultPressureToResidual for pressurized fractures. The Jacobian is assembled by DMPlexTSComputeIJacobianFEM for volume terms, plus addCohesivePenaltyToJacobian for cohesive fault terms (BdJacobian is not functional in PETSc 3.25).
+
+addExplosionSourceToResidual has three branches:
+
+1. Pre-pass-5 path: scalar moment rate from `RDPSeismicSource::psiDot` (COUPLED_ANALYTIC explosion_solve_mode) or `MuellerMurphySource::momentRate` (PROXY), applied as the trace of an isotropic moment tensor. This is the legacy KINEMATIC_RDP path.
+2. Pass-4 distributed path: same scalar moment rate, but distributed over a multi-cell support ball (GAUSSIAN or UNIFORM_SPHERE) instead of a single cell. Selected via `[SOURCE_DISTRIBUTION] mode`.
+3. Pass-5 dynamic-plastic path: the 1D `NearFieldExplosionSolver` runs at setup time, samples the FULL 6-component moment-rate tensor (with iso + CLVD content) at the configured cadence, and the recorded history is interpolated and injected. Selected via `[NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC`. The recorded history is also written to `near_field_history.csv` for visualisation. See `docs/HISTORIC_NUCLEAR_FIDELITY.md` "Closed in pass 5" and `docs/HISTORIC_NUCLEAR_ROADMAP.md` axis 1 for the underlying physics and the path to a true 1D radial Lagrangian / 3D subdomain solver follow-up.
 
 ### CRITICAL: DS/BC Ordering in setupFields()
 
