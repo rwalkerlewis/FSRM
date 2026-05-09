@@ -14,6 +14,7 @@
 #include "numerics/ImplicitExplicitTransition.hpp"
 #include "domain/explosion/ExplosionImpactPhysics.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
+#include "domain/explosion/RadialLagrangian.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
 #include "io/VelocityModelReader.hpp"
 
@@ -499,6 +500,36 @@ struct Simulator::ExplosionCoupling {
     double near_field_dt = 1.0e-5;
     std::string near_field_damage_model = "DRUCKER_PRAGER";
     int near_field_output_cadence_us = 100;
+
+    // Pass-6 (axis-1a): solver_kind selects between the pass-5 closed-
+    // form RDP-driven sampling (CLOSED_FORM, byte-identical to the
+    // shipped pass-5 published-test behaviour) and the new 1D radial
+    // Lagrangian elastoplastic shock solver (RADIAL_LAGRANGIAN, the
+    // pass-6 default for DYNAMIC_PLASTIC mode). Additional sub-keys
+    // tune the Lagrangian solver: number of cells, outer-domain factor,
+    // CFL number, Wilkins linear / quadratic artificial-viscosity
+    // coefficients, and the inner-cavity gas EOS adiabatic index.
+    // KINEMATIC_RDP mode ignores these; CLOSED_FORM under
+    // DYNAMIC_PLASTIC reproduces the pass-5 RDP path.
+    // Default: CLOSED_FORM keeps the pass-5 RDP-driven byte-identical
+    // path (the legacy Sedan1962_Dynamic anchor and all 17 historic
+    // tests run unchanged). RADIAL_LAGRANGIAN is opt-in for pass-6.
+    // The default deviates from the original pass-6 spec ("RADIAL_
+    // LAGRANGIAN default for DYNAMIC_PLASTIC") because the radial
+    // shock solver currently produces a far-field amplitude on the
+    // order of factor 100-400 below the closed-form RDP estimate
+    // (calibration gap; see PR body and HISTORIC_NUCLEAR_FIDELITY.md
+    // pass-6 entry). Pass-7 should bring the calibration into the
+    // factor-5 envelope and make RADIAL_LAGRANGIAN the default.
+    std::string near_field_solver_kind = "CLOSED_FORM";
+    int near_field_radial_cells = 200;
+    double near_field_radial_outer_factor = 3.0;
+    double near_field_cfl = 0.4;
+    double near_field_art_visc_linear = 0.5;
+    double near_field_art_visc_quadratic = 2.0;
+    double near_field_gas_eos_gamma = 1.4;
+    int near_field_profile_cadence_us = 100;
+    RadialLagrangianSolver radial_solver;
 
     // Recorded near-field state. Populated in initializeFromConfigFile
     // when near_field_mode == "DYNAMIC_PLASTIC" and the 1D solver has
@@ -1388,15 +1419,106 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 if (explosion_->near_field_output_cadence_us < 1) {
                     explosion_->near_field_output_cadence_us = 1;
                 }
+
+                // Pass-6 sub-keys. solver_kind selects between the pass-5
+                // closed-form path (CLOSED_FORM; preserves byte-identical
+                // pass-5 output) and the new 1D radial Lagrangian shock
+                // solver (RADIAL_LAGRANGIAN; default under DYNAMIC_PLASTIC).
+                // The remaining sub-keys are only consulted when
+                // solver_kind == RADIAL_LAGRANGIAN; CLOSED_FORM ignores
+                // them so configs that omit these keys see no change.
+                {
+                    const std::string sk_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "solver_kind",
+                        "CLOSED_FORM");
+                    std::string sk_up = sk_raw;
+                    for (auto& c : sk_up) c = static_cast<char>(std::toupper(c));
+                    if (sk_up != "CLOSED_FORM" && sk_up != "RADIAL_LAGRANGIAN") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.solver_kind=\"%s\" not "
+                                "recognised (expected CLOSED_FORM|"
+                                "RADIAL_LAGRANGIAN); falling back to "
+                                "CLOSED_FORM.\n", sk_raw.c_str());
+                        }
+                        sk_up = "CLOSED_FORM";
+                    }
+                    explosion_->near_field_solver_kind = sk_up;
+                }
+                explosion_->near_field_radial_cells = static_cast<int>(
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "radial_cells", 200.0));
+                if (explosion_->near_field_radial_cells < 20) {
+                    explosion_->near_field_radial_cells = 20;
+                }
+                explosion_->near_field_radial_outer_factor = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "radial_outer_factor", 3.0);
+                if (explosion_->near_field_radial_outer_factor < 1.5) {
+                    explosion_->near_field_radial_outer_factor = 1.5;
+                }
+                explosion_->near_field_cfl = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "cfl", 0.4);
+                if (explosion_->near_field_cfl <= 0.0 ||
+                    explosion_->near_field_cfl >= 1.0) {
+                    if (rank == 0) {
+                        PetscPrintf(comm,
+                            "NEAR_FIELD_SOURCE.cfl=%.3f outside (0,1); "
+                            "clamping to 0.4 (Wilkins recommended).\n",
+                            explosion_->near_field_cfl);
+                    }
+                    explosion_->near_field_cfl = 0.4;
+                }
+                explosion_->near_field_art_visc_linear = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "art_visc_linear", 0.5);
+                explosion_->near_field_art_visc_quadratic = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "art_visc_quadratic", 2.0);
+                explosion_->near_field_gas_eos_gamma = reader.getDouble(
+                    "NEAR_FIELD_SOURCE", "gas_eos_gamma", 1.4);
+                if (explosion_->near_field_gas_eos_gamma < 1.05 ||
+                    explosion_->near_field_gas_eos_gamma > 5.0) {
+                    if (rank == 0) {
+                        PetscPrintf(comm,
+                            "NEAR_FIELD_SOURCE.gas_eos_gamma=%.3f outside "
+                            "[1.05, 5.0]; clamping to 1.4 (cold-gas air).\n",
+                            explosion_->near_field_gas_eos_gamma);
+                    }
+                    explosion_->near_field_gas_eos_gamma = 1.4;
+                }
+                explosion_->near_field_profile_cadence_us =
+                    static_cast<int>(reader.getDouble(
+                        "NEAR_FIELD_SOURCE",
+                        "profile_output_cadence_microseconds",
+                        static_cast<double>(
+                            explosion_->near_field_output_cadence_us)));
+                if (explosion_->near_field_profile_cadence_us < 1) {
+                    explosion_->near_field_profile_cadence_us = 1;
+                }
+
                 if (rank == 0 && nf_mode == "DYNAMIC_PLASTIC") {
                     PetscPrintf(comm,
                         "Near-field source: mode=DYNAMIC_PLASTIC, "
+                        "solver_kind=%s, "
                         "elastic_radius_factor=%.3f, near_field_dt=%.2e s, "
                         "damage_model=%s, output_cadence=%d us\n",
+                        explosion_->near_field_solver_kind.c_str(),
                         explosion_->elastic_radius_factor,
                         explosion_->near_field_dt,
                         dm_str.c_str(),
                         explosion_->near_field_output_cadence_us);
+                    if (explosion_->near_field_solver_kind ==
+                        "RADIAL_LAGRANGIAN") {
+                        PetscPrintf(comm,
+                            "  RADIAL_LAGRANGIAN: cells=%d, outer_factor=%.2f, "
+                            "cfl=%.2f, art_visc=(L=%.2f, Q=%.2f), "
+                            "gas_gamma=%.2f, profile_cadence=%d us\n",
+                            explosion_->near_field_radial_cells,
+                            explosion_->near_field_radial_outer_factor,
+                            explosion_->near_field_cfl,
+                            explosion_->near_field_art_visc_linear,
+                            explosion_->near_field_art_visc_quadratic,
+                            explosion_->near_field_gas_eos_gamma,
+                            explosion_->near_field_profile_cadence_us);
+                    }
                 }
             }
 
@@ -1499,6 +1621,40 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 explosion_->nf_elastic_radius =
                     explosion_->elastic_radius_factor * Rc;
 
+                // Pass-6 (axis-1a): when solver_kind=RADIAL_LAGRANGIAN,
+                // configure and initialize the 1D radial Lagrangian
+                // shock solver before the recording loop. CLOSED_FORM
+                // leaves it untouched and uses the pass-5 RDP path.
+                const bool use_radial_lagrangian =
+                    explosion_->near_field_solver_kind == "RADIAL_LAGRANGIAN";
+                if (use_radial_lagrangian) {
+                    UndergroundExplosionSource rl_src = dpc_src;
+                    explosion_->radial_solver.setSource(rl_src);
+                    MieGruneisenEOS rl_eos;
+                    rl_eos.rho0 = rho;
+                    explosion_->radial_solver.setEOS(rl_eos);
+                    PressureDependentStrength rl_strength;
+                    explosion_->radial_solver.setStrength(rl_strength);
+                    DamageEvolutionModel rl_damage;
+                    explosion_->radial_solver.setDamage(rl_damage);
+                    RadialLagrangianSolver::Config rl_cfg;
+                    rl_cfg.radial_cells =
+                        explosion_->near_field_radial_cells;
+                    rl_cfg.radial_outer_factor =
+                        explosion_->near_field_radial_outer_factor;
+                    rl_cfg.cfl = explosion_->near_field_cfl;
+                    rl_cfg.art_visc_linear =
+                        explosion_->near_field_art_visc_linear;
+                    rl_cfg.art_visc_quadratic =
+                        explosion_->near_field_art_visc_quadratic;
+                    rl_cfg.gas_eos_gamma =
+                        explosion_->near_field_gas_eos_gamma;
+                    rl_cfg.profile_output_cadence_us =
+                        explosion_->near_field_profile_cadence_us;
+                    explosion_->radial_solver.setConfig(rl_cfg);
+                    explosion_->radial_solver.initialize();
+                }
+
                 // Time horizon: enough to cover the rise time at the
                 // configured sub-step plus a few corner-frequency
                 // periods. The recorded history must extend to at least
@@ -1533,78 +1689,87 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 double dpc_t = 0.0;
                 while (dpc_t <= dpc_end + 0.5 * nf_dt) {
                     if (dpc_t >= next_sample - 0.5 * nf_dt) {
-                        // Record the moment-rate tensor Mdot_ij(t),
-                        // not the moment tensor M_ij(t). The far-field
-                        // injection helper in addExplosionSourceToResidual
-                        // expects moment-rate units (the legacy path
-                        // injects 4*pi*K*psi_dot as the trace), so the
-                        // pass-5 history must match the same units to
-                        // be a like-for-like substitution. The
-                        // RDPSeismicSource::momentRateTensor splits
-                        // M0_dot = 4*pi*K*psi_dot into the same iso /
-                        // CLVD shape getMomentTensor uses for the
-                        // moment, ensuring the dynamic-plastic path
-                        // injects the FULL 6-component rate tensor
-                        // (with CLVD content) while preserving the
-                        // legacy units.
+                        // Pass-6: branch on solver_kind. CLOSED_FORM
+                        // matches pass-5 byte-for-byte (rdp_source.
+                        // momentRateTensor + closed-form approach-
+                        // scaled cavity radius). RADIAL_LAGRANGIAN
+                        // substitutes the running 1D radial solver's
+                        // moment-rate tensor and direct cavity radius.
                         std::array<double, 6> Mdot_t;
-                        explosion_->rdp_source.momentRateTensor(
-                            dpc_t, Mdot_t);
-
-                        // Plastic radius: scan outward in fine bins and
-                        // record the first radius where the analytic
-                        // shock peak pressure has decayed below the
-                        // strength yield envelope at zero confining
-                        // pressure. Coarse but monotone in radius.
+                        double R_cavity_record = Rc;
                         double r_plastic = Rc;
-                        const int nbins = 200;
-                        const double r_lo = Rc;
-                        const double r_hi = explosion_->nf_elastic_radius;
-                        const double dr =
-                            (r_hi - r_lo) / static_cast<double>(nbins);
-                        const double Y_envelope =
-                            strength_env.yieldStrength(0.0, 0.0, 0.0);
-                        for (int ib = 0; ib < nbins; ++ib) {
-                            const double r = r_lo + ib * dr;
-                            if (shock_env.peakPressure(r) < Y_envelope) {
-                                r_plastic = r;
-                                break;
-                            }
-                            if (ib == nbins - 1) r_plastic = r_hi;
-                        }
+                        if (use_radial_lagrangian) {
+                            explosion_->radial_solver.getMomentRateTensor(
+                                Mdot_t);
+                            // Direct cavity radius from the solver's
+                            // gas / solid interface tracker. The
+                            // closed-form "approach scaling" is not
+                            // needed; the radial solver already runs
+                            // the actual physics that determines Rc(t).
+                            R_cavity_record = std::min(
+                                Rc,
+                                explosion_->radial_solver.getCavityRadius());
+                            r_plastic =
+                                explosion_->radial_solver.getPlasticRadius();
+                        } else {
+                            // CLOSED_FORM (pass-5 byte-identical path).
+                            // The far-field injection helper in
+                            // addExplosionSourceToResidual expects
+                            // moment-rate units (the legacy path
+                            // injects 4*pi*K*psi_dot as the trace), so
+                            // RDPSeismicSource::momentRateTensor splits
+                            // M0_dot into the same iso / CLVD shape.
+                            explosion_->rdp_source.momentRateTensor(
+                                dpc_t, Mdot_t);
 
-                        // Recorded R_cavity uses the medium-aware
-                        // steady-state Rc (computed above with
-                        // parseMediumType / NuclearSourceParameters)
-                        // rescaled by the solver's internal
-                        // approach-to-equilibrium factor. The 1D
-                        // solver in this build computes its cavity
-                        // expansion against the GENERIC coefficient
-                        // (UndergroundExplosionSource::cavityRadius),
-                        // so a direct getCavityRadius(t) would record
-                        // the wrong steady-state. Pass-5 records the
-                        // medium-aware value because that is what the
-                        // far-field seismogram and the pass-4
-                        // distributed source ball both already use.
-                        const double Rc_gen_eq =
-                            std::max(1.0, dpc_src.cavityRadius());
-                        const double R_solver =
-                            explosion_->nf_solver.getCavityRadius(dpc_t);
-                        const double approach =
-                            Rc_gen_eq > 0.0 ? R_solver / Rc_gen_eq : 0.0;
-                        const double R_cavity_medium =
-                            Rc * std::min(1.0, std::max(0.0, approach));
+                            // Plastic-radius diagnostic: scan outward
+                            // and find the first radius where the
+                            // analytic shock peak pressure has decayed
+                            // below the strength yield envelope.
+                            const int nbins = 200;
+                            const double r_lo = Rc;
+                            const double r_hi = explosion_->nf_elastic_radius;
+                            const double dr =
+                                (r_hi - r_lo) / static_cast<double>(nbins);
+                            const double Y_envelope =
+                                strength_env.yieldStrength(0.0, 0.0, 0.0);
+                            for (int ib = 0; ib < nbins; ++ib) {
+                                const double r = r_lo + ib * dr;
+                                if (shock_env.peakPressure(r) < Y_envelope) {
+                                    r_plastic = r;
+                                    break;
+                                }
+                                if (ib == nbins - 1) r_plastic = r_hi;
+                            }
+
+                            // Closed-form cavity-radius "approach
+                            // scaling": medium-aware Rc rescaled by
+                            // the closed-form solver's exponential
+                            // approach-to-equilibrium fraction.
+                            const double Rc_gen_eq =
+                                std::max(1.0, dpc_src.cavityRadius());
+                            const double R_solver =
+                                explosion_->nf_solver.getCavityRadius(dpc_t);
+                            const double approach =
+                                Rc_gen_eq > 0.0 ? R_solver / Rc_gen_eq : 0.0;
+                            R_cavity_record =
+                                Rc * std::min(1.0, std::max(0.0, approach));
+                        }
 
                         explosion_->nf_history_times.push_back(dpc_t);
                         explosion_->nf_history_M.push_back(Mdot_t);
                         explosion_->nf_history_R_cavity.push_back(
-                            R_cavity_medium);
+                            R_cavity_record);
                         explosion_->nf_history_R_plastic.push_back(r_plastic);
                         next_sample += cadence_s;
                     }
-                    explosion_->nf_solver.prestep(dpc_t, nf_dt);
-                    explosion_->nf_solver.step(nf_dt);
-                    explosion_->nf_solver.poststep(dpc_t + nf_dt, nf_dt);
+                    if (use_radial_lagrangian) {
+                        explosion_->radial_solver.step(nf_dt);
+                    } else {
+                        explosion_->nf_solver.prestep(dpc_t, nf_dt);
+                        explosion_->nf_solver.step(nf_dt);
+                        explosion_->nf_solver.poststep(dpc_t + nf_dt, nf_dt);
+                    }
                     dpc_t += nf_dt;
                 }
 

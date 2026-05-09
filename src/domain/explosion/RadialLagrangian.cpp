@@ -333,7 +333,11 @@ void RadialLagrangianSolver::momentumUpdate(double dt)
         const double right = sigma_rr_total(i);
         // Lagrangian: face mass = average of neighbour cell masses.
         const double m_face = 0.5 * (mass_[i - 1] + mass_[i]);
-        const double pressure_force = -A * (right - left);
+        // Non-conservative form: m dv/dt = A * (sigma_rr_R - sigma_rr_L)
+        // + 2 V (sigma_rr - sigma_tt) / r. With sigma > 0 in tension,
+        // sigma_rr_R - sigma_rr_L > 0 means the right cell is less
+        // compressive than the left, so the face accelerates outward.
+        const double pressure_force = A * (right - left);
         const double devhoop_avg = 0.5 * (sigma_minus_hoop(i - 1) +
                                           sigma_minus_hoop(i));
         const double dv_blend = 0.5 *
