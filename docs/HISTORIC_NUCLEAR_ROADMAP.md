@@ -18,7 +18,7 @@ pass-fidelity-doc anchor, and a one-line summary of what landed. When
 a pass opens a new axis (or splits an existing one), add a row
 preserving the leverage ordering.
 
-## 1. Dynamic near-field source -- pass-5 + pass-6 (axis-1a partial)
+## 1. Dynamic near-field source -- pass-5 + pass-6 + pass-7 (axis-1a closed)
 
 **Status.** Pass-5 (PR pending) lands the `[NEAR_FIELD_SOURCE]`
 config grammar and a `DYNAMIC_PLASTIC` mode that drives the far-field
@@ -110,22 +110,69 @@ envelope.
   - All 17 pre-existing historic tests run unchanged under the
     default `KINEMATIC_RDP` and the default `CLOSED_FORM` paths.
 
-**Deferred (axis-1a follow-up + axis-1b).**
+**Pass-7 (axis-1a closed).** Pass-7 closes the pass-6 amplitude
+calibration gap. The implementation replaces the chemical-detonation
+JWL placeholder suggested at the end of pass-6 with the physically-
+correct path: a Tillotson EOS for the host rock under post-radiation-
+phase plasma conditions, a first-principles Newton energy-partition
+solve for the inner-cavity initial state at the radiation-to-
+hydrodynamic transition time (Zel'dovich-Raizer 1967 end-state
+approximation; vapor density at the solid density), and Wilkins
+(1980) literature AV coefficients (`c_l = 0.06`, `c_q = 1.5`).
 
-  - **Axis-1a calibration follow-up.** Tighten the radial solver
-    until it matches the closed-form RDP estimate to within factor 5
-    at the elastic radius. Specific tasks: JWL detonation-products
-    EOS for the inner cavity, calibrated initial-cavity volume,
-    refined Wilkins AV coefficients (the Wilkins 1980 prescription
-    of c_l ~ 0.06, c_q ~ 1.5 may be a better starting point than
-    pass-6's 0.5 / 2.0 defaults). The pass-6 dispatch path and
-    history CSV / HDF5 schema do not need to change.
+The Sedan 1962 anchor lands at a 2.24x amplitude ratio relative to
+the closed-form RDP estimate, well inside the factor-5 envelope from
+the original pass-7 spec. `solver_kind = RADIAL_LAGRANGIAN` is now
+the default for `[NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC`.
+`Integration.NearFieldSource.RadialLagrangianAnchor` asserts the
+factor-5 envelope; `Integration.NearFieldSource.ClosedFormFallback`
+preserves the byte-identical pass-5 regression guard via two
+explicit-`CLOSED_FORM` runs after the default flip; the
+`Sedan1962_Dynamic` historic-nuclear test fixture is pinned to
+`solver_kind = CLOSED_FORM` so its legacy assertions continue to
+gate pass-5 behavior.
+
+**Pass-7 deliverables.**
+
+  - `TillotsonEOS` class with four host-rock parameter sets
+    (granite, tuff, salt, alluvium-placeholder) and four standalone
+    EOS validation gates.
+  - `solveCavityInitialState()` Newton iteration on the closed
+    energy-partition equation; two physics-validation gates
+    (`PhysicsBasedCavityEnergyConservation`,
+    `PhysicsBasedCavityRadius`).
+  - Wilkins AV defaults at literature values; pass-6 `0.5 / 2.0`
+    preserved by explicit `art_visc_linear` /
+    `art_visc_quadratic` overrides.
+  - `solver_kind = RADIAL_LAGRANGIAN` default; six pass-6 physics
+    gates tightened to factor-10 / factor-30 / factor-3 envelopes.
+  - `scripts/pass7_amplitude_diagnostic.sh` runs the headline
+    diagnostic outside CI at production resolution.
+  - `scripts/verify_pvsm.sh` and
+    `Functional.ParaView.NearFieldCavityStateLoads` close the
+    pass-6 ParaView verification debt.
+
+**Deferred (axis-1a residual follow-up + axis-1b).**
+
+  - **Pass-8 axis-1a residual.** The strict pass-7 spec tolerances
+    on the six standalone gates (5 percent peak amplitude,
+    1 percent reflected energy, 10 percent Sedov prefactor, 20
+    percent NTS cavity for all four media, 2 percent energy
+    conservation, documented convergence order) remain open. They
+    require either (a) tabulated EOS in the plasma regime
+    (ANEOS / SESAME / QEOS) replacing extrapolated Tillotson,
+    (b) an explicit Marshak-wave radiation-transport phase
+    replacing the Zel'dovich-Raizer end-state approximation, or
+    (c) a higher-order numerical scheme replacing the explicit
+    Wilkins-AV finite-volume update. The alluvium Tillotson
+    parameter set is also a placeholder and needs a purpose-built
+    fit. Pass-8 should pick the highest-leverage of these.
   - **Axis-1b.** Replace the 1D radial solver with a 3D
     Drucker-Prager subdomain on the source ball, dropping the
     spherical-symmetry assumption. This is the original pass-5
-    spec ambition and is multi-week scope; the pass-5 + pass-6
-    dispatch path was authored to substitute cleanly into either
-    axis-1a or axis-1b.
+    spec ambition and is multi-week scope; the pass-5 + pass-6 +
+    pass-7 dispatch path was authored to substitute cleanly into
+    axis-1b.
 
 ## 2. Topography and curved free surface
 
@@ -230,7 +277,8 @@ axis. It cross-references `docs/HISTORIC_NUCLEAR_FIDELITY.md`.
 | 3    | #112 | 4 (partial), 6 (partial) | per-layer Q to aux fields, t*(f) post-FFT envelope, MESH_REFINEMENT plumbing |
 | 4    | #113-#115 | (closes pass-3 inversion) | multi-cell moment-tensor distribution, factor-30 envelope on anchor tests |
 | 5    | #120 | 1 (partial) | DYNAMIC_PLASTIC config grammar, full 6-component Mdot_ij injection, R_cavity / R_plastic / Mdot history CSV; closed-form cavity-expansion kernel (axis-1a/1b deferred) |
-| 6    | (this PR) | 1 (axis-1a partial) | RadialLagrangianSolver behind solver_kind dispatch (CLOSED_FORM default preserves pass-5 byte-for-byte; RADIAL_LAGRANGIAN opt-in runs the new shock solver), HDF5+XDMF spatial profile pair, six physics-validation gates, ClosedFormFallback + RadialLagrangianAnchor integration tests; far-field amplitude under RADIAL_LAGRANGIAN ~factor 100-400 below the closed-form estimate (axis-1a calibration follow-up; see fidelity doc pass-6 entry) |
+| 6    | #121 | 1 (axis-1a partial) | RadialLagrangianSolver behind solver_kind dispatch (CLOSED_FORM default preserves pass-5 byte-for-byte; RADIAL_LAGRANGIAN opt-in runs the new shock solver), HDF5+XDMF spatial profile pair, six physics-validation gates, ClosedFormFallback + RadialLagrangianAnchor integration tests; far-field amplitude under RADIAL_LAGRANGIAN ~factor 100-400 below the closed-form estimate (axis-1a calibration follow-up; see fidelity doc pass-6 entry) |
+| 7    | (this PR) | 1 (axis-1a closed) | TillotsonEOS host-rock evaluator + first-principles physics-based cavity initialization (Zel'dovich-Raizer end-state approximation, Newton energy-partition solve) + Wilkins (1980) literature AV defaults; Sedan 1962 amplitude ratio 2.24x (within factor-5 envelope); RADIAL_LAGRANGIAN promoted to default for DYNAMIC_PLASTIC; pass-6 standalone gates tightened to factor-10/30/3 envelopes; ParaView .pvsm verification (skipped in fsrm-ci, runnable via scripts/verify_pvsm.sh); strict pass-7 spec tolerances on six gates deferred to pass-8 (named candidates: tabulated plasma EOS, explicit Marshak phase, higher-order numerics, fitted alluvium Tillotson set) |
 
 When this pass merges, update this row with the merged PR number
 and the per-axis row to reflect any scope shifts.

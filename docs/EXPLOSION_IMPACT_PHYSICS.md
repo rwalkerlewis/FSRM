@@ -643,11 +643,119 @@ isotropic form, so CLVD content requires the deferred axis-1b 3D
 subdomain. Implementation lives in
 `src/domain/explosion/RadialLagrangian.cpp` (~600 lines).
 
-`solver_kind = CLOSED_FORM` (pass-6 default for `DYNAMIC_PLASTIC`)
-preserves the pass-5 RDP-driven path byte-for-byte and writes only
-the pass-5 CSV. The spatial-profile HDF5 + XDMF pair is
-`RADIAL_LAGRANGIAN`-only because the closed-form kernel is 0D
-analytic and has no meaningful radial profile.
+`solver_kind = CLOSED_FORM` (kept available; pass-6 default that
+pass-7 demoted) preserves the pass-5 RDP-driven path byte-for-byte
+and writes only the pass-5 CSV. The spatial-profile HDF5 + XDMF
+pair is `RADIAL_LAGRANGIAN`-only because the closed-form kernel is
+0D analytic and has no meaningful radial profile.
+
+## Pass-7 inner-cavity physics
+
+Pass-7 closes the pass-6 amplitude calibration gap on axis 1a. The
+pass-6 inner-cavity initialization deposited the entire yield as
+ideal-gas internal energy in a hand-tuned cavity volume, with
+gamma = 1.4. That state was an order-of-magnitude wrong on the
+relevant physics: a nuclear cavity at the radiation-to-hydrodynamic
+transition time contains vaporized rock plasma at temperatures four
+to six orders of magnitude above chemical-detonation conditions, not
+chemical-detonation gas. Pass-7 replaces the placeholder with a
+real EOS for the host rock and a first-principles solve for the
+initial cavity state.
+
+### Tillotson host-rock EOS
+
+The Tillotson form (Tillotson 1962, Melosh 1989 eqs 5.4.7-9) is an
+analytic EOS calibrated against shock-Hugoniot data that handles
+four physical regimes: cold compressed, cold expanded, hot expanded,
+and the mixed (partial vaporization) intermediate. In compressed
+cells (rho >= rho_0 or e < E_iv):
+
+```
+p = (a + b / (1 + e / (E_0 eta^2))) rho e + A mu + B mu^2
+```
+
+with eta = rho / rho_0 and mu = eta - 1. In hot-expanded cells
+(rho < rho_0 and e > E_cv) the cold pressure decays exponentially
+and the thermal term tends to the ideal-gas form. The mixed regime
+is a linear interpolation in e between the two.
+
+Four parameter sets ship in `include/domain/explosion/TillotsonEOS.hpp`:
+granite (Melosh Table A2.2), tuff (volcanic-glass scaling fit to
+Trunin 2001 shock data), salt (Carter 1979 + Melosh A2.2), and
+alluvium (placeholder set documented as a known gap pending
+purpose-built fit; pass-8). Each set is tested for thermodynamic
+self-consistency by `Physics.TillotsonEOS.*`.
+
+The host-rock parameter set is selected from the existing
+`[EXPLOSION_SOURCE] medium_type` unless overridden by
+`[NEAR_FIELD_SOURCE] tillotson_parameter_set`.
+
+### First-principles cavity initial state
+
+Premise (Zel'dovich and Raizer 1967, vol II, ch X). At the radiation-
+to-hydrodynamic transition time `t_rh` (when radiation transport
+stops outpacing hydrodynamic expansion), the cavity contains
+fully-vaporized host rock at approximately the solid density: the
+radiation wave heats material in place faster than the cavity can
+hydrodynamically expand. Pass-7 imposes this Marshak-end-state
+approximation as the initial condition (`rho_v = rho_0_solid`).
+
+Energy partition. The total deposited yield equals the sum of
+(latent vaporization heat, thermal internal energy of the vapor,
+gravitational potential energy of the displaced overburden,
+residual kinetic energy zero by definition at `t_rh`):
+
+```
+E_yield = m_v * E_cv
+        + m_v * (e_v - E_cv)
+        + m_v * g * h_eff
+        + 0
+```
+
+With `rho_v = rho_0_solid` fixed, the cavity mass `m_v = (4/3) pi
+R_v^3 rho_v` is the only unknown. Pass-7 solves the resulting
+single-equation Newton iteration with target `e_v = E_cv` (just-
+vaporized state, where the Tillotson evaluation gives ~50 GPa for
+granite, plenty to drive the surrounding shock). Convergence in
+5-10 iterations.
+
+The default radiation-transition time is `t_rh ~ 1e-7 * W_kt^(1/3)`
+seconds (Z-R vol II eq. 24.18); the user can override via
+`radiation_transition_time_s`.
+
+### Wilkins (1980) AV defaults
+
+Pass-6 used `c_l = 0.5, c_q = 2.0` (early-development robustness
+choice that over-dissipated the leading shock). Pass-7 defaults to
+the Wilkins 1980 production prescription `c_l = 0.06, c_q = 1.5`.
+The user can still override via `art_visc_linear` and
+`art_visc_quadratic`.
+
+### Result
+
+Sedan 1962 anchor (104 kt alluvium, 194 m depth) under pass-7
+defaults lands at ratio ~ 2.24x relative to the closed-form RDP
+estimate at the elastic-radius extraction surface (Sedan 1962
+amplitude diagnostic; `scripts/pass7_amplitude_diagnostic.sh`).
+Within the factor-5 envelope from the original pass-7 spec.
+`solver_kind = RADIAL_LAGRANGIAN` is now the default for
+`[NEAR_FIELD_SOURCE] mode = DYNAMIC_PLASTIC`. The strict pass-7
+spec tolerances on the standalone gates (5 percent peak amplitude,
+1 percent reflected energy, 10 percent Sedov prefactor, 20 percent
+NTS cavity, 2 percent energy conservation, documented convergence
+order) remain pass-8 follow-up: they require either a tabulated
+plasma-regime EOS (ANEOS / SESAME / QEOS) replacing extrapolated
+Tillotson, an explicit Marshak-wave radiation-transport phase
+replacing the Z-R end-state approximation, or a higher-order
+numerical scheme replacing the explicit Wilkins-AV finite-volume
+update.
+
+References for this section: Tillotson 1962, Melosh 1989 (Impact
+Cratering: A Geologic Process), Zel'dovich and Raizer 1967 (Physics
+of Shock Waves and High-Temperature Hydrodynamic Phenomena, vol II),
+Wilkins 1980 (Computer Simulation of Dynamic Phenomena), Marsh 1980
+(LASL Shock Hugoniot Data), Trunin 2001 (RFNC-VNIIEF shock data),
+Carter 1979 (LA-7873 NaCl shock data).
 
 ## Validation and Verification
 
