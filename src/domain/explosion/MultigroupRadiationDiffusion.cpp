@@ -54,6 +54,9 @@ void MultigroupRadiationDiffusionSolver::setConfig(const Config& cfg)
     opacity_.setBaselineParameters(config_.opacity_params);
     opacity_.setGrid(config_.group_grid);
     G_ = config_.group_grid.n_groups;
+    time_integrator_ =
+        DiffusionTimeIntegrator::create(config_.time_integrator);
+    prev_step_valid_ = false;
 }
 
 void MultigroupRadiationDiffusionSolver::initialize(int N)
@@ -75,6 +78,14 @@ void MultigroupRadiationDiffusionSolver::initialize(int N)
     e_int_old_.assign(N_, 0.0);
     B_g_iter_.assign(static_cast<std::size_t>(N_) * G_, 0.0);
     dBg_dT_iter_.assign(static_cast<std::size_t>(N_) * G_, 0.0);
+    B_g_old_.assign(static_cast<std::size_t>(N_) * G_, 0.0);
+    E_r_prev_step_.assign(static_cast<std::size_t>(N_) * G_, 0.0);
+    E_r_step_n_.assign(static_cast<std::size_t>(N_) * G_, 0.0);
+    prev_step_valid_ = false;
+    if (!time_integrator_) {
+        time_integrator_ =
+            DiffusionTimeIntegrator::create(config_.time_integrator);
+    }
 }
 
 void MultigroupRadiationDiffusionSolver::recomputeOpacitiesAndPlanck(
@@ -133,16 +144,38 @@ void MultigroupRadiationDiffusionSolver::assembleTridiagonal(
     const std::vector<double>& r_face,
     const std::vector<double>& rho)
 {
-    // Same backward-Euler form as the grey solver but with per-group
-    // coefficients. The source term linearises 4 pi B_g(T) - E_r^g
-    // using d B_g / dT around the current T_iter:
-    //   S^{n+1} ~ 4 pi B_g(T_iter) - E_r^{n+1}
-    //           + 4 pi (dB_g/dT)(T_iter) (T^{n+1} - T_iter)
-    // Within a single Newton outer iteration we hold T fixed at T_iter
-    // and only update E_r^{n+1}; T^{n+1} is updated downstream by the
-    // matter-energy step. The next outer iter rebuilds the source with
-    // the new T_iter.
+    // Pass-11 generalisation: parameterise the per-cell-per-group
+    // assembly by the DiffusionTimeIntegrator coefficients. BACKWARD_EULER
+    // recovers the pass-10 form byte-for-byte. CRANK_NICOLSON splits
+    // the operator and source 50/50 between n and n+1; BDF2 reads the
+    // prior-prior step E^{n-1}.
+    //
+    // Note on the multigroup E_r_old_ cache: the pass-10 outer Newton
+    // loop mutates E_r_old_ as a Picard relaxation cache between iters.
+    // BE under pass-11 must reproduce that bit-exactly, so it continues
+    // to read E_r_old_. CN and BDF2 require a stable E^n snapshot, which
+    // this solver maintains in E_r_step_n_ (populated once per step()).
     const double four_pi = FOUR_PI;
+    const auto coef = time_integrator_
+                          ? time_integrator_->getCoefficients()
+                          : BackwardEulerIntegrator().getCoefficients();
+    const bool needs_explicit_diffusion =
+        std::abs(coef.rhs_explicit_diffusion_factor) > 0.0;
+    const bool needs_explicit_source =
+        std::abs(coef.rhs_source_explicit_factor) > 0.0;
+    const bool needs_prev_state =
+        std::abs(coef.rhs_volume_nm1_factor) > 0.0;
+    const bool bootstrap_to_be = needs_prev_state && !prev_step_valid_;
+    const auto eff = bootstrap_to_be
+                         ? BackwardEulerIntegrator().getCoefficients()
+                         : coef;
+    const bool is_be =
+        time_integrator_ &&
+        time_integrator_->kind() ==
+            DiffusionTimeIntegratorKind::BACKWARD_EULER;
+    const std::vector<double>& E_n_buf =
+        (is_be || bootstrap_to_be) ? E_r_old_ : E_r_step_n_;
+
     for (int i = 0; i < N_; ++i) {
         const double r_lo = r_face[i];
         const double r_hi = r_face[i + 1];
@@ -165,21 +198,42 @@ void MultigroupRadiationDiffusionSolver::assembleTridiagonal(
         const std::size_t k = static_cast<std::size_t>(i) * G_ + g;
         const double c_kp_rho_V =
             V_i * SPEED_OF_LIGHT_M_PER_S * kappa_P_[k] * rho[i];
-        // Source RHS uses 4 pi B_g(T_iter) (B_g returns the half-space
-        // Planck integral in W/(m^2 sr); multiply by 4 pi to get the
-        // isotropic source).
-        const double S_emit = (four_pi * B_g_iter_[k]) / SPEED_OF_LIGHT_M_PER_S;
-        // Match the grey solver: V_i E^{n+1} - dt(...) - dt c_kp_rho_V *
-        //   (a*T^4 - E^{n+1}) = V_i E^n. With a*T^4 -> 4 pi B_g/c we get:
-        //   diag = V_i + dt(a_e + a_w) + dt c_kp_rho_V
-        //   sub  = -dt a_w
-        //   sup  = -dt a_e
-        //   rhs  = V_i E^n + dt c_kp_rho_V * (4 pi B_g(T_iter) / c).
-        const double E_old = E_r_old_[k];
-        a_lower_[i] = -dt * a_w;
-        c_upper_[i] = -dt * a_e;
-        b_diag_[i] = V_i + dt * (a_e + a_w) + dt * c_kp_rho_V;
-        rhs_[i] = V_i * E_old + dt * c_kp_rho_V * S_emit;
+        const double S_emit_implicit =
+            (four_pi * B_g_iter_[k]) / SPEED_OF_LIGHT_M_PER_S;
+        double S_emit_explicit = 0.0;
+        if (needs_explicit_source) {
+            S_emit_explicit = (four_pi * B_g_old_[k]) / SPEED_OF_LIGHT_M_PER_S;
+        }
+
+        a_lower_[i] = -dt * a_w * eff.lhs_implicit_factor;
+        c_upper_[i] = -dt * a_e * eff.lhs_implicit_factor;
+        b_diag_[i] = V_i * eff.lhs_volume_factor +
+                     dt * (a_e + a_w + c_kp_rho_V) * eff.lhs_implicit_factor;
+
+        const double E_old = E_n_buf[k];
+        double rhs_cell = V_i * eff.rhs_volume_n_factor * E_old;
+        if (needs_prev_state && !bootstrap_to_be) {
+            rhs_cell += V_i * eff.rhs_volume_nm1_factor * E_r_prev_step_[k];
+        }
+        if (needs_explicit_diffusion) {
+            const std::size_t kL = (i > 0)
+                ? static_cast<std::size_t>(i - 1) * G_ + g
+                : k;
+            const std::size_t kR = (i < N_ - 1)
+                ? static_cast<std::size_t>(i + 1) * G_ + g
+                : k;
+            const double E_left  = (i > 0)      ? E_n_buf[kL] : E_old;
+            const double E_right = (i < N_ - 1) ? E_n_buf[kR] : E_old;
+            const double explicit_diff =
+                a_e * (E_right - E_old) -
+                a_w * (E_old - E_left) -
+                c_kp_rho_V * E_old;
+            rhs_cell += dt * eff.rhs_explicit_diffusion_factor * explicit_diff;
+        }
+        rhs_cell += dt * c_kp_rho_V *
+                    (eff.rhs_source_implicit_factor * S_emit_implicit +
+                     eff.rhs_source_explicit_factor * S_emit_explicit);
+        rhs_[i] = rhs_cell;
     }
 
     // Outer Marshak / extrapolation BC. Per-group ghost = 4 pi B_g(T_amb).
@@ -192,8 +246,17 @@ void MultigroupRadiationDiffusionSolver::assembleTridiagonal(
         const double dr_ghost = safeMax(1.0e-3, r_face[N_] - r_cell[N_ - 1]);
         const double D_ghost = D_face_[N_];
         const double a_ghost = A_last * D_ghost / dr_ghost;
-        b_diag_[N_ - 1] += dt * a_ghost;
-        rhs_[N_ - 1] += dt * a_ghost * E_outer;
+        b_diag_[N_ - 1] += dt * a_ghost * eff.lhs_implicit_factor;
+        rhs_[N_ - 1] += dt * a_ghost * E_outer *
+                        (eff.lhs_implicit_factor +
+                         eff.rhs_explicit_diffusion_factor);
+        if (std::abs(eff.rhs_explicit_diffusion_factor) > 0.0) {
+            const std::size_t kLast =
+                static_cast<std::size_t>(N_ - 1) * G_ + g;
+            rhs_[N_ - 1] -= dt * a_ghost *
+                            eff.rhs_explicit_diffusion_factor *
+                            E_n_buf[kLast];
+        }
     }
 }
 
@@ -270,7 +333,9 @@ MultigroupRadiationDiffusionSolver::step(
             "smaller than N*G; caller must allocate N*G entries.");
     }
 
-    // Snapshot the old state.
+    // Snapshot the old state. E_r_old_ is the pass-10 Picard relaxation
+    // cache (mutated each Newton iter); E_r_step_n_ is the stable
+    // pass-11 E^n snapshot used by the CN / BDF2 explicit terms.
     for (int i = 0; i < N_; ++i) {
         T_m_old_[i] = T_m[i] > 1.0 ? T_m[i] : config_.T_ambient_K;
         T_iter_[i] = T_m_old_[i];
@@ -279,6 +344,23 @@ MultigroupRadiationDiffusionSolver::step(
             const std::size_t k = static_cast<std::size_t>(i) * G_ + g;
             E_r_old_[k] = E_r[k];
             E_iter_[k] = E_r[k];
+            E_r_step_n_[k] = E_r[k];
+        }
+    }
+
+    // Pass-11: cache B_g(T_m_old) once for the Crank-Nicolson explicit
+    // source weight. Backward-Euler and BDF2 ignore this buffer.
+    const bool needs_explicit_source =
+        time_integrator_ &&
+        std::abs(time_integrator_->getCoefficients()
+                 .rhs_source_explicit_factor) > 0.0;
+    if (needs_explicit_source) {
+        for (int i = 0; i < N_; ++i) {
+            const double T_old = T_m_old_[i];
+            for (int g = 0; g < G_; ++g) {
+                const std::size_t k = static_cast<std::size_t>(i) * G_ + g;
+                B_g_old_[k] = opacity_.bandIntegratedPlanck(g, T_old);
+            }
         }
     }
 
@@ -392,6 +474,15 @@ MultigroupRadiationDiffusionSolver::step(
     res.t_diff_at_front_s = t_diff;
     res.total_radiation_energy_J = E_r_total;
     res.total_matter_energy_change_J = matter_dE_total;
+
+    // Pass-11: shift prior-step state for the next BDF2 advance. The
+    // value that was E^n on this call becomes E^{n-1} on the next call.
+    for (std::size_t k = 0; k < E_r_prev_step_.size(); ++k) {
+        E_r_prev_step_[k] = E_r_step_n_[k];
+    }
+    if (time_integrator_ && time_integrator_->needsTwoPriorStates()) {
+        prev_step_valid_ = true;
+    }
     return res;
 }
 

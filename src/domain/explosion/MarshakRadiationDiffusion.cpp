@@ -111,7 +111,13 @@ void MarshakRadiationDiffusionSolver::initialize(int N)
     e_int_old_.assign(N_, 0.0);
     E_r_old_.assign(N_, 0.0);
     T_m_old_.assign(N_, 0.0);
+    E_r_prev_step_.assign(N_, 0.0);
+    prev_step_valid_ = false;
     power_law_.setParameters(config_.opacity_params);
+    if (!time_integrator_) {
+        time_integrator_ =
+            DiffusionTimeIntegrator::create(config_.time_integrator);
+    }
 }
 
 void MarshakRadiationDiffusionSolver::evaluateOpacity(double rho, double T,
@@ -242,26 +248,34 @@ void MarshakRadiationDiffusionSolver::assembleTridiagonal(
     double dt, const std::vector<double>& r_cell,
     const std::vector<double>& r_face, const std::vector<double>& rho)
 {
-    // Backward-Euler in E_r with linearised source term.
+    // Pass-11 generalisation of the per-cell tridiagonal assembly.
+    // The DiffusionTimeIntegrator strategy supplies the seven scalars
+    // that parameterise the BE / CN / BDF2 forms; this routine combines
+    // them with the spatial-discretisation coefficients (V_i, a_e, a_w,
+    // c_kp_rho_V) and the linearised matter source S_emit(T_iter) to
+    // build the linear system.
     //
-    // Per-cell volume V_i = (4/3) pi (r_face[i+1]^3 - r_face[i]^3).
-    // Face flux from cell i to i+1:
-    //   F_{i+1/2} = - A_{i+1/2} * D_{i+1/2} * (E_{i+1} - E_i) /
-    //               (r_cell[i+1] - r_cell[i])
-    // Conservative discretisation of the divergence: per-cell change
-    //   V_i d E_i / dt = - (F_{i+1/2} - F_{i-1/2}) + V_i S_i
-    // where the source S_i = c kappa_P rho (a T^4 - E_r) is linearised
-    // using d(T^4)/dT = 4 T^3 around T_iter; here we use the simpler
-    // Picard linearisation: hold T_iter fixed in the source, treat
-    // E^{n+1} implicitly. The outer Newton loop iterates T_iter.
-    //
-    // The matter equation is per-cell so it does not contribute to
-    // the tridiagonal stencil. Substituting the linearised T_m^{n+1}
-    // from the matter equation into the source for E_r tightens the
-    // coupling (Larsen 1988). Pass-8 ships the simpler Picard split:
-    // E_r solve with frozen T_iter, then T_m update from the new E_r,
-    // outer Newton on the residual. Adequate for the moderate-stiffness
-    // regimes pass-8 targets.
+    // For BACKWARD_EULER (the pass-10 default) the coefficients reduce
+    // to lhs_volume = 1, lhs_implicit = 1, rhs_volume_n = 1, all other
+    // coefficients zero except rhs_source_implicit = 1 -- which is the
+    // pass-10 assembly byte-for-byte.
+    const auto coef = time_integrator_
+                          ? time_integrator_->getCoefficients()
+                          : BackwardEulerIntegrator().getCoefficients();
+    const bool needs_explicit_diffusion =
+        std::abs(coef.rhs_explicit_diffusion_factor) > 0.0;
+    const bool needs_explicit_source =
+        std::abs(coef.rhs_source_explicit_factor) > 0.0;
+    const bool needs_prev_state =
+        std::abs(coef.rhs_volume_nm1_factor) > 0.0;
+    // BDF2 bootstrap: when E^{n-1} is requested but unavailable (first
+    // step after initialisation), fall back to backward-Euler for this
+    // step. The next step has prev_step_valid_ = true so BDF2 engages.
+    const bool bootstrap_to_be = needs_prev_state && !prev_step_valid_;
+    const auto eff = bootstrap_to_be
+                         ? BackwardEulerIntegrator().getCoefficients()
+                         : coef;
+
     for (int i = 0; i < N_; ++i) {
         const double r_lo = r_face[i];
         const double r_hi = r_face[i + 1];
@@ -283,28 +297,42 @@ void MarshakRadiationDiffusionSolver::assembleTridiagonal(
             a_w = A_w * D_face_[i] / dr_w;
         }
 
-        // Source linearisation: V_i c kappa_P rho_i. Sink coefficient
-        // contributes to the diagonal as +V_i c kappa_P rho_i dt; the
-        // emission term contributes a T_iter^4 to the RHS multiplied
-        // by V_i c kappa_P rho_i dt.
         const double c_kp_rho_V = V_i * SPEED_OF_LIGHT_M_PER_S *
                                   kappa_P_[i] * rho[i];
         const double T = T_iter_[i];
         const double T4 = T * T * T * T;
+        const double S_emit_implicit = RADIATION_CONSTANT_A * T4;
+        // Explicit (n) source uses T^n (T_m_old_), evaluated outside
+        // the Newton loop because that snapshot is fixed for the step.
+        double S_emit_explicit = 0.0;
+        if (needs_explicit_source) {
+            const double T_old = T_m_old_[i];
+            const double T_old4 = T_old * T_old * T_old * T_old;
+            S_emit_explicit = RADIATION_CONSTANT_A * T_old4;
+        }
 
-        // Backward-Euler: V_i (E^{n+1} - E^n)/dt = (-flux + source) at
-        // n+1. Multiplying through by dt and packing:
-        //   V_i E^{n+1} - dt (a_e (E_{i+1} - E_i) - a_w (E_i - E_{i-1}))
-        //     - dt c_kp_rho_V (a T^4 - E^{n+1}) = V_i E^n.
-        // -> diag = V_i + dt (a_e + a_w) + dt c_kp_rho_V
-        //    sub  = -dt a_w
-        //    sup  = -dt a_e
-        //    rhs  = V_i E^n + dt c_kp_rho_V * a * T_iter^4.
-        a_lower_[i] = -dt * a_w;
-        c_upper_[i] = -dt * a_e;
-        b_diag_[i] = V_i + dt * (a_e + a_w) + dt * c_kp_rho_V;
-        rhs_[i] = V_i * E_r_old_[i] +
-                  dt * c_kp_rho_V * RADIATION_CONSTANT_A * T4;
+        a_lower_[i] = -dt * a_w * eff.lhs_implicit_factor;
+        c_upper_[i] = -dt * a_e * eff.lhs_implicit_factor;
+        b_diag_[i] = V_i * eff.lhs_volume_factor +
+                     dt * (a_e + a_w + c_kp_rho_V) * eff.lhs_implicit_factor;
+
+        double rhs_cell = V_i * eff.rhs_volume_n_factor * E_r_old_[i];
+        if (needs_prev_state && !bootstrap_to_be) {
+            rhs_cell += V_i * eff.rhs_volume_nm1_factor * E_r_prev_step_[i];
+        }
+        if (needs_explicit_diffusion) {
+            const double E_left  = (i > 0)        ? E_r_old_[i - 1] : E_r_old_[i];
+            const double E_right = (i < N_ - 1)   ? E_r_old_[i + 1] : E_r_old_[i];
+            const double explicit_diff =
+                a_e * (E_right - E_r_old_[i]) -
+                a_w * (E_r_old_[i] - E_left) -
+                c_kp_rho_V * E_r_old_[i];
+            rhs_cell += dt * eff.rhs_explicit_diffusion_factor * explicit_diff;
+        }
+        rhs_cell += dt * c_kp_rho_V *
+                    (eff.rhs_source_implicit_factor * S_emit_implicit +
+                     eff.rhs_source_explicit_factor * S_emit_explicit);
+        rhs_[i] = rhs_cell;
     }
 
     // Inner BC (i = 0): zero-flux symmetry. The west coefficient is
@@ -314,6 +342,9 @@ void MarshakRadiationDiffusionSolver::assembleTridiagonal(
     // ghost = a T_amb^4, which couples to the rightmost cell through
     // an additional flux term. To keep the matrix tridiagonal we add
     // a Dirichlet contribution to b_diag_ and rhs_ at the last cell.
+    // Apply the integrator's lhs_implicit_factor on the diag; the RHS
+    // ghost carries the matching explicit weight when the integrator
+    // splits the diffusion operator (CN). BE/BDF2 leave it implicit.
     if (N_ >= 2) {
         const double r_last = r_face[N_];
         const double A_last = faceAreaSpherical(r_last);
@@ -325,8 +356,15 @@ void MarshakRadiationDiffusionSolver::assembleTridiagonal(
                               config_.T_ambient_K *
                               config_.T_ambient_K;
         const double E_r_outer = RADIATION_CONSTANT_A * T_amb4;
-        b_diag_[N_ - 1] += dt * a_ghost;
-        rhs_[N_ - 1] += dt * a_ghost * E_r_outer;
+        b_diag_[N_ - 1] += dt * a_ghost * eff.lhs_implicit_factor;
+        rhs_[N_ - 1] += dt * a_ghost * E_r_outer *
+                        (eff.lhs_implicit_factor +
+                         eff.rhs_explicit_diffusion_factor);
+        if (std::abs(eff.rhs_explicit_diffusion_factor) > 0.0) {
+            rhs_[N_ - 1] -= dt * a_ghost *
+                            eff.rhs_explicit_diffusion_factor *
+                            E_r_old_[N_ - 1];
+        }
     }
 }
 
@@ -404,11 +442,16 @@ MarshakRadiationDiffusionSolver::step(
         return res;
     }
 
-    // Snapshot the old state for the backward-Euler RHS and matter
-    // energy bookkeeping. We do not need the per-cell e_int_old beyond
-    // the cell-wise difference; record it for the StepResult tally.
+    // Snapshot the old state for the (BE/CN/BDF2) RHS. The
+    // explicit-source weighting under CN reads T_m_old_, fixed for the
+    // step. The BDF2 RHS reads E^{n-1} from E_r_prev_step_; we shift
+    // the prior state at the end of a successful step.
+    // Stash E^n in a local buffer so we can promote it into E_r_prev_
+    // after the Newton iteration converges.
+    std::vector<double> E_r_step_input(N_, 0.0);
     for (int i = 0; i < N_; ++i) {
         E_r_old_[i] = E_r[i];
+        E_r_step_input[i] = E_r[i];
         T_m_old_[i] = T_m[i] > 1.0 ? T_m[i] : config_.T_ambient_K;
         e_int_old_[i] = e_int[i];
         T_iter_[i] = T_m_old_[i];
@@ -499,6 +542,18 @@ MarshakRadiationDiffusionSolver::step(
     res.t_diff_at_front_s = t_diff;
     res.total_radiation_energy_J = E_r_total;
     res.total_matter_energy_change_J = matter_dE_total;
+
+    // Pass-11: shift prior-step state for the next BDF2 advance. After
+    // a successful step at time n+1, the value that was E^n becomes
+    // E^{n-1} for the next call. We always update the buffer (cheap)
+    // but only mark it valid when the integrator that just ran needs
+    // two prior states (BDF2). Other integrators ignore it.
+    for (int i = 0; i < N_; ++i) {
+        E_r_prev_step_[i] = E_r_step_input[i];
+    }
+    if (time_integrator_ && time_integrator_->needsTwoPriorStates()) {
+        prev_step_valid_ = true;
+    }
     return res;
 }
 

@@ -75,6 +75,17 @@ void RadialLagrangianSolver::setConfig(const Config& c)
     // not allocate a new EOS each call.
     cavity_tillotson_.setParameters(c.tillotson_params);
 
+    // Pass-11: axis-1b 3D source ball is pass-12 work. THREE_DIMENSIONAL
+    // throws on selection so callers cannot opt into a non-existent code
+    // path; pass-12 will replace this throw with the actual 3D solver.
+    if (c.cavity_geometry == CavityGeometry::THREE_DIMENSIONAL) {
+        throw std::runtime_error(
+            "RadialLagrangianSolver: cavity_geometry=THREE_DIMENSIONAL "
+            "is axis-1b 3D source ball: pass-12 work, not yet implemented. "
+            "See docs/AXIS_1B_DESIGN.md for the design stub. Use "
+            "cavity_geometry=SPHERICAL for the pass-10 1D radial path.");
+    }
+
     // Pass-8/10: lazily construct the radiation solver under MARSHAK_GREY
     // (pass-8) or MARSHAK_MULTIGROUP (pass-10). SN_TRANSPORT remains
     // a named-only ladder rung and throws.
@@ -109,6 +120,7 @@ void RadialLagrangianSolver::setConfig(const Config& c)
         mcfg.opacity_params = c.opacity_params;
         mcfg.T_ambient_K = 300.0;
         mcfg.front_factor = 1.5;
+        mcfg.time_integrator = c.time_integrator_diffusion;
         mg_rad_solver_->setConfig(mcfg);
         mg_num_groups_ = mcfg.group_grid.n_groups;
     }
@@ -131,6 +143,7 @@ void RadialLagrangianSolver::setConfig(const Config& c)
             c.tabulated_opacity_planck_path;
         rcfg.tabulated_blend_lower_k = c.tabulated_opacity_blend_lower_k;
         rcfg.tabulated_blend_upper_k = c.tabulated_opacity_blend_upper_k;
+        rcfg.time_integrator = c.time_integrator_diffusion;
         rad_solver_->setConfig(rcfg);
     }
 
@@ -563,6 +576,7 @@ void RadialLagrangianSolver::initialize()
             rcfg.opacity_model = config_.opacity_model;
             rcfg.opacity_params = config_.opacity_params;
             rcfg.kappa_constant_m2_per_kg = config_.kappa_constant_m2_per_kg;
+            rcfg.time_integrator = config_.time_integrator_diffusion;
             rad_solver_->setConfig(rcfg);
         }
         rad_solver_->initialize(N);
@@ -590,6 +604,7 @@ void RadialLagrangianSolver::initialize()
             mcfg.max_newton_iter = config_.radiation_max_newton_iter;
             mcfg.newton_tolerance = config_.radiation_newton_tolerance;
             mcfg.opacity_params = config_.opacity_params;
+            mcfg.time_integrator = config_.time_integrator_diffusion;
             mg_rad_solver_->setConfig(mcfg);
         }
         mg_rad_solver_->initialize(N);

@@ -47,6 +47,7 @@
 #include <string>
 #include <vector>
 
+#include "domain/explosion/DiffusionTimeIntegrator.hpp"
 #include "domain/explosion/MarshakRadiationDiffusion.hpp"
 #include "domain/explosion/MultigroupRadiationDiffusion.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
@@ -114,6 +115,13 @@ public:
     /// fixed but the higher-order schemes tolerate larger physical
     /// timesteps without splitting symptoms.
     enum class TimeIntegrator { EXPLICIT_EULER, TVD_RK2, RK3_SSP };
+
+    /// Pass-11 (axis 1c) cavity-geometry selector. Constrains the
+    /// design space for pass-12 axis-1b 3D source ball implementation.
+    /// SPHERICAL is the existing 1D radial Lagrangian path;
+    /// THREE_DIMENSIONAL is a scaffold and throws on selection (the
+    /// actual 3D-mesh source ball is named pass-12 work).
+    enum class CavityGeometry { SPHERICAL, THREE_DIMENSIONAL };
 
     /// Pass-8: explicit radiation-phase fidelity ladder.
     ///   ZELDOVICH_RAIZER: pass-7 default, kept as LOW fidelity. Closed-
@@ -242,6 +250,29 @@ public:
         /// OperatorSplittingConvergence_InstrumentedSubstep test to
         /// hold inner substep dt fixed while varying the outer step.
         bool operator_splitting_convergence_diagnostic = false;
+
+        /// Pass-11 (axis 1c) per-group diffusion-solve time integrator.
+        /// BACKWARD_EULER is the pass-10 byte-identical default;
+        /// CRANK_NICOLSON and BDF2 raise the diffusion solve to second
+        /// order accuracy. See DiffusionTimeIntegrator.hpp.
+        DiffusionTimeIntegratorKind time_integrator_diffusion =
+            DiffusionTimeIntegratorKind::BACKWARD_EULER;
+
+        /// Pass-11 (axis 1b scaffold) cavity geometry. SPHERICAL is the
+        /// pass-10 default 1D radial Lagrangian path. THREE_DIMENSIONAL
+        /// throws on selection: the 3D source ball is pass-12 work.
+        CavityGeometry cavity_geometry = CavityGeometry::SPHERICAL;
+
+        /// Pass-11 outer-boundary sponge layer (Israeli & Orszag 1981).
+        /// When sponge_layer_enabled is true, replaces the pass-10
+        /// impedance-based outgoing-characteristic outer BC with a
+        /// graded-damping sponge over the last
+        /// sponge_layer_thickness_fraction of the radial domain. Used
+        /// by the 549 m free-field gauge triage to suppress outer-BC
+        /// reflections that contaminated the pass-10 Salmon V&V gate.
+        bool sponge_layer_enabled = false;
+        double sponge_layer_thickness_fraction = 0.15;
+        double sponge_layer_max_damping = 0.5;
     };
 
     /// Snapshot of the radial state at a single time. Layout matches the

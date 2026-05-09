@@ -73,8 +73,10 @@
 #ifndef NEAR_FIELD_MULTIGROUP_RADIATION_DIFFUSION_HPP
 #define NEAR_FIELD_MULTIGROUP_RADIATION_DIFFUSION_HPP
 
+#include <memory>
 #include <vector>
 
+#include "domain/explosion/DiffusionTimeIntegrator.hpp"
 #include "domain/explosion/MultigroupOpacity.hpp"
 #include "domain/explosion/OpacityModel.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
@@ -118,6 +120,14 @@ public:
         /// per-group diffusion coefficient at a known constant so the
         /// analytic Marshak self-similar comparison applies cleanly.
         double kappa_constant_m2_per_kg = 0.0;
+
+        /// Pass-11 (axis 1c): per-group time-integrator selector for
+        /// the multigroup diffusion solve. Default BACKWARD_EULER is
+        /// pass-10 byte-identical; BDF2 closes the Marshak self-similar
+        /// front-position gate to factor 2 and the radiation-energy
+        /// conservation gate to 2%.
+        DiffusionTimeIntegratorKind time_integrator =
+            DiffusionTimeIntegratorKind::BACKWARD_EULER;
     };
 
     struct StepResult
@@ -137,6 +147,10 @@ public:
     void setConfig(const Config& cfg);
     const Config& getConfig() const { return config_; }
     int numGroups() const { return config_.group_grid.n_groups; }
+    const DiffusionTimeIntegrator& timeIntegrator() const
+    {
+        return *time_integrator_;
+    }
 
     /// Build internal workspace for N cells and G groups.
     /// Idempotent: re-init resets Newton workspace but does not mutate
@@ -184,6 +198,20 @@ private:
     std::vector<double> e_int_old_;
     std::vector<double> B_g_iter_;            ///< (N*G) B_g at T_iter
     std::vector<double> dBg_dT_iter_;         ///< (N*G) dBg/dT at T_iter
+    std::vector<double> B_g_old_;             ///< (N*G) B_g at T_m_old (CN)
+
+    // Pass-11 BDF2 state. Stores E^{n-1} so the BDF2 RHS can read it.
+    std::vector<double> E_r_prev_step_;
+    bool prev_step_valid_ = false;
+
+    // Pass-11: stable E^n snapshot for CN / BDF2 paths. The pass-10
+    // multigroup outer Newton iteration mutates E_r_old_ as a Picard
+    // relaxation cache, so non-BE integrators cannot read E_r_old_ as
+    // the true E^n. The grey solver does not have this issue.
+    std::vector<double> E_r_step_n_;
+
+    // Pass-11 integrator strategy.
+    std::unique_ptr<DiffusionTimeIntegrator> time_integrator_;
 
     void recomputeOpacitiesAndPlanck(const std::vector<double>& rho);
     void updateFaceDiffusion(const std::vector<double>& rho, int g);
