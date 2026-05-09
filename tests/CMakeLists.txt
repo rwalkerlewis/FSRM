@@ -56,6 +56,8 @@ set(UNIT_TEST_SOURCES
     # Utilities
     unit/util/test_unit_system.cpp
     unit/util/test_coordinate_system.cpp
+    # Pass-12 MPI sanity check
+    unit/test_mpi_correctness.cpp
 )
 
 set(FUNCTIONAL_TEST_SOURCES
@@ -157,6 +159,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_source_distribution.cpp
     integration/test_near_field_source.cpp
     integration/test_iris_validation.cpp
+    integration/test_mpi_parallel_equivalence.cpp
 )
 
 set(PERFORMANCE_TEST_SOURCES
@@ -437,6 +440,11 @@ if(GTest_FOUND)
     add_test(NAME Integration.HistoricNuclear.DPRK2016a COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DPRK2016a)
     add_test(NAME Integration.HistoricNuclear.DPRK2016b COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DPRK2016b)
     add_test(NAME Integration.HistoricNuclear.LopNor1976 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.LopNor1976)
+    # Pass-12 historic-nuclear additions (smoke tests on the new
+    # examples 39-41).
+    add_test(NAME Integration.HistoricNuclear.DPRK2017 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.DPRK2017)
+    add_test(NAME Integration.HistoricNuclear.LopNor1996 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.LopNor1996)
+    add_test(NAME Integration.HistoricNuclear.PokhranII1998 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.PokhranII1998)
     # Pass-4 (multi-cell-moment-tensor) historic-nuclear distributed variants.
     # The five anchor tests rerun under [SOURCE_DISTRIBUTION] mode = GAUSSIAN
     # support_radius_factor = 5.0, gaussian_sigma_factor = 2.0 (asserts at
@@ -497,6 +505,13 @@ if(GTest_FOUND)
     add_test(NAME Integration.IRISValidation.Chagan1965CrossValidation COMMAND run_integration_tests --gtest_filter=IRISValidationTest.Chagan1965CrossValidation)
     add_test(NAME Integration.IRISValidation.PokhranI1974CrossValidation COMMAND run_integration_tests --gtest_filter=IRISValidationTest.PokhranI1974CrossValidation)
 
+    # Pass-12 MPI parallel-correctness gates. The gates skip cleanly
+    # under serial (single-rank) ctest invocations; they are meaningful
+    # when ctest is invoked under `mpirun -n >=2`.
+    add_test(NAME Unit.MPI.AllreduceCorrectnessSmoke COMMAND run_unit_tests --gtest_filter=MPICorrectnessTest.*)
+    add_test(NAME Integration.MPI.SalmonSerialVsParallelEquivalence COMMAND run_integration_tests --gtest_filter=MPIParallelEquivalenceTest.SalmonSerialVsParallelEquivalence)
+    add_test(NAME Integration.MPI.DPRK2017SerialVsParallelEquivalence COMMAND run_integration_tests --gtest_filter=MPIParallelEquivalenceTest.DPRK2017SerialVsParallelEquivalence)
+
     # --- Performance tests ---
     add_test(NAME Performance.Benchmarks      COMMAND run_performance_tests --gtest_filter=BenchmarkTest.*)
     add_test(NAME Performance.Scaling         COMMAND run_performance_tests --gtest_filter=ScalingTest.*)
@@ -532,6 +547,7 @@ if(GTest_FOUND)
         Unit.HydrofracFormulas
         Unit.FracturePropagation
         Unit.CavityScaling
+        Unit.MPI.AllreduceCorrectnessSmoke
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
@@ -680,6 +696,11 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.DPRK2016a
         Integration.HistoricNuclear.DPRK2016b
         Integration.HistoricNuclear.LopNor1976
+        Integration.HistoricNuclear.DPRK2017
+        Integration.HistoricNuclear.LopNor1996
+        Integration.HistoricNuclear.PokhranII1998
+        Integration.MPI.SalmonSerialVsParallelEquivalence
+        Integration.MPI.DPRK2017SerialVsParallelEquivalence
         Integration.HistoricNuclear.Gasbuggy1967_Distributed
         Integration.HistoricNuclear.Gnome1961_Distributed
         Integration.HistoricNuclear.Sedan1962_Distributed
