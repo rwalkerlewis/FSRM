@@ -392,6 +392,15 @@ void RadialLagrangianSolver::initialize()
     }
     r_elastic_ = config_.radial_outer_factor * Rc_eq;
     r_outer_ = safeMax(r_elastic_ * 1.20, 1.5 * Rc_eq);
+    // Pass-9: explicit override for the free-field peak-velocity gate
+    // and any other test that needs to extend the radial domain past
+    // a few elastic radii. r_elastic_ remains at the factor-derived
+    // value so the moment-tensor extraction sphere stays where it
+    // belongs; only the outer-domain extent grows.
+    if (config_.radial_outer_radius_m > 0.0 &&
+        config_.radial_outer_radius_m > r_outer_) {
+        r_outer_ = config_.radial_outer_radius_m;
+    }
 
     allocate(N);
 

@@ -125,6 +125,13 @@ public:
     {
         int radial_cells = 200;             ///< Number of FV cells along radius.
         double radial_outer_factor = 3.0;   ///< Outer radius / elastic radius.
+        /// Pass-9: explicit outer radius in metres. When > 0, takes
+        /// precedence over radial_outer_factor. Used by the free-field
+        /// peak-velocity gate which needs the domain to reach the
+        /// Healy 1971 gauge ranges (up to 549 m for Salmon 1964) where
+        /// the elastic-radius-relative factor would otherwise truncate
+        /// the propagating wave.
+        double radial_outer_radius_m = -1.0;
         double cfl = 0.4;                   ///< CFL number on max(c_p + |v|).
         double art_visc_linear = 0.06;      ///< Wilkins linear AV coefficient (pass-7 literature default).
         double art_visc_quadratic = 1.5;    ///< Wilkins quadratic AV coefficient (pass-7 literature default).
