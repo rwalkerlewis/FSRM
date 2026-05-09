@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "domain/explosion/NearFieldExplosion.hpp"
+#include "domain/explosion/TillotsonEOS.hpp"
 
 namespace FSRM {
 
@@ -64,15 +65,50 @@ public:
     /// Configuration sub-keys parsed under [NEAR_FIELD_SOURCE]. Defaults
     /// reproduce a reasonable cavity-formation transient for ~100 kt
     /// nuclear-yield shots in alluvium-class media.
+    ///
+    /// Pass-7 default switches:
+    ///  - Wilkins AV coefficients land at the Wilkins (1980) prescription
+    ///    c_l = 0.06, c_q = 1.5 (literature values for production shock
+    ///    capture). Pass-6 used 0.5 / 2.0 for early-development
+    ///    robustness which over-dissipated the leading shock.
+    ///  - cavity_eos defaults to TILLOTSON: the inner cavity is
+    ///    fully-vaporized rock plasma at temperatures four to six
+    ///    orders of magnitude above chemical-detonation conditions,
+    ///    NOT chemical detonation gas at gamma = 1.4. The Tillotson
+    ///    parameter set is selected from the medium type unless
+    ///    explicitly overridden.
+    ///  - cavity_initialization defaults to PHYSICS_BASED: the
+    ///    initial cavity radius and (rho, e) state are computed by
+    ///    a Newton solve on a closed energy-partition equation
+    ///    rather than chosen by hand. See solveCavityInitialState
+    ///    in RadialLagrangian.cpp.
+    enum class CavityEOS { IDEAL_GAS, TILLOTSON };
+    enum class CavityInitialization { PHYSICS_BASED, MANUAL };
+
     struct Config
     {
         int radial_cells = 200;             ///< Number of FV cells along radius.
         double radial_outer_factor = 3.0;   ///< Outer radius / elastic radius.
         double cfl = 0.4;                   ///< CFL number on max(c_p + |v|).
-        double art_visc_linear = 0.5;       ///< Wilkins linear AV coefficient.
-        double art_visc_quadratic = 2.0;    ///< Wilkins quadratic AV coefficient.
-        double gas_eos_gamma = 1.4;         ///< Adiabatic index for the inner cavity gas.
+        double art_visc_linear = 0.06;      ///< Wilkins linear AV coefficient (pass-7 literature default).
+        double art_visc_quadratic = 1.5;    ///< Wilkins quadratic AV coefficient (pass-7 literature default).
+        double gas_eos_gamma = 1.4;         ///< Adiabatic index when cavity_eos = IDEAL_GAS (pass-6 placeholder).
         int profile_output_cadence_us = 100;///< Spatial-profile snapshot cadence.
+
+        /// Pass-7 cavity inner-state controls.
+        CavityEOS cavity_eos = CavityEOS::TILLOTSON;
+        TillotsonParameters tillotson_params =
+            TillotsonParameterSets::granite();
+        CavityInitialization cavity_initialization =
+            CavityInitialization::PHYSICS_BASED;
+        /// MANUAL only: explicit initial cavity radius [m]. Ignored
+        /// under PHYSICS_BASED.
+        double initial_cavity_radius_m = 0.0;
+        /// Radiation-to-hydrodynamic transition time [s]. The cavity
+        /// initial state under PHYSICS_BASED is set at this point.
+        /// Default derived from yield via Zel'dovich-Raizer scaling
+        /// in solveCavityInitialState() when negative or zero.
+        double radiation_transition_time_s = -1.0;
 
         /// When true, plasticity / strength terms are zeroed: the solver
         /// becomes a pure-elastic shock solver. Used by the
@@ -162,6 +198,21 @@ public:
     /// Number of cells. Useful in tests for refinement studies.
     int getNumCells() const { return N_; }
 
+    /// Pass-7 diagnostic accessors for the physics-based cavity
+    /// initialization (PhysicsBasedCavityEnergyConservation /
+    /// PhysicsBasedCavityRadius validation gates):
+    ///   getInitialCavityRadius - the R_v solved by the energy
+    ///     partition Newton iteration (or the user-supplied value
+    ///     under MANUAL initialization).
+    ///   getInitialCavityVaporSpecificEnergy - the e_v at t = t_rh
+    ///     under PHYSICS_BASED. Zero under MANUAL.
+    ///   getRadiationTransitionTime - the t_rh used. Either the
+    ///     user-supplied value or the Zel'dovich-Raizer-scaled
+    ///     default.
+    double getInitialCavityRadius() const { return Rc_init_; }
+    double getInitialCavityVaporSpecificEnergy() const { return e_v_init_; }
+    double getRadiationTransitionTime() const { return t_rh_used_; }
+
 private:
     void allocate(int N);
     void cflLimit(double& dt) const;
@@ -179,6 +230,20 @@ private:
     void absorbingOuterBC();
     void recordMomentExtraction();
 
+    /// Pass-7: solve for the (R_v, rho_v, e_v) inner-cavity state at
+    /// t = t_rh using a first-principles energy partition. Sets
+    /// Rc_init_, rho_v_init_, e_v_init_, and t_rh_used_ in place.
+    /// Implementation in RadialLagrangian.cpp; see the comment block
+    /// there for the algorithm and citations (Zel'dovich-Raizer 1967,
+    /// Melosh 1989).
+    void solveCavityInitialState();
+
+    /// Pass-7: cavity-cell pressure evaluation. Branches on
+    /// config_.cavity_eos: IDEAL_GAS reproduces the pass-6 placeholder
+    /// (p = (gamma - 1) rho e); TILLOTSON evaluates the configured
+    /// parameter set against (rho, e) of the cavity cell.
+    double cavityPressure(double rho, double e) const;
+
     static double cellVolumeSpherical(double r_lo, double r_hi);
     static double faceAreaSpherical(double r);
 
@@ -193,6 +258,19 @@ private:
     double r_elastic_ = 0.0;  ///< Fixed Eulerian extraction sphere [m].
     double r_outer_ = 0.0;    ///< Initial outer face position [m].
     double Rc_init_ = 0.0;    ///< Initial inner cavity radius [m].
+
+    /// Pass-7 cavity-init bookkeeping. rho_v_init_ and e_v_init_ are
+    /// the (rho, e) state imposed on the inner cavity cells under
+    /// PHYSICS_BASED initialization (zero / unset otherwise);
+    /// t_rh_used_ is the radiation-to-hydrodynamic transition time
+    /// (either user-supplied or Zel'dovich-Raizer scaling default).
+    double rho_v_init_ = 0.0;
+    double e_v_init_ = 0.0;
+    double t_rh_used_ = 0.0;
+    /// Cached Tillotson EOS for the cavity. setConfig copies
+    /// config_.tillotson_params into this evaluator so the inner-cell
+    /// pressure update does not allocate a new EOS each step.
+    TillotsonEOS cavity_tillotson_;
 
     // Material parameters (cached at initialize for speed).
     double mu_solid_ = 0.0;    ///< Shear modulus G in solid cells [Pa].

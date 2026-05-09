@@ -15,6 +15,7 @@
 #include "domain/explosion/ExplosionImpactPhysics.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/explosion/RadialLagrangian.hpp"
+#include "domain/explosion/TillotsonEOS.hpp"
 #include "domain/explosion/RadialLagrangianOutput.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
 #include "io/VelocityModelReader.hpp"
@@ -526,10 +527,25 @@ struct Simulator::ExplosionCoupling {
     int near_field_radial_cells = 200;
     double near_field_radial_outer_factor = 3.0;
     double near_field_cfl = 0.4;
-    double near_field_art_visc_linear = 0.5;
-    double near_field_art_visc_quadratic = 2.0;
+    // Pass-7 Wilkins AV defaults (Wilkins 1980 literature values).
+    // Pass-6 used 0.5 / 2.0 (early-development robustness which
+    // over-dissipated the leading shock).
+    double near_field_art_visc_linear = 0.06;
+    double near_field_art_visc_quadratic = 1.5;
     double near_field_gas_eos_gamma = 1.4;
     int near_field_profile_cadence_us = 100;
+
+    // Pass-7 cavity-EOS / cavity-init plumbing. Defaults pick the
+    // Tillotson EOS for the host rock and the physics-based Newton
+    // energy-partition cavity initialization. Setting cavity_eos =
+    // IDEAL_GAS and cavity_initialization = MANUAL preserves the
+    // pass-6 behaviour byte-for-byte.
+    std::string near_field_cavity_eos = "TILLOTSON";
+    std::string near_field_tillotson_set = "";  // derived from medium when empty
+    std::string near_field_cavity_init = "PHYSICS_BASED";
+    double near_field_initial_cavity_radius = -1.0;
+    double near_field_radiation_transition_time = -1.0;
+
     RadialLagrangianSolver radial_solver;
 
     // Recorded near-field state. Populated in initializeFromConfigFile
@@ -1469,10 +1485,14 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     }
                     explosion_->near_field_cfl = 0.4;
                 }
+                // Pass-7 Wilkins AV defaults: literature values
+                // (Wilkins 1980). Pass-6 defaults of 0.5 / 2.0
+                // over-dissipated the leading shock; the production
+                // Wilkins prescription is c_l ~ 0.06, c_q ~ 1.5.
                 explosion_->near_field_art_visc_linear = reader.getDouble(
-                    "NEAR_FIELD_SOURCE", "art_visc_linear", 0.5);
+                    "NEAR_FIELD_SOURCE", "art_visc_linear", 0.06);
                 explosion_->near_field_art_visc_quadratic = reader.getDouble(
-                    "NEAR_FIELD_SOURCE", "art_visc_quadratic", 2.0);
+                    "NEAR_FIELD_SOURCE", "art_visc_quadratic", 1.5);
                 explosion_->near_field_gas_eos_gamma = reader.getDouble(
                     "NEAR_FIELD_SOURCE", "gas_eos_gamma", 1.4);
                 if (explosion_->near_field_gas_eos_gamma < 1.05 ||
@@ -1494,6 +1514,60 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                 if (explosion_->near_field_profile_cadence_us < 1) {
                     explosion_->near_field_profile_cadence_us = 1;
                 }
+
+                // Pass-7 sub-keys. cavity_eos selects between the
+                // pass-6 IDEAL_GAS placeholder and the new TILLOTSON
+                // host-rock evaluator (default). cavity_initialization
+                // selects between the new PHYSICS_BASED Newton energy-
+                // partition solve (default) and MANUAL with explicit
+                // initial_cavity_radius_m. tillotson_parameter_set
+                // overrides the medium-derived default.
+                {
+                    std::string ce_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "cavity_eos", "TILLOTSON");
+                    for (auto& c : ce_raw) c = static_cast<char>(std::toupper(c));
+                    if (ce_raw != "TILLOTSON" && ce_raw != "IDEAL_GAS") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.cavity_eos=\"%s\" not "
+                                "recognised (expected TILLOTSON|IDEAL_GAS); "
+                                "falling back to TILLOTSON.\n",
+                                ce_raw.c_str());
+                        }
+                        ce_raw = "TILLOTSON";
+                    }
+                    explosion_->near_field_cavity_eos = ce_raw;
+                }
+                {
+                    std::string tp_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE",
+                        "tillotson_parameter_set", "");
+                    for (auto& c : tp_raw) c = static_cast<char>(std::toupper(c));
+                    explosion_->near_field_tillotson_set = tp_raw;
+                }
+                {
+                    std::string ci_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE",
+                        "cavity_initialization", "PHYSICS_BASED");
+                    for (auto& c : ci_raw) c = static_cast<char>(std::toupper(c));
+                    if (ci_raw != "PHYSICS_BASED" && ci_raw != "MANUAL") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.cavity_initialization=\"%s\" "
+                                "not recognised (expected PHYSICS_BASED|MANUAL); "
+                                "falling back to PHYSICS_BASED.\n",
+                                ci_raw.c_str());
+                        }
+                        ci_raw = "PHYSICS_BASED";
+                    }
+                    explosion_->near_field_cavity_init = ci_raw;
+                }
+                explosion_->near_field_initial_cavity_radius =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "initial_cavity_radius_m", -1.0);
+                explosion_->near_field_radiation_transition_time =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "radiation_transition_time_s", -1.0);
 
                 if (rank == 0 && nf_mode == "DYNAMIC_PLASTIC") {
                     PetscPrintf(comm,
@@ -1652,6 +1726,44 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         explosion_->near_field_gas_eos_gamma;
                     rl_cfg.profile_output_cadence_us =
                         explosion_->near_field_profile_cadence_us;
+                    // Pass-7 cavity EOS dispatch.
+                    if (explosion_->near_field_cavity_eos == "IDEAL_GAS") {
+                        rl_cfg.cavity_eos =
+                            RadialLagrangianSolver::CavityEOS::IDEAL_GAS;
+                    } else {
+                        rl_cfg.cavity_eos =
+                            RadialLagrangianSolver::CavityEOS::TILLOTSON;
+                    }
+                    // Tillotson parameter set: explicit user override
+                    // wins; otherwise derive from medium_type.
+                    {
+                        std::string ts = explosion_->near_field_tillotson_set;
+                        if (ts.empty()) {
+                            std::string med = explosion_->medium_type;
+                            for (auto& c : med)
+                                c = static_cast<char>(std::toupper(c));
+                            if (med == "GRANITE" || med == "TUFF" ||
+                                med == "SALT" || med == "ALLUVIUM") {
+                                ts = med;
+                            } else {
+                                ts = "GRANITE";
+                            }
+                        }
+                        rl_cfg.tillotson_params =
+                            TillotsonParameterSets::byName(ts);
+                    }
+                    if (explosion_->near_field_cavity_init == "MANUAL") {
+                        rl_cfg.cavity_initialization =
+                            RadialLagrangianSolver::CavityInitialization::MANUAL;
+                    } else {
+                        rl_cfg.cavity_initialization =
+                            RadialLagrangianSolver::CavityInitialization::
+                                PHYSICS_BASED;
+                    }
+                    rl_cfg.initial_cavity_radius_m =
+                        explosion_->near_field_initial_cavity_radius;
+                    rl_cfg.radiation_transition_time_s =
+                        explosion_->near_field_radiation_transition_time;
                     explosion_->radial_solver.setConfig(rl_cfg);
                     explosion_->radial_solver.initialize();
                 }

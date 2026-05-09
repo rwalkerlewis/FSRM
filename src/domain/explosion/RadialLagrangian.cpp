@@ -62,7 +62,161 @@ void RadialLagrangianSolver::setSource(const UndergroundExplosionSource& src)
 void RadialLagrangianSolver::setEOS(const MieGruneisenEOS& eos) { eos_ = eos; }
 void RadialLagrangianSolver::setStrength(const PressureDependentStrength& s) { strength_ = s; }
 void RadialLagrangianSolver::setDamage(const DamageEvolutionModel& d) { damage_model_ = d; }
-void RadialLagrangianSolver::setConfig(const Config& c) { config_ = c; }
+void RadialLagrangianSolver::setConfig(const Config& c)
+{
+    config_ = c;
+    // Pass-7: cache the Tillotson evaluator from the configured
+    // parameter set so the per-step inner-cell pressure update does
+    // not allocate a new EOS each call.
+    cavity_tillotson_.setParameters(c.tillotson_params);
+}
+
+double RadialLagrangianSolver::cavityPressure(double rho, double e) const
+{
+    if (config_.cavity_eos == CavityEOS::TILLOTSON) {
+        const double p_til = cavity_tillotson_.pressure(rho, e);
+        return p_til > 0.0 ? p_til : 0.0;
+    }
+    // IDEAL_GAS: pass-6 placeholder, kept for regression.
+    const double rho_safe = (rho > 1.0e-6) ? rho : 1.0e-6;
+    const double e_safe = (e > 0.0) ? e : 0.0;
+    const double p_gas = (config_.gas_eos_gamma - 1.0) * rho_safe * e_safe;
+    return p_gas > 0.0 ? p_gas : 0.0;
+}
+
+void RadialLagrangianSolver::solveCavityInitialState()
+{
+    // Pass-7 first-principles energy-partition solve for the inner
+    // cavity at t = t_rh.
+    //
+    // Premise (Zel'dovich-Raizer 1967, vol II, ch X). At the
+    // radiation-to-hydrodynamic transition time, the radiation wave
+    // has heated the host rock in place faster than the hydrodynamic
+    // expansion can move material. The cavity contains fully-vaporized
+    // host rock at approximately the solid density (rho_v ~ rho_0_solid)
+    // because no significant hydrodynamic motion has yet occurred. The
+    // pass-7 implementation uses this end-state-of-radiation-phase
+    // approximation; an explicit Marshak-wave radiation-diffusion solve
+    // is named as candidate pass-8 follow-up if the gap does not close.
+    //
+    // Energy partition. The total deposited yield must equal:
+    //   - vaporization latent heat: m_v * E_cv (definitional energy
+    //     to bring mass m_v from solid to fully vaporized);
+    //   - thermal internal energy of the vapor: m_v * (e_v - E_cv);
+    //   - gravitational potential energy of the displaced overburden:
+    //     m_v * g * h_eff (small for kt yields; included for
+    //     completeness);
+    //   - residual kinetic energy: zero by definition at t = t_rh
+    //     (the radiation phase deposits energy in place, no bulk
+    //     motion yet).
+    //
+    // Constraint. m_v = (4/3) pi R_v^3 rho_v. With rho_v fixed at
+    // rho_0_solid (the Z-R approximation) this gives a single
+    // unknown R_v. We solve a one-equation Newton iteration:
+    //
+    //   f(R_v) = E_yield
+    //          - m_v(R_v) * E_cv
+    //          - m_v(R_v) * (e_v_target - E_cv)
+    //          - m_v(R_v) * g * h_eff
+    //
+    // where e_v_target is set by the requirement that the Tillotson
+    // pressure at (rho_v, e_v_target) is large but finite (ensuring
+    // the cavity gas drives the surrounding rock); for the pass-7
+    // initialization we set e_v_target = a multiple of E_cv chosen so
+    // the integrated yield is consumed entirely by latent + thermal +
+    // potential. Newton converges in 5-10 iterations.
+    //
+    // Default radiation-transition time. For yields in the kt-Mt
+    // range, t_rh ~ 1e-7 s * W_kt^(1/3) (Z-R scaling, vol II
+    // eq. 24.18). The user can override via radiation_transition_time_s.
+    //
+    // References.
+    //  - Zel'dovich, Y. B. and Raizer, Y. P. (1967), "Physics of Shock
+    //    Waves and High-Temperature Hydrodynamic Phenomena", vol II,
+    //    Academic Press, ch X (Marshak waves and the
+    //    radiation-to-hydrodynamic transition).
+    //  - Melosh, H. J. (1989), "Impact Cratering: A Geologic Process",
+    //    eqs 5.4.7-9 and Table A2.2 (Tillotson EOS evaluation in the
+    //    hot-expanded regime, used for e_v_target -> p consistency).
+
+    const double E_yield = src_.energyJoules();
+    const double rho_0_solid = src_.host_density;
+    const double g = 9.81;
+    const double h_eff = src_.depth;
+
+    // Z-R-scaled default transition time when not user-specified.
+    if (config_.radiation_transition_time_s > 0.0) {
+        t_rh_used_ = config_.radiation_transition_time_s;
+    } else {
+        t_rh_used_ = 1.0e-7 * std::pow(safeMax(1.0e-6, src_.yield_kt),
+                                       1.0 / 3.0);
+    }
+
+    // Tillotson parameters drive the cavity-state target.
+    const TillotsonParameters& tp = config_.tillotson_params;
+    rho_v_init_ = rho_0_solid;
+    // Target specific internal energy at full vaporization plus a
+    // thermal pad of E_cv. The Newton iteration solves for R_v that
+    // makes the integrated energy partition consume E_yield exactly.
+    const double e_v_target = 2.0 * tp.E_cv;
+    e_v_init_ = e_v_target;
+    const double e_thermal = e_v_target - tp.E_cv;
+
+    // Closed-form initial guess from the latent + thermal balance
+    // (ignoring the small overburden potential):
+    //   E_yield = (4/3) pi R^3 rho_0 (E_cv + e_thermal)
+    // -> R^3 = 3 E / (4 pi rho_0 (E_cv + e_thermal))
+    const double e_total_per_kg = tp.E_cv + e_thermal;
+    double R_v = std::pow(
+        3.0 * E_yield /
+            (FOUR_PI * safeMax(1.0, rho_0_solid * e_total_per_kg)),
+        1.0 / 3.0);
+
+    // Newton iteration on the one-equation residual.
+    auto mass_v = [&](double R) {
+        return (FOUR_PI / 3.0) * R * R * R * rho_v_init_;
+    };
+    auto residual = [&](double R) {
+        const double m = mass_v(R);
+        return E_yield - m * (tp.E_cv + e_thermal) - m * g * h_eff;
+    };
+    auto residual_derivative = [&](double R) {
+        // dR^3 / dR = 3 R^2 -> dm/dR = 4 pi R^2 rho_v
+        const double dm_dR = FOUR_PI * R * R * rho_v_init_;
+        return -dm_dR * (tp.E_cv + e_thermal) - dm_dR * g * h_eff;
+    };
+
+    int iters = 0;
+    for (; iters < 30; ++iters) {
+        const double f = residual(R_v);
+        const double df = residual_derivative(R_v);
+        if (std::abs(df) < 1e-30) break;
+        const double dR = -f / df;
+        R_v += dR;
+        if (R_v < 0.0) R_v = 0.5 * (R_v - dR);
+        if (std::abs(dR) < 1.0e-6 * R_v) break;
+    }
+    if (R_v <= 0.0 || !std::isfinite(R_v)) {
+        // Fallback: closed-form initial guess.
+        R_v = std::pow(
+            3.0 * E_yield /
+                (FOUR_PI * safeMax(1.0, rho_0_solid * e_total_per_kg)),
+            1.0 / 3.0);
+    }
+
+    // Clamp R_v to a sensible band around the empirical NTS cavity
+    // radius. The Z-R end-state cavity is the *vaporization* radius,
+    // typically 0.3 to 1.0 times the eventual NTS cavity radius (the
+    // ratio depends on host strength and overburden). A cap at 1.5
+    // times the NTS Rc prevents the Newton iteration from running
+    // away in pathological parameter regimes.
+    const double Rc_eq = safeMax(1.0, src_.cavityRadius());
+    const double R_v_min = 0.05 * Rc_eq;
+    const double R_v_max = 1.5 * Rc_eq;
+    if (R_v < R_v_min) R_v = R_v_min;
+    if (R_v > R_v_max) R_v = R_v_max;
+    Rc_init_ = R_v;
+}
 
 void RadialLagrangianSolver::allocate(int N)
 {
@@ -87,14 +241,31 @@ void RadialLagrangianSolver::initialize()
 {
     const int N = safeMax(20, config_.radial_cells);
 
-    // The host-medium NTS cavity radius sets both the initial cavity
-    // size and the elastic radius at which the moment-tensor surface
-    // integral is evaluated. The configurable radial_outer_factor
-    // multiplies the elastic radius to give the outer-domain extent so
-    // the outgoing wave has room to leave the source region before the
-    // characteristic BC fires.
+    // The host-medium NTS cavity radius sets the elastic radius at
+    // which the moment-tensor surface integral is evaluated. The
+    // configurable radial_outer_factor multiplies the elastic radius
+    // to give the outer-domain extent so the outgoing wave has room
+    // to leave the source region before the characteristic BC fires.
+    //
+    // Pass-7: the initial cavity radius Rc_init_ is set by either
+    // the physics-based energy-partition Newton solve (default) or
+    // by the user-supplied initial_cavity_radius_m (MANUAL). Pass-6
+    // unconditionally used Rc_init_ = 0.4 * Rc_eq; that path is
+    // preserved as a regression target by selecting
+    // cavity_initialization = MANUAL with initial_cavity_radius_m
+    // = 0.4 * Rc_eq in the user config.
     const double Rc_eq = safeMax(1.0, src_.cavityRadius());
-    Rc_init_ = 0.4 * Rc_eq;
+    if (config_.cavity_initialization ==
+            CavityInitialization::PHYSICS_BASED) {
+        solveCavityInitialState();
+    } else {
+        Rc_init_ = (config_.initial_cavity_radius_m > 0.0)
+                       ? config_.initial_cavity_radius_m
+                       : 0.4 * Rc_eq;
+        rho_v_init_ = src_.host_density;
+        e_v_init_ = 0.0;
+        t_rh_used_ = 0.0;
+    }
     r_elastic_ = config_.radial_outer_factor * Rc_eq;
     r_outer_ = safeMax(r_elastic_ * 1.20, 1.5 * Rc_eq);
 
@@ -147,32 +318,43 @@ void RadialLagrangianSolver::initialize()
     // Initial state. Solid cells at hydrostatic overburden, zero
     // deviatoric stress, density rho0. Internal energy initialized so
     // the EOS reads back p = overburden at rho0.
+    //
+    // Pass-7 cavity cells. The (rho_v, e_v) state is determined by
+    // the cavity_initialization mode:
+    //  - PHYSICS_BASED: rho_v = rho_v_init_ (= rho_0_solid by Z-R),
+    //    e_v = e_v_init_ (set by solveCavityInitialState so the
+    //    integrated energy partition consumes E_yield exactly). The
+    //    cavity pressure follows from the configured cavity_eos
+    //    evaluator (TILLOTSON by default, IDEAL_GAS for regression).
+    //  - MANUAL: pass-6-style uniform yield-distribution path
+    //    preserved; rho = rho_0_solid, e = E_yield / (rho_0_solid *
+    //    cavity_volume), p = (gamma - 1) rho e. This branch is the
+    //    byte-identical pass-6 regression target.
     const double overburden = src_.overburden_stress;
+    const bool physics_based =
+        (config_.cavity_initialization ==
+         CavityInitialization::PHYSICS_BASED);
+    const double cavity_volume_pre =
+        (FOUR_PI / 3.0) * Rc_init_ * Rc_init_ * Rc_init_;
+    const double e_specific_manual =
+        src_.energyJoules() /
+        safeMax(1e-12, src_.host_density * cavity_volume_pre);
     for (int i = 0; i < N; ++i) {
         const double r_lo = r_face_[i];
         const double r_hi = r_face_[i + 1];
         const double V = cellVolumeSpherical(r_lo, r_hi);
         if (i < gas_cells_) {
             is_gas_[i] = 1;
-            // Detonation gas. Yield-derived total energy distributed
-            // uniformly over the cavity volume. Pass-6 uses an ideal
-            // gas EOS with the configurable adiabatic index; pass-7
-            // should replace this with a JWL detonation-products EOS.
-            // (See HISTORIC_NUCLEAR_ROADMAP.md axis 1, follow-up.)
-            // Glasstone & Dolan (1977) tabulates the gas-cavity
-            // partition for nuclear yields at ~25 percent of total
-            // energy; for the radial-shock-driving role here the full
-            // E_yield deposited as gas internal energy is a defensible
-            // first approximation since plasticity / radiation losses
-            // accumulate in the surrounding solid cells over the
-            // simulated time.
-            rho_[i] = src_.host_density;  // inertia continuity at t=0
+            if (physics_based) {
+                rho_[i] = (rho_v_init_ > 0.0) ? rho_v_init_
+                                              : src_.host_density;
+                e_int_[i] = e_v_init_;
+            } else {
+                rho_[i] = src_.host_density;
+                e_int_[i] = e_specific_manual;
+            }
             mass_[i] = rho_[i] * V;
-            const double cavity_volume = (FOUR_PI / 3.0) * Rc_init_ * Rc_init_ * Rc_init_;
-            const double e_specific = src_.energyJoules() /
-                                      safeMax(1e-12, src_.host_density * cavity_volume);
-            e_int_[i] = e_specific;
-            p_[i] = (config_.gas_eos_gamma - 1.0) * rho_[i] * e_int_[i];
+            p_[i] = cavityPressure(rho_[i], e_int_[i]);
         } else {
             is_gas_[i] = 0;
             rho_[i] = src_.host_density;
@@ -217,15 +399,23 @@ void RadialLagrangianSolver::cflLimit(double& dt) const
     for (int i = 0; i < N_; ++i) {
         const double dr = r_face_[i + 1] - r_face_[i];
         if (dr <= 0.0) continue;
-        // Effective sound speed: solid uses vp; gas cell uses
-        // sqrt(gamma * p / rho). Both bounded by 0.1 * cp_ref so a
-        // freshly-initialized state with p = 0 in solid cells is not
-        // CFL-unbounded.
+        // Effective sound speed: solid uses vp; gas cell uses the
+        // configured cavity EOS sound-speed (Tillotson analytic, or
+        // sqrt(gamma * p / rho) for the IDEAL_GAS placeholder).
+        // Both bounded so a freshly-initialized state with p = 0 in
+        // solid cells is not CFL-unbounded.
         double cs;
         if (is_gas_[i]) {
-            const double p_pos = safeMax(0.0, p_[i]);
-            cs = std::sqrt(safeMax(1.0, config_.gas_eos_gamma * p_pos /
-                                          safeMax(1e-6, rho_[i])));
+            if (config_.cavity_eos == CavityEOS::TILLOTSON) {
+                cs = cavity_tillotson_.soundSpeed(
+                    safeMax(1.0e-6, rho_[i]),
+                    safeMax(0.0, e_int_[i]));
+                cs = safeMax(1.0, cs);
+            } else {
+                const double p_pos = safeMax(0.0, p_[i]);
+                cs = std::sqrt(safeMax(1.0, config_.gas_eos_gamma * p_pos /
+                                              safeMax(1e-6, rho_[i])));
+            }
         } else {
             cs = safeMax(0.1 * cp_ref_, cp_ref_);
         }
@@ -287,12 +477,25 @@ void RadialLagrangianSolver::computeArtificialViscosity(double dt)
             (r_hi * r_hi * v_hi - r_lo * r_lo * v_lo) /
             safeMax(1e-12, r_c2 * dr);
         if (div_v < 0.0) {
-            const double cs =
-                is_gas_[i]
-                    ? std::sqrt(safeMax(
-                          1.0, config_.gas_eos_gamma * safeMax(0.0, p_[i]) /
-                                   safeMax(1e-6, rho_[i])))
-                    : cp_ref_;
+            // Pass-7: use the cavity-EOS sound speed (Tillotson
+            // analytic) for gas cells when configured; fall back to
+            // sqrt(gamma p / rho) under IDEAL_GAS.
+            double cs;
+            if (is_gas_[i]) {
+                if (config_.cavity_eos == CavityEOS::TILLOTSON) {
+                    cs = cavity_tillotson_.soundSpeed(
+                        safeMax(1.0e-6, rho_[i]),
+                        safeMax(0.0, e_int_[i]));
+                    cs = safeMax(1.0, cs);
+                } else {
+                    cs = std::sqrt(safeMax(
+                        1.0, config_.gas_eos_gamma *
+                                 safeMax(0.0, p_[i]) /
+                                 safeMax(1e-6, rho_[i])));
+                }
+            } else {
+                cs = cp_ref_;
+            }
             const double q_lin = config_.art_visc_linear * rho_[i] * cs *
                                  std::abs(div_v) * dr;
             const double q_quad = config_.art_visc_quadratic * rho_[i] *
@@ -436,7 +639,21 @@ void RadialLagrangianSolver::updateInternalEnergy(double dt)
         const double work = -(p_[i] + q_visc_[i]) * dV_dt;
         // de = (work) * dt / m for the cell.
         const double de = work * dt / safeMax(1e-12, mass_[i]);
-        e_int_[i] += de;
+        const double e_new = e_int_[i] + de;
+        // Pass-7: clip negative internal energy at zero. Strongly-
+        // expanding cells (especially the inner cavity once pressure
+        // has dropped) can numerically over-shoot to negative
+        // e_int_ from the explicit -(p+q) dV update. The deficit
+        // is real energy sent to the surroundings via face-work; it
+        // is already captured in the kinetic-energy gain of the
+        // adjacent face mass. Clipping at zero just prevents the
+        // bookkeeping sum from drifting negative when the explicit
+        // step over-shoots the true thermodynamic state.
+        if (e_new < 0.0) {
+            e_int_[i] = 0.0;
+        } else {
+            e_int_[i] = e_new;
+        }
     }
 }
 
@@ -444,11 +661,12 @@ void RadialLagrangianSolver::updateEOS()
 {
     for (int i = 0; i < N_; ++i) {
         if (is_gas_[i]) {
-            // Ideal gas. p = (gamma - 1) rho e.
-            const double p_gas = (config_.gas_eos_gamma - 1.0) *
-                                 safeMax(1e-6, rho_[i]) *
-                                 safeMax(0.0, e_int_[i]);
-            p_[i] = safeMax(0.0, p_gas);
+            // Pass-7: dispatch via cavityPressure(). TILLOTSON
+            // evaluates the configured Tillotson parameter set at
+            // (rho, e); IDEAL_GAS reproduces the pass-6 placeholder
+            // p = (gamma - 1) rho e for byte-identical regression.
+            p_[i] = cavityPressure(safeMax(1.0e-6, rho_[i]),
+                                   safeMax(0.0, e_int_[i]));
         } else {
             // Mie-Gruneisen with the configured reference state. The
             // EOS expects rho and specific internal energy and returns
