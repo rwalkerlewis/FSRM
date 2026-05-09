@@ -203,3 +203,21 @@ honest naming of the follow-up axis.
 - Murphy, J. R. (1981), "Magnitude-yield relations for underground
   nuclear explosions". Reference values for the body-wave magnitude
   gates (axis-3 follow-up named).
+
+## Pass-12 housekeeping note
+
+Pass-12 is housekeeping, not a physics pass. The numerical envelopes
+in this report are unchanged by pass-12. The pass-12 work shipped:
+
+- Documentation hygiene (session-report archival, stale-doc archival,
+  reference-doc refresh, `docs/FIDELITY_LADDER_GUIDE.md`).
+- Per-event config relocation into `examples/N_<event>/`.
+- Three new historic-event examples (DPRK 2017, Lop Nor 1996,
+  Pokhran II 1998) with smoke-level integration tests; no new
+  retightening gates.
+- Showcase figure infrastructure (Sedan, Salmon, Punggye-ri).
+- MPI invocation standardization across all example run.sh scripts.
+
+See `docs/HISTORIC_NUCLEAR_FIDELITY.md` "4k. Closed in pass 12" for
+the full pass-12 closeout. Pass-13 rotates to axis-1b (3D source
+ball implementation on the pass-11 scaffold).
