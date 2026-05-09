@@ -111,6 +111,13 @@ public:
         /// Radiation-front detection threshold: a cell is "in the
         /// radiation front" when sum_g E_r^g > front_factor * a T_amb^4.
         double front_factor = 1.5;
+        /// Per-group CONSTANT opacity override [m^2/kg]. When > 0,
+        /// every per-group Rosseland and Planck mean is set to this
+        /// value, bypassing the analytic Mihalas-Mihalas + Kramers
+        /// path. Used by the SelfSimilarPureRadiation gate to pin the
+        /// per-group diffusion coefficient at a known constant so the
+        /// analytic Marshak self-similar comparison applies cleanly.
+        double kappa_constant_m2_per_kg = 0.0;
     };
 
     struct StepResult

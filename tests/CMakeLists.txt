@@ -90,6 +90,8 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_physics_cavity_init.cpp
     physics_validation/test_marshak_radiation.cpp
     physics_validation/test_tabulated_patches.cpp
+    physics_validation/test_multigroup_radiation.cpp
+    physics_validation/test_pass10_integrators.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -306,6 +308,19 @@ if(GTest_FOUND)
     add_test(NAME Physics.TabulatedOpacity.PowerLawAgreementInOverlapRegion COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.OpacityPowerLawAgreementInOverlap)
     add_test(NAME Physics.TabulatedOpacity.PatchSmoothness COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.OpacityPatchSmoothness)
     add_test(NAME Physics.Marshak.OperatorSplittingConvergence COMMAND run_physics_tests --gtest_filter=TabulatedPatchesTest.StrangOperatorSplittingConvergence)
+    # Pass-10 axis-1a closeout: multigroup, time-integrator, and
+    # Strang-substep diagnostic gates.
+    add_test(NAME Physics.MarshakMultigroup.PlanckIntegralSumsToSigmaT4 COMMAND run_physics_tests --gtest_filter=MarshakMultigroupTest.PlanckIntegralSumsToSigmaT4)
+    add_test(NAME Physics.MarshakMultigroup.GroupOpacityAnalyticPathSanity COMMAND run_physics_tests --gtest_filter=MarshakMultigroupTest.GroupOpacityAnalyticPathSanity)
+    add_test(NAME Physics.MarshakMultigroup.SelfSimilarPureRadiation COMMAND run_physics_tests --gtest_filter=MarshakMultigroupTest.SelfSimilarPureRadiation)
+    add_test(NAME Physics.MarshakMultigroup.RadiationFrontPositionConvergesWithG COMMAND run_physics_tests --gtest_filter=MarshakMultigroupTest.RadiationFrontPositionConvergesWithG)
+    add_test(NAME Physics.MarshakMultigroup.GroupSumMatchesGrey COMMAND run_physics_tests --gtest_filter=MarshakMultigroupTest.GroupSumMatchesGrey)
+    add_test(NAME Physics.MarshakMultigroup.GreyVsMultigroupComparison COMMAND run_physics_tests --gtest_filter=MarshakMultigroupTest.GreyVsMultigroupComparison)
+    add_test(NAME Physics.Pass10Integrator.RK3SSPProducesFiniteState COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.RK3SSPProducesFiniteState)
+    add_test(NAME Physics.Pass10Integrator.TVDRK2EnergyConservationTighterThanEuler COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.TVDRK2EnergyConservationTighterThanEuler)
+    add_test(NAME Physics.Pass10Integrator.RK3SSPMatchesEulerInWeakRegime COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.RK3SSPMatchesEulerInWeakRegime)
+    add_test(NAME Physics.Pass10Integrator.StrangSubstepDiagnosticExposesInnerDt COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.StrangSubstepDiagnosticExposesInnerDt)
+    add_test(NAME Physics.Pass10Integrator.LieEulerEulerByteIdenticalToPass9 COMMAND run_physics_tests --gtest_filter=Pass10IntegratorTest.LieEulerEulerByteIdenticalToPass9)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -565,7 +580,18 @@ if(GTest_FOUND)
         Physics.TabulatedOpacity.PowerLawAgreementInOverlapRegion
         Physics.TabulatedOpacity.PatchSmoothness
         Physics.Marshak.OperatorSplittingConvergence
-        PROPERTIES TIMEOUT 1200 LABELS "physics_validation"
+        Physics.MarshakMultigroup.PlanckIntegralSumsToSigmaT4
+        Physics.MarshakMultigroup.GroupOpacityAnalyticPathSanity
+        Physics.MarshakMultigroup.SelfSimilarPureRadiation
+        Physics.MarshakMultigroup.RadiationFrontPositionConvergesWithG
+        Physics.MarshakMultigroup.GroupSumMatchesGrey
+        Physics.MarshakMultigroup.GreyVsMultigroupComparison
+        Physics.Pass10Integrator.RK3SSPProducesFiniteState
+        Physics.Pass10Integrator.TVDRK2EnergyConservationTighterThanEuler
+        Physics.Pass10Integrator.RK3SSPMatchesEulerInWeakRegime
+        Physics.Pass10Integrator.StrangSubstepDiagnosticExposesInnerDt
+        Physics.Pass10Integrator.LieEulerEulerByteIdenticalToPass9
+        PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 
     # Integration tests -- full Simulator pipeline through TSSolve

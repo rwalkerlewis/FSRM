@@ -82,14 +82,25 @@ void MultigroupRadiationDiffusionSolver::recomputeOpacitiesAndPlanck(
 {
     // Per cell, per group: re-evaluate kappa_R^g, kappa_P^g, B_g, dBg/dT.
     // The B_g and dBg/dT use the matter-temperature iterate T_iter_[i].
+    // CONSTANT override (kappa_constant_m2_per_kg > 0) replaces the
+    // analytic per-group means with a uniform value; it does not affect
+    // B_g(T) or dBg/dT (those drive the source term and must reflect
+    // the true Planck integrals).
     const double dT_eps_factor = 0.001;  // 0.1% finite-difference for dBg/dT
+    const bool use_const = config_.kappa_constant_m2_per_kg > 0.0;
+    const double k_const = config_.kappa_constant_m2_per_kg;
     for (int i = 0; i < N_; ++i) {
         const double T = safeMax(1.0, T_iter_[i]);
         const double dT = safeMax(1.0, dT_eps_factor * T);
         for (int g = 0; g < G_; ++g) {
             const std::size_t k = static_cast<std::size_t>(i) * G_ + g;
-            kappa_R_[k] = opacity_.rosselandPerGroup(g, rho[i], T);
-            kappa_P_[k] = opacity_.planckPerGroup(g, rho[i], T);
+            if (use_const) {
+                kappa_R_[k] = k_const;
+                kappa_P_[k] = k_const;
+            } else {
+                kappa_R_[k] = opacity_.rosselandPerGroup(g, rho[i], T);
+                kappa_P_[k] = opacity_.planckPerGroup(g, rho[i], T);
+            }
             const double Bg_T = opacity_.bandIntegratedPlanck(g, T);
             const double Bg_Tp = opacity_.bandIntegratedPlanck(g, T + dT);
             B_g_iter_[k] = Bg_T;
