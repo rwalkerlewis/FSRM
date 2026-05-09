@@ -75,6 +75,17 @@ void RadialLagrangianSolver::setConfig(const Config& c)
     // not allocate a new EOS each call.
     cavity_tillotson_.setParameters(c.tillotson_params);
 
+    // Pass-11: axis-1b 3D source ball is pass-12 work. THREE_DIMENSIONAL
+    // throws on selection so callers cannot opt into a non-existent code
+    // path; pass-12 will replace this throw with the actual 3D solver.
+    if (c.cavity_geometry == CavityGeometry::THREE_DIMENSIONAL) {
+        throw std::runtime_error(
+            "RadialLagrangianSolver: cavity_geometry=THREE_DIMENSIONAL "
+            "is axis-1b 3D source ball: pass-12 work, not yet implemented. "
+            "See docs/AXIS_1B_DESIGN.md for the design stub. Use "
+            "cavity_geometry=SPHERICAL for the pass-10 1D radial path.");
+    }
+
     // Pass-8/10: lazily construct the radiation solver under MARSHAK_GREY
     // (pass-8) or MARSHAK_MULTIGROUP (pass-10). SN_TRANSPORT remains
     // a named-only ladder rung and throws.
@@ -109,6 +120,7 @@ void RadialLagrangianSolver::setConfig(const Config& c)
         mcfg.opacity_params = c.opacity_params;
         mcfg.T_ambient_K = 300.0;
         mcfg.front_factor = 1.5;
+        mcfg.time_integrator = c.time_integrator_diffusion;
         mg_rad_solver_->setConfig(mcfg);
         mg_num_groups_ = mcfg.group_grid.n_groups;
     }
@@ -131,6 +143,7 @@ void RadialLagrangianSolver::setConfig(const Config& c)
             c.tabulated_opacity_planck_path;
         rcfg.tabulated_blend_lower_k = c.tabulated_opacity_blend_lower_k;
         rcfg.tabulated_blend_upper_k = c.tabulated_opacity_blend_upper_k;
+        rcfg.time_integrator = c.time_integrator_diffusion;
         rad_solver_->setConfig(rcfg);
     }
 
@@ -563,6 +576,7 @@ void RadialLagrangianSolver::initialize()
             rcfg.opacity_model = config_.opacity_model;
             rcfg.opacity_params = config_.opacity_params;
             rcfg.kappa_constant_m2_per_kg = config_.kappa_constant_m2_per_kg;
+            rcfg.time_integrator = config_.time_integrator_diffusion;
             rad_solver_->setConfig(rcfg);
         }
         rad_solver_->initialize(N);
@@ -590,6 +604,7 @@ void RadialLagrangianSolver::initialize()
             mcfg.max_newton_iter = config_.radiation_max_newton_iter;
             mcfg.newton_tolerance = config_.radiation_newton_tolerance;
             mcfg.opacity_params = config_.opacity_params;
+            mcfg.time_integrator = config_.time_integrator_diffusion;
             mg_rad_solver_->setConfig(mcfg);
         }
         mg_rad_solver_->initialize(N);
@@ -941,6 +956,34 @@ void RadialLagrangianSolver::updateDamage(double dt)
         damage_[i] = safeMax(0.0,
                              safeMin(damage_model_.max_damage,
                                      damage_[i] + dD));
+    }
+}
+
+void RadialLagrangianSolver::applySpongeLayerDamping(double dt)
+{
+    // Israeli & Orszag 1981 graded-damping sponge layer. Velocity in
+    // the last sponge_layer_thickness_fraction of the radial domain
+    // is multiplied by exp(-damping * dt) per substep, with the
+    // damping coefficient ramping quadratically from zero at the
+    // inner edge of the sponge to sponge_layer_max_damping (in units
+    // of 1/dt) at the outer face. The exponential form keeps the
+    // sponge stable even when sponge_layer_max_damping * dt is large.
+    if (!config_.sponge_layer_enabled || N_ < 2 || r_outer_ <= 0.0) return;
+    const double r_o = r_face_[N_];
+    const double r_i = r_face_[0];
+    const double L = safeMax(1.0e-12, r_o - r_i);
+    const double sponge_thickness =
+        config_.sponge_layer_thickness_fraction * L;
+    if (sponge_thickness <= 0.0) return;
+    const double r_sponge_start = r_o - sponge_thickness;
+    const double max_damping = config_.sponge_layer_max_damping / safeMax(1.0e-30, dt);
+    for (int i = 0; i <= N_; ++i) {
+        const double r = r_face_[i];
+        if (r < r_sponge_start) continue;
+        const double s = (r - r_sponge_start) / sponge_thickness;
+        const double damping = max_damping * s * s;
+        const double factor = std::exp(-damping * dt);
+        v_face_[i] *= factor;
     }
 }
 
@@ -1299,6 +1342,12 @@ void RadialLagrangianSolver::substep(double dt)
         const double power = -A * sigma_rr * v_face_[N_];
         radiated_energy_out_ += safeMax(0.0, power) * dt;
     }
+    // Pass-11 sponge layer (no-op when sponge_layer_enabled is false).
+    // Damp face velocities in the outer fraction of the domain before
+    // applying the impedance BC; the sponge zone dissipates the bulk
+    // of the outgoing energy so the impedance BC sees a much smaller
+    // residual amplitude.
+    applySpongeLayerDamping(dt);
     absorbingOuterBC();
 
     // Energy bookkeeping. Kinetic = sum (m_face * v_face^2 / 2).

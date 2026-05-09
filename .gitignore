@@ -87,3 +87,4 @@ historic_nuclear/*
 figures/
 data/historic_nuclear/
 
+.claude/

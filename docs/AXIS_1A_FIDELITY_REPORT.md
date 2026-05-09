@@ -1,24 +1,28 @@
-# Axis-1a Fidelity Report (passes 5-10)
+# Axis-1a Fidelity Report (passes 5-11)
 
 This report is the canonical "where does axis-1a stand" reference for
 the historic-nuclear track. It summarises the full axis-1a fidelity
-ladder, every gate result across passes 5-10, every named residual,
+ladder, every gate result across passes 5-11, every named residual,
 and the priority queue of follow-up axes.
 
-After pass-10, axis-1a is closed for now; pass-11 rotates to topography
-(axis 2). Remaining axis-1 work (axis-1b 3D source ball, S_n transport,
-axis-1c implicit-time-stepping for the diffusion solve) is named here
-explicitly as the lower-priority backlog.
+After pass-11 (axis-1c implicit time stepping for the diffusion solve
++ outer-BC sponge layer + extended ANEOS validation), axis-1a has
+three more gates closed at spec target. Remaining axis-1 work
+(axis-1b 3D source ball, axis-1d 3D far-field coupling, axis-3
+layered-medium fidelity, axis-4 Tillotson refit) is named here
+explicitly as the lower-priority backlog. Pass-12 rotates to
+axis-1b (3D source ball) per the pass-11 spec.
 
-## Fidelity ladder (closed at every tier after pass-10)
+## Fidelity ladder (closed at every tier after pass-11)
 
-| Ladder              | LOW                | MED            | HIGH                              | HIGHEST              |
-| ------------------- | ------------------ | -------------- | --------------------------------- | -------------------- |
-| `radiation_phase`   | `ZELDOVICH_RAIZER` | `MARSHAK_GREY` | `MARSHAK_GREY` + `TABULATED_PATCHED` | `MARSHAK_MULTIGROUP` |
-| `cavity_eos`        | `IDEAL_GAS`        | `TILLOTSON`    | `TILLOTSON_TABULATED_PATCH`       | `TABULATED_FULL`     |
-| `opacity_model`     | `CONSTANT`         | `POWER_LAW_ZR` | `TABULATED_PATCHED`               | `TABULATED_FULL`     |
-| `operator_splitting`| `LIE`              | `LIE`          | `STRANG`                          | `STRANG_MULTIGROUP`  |
-| `time_integrator`   | `EXPLICIT_EULER`   | `EXPLICIT_EULER` | `EXPLICIT_EULER`                | `RK3_SSP`            |
+| Ladder                       | LOW                | MED            | HIGH                              | HIGHEST              |
+| ---------------------------- | ------------------ | -------------- | --------------------------------- | -------------------- |
+| `radiation_phase`            | `ZELDOVICH_RAIZER` | `MARSHAK_GREY` | `MARSHAK_GREY` + `TABULATED_PATCHED` | `MARSHAK_MULTIGROUP` |
+| `cavity_eos`                 | `IDEAL_GAS`        | `TILLOTSON`    | `TILLOTSON_TABULATED_PATCH`       | `TABULATED_FULL`     |
+| `opacity_model`              | `CONSTANT`         | `POWER_LAW_ZR` | `TABULATED_PATCHED`               | `TABULATED_FULL`     |
+| `operator_splitting`         | `LIE`              | `LIE`          | `STRANG`                          | `STRANG_MULTIGROUP`  |
+| `time_integrator`            | `EXPLICIT_EULER`   | `EXPLICIT_EULER` | `EXPLICIT_EULER`                | `RK3_SSP`            |
+| `time_integrator_diffusion`  | `BACKWARD_EULER`   | `BACKWARD_EULER` | `CRANK_NICOLSON`                | `BDF2`               |
 
 Every cell has a working implementation as of pass-10. LOW / MED / HIGH
 defaults reproduce the corresponding pass-N behaviour byte-for-byte
@@ -33,19 +37,21 @@ HISTORIC_NUCLEAR_ROADMAP.md fidelity table. "Pass-10 final" is the
 envelope shipped on this branch. "Residual / next" names the
 follow-up axis when the strict spec is not yet reached.
 
-| Gate                              | Pass-7 | Pass-8 | Pass-9 | Pass-10 final | Spec target | Residual / next        |
-| --------------------------------- | ------ | ------ | ------ | ------------- | ----------- | ---------------------- |
-| Salmon CavityRadius               | factor 5 | factor 4 | factor 3 | factor 3 retained | 5%       | axis-1b 3D source ball |
-| Salmon FreeFieldPeakVelocity_166m | factor 5 | factor 4 | factor 2 (active) | factor 2 retained | factor 2 | -- (closed)        |
-| Salmon FreeFieldPeakVelocity_322m | factor 6 | factor 4 | factor 2 (active) | factor 2 retained | factor 2 | -- (closed)        |
-| Salmon FreeFieldPeakVelocity_549m | skipped | skipped | skipped | factor 4 (named pass-10 work) | factor 2 | RK3_SSP available; gate enabled at factor 4 envelope |
-| Salmon FarFieldBodyWaveMagnitude  | +/- 0.5 | +/- 0.3 | +/- 0.3 | +/- 0.3 retained | +/- 0.2 | propagation-path drift, axis-3 layered-medium fidelity |
-| Marshak SelfSimilarPureRadiation  | n/a | factor 10 | factor 8 | factor 2.5 (multigroup) | factor 2 | very-early-time BE smearing residual; axis-1c CN/BDF2 |
-| Marshak RadiationEnergyConservation | n/a | 25% | 10% | 10% retained | 2% | implicit-Euler matter coupling residual; axis-1c |
-| Marshak GreyVsZRComparison         | n/a | factor 5 | factor 3 | factor 3 retained | factor 3 | -- (closed)             |
-| Chagan CavityRadius               | factor 6 | factor 5 | factor 5 | factor 5 retained | factor 3 | axis-1b 3D source ball |
-| Chagan FarFieldBodyWaveMagnitude  | +/- 0.5 | +/- 0.4 | +/- 0.4 | +/- 0.4 retained | +/- 0.3 | propagation-path drift, axis-3 |
-| PokhranI FarFieldBodyWaveMagnitude | +/- 0.5 | +/- 0.4 | +/- 0.4 | +/- 0.4 retained | +/- 0.3 | regional Murphy 1981 reference-value drift, axis-4 regional refit |
+| Gate                              | Pass-7 | Pass-8 | Pass-9 | Pass-10 final | Pass-11 final | Spec target | Residual / next        |
+| --------------------------------- | ------ | ------ | ------ | ------------- | ------------- | ----------- | ---------------------- |
+| Salmon CavityRadius               | factor 5 | factor 4 | factor 3 | factor 3 retained | factor 3 retained | 5%       | axis-1b 3D source ball |
+| Salmon FreeFieldPeakVelocity_166m | factor 5 | factor 4 | factor 2 (active) | factor 2 retained | factor 2 retained | factor 2 | -- (closed)        |
+| Salmon FreeFieldPeakVelocity_322m | factor 6 | factor 4 | factor 2 (active) | factor 2 retained | factor 2 retained | factor 2 | -- (closed)        |
+| Salmon FreeFieldPeakVelocity_549m | skipped | skipped | skipped | factor 4 (named pass-10 work) | sponge layer available; gate retained at factor 4 with corrected diagnosis | factor 2 | impedance BC contributes; sponge BC ships as opt-in. Closure requires either tighter spec sweep or axis-1d 3D far-field coupling |
+| Salmon FarFieldBodyWaveMagnitude  | +/- 0.5 | +/- 0.3 | +/- 0.3 | +/- 0.3 retained | +/- 0.3 retained | +/- 0.2 | propagation-path drift, axis-3 layered-medium fidelity |
+| Marshak SelfSimilarPureRadiation  | n/a | factor 10 | factor 8 | factor 2.5 (multigroup) | **factor 2** (BDF2) | factor 2 | -- (closed; HIGHEST tier under axis-1c) |
+| Marshak RadiationEnergyConservation | n/a | 25% | 10% | 10% retained | **2%** (BDF2) | 2% | -- (closed; HIGHEST tier under axis-1c) |
+| Marshak GreyVsZRComparison         | n/a | factor 5 | factor 3 | factor 3 retained | factor 3 retained | factor 3 | -- (closed)             |
+| Chagan CavityRadius               | factor 6 | factor 5 | factor 5 | factor 5 retained | factor 5 retained | factor 3 | axis-1b 3D source ball |
+| Chagan FarFieldBodyWaveMagnitude  | +/- 0.5 | +/- 0.4 | +/- 0.4 | +/- 0.4 retained | +/- 0.4 retained | +/- 0.3 | propagation-path drift, axis-3 |
+| PokhranI FarFieldBodyWaveMagnitude | +/- 0.5 | +/- 0.4 | +/- 0.4 | +/- 0.4 retained | +/- 0.4 retained | +/- 0.3 | regional Murphy 1981 reference-value drift, axis-4 regional refit |
+| Granite Hugoniot match            | n/a | n/a | n/a | n/a | **30%, half points within** | 5% | Tillotson parameter refit, axis-4 |
+| Salt Hugoniot match               | n/a | n/a | n/a | n/a | **30%, half points within** | 5% | Tillotson parameter refit, axis-4 |
 
 ## What pass-10 closed
 
@@ -105,33 +111,71 @@ honest naming of the follow-up axis.
   moment-tensor extraction at the elastic radius is the source-side
   bottleneck).
 
-## Next-pass priorities (axis 2 and beyond)
+## What pass-11 closed
 
-- **Pass-11: axis-2 (topography).** The historic-nuclear roadmap calls
-  out free-surface topography as the next dominant fidelity axis after
-  axis-1a. The mountain mesa, basin, and valley shots in the historic
-  catalogue (Pahute Mesa, Chagan, Faultless) should be re-run with a
-  topography-resolved upper boundary.
-- **Axis-1b: 3D source ball.** Asymmetric overburden, layered medium
-  in the source-region 3D solve. Removes the spherical-symmetry
-  assumption in axis-1a. Required to close Salmon CavityRadius and
-  Chagan CavityRadius to spec.
-- **Axis-1c: implicit time stepping (CN / BDF2).** Crank-Nicolson or
-  BDF2 second-order time integration for the (multigroup) diffusion
-  solve. Closes the very-early-time BE smearing residual in the
-  Marshak gates.
+- **Axis-1c (implicit diffusion time stepping).** New
+  DiffusionTimeIntegrator strategy with three concrete subclasses
+  (BackwardEuler, CrankNicolson, BDF2). Selected via the new
+  `time_integrator_diffusion` config knob; BDF2 is the HIGHEST tier
+  default and BACKWARD_EULER preserves pass-10 byte-identical
+  behaviour. Closes the Marshak self-similar gate from factor 2.5
+  to factor 2 (HIGHEST tier under BDF2) and the radiation-energy
+  conservation gate from 10% to 2%.
+- **549 m free-field BC triage.** The pass-10 finding ("549 m sits
+  at factor 4 vs spec target factor 2") was triaged via a
+  radial_outer_radius_m sweep at [700, 1000, 1500, 2000] m. Sweep
+  evidence: peak velocity at 549 m drops by factor ~3.4 from
+  r_outer = 700 m to 1000 m, indicating the impedance BC at 700 m
+  contaminates the gauge. Pass-11 ships the Israeli & Orszag 1981
+  graded-damping sponge layer (gated by sponge_layer_enabled) as
+  the BC fix.
+- **Extended ANEOS Hugoniot validation.** New gates verify the
+  granite (Marsh 1980) and salt (McQueen 1970) tabulated EOS
+  reproduces published shock-Hugoniot data within 30% at half or
+  more sample points. The 5% spec target requires a Tillotson
+  parameter refit (named axis-4 follow-up).
+- **Axis-1b 3D source ball scaffolding.** Source3DBall.hpp interface,
+  cavity_geometry config knob, makeSource3DBall factory, dispatch
+  wiring (THREE_DIMENSIONAL throws on selection with a clear
+  pass-12 / axis-1b diagnostic), and docs/AXIS_1B_DESIGN.md design
+  stub. Pass-12 lands the implementation on this contract.
+
+## What pass-11 did NOT close (named follow-up)
+
+- **Salmon / Chagan CavityRadius (factor 3 / 5 envelopes).** Closure
+  named **axis-1b** (3D source ball, scaffolded in pass-11; pass-12
+  implementation).
+- **Salmon FreeFieldPeakVelocity_549m (factor 4 envelope).** Pass-11
+  ships the sponge BC as the fix. Closing the gate to factor 2
+  requires either a stricter spec sweep run with the sponge enabled
+  in HIGHEST tier or axis-1d 3D far-field coupling.
+- **Salmon / Chagan / PokhranI FarFieldBodyWaveMagnitude.** Same
+  axis-3 (layered-medium fidelity) follow-up as pass-10.
+- **Granite / Salt Hugoniot 5% target.** The pass-9 / pass-10
+  Tillotson parameter sets fit individual Hugoniot points to ~30%.
+  Closing to 5% requires a Tillotson refit named **axis-4**.
+
+## Next-pass priorities (pass-12 and beyond)
+
+- **Pass-12: axis-1b (3D source ball).** Implement the concrete
+  Source3DBall subclass on the pass-11 scaffold. Unstructured-tet
+  mesh, 3D Drucker-Prager, asymmetric overburden, surface-integral
+  moment-tensor extraction. Closes Salmon and Chagan CavityRadius
+  gates. Design stub: docs/AXIS_1B_DESIGN.md.
 - **Axis-1d: 3D far-field wavefield extraction.** Replace the
   surface-integral moment-tensor extraction at the elastic radius
-  with a coupled radial-source -> 3D FEM coupling that lets the
-  far-field mesh resolve the wavefield on its own scale. Closes the
-  549 m free-field gauge to factor 2.
-- **Axis-3: layered-medium fidelity.** Higher-resolution velocity model,
-  Q-attenuation as a function of depth, regional refit of magnitude
-  reference values. Closes the body-wave magnitude gates.
-- **Axis-4 (named only): full ANEOS table coverage** for tuff /
-  alluvium media at coverage extending to 1e7 Pa. Pass-10 ships
-  pass-9-level coverage; the spec called for extension to 1e8 Pa
-  but the underlying ANEOS rerun is a separate body of work.
+  with a coupled radial-source -> 3D FEM coupling. Pass-12 axis-1b
+  feeds the asymmetric moment tensor that axis-1d consumes.
+- **Axis-2: topography.** Free-surface topography for the mountain
+  mesa, basin, and valley shots in the historic catalogue (Pahute
+  Mesa, Chagan, Faultless).
+- **Axis-3: layered-medium fidelity.** Higher-resolution velocity
+  model, Q-attenuation as a function of depth, regional refit of
+  magnitude reference values. Closes the body-wave magnitude gates.
+- **Axis-4: Tillotson parameter refit.** Per-medium least-squares
+  refit of the Tillotson EOS constants (a, b, A, B, alpha, beta,
+  E_0, E_iv, E_cv) against published Hugoniot data. Closes the 5%
+  Hugoniot match target.
 
 ## References
 

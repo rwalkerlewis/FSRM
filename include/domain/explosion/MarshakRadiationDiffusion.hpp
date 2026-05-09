@@ -82,8 +82,10 @@
 #ifndef NEAR_FIELD_MARSHAK_RADIATION_DIFFUSION_HPP
 #define NEAR_FIELD_MARSHAK_RADIATION_DIFFUSION_HPP
 
+#include <memory>
 #include <vector>
 
+#include "domain/explosion/DiffusionTimeIntegrator.hpp"
 #include "domain/explosion/OpacityModel.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
 #include "io/TabulatedData/TabulatedDataReader.hpp"
@@ -130,6 +132,15 @@ public:
         /// regime where Z-R is least accurate).
         double tabulated_blend_lower_k = 1.0e5;
         double tabulated_blend_upper_k = 1.26e5;
+
+        /// Pass-11 (axis 1c): per-group time-integrator selector.
+        /// BACKWARD_EULER is the pass-10 byte-identical default;
+        /// CRANK_NICOLSON and BDF2 raise the time-stepping accuracy to
+        /// second-order, closing the very-early-time front-position
+        /// smearing residual reported in pass-10 of the Marshak gates.
+        /// See include/domain/explosion/DiffusionTimeIntegrator.hpp.
+        DiffusionTimeIntegratorKind time_integrator =
+            DiffusionTimeIntegratorKind::BACKWARD_EULER;
     };
 
     /// Per-step diagnostic returned to the host RadialLagrangianSolver.
@@ -155,8 +166,16 @@ public:
 
     MarshakRadiationDiffusionSolver() = default;
 
-    void setConfig(const Config& cfg) { config_ = cfg; }
+    void setConfig(const Config& cfg)
+    {
+        config_ = cfg;
+        time_integrator_ = DiffusionTimeIntegrator::create(cfg.time_integrator);
+    }
     const Config& getConfig() const { return config_; }
+    const DiffusionTimeIntegrator& timeIntegrator() const
+    {
+        return *time_integrator_;
+    }
 
     /// Build internal workspace for N cells. Idempotent.
     void initialize(int N);
@@ -227,6 +246,16 @@ private:
     std::vector<double> e_int_old_;
     std::vector<double> E_r_old_;
     std::vector<double> T_m_old_;
+
+    // Pass-11 BDF2 prior-prior step buffer. Stores E^{n-1} so the
+    // BDF2 RHS can read it. The host bootstraps the very first step
+    // with backward-Euler; subsequent steps use the multi-step formula.
+    std::vector<double> E_r_prev_step_;   ///< E^{n-1} after a successful BDF2 step.
+    bool prev_step_valid_ = false;        ///< False before the first BDF2 advance.
+
+    // Pass-11 integrator strategy. Owned by the solver; rebuilt on
+    // every setConfig() call.
+    std::unique_ptr<DiffusionTimeIntegrator> time_integrator_;
 
     /// Recompute opacities per cell from rho and current T iterate.
     void updateOpacities(const std::vector<double>& rho,

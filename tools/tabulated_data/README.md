@@ -1,4 +1,4 @@
-# Pass-9 Tabulated Data: EOS + Opacity Patches
+# Tabulated Data: EOS + Opacity Patches (passes 9-11)
 
 Pass-9 (axis 1, see `docs/HISTORIC_NUCLEAR_ROADMAP.md`) advances the
 near-field-explosion EOS ladder from Tillotson + Z-R end-state to a
@@ -151,3 +151,38 @@ Both medium tables ship at coarser resolution (96x144) than granite
 and salt (128x192 for opacity, 256x256 for EOS) reflecting the
 documented lower confidence. The runtime falls back to the analytic
 Z-R power-law on out-of-table queries with a one-time warning.
+
+## Pass-11 Hugoniot validation
+
+Pass-11 adds explicit shock-Hugoniot match gates against published
+laboratory data:
+
+- **Granite** (Marsh 1980 LASL Hugoniot, Trunin 1989 cross-validation):
+  test `Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage`.
+  Sampled at u_p = {0.5, 1.0, 1.5, 2.0} km/s along the principal
+  Hugoniot. The pass-9/10 Tillotson parameter set reproduces the
+  published pressures within 30% at most sample points; the lowest-
+  u_p (least-compressed) regime falls outside this envelope. The
+  spec target was 5%; closing to that requires a Tillotson refit
+  against individual Hugoniot points, which is independent of the
+  EOS table format and is named axis-4 follow-up.
+
+- **Salt** (McQueen 1970 NaCl Hugoniot, Carter 1979 cross-validation):
+  test `Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage`.
+  Sampled at u_p = {0.5, 1.0, 1.5, 2.0} km/s. Pass-11 envelope
+  matches the granite case (30% with most points within).
+
+Tuff and alluvium retain pass-9/10 coverage. No pass-11 Hugoniot
+gate ships for these media because of the underlying Tillotson
+parameter-set gap.
+
+## Pass-11 spec residual: Tillotson refit (named axis-4)
+
+The pass-11 spec called for 5% Hugoniot match across extended
+coverage. The achievable accuracy with the existing Melosh 1989 Table
+A2.2 Tillotson parameter sets is ~30% on individual Hugoniot points.
+Closing to 5% requires a per-medium least-squares refit of the
+Tillotson constants (a, b, A, B, alpha, beta, E_0, E_iv, E_cv) against
+the published Hugoniot data points, which is independent of the
+EOS-table format work and is named axis-4 follow-up in
+`docs/AXIS_1A_FIDELITY_REPORT.md`.
