@@ -2,6 +2,9 @@
 #include <iostream>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <stdexcept>
+#include <string>
 
 namespace FSRM {
 
@@ -270,12 +273,39 @@ std::vector<std::string> ConfigReader::getKeys(const std::string& section) const
 
 bool ConfigReader::parseSimulationConfig(SimulationConfig& config) {
     if (!hasSection("SIMULATION")) return false;
-    
+
     config.start_time = getDouble("SIMULATION", "start_time", 0.0);
     config.end_time = getDouble("SIMULATION", "end_time", 1.0);
     config.dt_initial = getDouble("SIMULATION", "dt_initial", 0.01);
     config.dt_min = getDouble("SIMULATION", "dt_min", 1e-10);
     config.dt_max = getDouble("SIMULATION", "dt_max", 1.0);
+
+    // Smoke-gate override. The examples-runtime CTest gate sets
+    // FSRM_FINAL_TIME_OVERRIDE to a small positive number so each
+    // example completes inside the per-test budget while still
+    // exercising setupDM / setupFields / setupPhysics / setupTimeStepper
+    // / TSSolve. The override must be strictly positive and less than
+    // the configured end_time; out-of-range values are ignored with a
+    // stderr warning. See docs/CONFIGURATION.md.
+    if (const char* env = std::getenv("FSRM_FINAL_TIME_OVERRIDE")) {
+        try {
+            const double override_t = std::stod(env);
+            if (override_t > 0.0 && override_t < config.end_time) {
+                std::cerr << "[ConfigReader] FSRM_FINAL_TIME_OVERRIDE="
+                          << override_t << " (was end_time="
+                          << config.end_time << ")" << std::endl;
+                config.end_time = override_t;
+            } else {
+                std::cerr << "[ConfigReader] FSRM_FINAL_TIME_OVERRIDE="
+                          << env << " ignored (must be in (0, "
+                          << config.end_time << "))" << std::endl;
+            }
+        } catch (const std::exception&) {
+            std::cerr << "[ConfigReader] FSRM_FINAL_TIME_OVERRIDE='"
+                      << env << "' is not a valid double; ignored"
+                      << std::endl;
+        }
+    }
     
     config.max_timesteps = getInt("SIMULATION", "max_timesteps", 10000);
     config.output_frequency = getInt("SIMULATION", "output_frequency", 10);
