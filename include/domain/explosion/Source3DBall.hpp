@@ -61,40 +61,66 @@
 namespace FSRM {
 
 /// Configuration sub-block for the axis-1b 3D source ball.
-/// Pass-11 scaffold: the runtime currently throws when the host
-/// RadialLagrangianSolver receives cavity_geometry = THREE_DIMENSIONAL.
-/// Pass-12 will populate fields with concrete defaults for the
-/// 3D mesh strategy described in docs/AXIS_1B_DESIGN.md.
+/// Pass-11 scaffold: factory threw on construction.
+/// Pass-13a foundation: factory returns a real Source3DBallImpl whose
+/// initialize() loads a TetGen-generated mesh from disk via
+/// Source3DBallMesh and constructs a distributed DMPlex. step() and
+/// getMomentTensor() remain pass-13b/c work and throw with a clear
+/// message naming the follow-on pass.
 struct Source3DBallConfig
 {
     /// Outer radius of the 3D source-ball domain in metres. Defaults
     /// to a multiple of the elastic radius set by the host solver.
     double outer_radius_m = -1.0;
 
+    /// Cavity radius of the 3D source-ball domain in metres. Pass-13a
+    /// foundation uses this only as a sanity check against the loaded
+    /// mesh's minimum vertex radius. Pass-13b uses it to set the
+    /// inner free-stress boundary.
+    double cavity_radius_m = -1.0;
+
     /// Approximate cell size for the unstructured-tet mesh in metres.
-    /// Smaller -> more cells, finer resolution. The pass-12 baseline
-    /// will use ~0.5 * cavity-radius cell size near the cavity and
-    /// graded outward.
+    /// Smaller -> more cells, finer resolution. The pass-13 baseline
+    /// uses ~0.5 * cavity-radius cell size near the cavity and graded
+    /// outward.
     double mesh_cell_size_m = -1.0;
+
+    /// Path *without* extension to the TetGen-generated mesh files.
+    /// Source3DBallImpl::initialize() reads `mesh_path + ".node"` and
+    /// `mesh_path + ".ele"`. Empty disables mesh loading (foundation
+    /// no-op mode used by the factory-instantiation regression test).
+    std::string mesh_path;
 
     /// When true, the source ball is loaded with a depth-dependent
     /// initial stress matching the overburden profile of the host
-    /// rock column. Pass-12 default true; pass-11 scaffold ignores.
+    /// rock column. Pass-13a foundation honours the field but does
+    /// not yet apply the IC; pass-13b implements the asymmetric
+    /// overburden initial state.
     bool asymmetric_overburden = true;
 
-    /// 3D constitutive model selector. Pass-11 enumerates only the
-    /// names; pass-12 populates the actual implementations.
+    /// At-rest Earth coefficient for the asymmetric overburden initial
+    /// stress: sigma_xx = sigma_yy = K_0 * sigma_zz with sigma_zz the
+    /// lithostatic component. Default 0.5 matches typical crustal-rock
+    /// values (Hoek & Brown 1980); only consulted when
+    /// asymmetric_overburden is true. Pass-13a stores the value;
+    /// pass-13b applies it.
+    double overburden_K0 = 0.5;
+
+    /// 3D constitutive model selector. Pass-11 enumerated only the
+    /// names; pass-13b will populate the radial-return implementation.
     enum class Constitutive
     {
-        DRUCKER_PRAGER_3D,         ///< Pass-12 default
+        DRUCKER_PRAGER_3D,         ///< Pass-13b target
         VON_MISES_3D,              ///< Test only
         ELASTIC_LINEAR_3D          ///< For pure-elastic V&V
     };
     Constitutive constitutive = Constitutive::DRUCKER_PRAGER_3D;
 
-    /// Radiation block selector inside the 3D source ball. Pass-12
-    /// must decide between FEM (matches the rest of the host) and
-    /// cell-centred FV (matches the pass-10 multigroup solver).
+    /// Radiation block selector inside the 3D source ball. Pass-13a
+    /// foundation only stores the choice; pass-13b implements the
+    /// cell-centred FV grey-diffusion path. NODAL_FEM remains scaffold
+    /// and Source3DBallImpl::initialize() throws a clear pass-15+
+    /// message when it is selected.
     enum class RadiationDiscretization
     {
         FEM_NODAL,

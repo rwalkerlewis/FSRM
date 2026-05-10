@@ -1384,3 +1384,108 @@ pass-11 scaffold (see `docs/AXIS_1B_DESIGN.md`).
 **Verification.** All 27 pre-existing historic-nuclear integration
 tests pass under their pinned, relocated configs. Three new event
 smoke tests pass. Pass-11 byte-identical guards intact.
+
+## 4l. Closed in pass 13a (axis-1b foundation slice)
+
+**Scope.** Pass-13 was originally specified as a single "axis-1b 3D
+source ball" pass closing Salmon and Chagan cavity-radius gates from
+factor 3-5 to spec. The actual delivered scope (TetGen pre-process
+tool, 3D DMPlex mesh, 3D Drucker-Prager constitutive, asymmetric
+overburden initial state, 3D cell-centred FV grey radiation
+diffusion, surface-integral moment-tensor extraction, host-side
+delegation, MPI=4 Salmon end-to-end, ~16 new validation gates) is
+several months of senior-engineer work. Pass-13 is therefore split
+into three slices: 13a (foundation), 13b (physics), 13c
+(validation). This entry documents 13a only.
+
+**Threads landed in pass-13a:**
+
+1. **TetGen build-host pre-process tool.**
+   `tools/mesh_generation/build_source_ball_mesh.py` generates the 3D
+   source-ball `.node` / `.ele` mesh from a cavity radius, elastic
+   radius, and graded edge-length spec. TetGen runs as a build-host
+   CLI (BSD licensed); the C++ runtime never invokes it. Cache layout
+   under `cache/source_ball_meshes/` (gitignored). Documented in
+   `tools/mesh_generation/README.md`.
+
+2. **3D DMPlex mesh load and distribute.**
+   `Source3DBallMesh` (`include/domain/explosion/Source3DBallMesh.hpp`,
+   `src/domain/explosion/Source3DBallMesh.cpp`) parses TetGen `.node`
+   / `.ele` plain-text output on rank 0, builds an interpolated
+   `DMPlex` via `DMPlexCreateFromCellListPetsc`, distributes via
+   `DMPlexDistribute`, and preserves per-vertex marker labels
+   (cavity vs elastic surface) across distribution. Mesh class is
+   leaf-only: it does not touch the radial Lagrangian solver or the
+   host simulator.
+
+3. **Source3DBallImpl skeleton.** The pass-11 throw-on-construct
+   factory is replaced (`src/domain/explosion/Source3DBall.cpp`).
+   `Source3DBallImpl` (`include/domain/explosion/Source3DBallImpl.hpp`,
+   `src/domain/explosion/Source3DBallImpl.cpp`) holds a
+   `Source3DBallMesh`, validates loaded geometry against config
+   `cavity_radius_m` / `outer_radius_m` (20 percent envelope), and
+   reports the foundation-skeleton tag `"Source3DBallImpl_v1_pass13a_skeleton"`
+   from `name()`. `step()` throws with a clear pass-13b message;
+   `getMomentTensor` and `getMomentRateTensor` return zeros.
+
+4. **Source3DBallConfig extended.** New fields `cavity_radius_m`,
+   `mesh_path`, `overburden_K0` added to
+   `include/domain/explosion/Source3DBall.hpp`. Pass-13a uses
+   `mesh_path` (`Source3DBallImpl::initialize` consumes it);
+   `cavity_radius_m` and `overburden_K0` are stored for pass-13b /
+   pass-13c consumption.
+
+5. **Pass-11 scaffold throw at `RadialLagrangianSolver::setConfig`
+   updated.** The `cavity_geometry = THREE_DIMENSIONAL` branch still
+   throws because the host-side delegation from
+   `RadialLagrangianSolver` into `Source3DBallImpl` is pass-13b/c
+   work; the throw message now references pass-13b/c instead of
+   pass-12. Updated test (`tests/physics_validation/test_pass11_axis_1b_scaffold.cpp`)
+   asserts the new message.
+
+6. **Tests landed.** Six new unit-test gates plus two
+   regression-evolved physics-validation gates:
+
+   | Test | Verifies |
+   |------|----------|
+   | `Unit.SourceBall.Mesh.MeshLoadFromTetGen_SingleTet` | 1-tet TetGen fixture parses, DMPlex constructs, sum-of-local-cells == 1. |
+   | `Unit.SourceBall.Mesh.MeshLoadFromTetGen_Cube5Tet` | 5-tet cube fixture parses, DMPlex constructs, sum-of-local-cells == 5. |
+   | `Unit.SourceBall.Mesh.VertexMarkerLabelSurvivesDistribute` | Per-vertex marker DMLabel migrates correctly under DMPlexDistribute at MPI=1 and MPI>1. |
+   | `Unit.SourceBall.Mesh.GeometryRadiiSane` | Cube fixture min radius == 0, max radius == sqrt(3) within 1e-6. |
+   | `Unit.SourceBall.Mesh.MissingFileThrows` | clear error on absent fixture path. |
+   | `Unit.SourceBall.ImplFoundation.*` | Source3DBallImpl factory, empty-path no-op, fixture-mesh init, step throw, moment tensor zero, NODAL_FEM throws pass-15+. |
+   | `Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation` | Pass-11 scaffold's throw replaced. |
+   | `Physics.Pass11Axis1bScaffold.Source3DBallFactoryReturnsImpl` | Pass-11 `Source3DBallFactoryThrows` regressed to a positive instantiation gate. |
+
+**Out of scope (named for pass-13b / pass-13c):**
+
+- 3D Drucker-Prager radial return (pass-13b).
+- Asymmetric overburden initial state actually applied to cells
+  (pass-13b; pass-13a stores `K_0` only).
+- Cell-centred FV grey radiation diffusion in 3D (pass-13b).
+- Host-side `RadialLagrangianSolver -> Source3DBallImpl` delegation
+  (pass-13b).
+- ConfigReader plumbing for the new `[NEAR_FIELD_SOURCE]` 3D
+  sub-keys (pass-13b; foundation only added the C++ struct fields).
+- Surface-integral moment-tensor extraction (pass-13c).
+- HDF5 / XDMF spatial-profile output for the 3D mesh (pass-13c).
+- End-to-end MPI=4 Salmon-with-overburden integration test
+  (pass-13c).
+- Spherical-symmetry regression-equivalence headline gate vs
+  pass-10 1D Salmon (pass-13c).
+- CLVD-content-with-overburden gate (pass-13c).
+- Cavity aspect ratio gate (pass-13c).
+
+**Backward compatibility.** `cavity_geometry = SPHERICAL` remains the
+default and entirely bypasses pass-13a code. The 32 historic-event
+integration tests do not exercise `Source3DBallImpl` and pass
+byte-identically. The pass-11 scaffold's throw at
+`RadialLagrangianSolver::setConfig` for `THREE_DIMENSIONAL` is
+intact (message updated to pass-13b/c).
+
+**Verification.** All pre-existing historic-nuclear integration
+tests pass under their pinned configs. The pass-11 scaffold
+regression test now asserts the new factory behaviour
+(non-throwing). New unit tests pass at MPI=1 (Docker default) and
+the mesh-distribution gates carry MPI=2 and MPI=4 invariants where
+the build runner provides them.

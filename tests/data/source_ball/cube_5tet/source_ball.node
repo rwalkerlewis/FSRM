@@ -1,0 +1,15 @@
+# pass-13a foundation reference fixture: unit cube split into 5 tetrahedra
+# 8 nodes, dimension 3, no attributes, 1 boundary marker per node
+# Marker convention: 1=outer surface, 2=cavity surface, 0=interior
+# All 8 cube corners are on the surface; vertices 1 (origin) and 7
+# (far corner) carry distinct markers so mesh-load tests can verify
+# marker round-trip for both cavity and elastic surfaces.
+8  3  0  1
+1  0.0  0.0  0.0  2
+2  1.0  0.0  0.0  1
+3  1.0  1.0  0.0  1
+4  0.0  1.0  0.0  1
+5  0.0  0.0  1.0  1
+6  1.0  0.0  1.0  1
+7  1.0  1.0  1.0  1
+8  0.0  1.0  1.0  1

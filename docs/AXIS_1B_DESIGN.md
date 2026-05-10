@@ -1,9 +1,21 @@
-# Axis-1b Design Stub: 3D Source Ball
+# Axis-1b Design: 3D Source Ball
 
-This document is the design stub for the axis-1b 3D source-ball
-solver. Pass-11 ships only the scaffold (header, dispatch, factory
-that throws); pass-12 implements the concrete subclass into the
-frame defined here.
+This document is the canonical design for the axis-1b 3D source-ball
+solver. Pass-11 shipped the scaffold (header, dispatch, factory that
+threw on construction). Pass-13a (foundation slice) ships the leaf
+data structures: TetGen mesh generation tool, DMPlex mesh load and
+distribute, and a `Source3DBallImpl` class whose `step()` still throws
+but whose `initialize()` is real. Pass-13b implements the 3D
+constitutive update, asymmetric overburden initial state, and grey
+radiation diffusion. Pass-13c implements the surface-integral
+moment-tensor extraction, host-side delegation from
+`RadialLagrangianSolver`, end-to-end MPI=4 Salmon validation, and
+the spherical-symmetry regression-equivalence headline gate.
+
+The original pass-12 plan was to land the entire 3D solver in one
+pass. Pass-12 became housekeeping in practice (see
+`docs/HISTORIC_NUCLEAR_FIDELITY.md` 4k); pass-13 is therefore split
+into three foundation / physics / validation slices.
 
 ## Motivation
 
@@ -31,6 +43,18 @@ solver that resolves:
 4. Surface-integral moment-tensor extraction at the elastic radius
    for handoff to the far-field FEM (axis-1d).
 
+## Pass-13 slicing
+
+| Slice | Deliverable |
+|-------|-------------|
+| pass-13a foundation | TetGen pre-process tool, `Source3DBallMesh` (DMPlex create + distribute + per-vertex marker label), `Source3DBallImpl` skeleton (initialize loads mesh; step throws), unit tests, factory throw replaced. **This document's pass-13a section reflects what landed.** |
+| pass-13b physics | 3D Drucker-Prager radial-return constitutive (Simo & Hughes 1998), asymmetric overburden initial state, cell-centred FV grey radiation diffusion (matter Newton outer loop), host-side `RadialLagrangianSolver -> Source3DBallImpl` delegation, ConfigReader plumbing for `[NEAR_FIELD_SOURCE]` 3D sub-keys. |
+| pass-13c validation | Surface-integral moment-tensor extraction (Day & McLaughlin 1991), HDF5 + XDMF spatial-profile output, `examples/20_salmon_1964/paraview/3d.pvsm`, end-to-end MPI=4 Salmon-with-overburden integration test, spherical-symmetry regression-equivalence headline gate vs pass-10 1D, CLVD-content-with-overburden gate, cavity aspect ratio gate. |
+
+Pass-14+ continues with multigroup-3D radiation, tabulated EOS /
+opacity in 3D, RK3-SSP / BDF2 in 3D, and axis-1d 3D far-field FEM
+coupling.
+
 ## Interface
 
 `include/domain/explosion/Source3DBall.hpp` defines the contract:
@@ -48,65 +72,116 @@ public:
 };
 ```
 
-The host RadialLagrangianSolver (or a sibling Source3DBallSolver
-class) owns the Source3DBall instance under
-`cavity_geometry = THREE_DIMENSIONAL`.
+Pass-13a foundation adds:
+
+- `cavity_radius_m`, `mesh_path`, `overburden_K0` fields to
+  `Source3DBallConfig`.
+- `Source3DBallImpl` final class implementing the interface (mesh
+  load works; `step` and friends are pass-13b/c work and throw or
+  return zeros).
+
+Pass-13b will wire the host `RadialLagrangianSolver` to instantiate
+`Source3DBallImpl` when `cavity_geometry = THREE_DIMENSIONAL`.
+Pass-13a kept the existing `RadialLagrangianSolver::setConfig` throw
+because foundation is leaf-only; the throw message now references
+pass-13b/c instead of pass-12.
 
 ## Mesh strategy
 
-**Unstructured tetrahedra conforming to a spherical outer boundary
-at the elastic radius.** The pass-12 baseline mesh:
+Pass-13a foundation uses **TetGen as a build-host pre-process CLI**,
+not as a runtime library. The Python tool
+`tools/mesh_generation/build_source_ball_mesh.py` generates a `.poly`
+PSLG describing two concentric icospheres (cavity surface, elastic
+radius outer surface) with a hole marker at the origin, runs
+`tetgen -pq1.4Ya`, and emits the resulting `.node` / `.ele` pair.
+The C++ runtime parses the plain-text TetGen output via
+`Source3DBallMesh` (`include/domain/explosion/Source3DBallMesh.hpp`).
 
-- Cavity surface: sphere at the initial cavity radius R_c (from the
-  pass-7 PHYSICS_BASED Newton solve), refined with cell size
-  ~ 0.2 R_c.
-- Outer surface: sphere at the elastic radius r_elastic = factor *
-  R_c (factor in [3, 5] from existing pass-9/10 configuration).
+This decision keeps `fsrm-ci:local` free of TetGen, keeps the meshes
+deterministic across CI runs (cached under
+`cache/source_ball_meshes/`), and removes a build-time dependency.
+Pass-13b will wire the runtime to consume the cached meshes.
+
+Pass-13 baseline:
+
+- Cavity surface: sphere at the initial cavity radius `R_c`
+  (from the pass-7 PHYSICS_BASED Newton solve), refined with cell
+  size `~ 0.2 R_c`.
+- Outer surface: sphere at the elastic radius
+  `r_elastic = factor * R_c` (factor in [3, 5] from existing pass-9
+  / pass-10 configuration).
 - Bulk: graded-size unstructured tetrahedra, cell size growing
-  smoothly from ~ 0.2 R_c near the cavity to ~ R_c at the elastic
-  radius.
-- Mesh generator: TetGen (BSD-licensed). The pass-12 build does not
-  depend on a new external runtime library; TetGen's mesh-emitting
-  CLI runs as a one-shot pre-process step and the C++ runtime
-  consumes the resulting `.node` / `.ele` files.
+  smoothly from `~ 0.2 R_c` near the cavity to `~ R_c` at the
+  elastic radius.
 
-**Resolution argument.** Pass-12 baseline ~ 50000 tetrahedra (an
-elastic-radius sphere of ~ 100 R_c^3 volume divided by ~ 0.2 R_c
-graded cells). For Salmon at R_c ~ 17 m and r_elastic ~ 70 m, this
-is ~ 50000 cells with ~ 5 m average edge length. Computational cost
-scales linearly with cell count; explicit time-stepping at CFL ~
-0.4 with vp ~ 5500 m/s gives dt ~ 9e-4 s, comparable to the pass-10
-1D radial CFL. Production runs in CI budget.
+Resolution argument: pass-13 baseline `~ 50000 tetrahedra` (an
+elastic-radius sphere of `~ 100 R_c^3` volume divided by `~ 0.2 R_c`
+graded cells). For Salmon at `R_c ~ 17 m` and `r_elastic ~ 70 m`,
+this is `~ 50000 cells` with `~ 5 m` average edge length.
+Computational cost scales linearly with cell count; explicit time-
+stepping at CFL `~ 0.4` with `vp ~ 5500 m/s` gives `dt ~ 9e-4 s`,
+comparable to the pass-10 1D radial CFL. Production runs in CI
+budget.
 
-## 3D Drucker-Prager constitutive
+## DMPlex pattern (pass-13a foundation)
 
-**Replace the 1D radial-return formula with a 3D tensor solve.**
-Pass-7 / pass-10 uses a closed-form radial-return on the deviatoric
-stress with the spherical-symmetry assumption s_tt = -s_rr/2. Pass-12
+`Source3DBallMesh::loadFromTetGen` follows the existing
+`src/io/GmshIO.cpp` pattern in this repository:
+
+1. Rank 0 parses the `.node` and `.ele` files.
+2. Rank 0 calls `DMPlexCreateFromCellListPetsc` with the cell list
+   and vertex coordinates, `interpolate=PETSC_TRUE` to build the
+   full Hasse diagram. Other ranks call the same with empty arrays.
+3. Per-vertex markers from the `.node` file (1 = outer-elastic,
+   2 = inner-cavity, 0 = interior) are written into a DMLabel named
+   `SourceBallVertexMarker` on the rank-0 DM and an empty label on
+   other ranks. `DMPlexDistribute` migrates the label.
+4. `DMPlexDistribute(*dm, 0, NULL, &dm_dist)` partitions across
+   ranks with overlap=0.
+5. The mesh exposes `numLocalCells()`, `numGlobalCells()`,
+   `getDM()`, the marker label, and a few sanity-check accessors
+   (`localMinVertexRadius`, `localMaxVertexRadius`,
+   `numCavityMarkedVertices`, `numElasticMarkedVertices`).
+
+The pass-12 parallel KSP fix (`bjacobi+sub_lu` for MPI > 1) does not
+yet engage in pass-13a because nothing solves a system on the 3D
+mesh; pass-13b's radiation diffusion will hook into the same
+parallel KSP convention as the rest of the project.
+
+## 3D Drucker-Prager constitutive (pass-13b)
+
+Replace the 1D radial-return formula with a 3D tensor solve. Pass-7
+/ pass-10 uses a closed-form radial-return on the deviatoric stress
+with the spherical-symmetry assumption `s_tt = -s_rr / 2`. Pass-13b
 generalises to:
 
-- Per-cell stress tensor sigma_ij (6-component Voigt vector).
+- Per-cell stress tensor `sigma_ij` (6-component Voigt vector).
 - Per-cell elastic strain tensor.
-- Drucker-Prager yield surface: sqrt(J_2) - alpha * I_1 / 3 - k = 0
-  with the existing pass-7 (alpha, k) parameters.
+- Drucker-Prager yield surface:
+  `sqrt(J_2(s)) - alpha * I_1(sigma) / 3 - k = 0` with the existing
+  pass-7 `(alpha, k)` parameters.
+- Trial elastic predictor: `sigma_trial = sigma + C : delta_eps`.
 - Radial-return projection: explicit per-step plastic increment
-  proportional to the deviatoric stress excess above yield.
+  `delta_lambda` chosen such that `f(sigma_new) ~ 0` to first order
+  in the deviatoric direction.
 - Plastic strain accumulation in the standard 6-component form.
 
 The 3D radial return is well-known (Simo & Hughes 1998 sec 3.6,
-"Computational Inelasticity"). Pass-12 uses an explicit form (no
+"Computational Inelasticity"). Pass-13b uses an explicit form (no
 inner Newton on the plastic multiplier) to maintain CI tractability.
+Pass-15+ may switch to an implicit return if accuracy demands.
 
-## Asymmetric overburden initial state
+## Asymmetric overburden initial state (pass-13b)
 
-**Depth-dependent gravity-loaded initial stress.** Pass-12:
+Depth-dependent gravity-loaded initial stress:
 
-- At t = 0, set sigma_zz(z) = -rho * g * z (negative = compressive)
-  with z measured downward from the host rock free surface (or a
-  configured datum).
-- Set sigma_xx(z) = sigma_yy(z) = K_0 * sigma_zz with K_0 the
-  configured at-rest Earth coefficient (existing pass-9 K_0 = 0.5
-  default; user-configurable).
+- At `t = 0`, set `sigma_zz(z) = -rho * g * z` (negative =
+  compressive) with `z` measured downward from the host rock free
+  surface or a configured datum.
+- Set `sigma_xx(z) = sigma_yy(z) = K_0 * sigma_zz` with `K_0` the
+  configured at-rest Earth coefficient (existing pass-9 default
+  `K_0 = 0.5`; user-configurable via the new
+  `Source3DBallConfig::overburden_K0` field, present in pass-13a).
 - Apply the same depth-dependent stress to every cell of the source
   ball, keyed to its centroid depth.
 
@@ -114,79 +189,78 @@ The asymmetric overburden creates a non-spherical free-stress
 condition at the cavity wall, which seeds the asymmetric cavity
 growth.
 
-## 3D radiation block
+## 3D radiation block (pass-13b)
 
-**Design choice deferred between FEM (nodal) and cell-centred FV.**
-Pass-12 must pick:
+Pass-13b ships **cell-centred FV grey-diffusion** as the only
+working radiation discretization. Reasons (unchanged from pass-12
+plan):
 
-- **FEM (nodal)**: matches the rest of the host's PetscDS pointwise
-  callback infrastructure (`include/numerics/PetscFEElasticity.hpp`
-  pattern). Nodal radiation field couples to the nodal displacement
-  via Petsc's auxiliary field mechanism. Implementation cost: high
-  (build new PetscFE callbacks); long-term maintenance: low (uniform
-  pattern).
-- **Cell-centred FV**: matches the pass-10
-  MultigroupRadiationDiffusion (cell-centred state, harmonic-mean
-  face diffusion). Implementation cost: medium (port pass-10
-  multigroup to a 3D unstructured cell layout); long-term maintenance:
-  medium (new infrastructure).
-
-**Recommendation**: cell-centred FV for pass-12. Reasons:
 1. The pass-10 multigroup solver is the calibrated source of truth;
    reusing its kernel maintains byte-identicalness for the radiation
-   physics.
+   physics on the spherical-symmetric reference path.
 2. The 3D mesh is unstructured tetrahedral; cell-centred FV needs
-   only the tet adjacency and the per-face area/normal, which TetGen
-   emits directly.
+   only the tet adjacency and the per-face area / normal, both of
+   which DMPlex provides directly.
 3. FEM-nodal radiation requires a Petsc DM with a new auxiliary
    field; the build-out has more moving parts.
 
-Pass-12 implementation should preserve the option to switch (the
-`Source3DBallConfig::radiation_discretization` enum exists for this).
+`Source3DBallConfig::RadiationDiscretization::FEM_NODAL` remains a
+named scaffold. Pass-13a's `Source3DBallImpl::initialize` throws a
+clear "pass-15+" message when this option is selected.
 
-## Handoff to far-field FEM (axis-1d)
+Pass-14 extends to multigroup 3D (G coupled diffusion solves per
+Newton iteration) and the tabulated EOS / opacity patches.
 
-**Surface-integral moment-tensor extraction at the elastic radius.**
-The pass-7 / pass-10 1D solver computes M_ij = -A * sigma_rr * n_i n_j
-integrated over a fixed Eulerian sphere at the elastic radius
-(Day & McLaughlin 1991). The 3D solver:
+## Handoff to far-field FEM (axis-1d, pass-13c)
 
-- Identifies the set of surface-integral facets: the tet faces whose
-  centroids fall on the spherical surface at the elastic radius.
-- Sums M_ij = sum_face (n_i * sigma_jk * n_k * A_face) over those
-  facets. Asymmetric content of M survives the integration when the
-  cavity is asymmetric, which is the whole point of axis-1b.
+Pass-13c implements the surface-integral moment-tensor extraction at
+the elastic radius. Following Day & McLaughlin 1991:
+
+- Identify the set of surface-integral facets via DMLabel: the tet
+  faces whose centroids lie on the elastic-radius surface.
+- Sum
+  `M_ij = sum_face (n_i * sigma_jk * n_k * A_face)` over those
+  facets.
+- Asymmetric content of `M` survives the integration when the cavity
+  is asymmetric, which is the whole point of axis-1b.
 
 The far-field FEM coupling itself is axis-1d and is independent of
-axis-1b: pass-12 produces a non-isotropic moment-rate tensor; pass-X
-(axis-1d) consumes that tensor in a 3D coupled-far-field-FEM solve.
+axis-1b: pass-13c produces a non-isotropic moment-rate tensor;
+axis-1d (a future pass) consumes that tensor in a 3D coupled-far-
+field-FEM solve.
 
-## Validation strategy
+## Validation strategy (pass-13c)
 
-Pass-12 ships with the following gates (analogous to the pass-10
-multigroup gates):
+Pass-13c gates (analogous to the pass-10 multigroup gates):
 
-- **Source3DBall.SymmetricEqualsRadial**: when the source ball is
-  driven with no asymmetric overburden, the moment tensor is
-  isotropic and matches the 1D radial solver result within 5%.
-  This is the byte-identical regression for the new path.
+- **Source3DBall.SymmetricEqualsRadial** (headline): with isotropic
+  IC, no overburden, and spherical mesh refinement, the 3D `M(t)`
+  for Salmon matches pass-10 1D `M(t)` within factor 1.1 at all
+  time samples. This is the "the 3D mesh and 3D constitutive don't
+  break the physics" gate.
+- **Source3DBall.AsymmetricOverburdenProducesCLVD**: with
+  `K_0 = 0.5` overburden, `M(t)` has nonzero CLVD content. The
+  CLVD axis aligns with vertical (within 5 degrees) and the sign is
+  compressive-vertical-dominant.
 - **Source3DBall.SalmonCavityRadius_3D**: Salmon 1964 cavity radius
   closes from the pass-10 factor-3 envelope to factor 1.5 (or
-  better) under the 3D solver. This is the headline validation.
-- **Source3DBall.ChaganCavityRadius_3D**: Chagan 1965 cavity radius
-  closes from factor 5 to factor 2.
+  better) under the 3D solver.
 - **Source3DBall.MomentTensorCLVDContent**: under asymmetric
   overburden, the CLVD content of the moment tensor is non-zero and
   consistent with Day & McLaughlin 1991 sec 4.
 
-## What pass-12 does NOT do
+## What pass-13 does NOT do
 
-- 3D far-field FEM coupling (axis-1d).
-- Topography (axis-2).
-- Layered-medium fidelity (axis-3).
-- ANEOS Tillotson refit (axis-4).
+Pass-13 (in any of its slices):
 
-These are tracked separately in `docs/AXIS_1A_FIDELITY_REPORT.md`.
+- 3D far-field FEM coupling (axis-1d, future pass).
+- Topography (axis-2, future pass).
+- Layered-medium fidelity (axis-3, future pass).
+- ANEOS Tillotson refit (axis-4, future pass).
+- 3D multigroup radiation (pass-14).
+- Tabulated EOS / opacity patches in 3D (pass-14).
+- Higher-order time integration in 3D (pass-14).
+- Anchors beyond Salmon (Chagan, DPRK 2017, etc.; pass-15+).
 
 ## References
 
@@ -204,3 +278,7 @@ These are tracked separately in `docs/AXIS_1A_FIDELITY_REPORT.md`.
   ed, ch 4 (surface-integral moment-tensor extraction).
 - Si, H. (2015), "TetGen, a Delaunay-based quality tetrahedral mesh
   generator", ACM Trans. Math. Software 41(2), Article 11.
+- Liu, A. and Joe, B. (1995), "Quality local refinement of
+  tetrahedral meshes based on bisection", J. Sci. Comput. 16(6).
+- Hoek, E. and Brown, E. T. (1980), "Underground excavations in
+  rock", Institution of Mining and Metallurgy (K_0 default).

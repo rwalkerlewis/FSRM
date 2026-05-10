@@ -1,0 +1,4 @@
+# pass-13a foundation reference fixture: single tetrahedron
+# 1 cell, 4 nodes per tet, 0 attributes per cell
+1  4  0
+1  1  2  3  4
