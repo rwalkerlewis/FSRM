@@ -1,16 +1,24 @@
 /**
  * @file test_pass11_axis_1b_scaffold.cpp
- * @brief Pass-11 (axis 1b) scaffold regression gates. Verifies:
+ * @brief Pass-11 / pass-13a regression gates for the axis-1b scaffold
+ *        and foundation slice. Verifies:
+ *
  *  1. cavity_geometry = THREE_DIMENSIONAL throws on
- *     RadialLagrangianSolver::setConfig with a clear "pass-12 work"
- *     diagnostic message.
+ *     RadialLagrangianSolver::setConfig. Pass-13a foundation kept
+ *     this throw because the host-side delegation from
+ *     RadialLagrangianSolver into Source3DBallImpl is pass-13b/c work;
+ *     the throw message now references pass-13 explicitly.
  *  2. cavity_geometry = SPHERICAL is the byte-identical default that
  *     does not exercise the scaffold code.
- *  3. The Source3DBall factory throws on construction.
+ *  3. Pass-13a foundation: makeSource3DBall() no longer throws and
+ *     returns a Source3DBallImpl instance whose name() reports the
+ *     foundation-skeleton tag. Replaces the pass-11
+ *     Source3DBallFactoryThrows assertion.
  */
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -75,9 +83,11 @@ TEST_F(Pass11Axis1bScaffoldTest, ThreeDimensionalCavityGeometryThrows)
     }
     EXPECT_TRUE(caught)
         << "RadialLagrangianSolver must throw when cavity_geometry = "
-           "THREE_DIMENSIONAL is selected (pass-11 scaffold).";
-    EXPECT_NE(what.find("pass-12"), std::string::npos)
-        << "Throw message should reference pass-12: " << what;
+           "THREE_DIMENSIONAL is selected (pass-13b/c host delegation "
+           "still pending; foundation slice ships only the leaf "
+           "Source3DBallImpl).";
+    EXPECT_NE(what.find("pass-13"), std::string::npos)
+        << "Throw message should reference pass-13: " << what;
     EXPECT_NE(what.find("axis-1b"), std::string::npos)
         << "Throw message should reference axis-1b: " << what;
 }
@@ -118,9 +128,10 @@ TEST_F(Pass11Axis1bScaffoldTest, SphericalCavityGeometryDoesNotThrow)
 }
 
 // =========================================================================
-// 3. Source3DBall factory throws.
+// 3. Pass-13a foundation: makeSource3DBall() returns a Source3DBallImpl.
+//    Replaces the pass-11 Source3DBallFactoryThrows assertion.
 // =========================================================================
-TEST_F(Pass11Axis1bScaffoldTest, Source3DBallFactoryThrows)
+TEST_F(Pass11Axis1bScaffoldTest, Source3DBallFactoryReturnsImpl)
 {
     Source3DBallConfig cfg;
     cfg.outer_radius_m = 500.0;
@@ -128,16 +139,14 @@ TEST_F(Pass11Axis1bScaffoldTest, Source3DBallFactoryThrows)
     cfg.asymmetric_overburden = true;
     cfg.constitutive = Source3DBallConfig::Constitutive::DRUCKER_PRAGER_3D;
 
-    bool caught = false;
-    std::string what;
-    try {
-        auto ball = makeSource3DBall(cfg);
-        (void)ball;
-    } catch (const std::runtime_error& e) {
-        caught = true;
-        what = e.what();
-    }
-    EXPECT_TRUE(caught) << "makeSource3DBall must throw in pass-11.";
-    EXPECT_NE(what.find("pass-12"), std::string::npos)
-        << "Throw message should reference pass-12: " << what;
+    std::unique_ptr<Source3DBall> ball;
+    EXPECT_NO_THROW({ ball = makeSource3DBall(cfg); })
+        << "Pass-13a foundation: makeSource3DBall must construct without "
+           "throwing. The pass-11 throw has been replaced with a "
+           "Source3DBallImpl instance.";
+    ASSERT_NE(ball, nullptr);
+    const std::string nm = ball->name();
+    EXPECT_NE(nm.find("pass-13a"), std::string::npos)
+        << "Source3DBallImpl::name() should tag the pass-13a foundation "
+           "skeleton: " << nm;
 }

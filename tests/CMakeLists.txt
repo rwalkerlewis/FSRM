@@ -31,6 +31,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_material_model.cpp
     unit/domain/test_seismic_source.cpp
     unit/domain/test_explosion_source.cpp
+    unit/domain/test_source3d_ball_mesh.cpp
     unit/domain/test_mueller_murphy_moment_consistency.cpp
     unit/domain/test_co2_properties.cpp
     unit/domain/test_flash_calculation.cpp
@@ -342,7 +343,10 @@ if(GTest_FOUND)
     add_test(NAME Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage COMMAND run_physics_tests --gtest_filter=Pass11ANEOSHugoniotTest.SaltHugoniotMatchesShockData_FullCoverage)
     add_test(NAME Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.ThreeDimensionalCavityGeometryThrows)
     add_test(NAME Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.SphericalCavityGeometryDoesNotThrow)
-    add_test(NAME Physics.Pass11Axis1bScaffold.Source3DBallFactoryThrows COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.Source3DBallFactoryThrows)
+    add_test(NAME Physics.Pass11Axis1bScaffold.Source3DBallFactoryReturnsImpl COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.Source3DBallFactoryReturnsImpl)
+    add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
+    add_test(NAME Unit.SourceBall.ImplFoundation COMMAND run_unit_tests --gtest_filter=SourceBallImplFoundationTest.*)
+    add_test(NAME Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation COMMAND run_unit_tests --gtest_filter=BackwardCompatTest.Source3DBallScaffoldThrowGoneOnInstantiation)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -550,6 +554,9 @@ if(GTest_FOUND)
         Unit.FracturePropagation
         Unit.CavityScaling
         Unit.MPI.AllreduceCorrectnessSmoke
+        Unit.SourceBall.Mesh
+        Unit.SourceBall.ImplFoundation
+        Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
@@ -641,7 +648,7 @@ if(GTest_FOUND)
         Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage
         Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows
         Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow
-        Physics.Pass11Axis1bScaffold.Source3DBallFactoryThrows
+        Physics.Pass11Axis1bScaffold.Source3DBallFactoryReturnsImpl
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 
