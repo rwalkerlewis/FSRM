@@ -53,6 +53,8 @@ set(UNIT_TEST_SOURCES
     unit/io/test_eclipse_io.cpp
     unit/io/test_sac_reader.cpp
     unit/io/test_tabulated_data_reader.cpp
+    # Pass-12 followup 2 V&V hardening: strict config validator
+    unit/io/test_config_strict_validation.cpp
     # Diagnostics
     unit/diagnostics/test_waveform_comparison.cpp
     # ML
@@ -198,6 +200,11 @@ if(GTest_FOUND)
             ${CMAKE_SOURCE_DIR}/tests
         )
         target_compile_definitions(${TARGET_NAME} PRIVATE FSRM_TEST_NO_MAIN)
+        # Pass-12 followup 2: tests that walk the example tree need
+        # to know where the source root lives independently of the
+        # ctest working directory.
+        target_compile_definitions(${TARGET_NAME} PRIVATE
+            FSRM_REPO_ROOT_DIR="${CMAKE_SOURCE_DIR}")
     endmacro()
 
     # ---------- Per-category executables ----------
@@ -241,6 +248,8 @@ if(GTest_FOUND)
     add_test(NAME Unit.MuellerMurphyMomentConsistency COMMAND run_unit_tests --gtest_filter=MuellerMurphyMomentConsistencyTest.*)
     add_test(NAME Unit.EclipseIO              COMMAND run_unit_tests --gtest_filter=EclipseIOTest.*)
     add_test(NAME Unit.SACReader              COMMAND run_unit_tests --gtest_filter=SACReaderTest.*)
+    # Pass-12 followup 2 V&V hardening: strict config validator gates.
+    add_test(NAME Unit.ConfigStrictValidation COMMAND run_unit_tests --gtest_filter=ConfigStrictValidationTest.*)
     add_test(NAME Unit.TabulatedDataReader    COMMAND run_unit_tests --gtest_filter=TabulatedDataReaderTest.*)
     add_test(NAME Unit.WaveformComparison     COMMAND run_unit_tests --gtest_filter=WaveformComparisonTest.*)
     add_test(NAME Unit.MLRegistry             COMMAND run_unit_tests --gtest_filter=MLModelRegistryTest.*)
@@ -557,6 +566,7 @@ if(GTest_FOUND)
         Unit.FaultMeshManager Unit.CohesiveFaultKernel
         Unit.ElasticityAux
         Unit.MuellerMurphyMomentConsistency
+        Unit.ConfigStrictValidation
         Unit.DruckerPragerStandalone
         Unit.Elastoplasticity
         Unit.PressurizedFractureCallbacks
@@ -802,6 +812,7 @@ if(GTest_FOUND)
         PROPERTIES TIMEOUT 120 LABELS "experimental"
     )
 
+
 else()
     message(WARNING "GTest not found. Skipping test suite.")
 endif()
@@ -840,7 +851,7 @@ if(GTest_FOUND)
         COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
         DEPENDS run_all_tests
         COMMENT "Running all tests")
-endif()
+
 
 # =========================================================================
 # Copy Test Data

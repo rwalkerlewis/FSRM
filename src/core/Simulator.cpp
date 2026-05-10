@@ -10,6 +10,7 @@
 #include "numerics/PetscFEThermal.hpp"
 #include "numerics/AbsorbingBC.hpp"
 #include "io/Visualization.hpp"
+#include "io/ConfigValidator.hpp"
 #include "core/ConfigReader.hpp"
 #include "numerics/ImplicitExplicitTransition.hpp"
 #include "domain/explosion/ExplosionImpactPhysics.hpp"
@@ -742,7 +743,22 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
     if (!reader.loadFile(config_file)) {
         SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Failed to load configuration file");
     }
-    
+
+    // Strict configuration validation. Catches typos, deprecated
+    // forms, and missing required sections (such as the
+    // [BOUNDARY_CONDITIONS] block on explosion-source configs that
+    // PR #128 found silently suppressing the explosion coupling).
+    // Opt out per file via [META] strict_validation = false, or
+    // globally via the FSRM_DISABLE_STRICT_VALIDATION env var. See
+    // docs/CONFIGURATION_VALIDATION.md.
+    if (!ConfigValidator::validateAndReport(reader, config_file)) {
+        SETERRQ(comm, PETSC_ERR_ARG_WRONG,
+                "Strict configuration validation failed. See "
+                "[ConfigValidator][error] messages above and "
+                "docs/CONFIGURATION_VALIDATION.md for the schema and "
+                "opt-out instructions.");
+    }
+
     // Parse simulation configuration
     reader.parseSimulationConfig(config);
 
