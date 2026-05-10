@@ -32,6 +32,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_seismic_source.cpp
     unit/domain/test_explosion_source.cpp
     unit/domain/test_source3d_ball_mesh.cpp
+    unit/domain/test_source3d_ball_moment_tensor.cpp
     unit/domain/test_drucker_prager_3d.cpp
     unit/domain/test_source_ball_overburden.cpp
     unit/domain/test_source_ball_radiation_3d.cpp
@@ -354,6 +355,8 @@ if(GTest_FOUND)
     add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
     add_test(NAME Unit.SourceBall.ImplFoundation COMMAND run_unit_tests --gtest_filter=SourceBallImplFoundationTest.*)
     add_test(NAME Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation COMMAND run_unit_tests --gtest_filter=BackwardCompatTest.Source3DBallScaffoldThrowGoneOnInstantiation)
+    # Pass-13c surface-integral moment-tensor extraction (Day & McLaughlin 1991).
+    add_test(NAME Unit.SourceBall.SurfaceIntegralMomentTensor COMMAND run_unit_tests --gtest_filter=Source3DBallSurfaceIntegralTest.*)
     # Pass-13b axis-1b physics: Drucker-Prager 3D, overburden, radiation 3D unit gates.
     add_test(NAME Unit.DruckerPrager3D COMMAND run_unit_tests --gtest_filter=DruckerPrager3D.*)
     add_test(NAME Unit.Overburden COMMAND run_unit_tests --gtest_filter=Overburden.*)
@@ -568,6 +571,7 @@ if(GTest_FOUND)
         Unit.SourceBall.Mesh
         Unit.SourceBall.ImplFoundation
         Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation
+        Unit.SourceBall.SurfaceIntegralMomentTensor
         Unit.DruckerPrager3D
         Unit.Overburden
         Unit.SourceBallRadiation3D
