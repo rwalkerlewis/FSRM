@@ -81,6 +81,21 @@ amplitude relative difference under 1 %, cross-correlation above
 numbers between rank counts, the FEM partitioning has lost
 correctness; check rank-aware logic added since.
 
+### Parallel KSP / PC
+
+The PETSc 3.25 build that ships in the FSRM Docker image does not
+include MUMPS or SuperLU_DIST, so PETSc's default `-pc_type lu` (KLU)
+fails on `MPIAIJ` matrices when running with more than one rank.
+`scripts/run_with_mpi.sh` automatically appends
+`-pc_type bjacobi -sub_pc_type lu` when `MPI_RANKS > 1` so each rank
+does its own block LU. Override or extend by setting
+`FSRM_MPI_PETSC_OPTS` in the environment (set to empty string to
+disable injection):
+
+```bash
+FSRM_MPI_PETSC_OPTS="-pc_type gamg -ksp_type cg" MPI_RANKS=8 ./run.sh
+```
+
 ## Config-file structure
 
 Configs use INI format. Each section name is uppercase; keys are
