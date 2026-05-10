@@ -17,22 +17,34 @@
  *    delegation in pass-13b; pass-13c will couple the rate through the
  *    surface-integral moment-tensor extraction). Defaults to zero per
  *    cell when not explicitly set.
- *  - getMomentTensor / getMomentRateTensor: still return the zero
- *    tensor. Pass-13c surface-integral extraction populates these.
+ *  - getMomentTensor / getMomentRateTensor: pass-13b returned the zero
+ *    tensor; pass-13c integrates the cell-centred stress drop over the
+ *    elastic-radius surface (Day & McLaughlin 1991; Aki & Richards
+ *    2002 ch 4), producing real M(t) and Mdot(t) signals.
  *  - getState: returns a snapshot with mesh stats and energy diagnostics
  *    but the 6-component moment tensor remains zero.
  *  - getCellState (new in pass-13b): per-cell snapshot used by the
  *    physics-validation gates.
  *  - name(): "Source3DBallImpl_v1_pass13b_physics".
  *
- * What pass-13b explicitly does not implement (named for follow-on
+ * What pass-13c adds on top of pass-13b:
+ *  - Surface-integral moment-tensor extraction. Each rank sums
+ *    M_ij = integral_S (sigma_jk(t) - sigma_jk(0)) * n_k * x_i dA over
+ *    its owned elastic-radius boundary faces; MPI_Allreduce produces
+ *    the global tensor. Citation: Day & McLaughlin 1991 sec 4 and
+ *    Aki & Richards 2002 ch 4.
+ *  - getMomentTensor / getMomentRateTensor return real signals.
+ *  - HDF5 / XDMF spatial-profile output (writeSpatialSnapshot).
+ *  - Cavity vertical / horizontal radius measurement (no gate; reported
+ *    in PR body and HDF5 metadata).
+ *  - name() bumps to "Source3DBallImpl_v1_pass13c_validation".
+ *
+ * What pass-13c explicitly does not implement (named for follow-on
  * passes; throws or no-ops with clear messages):
- *  - Surface-integral moment-tensor extraction (pass-13c)
- *  - End-to-end Salmon at MPI=4 with overburden + seismograms (pass-13c)
- *  - HDF5 / XDMF spatial-profile output (pass-13c)
  *  - 3D Lagrangian face advection / mass-conservation hydro (pass-14+;
- *    the pass-13b driver expects strain rates from the host, the same
- *    pattern the pass-10 1D radial solver uses internally).
+ *    the pass-13c driver still expects strain rates from the host, the
+ *    same pattern the pass-10 1D radial solver uses internally).
+ *  - 3D far-field FEM coupling (axis-1d, future pass).
  *
  * Backward compatibility: cavity_geometry = SPHERICAL remains the
  * default and entirely bypasses this code path. The 32 historic-event
@@ -119,6 +131,19 @@ public:
     /// initialize().
     void setCellDensity(const std::vector<double>& rho);
 
+    /// Test-only: directly write the per-cell Voigt stress field. Used
+    /// by the pass-13c surface-integral unit gates to drive the
+    /// moment-tensor computation from a synthetic (analytically
+    /// tractable) stress state. Length must equal numLocalCells().
+    void setCellStressForTest(const std::vector<std::array<double, 6>>& sig);
+
+    /// Test-only: reset the cached sigma_initial_ snapshot to the
+    /// supplied per-cell stress field (or zero by default). Used so the
+    /// surface-integral gates can dial the reference state independent
+    /// of the overburden IC.
+    void setCellStressInitialForTest(
+        const std::vector<std::array<double, 6>>& sig0);
+
     /// Number of locally owned cells (after initialize). 0 in foundation
     /// no-op mode.
     int numLocalCells() const { return n_local_cells_; }
@@ -144,9 +169,29 @@ public:
     /// Diagnostic: number of cells that yielded in the most recent step.
     int lastYieldedCellCount() const { return last_yielded_count_; }
 
+    /// Number of locally owned elastic-radius surface faces (pass-13c).
+    int numLocalElasticSurfaceFaces() const
+    { return static_cast<int>(elastic_surface_faces_.size()); }
+
+    /// Pass-13c cavity radius diagnostic. Returns the maximum and
+    /// minimum vertex distance from origin among vertices marked as
+    /// cavity surface, MPI-reduced over the communicator. Both equal
+    /// the initial cavity radius before any displacement is added; in
+    /// pass-13c the cavity is rigid in the no-advection architecture
+    /// (cavity_max == cavity_min). Pass-14 will populate the asymmetry
+    /// once 3D Lagrangian advection lands.
+    void cavityRadiusExtremes(double& r_min_out, double& r_max_out) const;
+
+    /// Force a recomputation of the surface-integral moment tensor from
+    /// the current per-cell sigma_ state. Called by step() after the
+    /// constitutive + radiation update. Exposed so tests can drive the
+    /// integral from a synthetic stress field.
+    void recomputeMomentTensorFromSurface(double dt);
+
 private:
     void buildCellAndFaceLists();
     void applyOverburdenIC();
+    void cacheElasticSurfaceGeometry();
 
     MPI_Comm comm_ = MPI_COMM_NULL;
     bool comm_set_ = false;
@@ -179,6 +224,34 @@ private:
     int last_rad_newton_iters_ = 0;
     int last_yielded_count_ = 0;
     double current_time_ = 0.0;
+
+    // Pass-13c surface-integral moment-tensor extraction.
+    /// Per-cell stress at the start of the run (before any step() call).
+    /// Used as the reference state for the stress-drop integral
+    /// M_ij = integral_S [sigma_jk(t) - sigma_jk(0)] * n_k * x_i dA
+    /// (Day & McLaughlin 1991; Aki & Richards 2002 ch 4).
+    std::vector<std::array<double, 6>> sigma_initial_;
+
+    /// Per-elastic-surface-face geometry cache. cell_local indexes into
+    /// sigma_ / sigma_initial_; outward_normal points away from the
+    /// owning cell's centroid; centroid is the face centroid in the
+    /// local mesh frame (origin = source center).
+    struct ElasticSurfaceFace
+    {
+        int cell_local = -1;
+        double area = 0.0;
+        std::array<double, 3> centroid = {0.0, 0.0, 0.0};
+        std::array<double, 3> outward_normal = {0.0, 0.0, 0.0};
+    };
+    std::vector<ElasticSurfaceFace> elastic_surface_faces_;
+
+    /// Global cumulative moment tensor [Mxx, Myy, Mzz, Mxy, Mxz, Myz]
+    /// in N*m. Updated by recomputeMomentTensorFromSurface() each step.
+    std::array<double, 6> M_global_ = {0, 0, 0, 0, 0, 0};
+    /// Global instantaneous moment-rate tensor in N*m/s. Computed by
+    /// finite difference of M_global_ at successive step() calls.
+    std::array<double, 6> Mdot_global_ = {0, 0, 0, 0, 0, 0};
+    std::array<double, 6> M_global_prev_ = {0, 0, 0, 0, 0, 0};
 
     // Material parameters used by the constitutive update. Supplied
     // through Source3DBallConfig in pass-13b (defaults match a granite-

@@ -1518,7 +1518,7 @@ void RadialLagrangianSolver::getMomentTensor(std::array<double, 6>& M) const
 const char* RadialLagrangianSolver::name() const
 {
     if (ball_3d_active_) {
-        return "RadialLagrangianSolver+Source3DBallImpl_v1_pass13b_physics";
+        return "RadialLagrangianSolver+Source3DBallImpl_v1_pass13c_validation";
     }
     return "RadialLagrangianSolver";
 }

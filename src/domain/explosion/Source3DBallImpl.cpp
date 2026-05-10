@@ -24,7 +24,7 @@ namespace FSRM {
 namespace
 {
 
-constexpr const char* kPhysicsName = "Source3DBallImpl_v1_pass13b_physics";
+constexpr const char* kPhysicsName = "Source3DBallImpl_v1_pass13c_validation";
 
 /// True if all vertices in a face's transitive closure carry the
 /// requested marker value. Used to classify boundary faces as
@@ -167,6 +167,17 @@ void Source3DBallImpl::initialize(const Source3DBallConfig& cfg)
         applyOverburdenIC();
     }
 
+    // Pass-13c: snapshot the IC stress as the reference state for the
+    // surface-integral stress-drop moment tensor (Day & McLaughlin
+    // 1991). Done after applyOverburdenIC so the asymmetric overburden
+    // initial state does not contribute to the moment-tensor integral
+    // (it's the response to the source, not the static field, that
+    // generates seismic radiation).
+    sigma_initial_ = sigma_;
+    M_global_ = {0, 0, 0, 0, 0, 0};
+    Mdot_global_ = {0, 0, 0, 0, 0, 0};
+    M_global_prev_ = {0, 0, 0, 0, 0, 0};
+
     // Build the radiation solver on the same DM topology.
     rad_solver_ = std::make_unique<SourceBallRadiation3DSolver>();
     SourceBallRadiation3DSolver::Config rcfg;
@@ -215,6 +226,7 @@ void Source3DBallImpl::initialize(const Source3DBallConfig& cfg)
 
 void Source3DBallImpl::buildCellAndFaceLists()
 {
+    elastic_surface_faces_.clear();
     DM dm = mesh_->getDM();
     if (!dm) {
         n_local_cells_ = 0;
@@ -312,6 +324,40 @@ void Source3DBallImpl::buildCellAndFaceLists()
                 bf.type = BoundaryFaceType3D::ELASTIC;
             }
             rad_boundary_faces_.push_back(bf);
+
+            // Pass-13c surface-integral cache. Only ELASTIC-classified
+            // boundary faces participate in the moment-tensor integral.
+            if (bf.type == BoundaryFaceType3D::ELASTIC) {
+                ElasticSurfaceFace ef;
+                ef.cell_local = iL;
+                ef.area = area;
+                ef.centroid = {fcentroid[0], fcentroid[1], fcentroid[2]};
+                // Sign-correct the normal so it points away from the
+                // owning cell's centroid (outward at the elastic
+                // surface). DMPlex's face normal orientation is up to
+                // sign; the dot product with (face_centroid - cell_
+                // centroid) disambiguates.
+                double nx = fnormal[0];
+                double ny = fnormal[1];
+                double nz = fnormal[2];
+                const double nmag = std::sqrt(nx * nx + ny * ny + nz * nz);
+                if (nmag > 1.0e-30) {
+                    nx /= nmag;
+                    ny /= nmag;
+                    nz /= nmag;
+                }
+                const double cx = fcentroid[0] - pL[0];
+                const double cy = fcentroid[1] - pL[1];
+                const double cz = fcentroid[2] - pL[2];
+                const double dotp = nx * cx + ny * cy + nz * cz;
+                if (dotp < 0.0) {
+                    nx = -nx;
+                    ny = -ny;
+                    nz = -nz;
+                }
+                ef.outward_normal = {nx, ny, nz};
+                elastic_surface_faces_.push_back(ef);
+            }
         }
     }
 }
@@ -349,6 +395,30 @@ void Source3DBallImpl::setCellDensity(const std::vector<double>& rho)
             + std::to_string(n_local_cells_) + " cells.");
     }
     rho_ = rho;
+}
+
+void Source3DBallImpl::setCellStressForTest(
+    const std::vector<std::array<double, 6>>& sig)
+{
+    if (static_cast<int>(sig.size()) != n_local_cells_) {
+        throw std::runtime_error(
+            "Source3DBallImpl::setCellStressForTest size mismatch: got "
+            + std::to_string(sig.size()) + " entries for "
+            + std::to_string(n_local_cells_) + " cells.");
+    }
+    sigma_ = sig;
+}
+
+void Source3DBallImpl::setCellStressInitialForTest(
+    const std::vector<std::array<double, 6>>& sig0)
+{
+    if (static_cast<int>(sig0.size()) != n_local_cells_) {
+        throw std::runtime_error(
+            "Source3DBallImpl::setCellStressInitialForTest size mismatch: "
+            "got " + std::to_string(sig0.size()) + " entries for "
+            + std::to_string(n_local_cells_) + " cells.");
+    }
+    sigma_initial_ = sig0;
 }
 
 void Source3DBallImpl::step(double dt)
@@ -392,24 +462,132 @@ void Source3DBallImpl::step(double dt)
         last_rad_newton_iters_ = rres.newton_iters;
     }
 
+    // Pass-13c: integrate the cell-centred stress drop over the
+    // elastic-radius surface to obtain M(t); finite-difference for
+    // Mdot(t).
+    recomputeMomentTensorFromSurface(dt);
+
     current_time_ += dt;
     state_snapshot_.time = current_time_;
+    state_snapshot_.moment_tensor_N_m = M_global_;
+    state_snapshot_.moment_rate_tensor_N_m_per_s = Mdot_global_;
+}
+
+void Source3DBallImpl::recomputeMomentTensorFromSurface(double dt)
+{
+    // Local accumulator: M_ij_local = sum_face (sigma_jk - sigma_jk_0)
+    //                                  * n_k * x_i * A
+    // x is the face-centroid offset from origin (= source center in
+    // the local mesh frame). On a spherical surface of radius R this
+    // reduces to R * (sigma' n) (x) tensor as in Aki & Richards 2002
+    // ch 4. The expression is valid for arbitrary surfaces.
+    std::array<double, 6> M_local = {0, 0, 0, 0, 0, 0};
+    for (const auto& f : elastic_surface_faces_) {
+        const int ic = f.cell_local;
+        if (ic < 0 || ic >= static_cast<int>(sigma_.size())) continue;
+        const auto& sig = sigma_[ic];
+        const auto& sig0 = (ic < static_cast<int>(sigma_initial_.size()))
+                           ? sigma_initial_[ic]
+                           : std::array<double, 6>{0, 0, 0, 0, 0, 0};
+        const double dxx = sig[0] - sig0[0];
+        const double dyy = sig[1] - sig0[1];
+        const double dzz = sig[2] - sig0[2];
+        const double dxy = sig[3] - sig0[3];
+        const double dxz = sig[4] - sig0[4];
+        const double dyz = sig[5] - sig0[5];
+        // traction t_j = sigma_jk * n_k (Voigt: sigma is symmetric, so
+        // t_x = sxx*nx + sxy*ny + sxz*nz; etc.)
+        const double nx = f.outward_normal[0];
+        const double ny = f.outward_normal[1];
+        const double nz = f.outward_normal[2];
+        const double tx = dxx * nx + dxy * ny + dxz * nz;
+        const double ty = dxy * nx + dyy * ny + dyz * nz;
+        const double tz = dxz * nx + dyz * ny + dzz * nz;
+        const double xi = f.centroid[0];
+        const double yi = f.centroid[1];
+        const double zi = f.centroid[2];
+        const double A = f.area;
+        // M_ij = t_j * x_i * A (i row, j column). Voigt order: xx, yy,
+        // zz, xy, xz, yz. By symmetry M is symmetric, so we accumulate
+        // the symmetrised form (1/2)(t_j x_i + t_i x_j) for the
+        // off-diagonals.
+        M_local[0] += xi * tx * A;
+        M_local[1] += yi * ty * A;
+        M_local[2] += zi * tz * A;
+        M_local[3] += 0.5 * (xi * ty + yi * tx) * A;
+        M_local[4] += 0.5 * (xi * tz + zi * tx) * A;
+        M_local[5] += 0.5 * (yi * tz + zi * ty) * A;
+    }
+    std::array<double, 6> M_new = {0, 0, 0, 0, 0, 0};
+    MPI_Allreduce(M_local.data(), M_new.data(), 6, MPI_DOUBLE, MPI_SUM, comm_);
+
+    if (dt > 0.0) {
+        for (int k = 0; k < 6; ++k) {
+            Mdot_global_[k] = (M_new[k] - M_global_[k]) / dt;
+        }
+    } else {
+        Mdot_global_ = {0, 0, 0, 0, 0, 0};
+    }
+    M_global_prev_ = M_global_;
+    M_global_ = M_new;
+}
+
+void Source3DBallImpl::cavityRadiusExtremes(double& r_min_out,
+                                            double& r_max_out) const
+{
+    double r_min_local = std::numeric_limits<double>::infinity();
+    double r_max_local = 0.0;
+    if (mesh_) {
+        DM dm = mesh_->getDM();
+        DMLabel marker = mesh_->getVertexMarkerLabel();
+        if (dm && marker) {
+            PetscInt vStart = 0, vEnd = 0;
+            DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd);
+            Vec coordVec = nullptr;
+            DMGetCoordinatesLocal(dm, &coordVec);
+            const PetscScalar* coords = nullptr;
+            if (coordVec) VecGetArrayRead(coordVec, &coords);
+            PetscSection coordSection = nullptr;
+            DMGetCoordinateSection(dm, &coordSection);
+            for (PetscInt v = vStart; v < vEnd; ++v) {
+                PetscInt mv = 0;
+                DMLabelGetValue(marker, v, &mv);
+                if (mv != SourceBallVertexMarkerValues::INNER_CAVITY_SURFACE) {
+                    continue;
+                }
+                PetscInt off = 0;
+                PetscSectionGetOffset(coordSection, v, &off);
+                const double x = static_cast<double>(coords[off + 0]);
+                const double y = static_cast<double>(coords[off + 1]);
+                const double z = static_cast<double>(coords[off + 2]);
+                const double r = std::sqrt(x * x + y * y + z * z);
+                r_min_local = std::min(r_min_local, r);
+                r_max_local = std::max(r_max_local, r);
+            }
+            if (coordVec) VecRestoreArrayRead(coordVec, &coords);
+        }
+    }
+    if (!std::isfinite(r_min_local)) r_min_local = 0.0;
+    double r_min_global = r_min_local;
+    double r_max_global = r_max_local;
+    MPI_Allreduce(&r_min_local, &r_min_global, 1, MPI_DOUBLE, MPI_MIN, comm_);
+    MPI_Allreduce(&r_max_local, &r_max_global, 1, MPI_DOUBLE, MPI_MAX, comm_);
+    r_min_out = r_min_global;
+    r_max_out = r_max_global;
 }
 
 void Source3DBallImpl::getMomentTensor(std::array<double, 6>& M) const
 {
-    // Pass-13b: surface-integral moment-tensor extraction is pass-13c
-    // work. The 3D solver runs the constitutive / radiation update on
-    // every owned cell but does not yet integrate stresses across the
-    // elastic-radius surface. M remains identically zero so the host
-    // gets a consistent (zero) signal that 3D mode is selected but
-    // moment-tensor extraction is not yet wired.
-    M = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    // Pass-13c: M_ij(t) is the surface integral of the stress drop
+    // (sigma(t) - sigma(0)) crossed with the centroid lever arm, taken
+    // over the elastic-radius spherical boundary. See
+    // recomputeMomentTensorFromSurface() for the integral form.
+    M = M_global_;
 }
 
 void Source3DBallImpl::getMomentRateTensor(std::array<double, 6>& Mdot) const
 {
-    Mdot = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    Mdot = Mdot_global_;
 }
 
 void Source3DBallImpl::getState(Source3DBallState& state) const
