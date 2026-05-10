@@ -93,7 +93,41 @@ public:
     Vec getAuxVector() const { return auxVec_; }
     const SimulationConfig& getConfig() const { return config; }
     const DerivedFieldComputer& getDerivedFields() const { return derived_fields_; }
-    
+
+    // Pass-13c output-format enums (public so tests can reference them
+    // by name; the actual member fields stay private).
+    enum class WavefieldFormat { NONE, VTU, HDF5_XDMF };
+    enum class SourceBall3DOutputFormat { NONE, HDF5_XDMF };
+
+    // Pass-13c wavefield-output diagnostic accessors. Exposed read-only
+    // so the BackwardCompat / config-parsing gates can verify default
+    // and explicit settings without poking at private state.
+    WavefieldFormat wavefieldFormat() const { return wavefield_format_; }
+    int wavefieldFormatRaw() const { return static_cast<int>(wavefield_format_); }
+    int wavefieldCadenceSteps() const { return wavefield_cadence_steps_; }
+    const std::string& wavefieldOutputDirectory() const
+        { return wavefield_output_directory_; }
+    const std::string& wavefieldBasename() const
+        { return wavefield_basename_; }
+    const std::vector<std::string>& wavefieldFields() const
+        { return wavefield_fields_; }
+    int sourceBall3DOutputFormatRaw() const
+        { return static_cast<int>(source_ball_3d_output_format_); }
+    int sourceBall3DOutputCadenceSteps() const
+        { return source_ball_3d_output_cadence_steps_; }
+    int wavefieldSnapshotsWritten() const { return wavefield_snapshots_written_; }
+    PetscErrorCode triggerWavefieldXdmfWrapperForTest()
+        { return writeWavefieldXdmfWrapper(); }
+    /// Test hook: pretend N snapshots have been written at the given
+    /// times, then refresh the XDMF wrapper. Used by the unit gate
+    /// that verifies the XDMF schema.
+    void seedWavefieldSnapshotsForTest(
+        const std::vector<double>& times)
+    {
+        wavefield_times_ = times;
+        wavefield_snapshots_written_ = static_cast<int>(times.size());
+    }
+
 private:
     MPI_Comm comm;
     int rank, size;
@@ -405,8 +439,7 @@ private:
 
     // Pass-13c wavefield output infrastructure. Defaults are NONE so
     // pre-pass-13c behaviour is preserved byte-for-byte for the 32
-    // historic-event integration tests.
-    enum class WavefieldFormat { NONE, VTU, HDF5_XDMF };
+    // historic-event integration tests. Enum is declared public above.
     WavefieldFormat wavefield_format_ = WavefieldFormat::NONE;
     int wavefield_cadence_steps_ = 100;
     std::vector<std::string> wavefield_fields_;        ///< default: {displacement}
@@ -417,8 +450,8 @@ private:
     std::vector<double> wavefield_times_;              ///< for XDMF wrapper
 
     // Pass-13c source-ball 3D HDF5/XDMF spatial-profile output. Only
-    // engages when cavity_geometry = THREE_DIMENSIONAL.
-    enum class SourceBall3DOutputFormat { NONE, HDF5_XDMF };
+    // engages when cavity_geometry = THREE_DIMENSIONAL. Enum is
+    // declared public above.
     SourceBall3DOutputFormat source_ball_3d_output_format_ =
         SourceBall3DOutputFormat::NONE;
     int source_ball_3d_output_cadence_steps_ = 50;

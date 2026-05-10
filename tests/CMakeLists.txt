@@ -71,6 +71,7 @@ set(FUNCTIONAL_TEST_SOURCES
     functional/test_solver_convergence.cpp
     functional/test_well_operations.cpp
     functional/test_paraview_state_load.cpp
+    functional/test_wavefield_output.cpp
 )
 
 set(PHYSICS_VALIDATION_TEST_SOURCES
@@ -270,6 +271,10 @@ if(GTest_FOUND)
     # fsrm-ci (pvpython not installed); developers run the script
     # standalone via scripts/verify_pvsm.sh.
     add_test(NAME Functional.ParaView.NearFieldCavityStateLoads COMMAND run_functional_tests --gtest_filter=ParaViewStateLoadTest.NearFieldCavityStateLoads)
+    # Pass-13c wavefield + source-ball 3D output gates.
+    add_test(NAME Functional.Wavefield.OutputDefaultIsNone COMMAND run_functional_tests --gtest_filter=WavefieldOutputTest.BackwardCompat_WavefieldOutputDefaultIsNone)
+    add_test(NAME Functional.Wavefield.HDF5XdmfParsesAndDefaults COMMAND run_functional_tests --gtest_filter=WavefieldOutputTest.WavefieldFormatHDF5XdmfParsesAndDefaults)
+    add_test(NAME Functional.Wavefield.XDMFTimeSeriesEmission COMMAND run_functional_tests --gtest_filter=WavefieldOutputTest.XDMFTimeSeriesEmissionContainsSnapshots)
 
     # --- Physics validation (MMS) tests ---
     add_test(NAME Physics.MMS.Diffusion       COMMAND run_physics_tests --gtest_filter=MMSDiffusionTest.*)
@@ -587,6 +592,9 @@ if(GTest_FOUND)
         Functional.SimulatorInit Functional.ModuleLifecycle
         Functional.SolverConvergence Functional.WellOperations
         Functional.ParaView.NearFieldCavityStateLoads
+        Functional.Wavefield.OutputDefaultIsNone
+        Functional.Wavefield.HDF5XdmfParsesAndDefaults
+        Functional.Wavefield.XDMFTimeSeriesEmission
         Functional.DynamicRuptureSetup.MeshSplitting
         Functional.DynamicRuptureSetup.LockedFault
         Functional.DynamicRuptureSetup.FaultGeometryFromConfig
