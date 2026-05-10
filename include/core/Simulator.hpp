@@ -403,6 +403,33 @@ private:
     std::string output_directory_ = "output";
     bool output_topology_written_ = false;
 
+    // Pass-13c wavefield output infrastructure. Defaults are NONE so
+    // pre-pass-13c behaviour is preserved byte-for-byte for the 32
+    // historic-event integration tests.
+    enum class WavefieldFormat { NONE, VTU, HDF5_XDMF };
+    WavefieldFormat wavefield_format_ = WavefieldFormat::NONE;
+    int wavefield_cadence_steps_ = 100;
+    std::vector<std::string> wavefield_fields_;        ///< default: {displacement}
+    std::string wavefield_output_directory_ = "output";
+    std::string wavefield_basename_ = "wavefield";
+    int wavefield_snapshots_written_ = 0;
+    bool wavefield_topology_written_ = false;          ///< HDF5 topology written once
+    std::vector<double> wavefield_times_;              ///< for XDMF wrapper
+
+    // Pass-13c source-ball 3D HDF5/XDMF spatial-profile output. Only
+    // engages when cavity_geometry = THREE_DIMENSIONAL.
+    enum class SourceBall3DOutputFormat { NONE, HDF5_XDMF };
+    SourceBall3DOutputFormat source_ball_3d_output_format_ =
+        SourceBall3DOutputFormat::NONE;
+    int source_ball_3d_output_cadence_steps_ = 50;
+    int source_ball_3d_snapshots_written_ = 0;
+    std::vector<double> source_ball_3d_snapshot_times_;
+
+    PetscErrorCode writeWavefieldSnapshot(int step, double time);
+    PetscErrorCode writeWavefieldXdmfWrapper();
+    PetscErrorCode writeSourceBall3DSnapshot(int step, double time);
+    PetscErrorCode writeSourceBall3DXdmfWrapper();
+
     // Explosion source FEM injection (Phase 5)
     PetscInt explosion_cell_ = -1;
     PetscErrorCode locateExplosionCell();
