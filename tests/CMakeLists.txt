@@ -350,6 +350,10 @@ if(GTest_FOUND)
     add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
     add_test(NAME Unit.SourceBall.ImplFoundation COMMAND run_unit_tests --gtest_filter=SourceBallImplFoundationTest.*)
     add_test(NAME Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation COMMAND run_unit_tests --gtest_filter=BackwardCompatTest.Source3DBallScaffoldThrowGoneOnInstantiation)
+    # Pass-13b axis-1b physics: Drucker-Prager 3D, overburden, radiation 3D unit gates.
+    add_test(NAME Unit.DruckerPrager3D COMMAND run_unit_tests --gtest_filter=DruckerPrager3D.*)
+    add_test(NAME Unit.Overburden COMMAND run_unit_tests --gtest_filter=Overburden.*)
+    add_test(NAME Unit.SourceBallRadiation3D COMMAND run_unit_tests --gtest_filter=SourceBallRadiation3D.*)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -560,6 +564,9 @@ if(GTest_FOUND)
         Unit.SourceBall.Mesh
         Unit.SourceBall.ImplFoundation
         Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation
+        Unit.DruckerPrager3D
+        Unit.Overburden
+        Unit.SourceBallRadiation3D
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 

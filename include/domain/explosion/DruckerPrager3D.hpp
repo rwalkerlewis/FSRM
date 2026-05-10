@@ -239,46 +239,64 @@ inline DruckerPrager3DReturnResult druckerPrager3DRadialReturn(
     }
 
     // Explicit linearised radial return (Simo & Hughes 1998 sec 3.6).
-    // Plastic multiplier delta_lambda from the consistency condition
-    // f(sigma_new) = 0 linearised about the trial state:
-    //   delta_lambda = f_trial / (G + K * alpha^2).
+    // Yield surface  f = sqrt(J2) - alpha I1/3 - k.
+    // Flow direction (associated)  m_ij = s_ij/(2 sqrt(J2)) - (alpha/3) delta_ij.
+    // Plastic multiplier from the consistency condition f(sigma_new)=0
+    // linearised about the trial state:
+    //   sqrt(J2_new) = sqrt(J2_trial) - dlambda * G
+    //   I1_new = I1_trial + 3 K alpha dlambda
+    //   f_new = f_trial - dlambda * (G + K alpha^2) = 0
+    //   ==> dlambda = f_trial / (G + K alpha^2).
     const double denom = G + K * params.alpha_dp * params.alpha_dp;
     const double dlambda = f_trial / (denom > 0.0 ? denom : 1.0);
     res.delta_lambda = dlambda;
 
-    // Direction of the deviatoric return (unit tensor in deviatoric
-    // space).
+    // Unit-magnitude deviatoric direction in stress Voigt (tensor
+    // convention). dir_voigt = s_trial / sqrt(J2_trial). Used directly
+    // in the stress and plastic-strain corrections; the standard
+    // factors of 1/2 (tensor) and 2 (engineering shear) appear
+    // explicitly in the per-row formulas below to keep the Voigt
+    // bookkeeping unambiguous.
     const double inv_J2 = (sqrtJ2_trial > 0.0) ? 1.0 / sqrtJ2_trial : 0.0;
-    std::array<double, 6> n_dev;
-    n_dev[0] = 0.5 * s_trial[0] * inv_J2;
-    n_dev[1] = 0.5 * s_trial[1] * inv_J2;
-    n_dev[2] = 0.5 * s_trial[2] * inv_J2;
-    n_dev[3] = s_trial[3] * inv_J2;
-    n_dev[4] = s_trial[4] * inv_J2;
-    n_dev[5] = s_trial[5] * inv_J2;
+    std::array<double, 6> dir;
+    for (int i = 0; i < 6; ++i) dir[i] = s_trial[i] * inv_J2;
 
-    // Stress projection.
-    sigma_out[0] = sigma_trial[0] - dlambda * (2.0 * G * n_dev[0] + K * params.alpha_dp);
-    sigma_out[1] = sigma_trial[1] - dlambda * (2.0 * G * n_dev[1] + K * params.alpha_dp);
-    sigma_out[2] = sigma_trial[2] - dlambda * (2.0 * G * n_dev[2] + K * params.alpha_dp);
-    sigma_out[3] = sigma_trial[3] - dlambda * (2.0 * G * n_dev[3]);
-    sigma_out[4] = sigma_trial[4] - dlambda * (2.0 * G * n_dev[4]);
-    sigma_out[5] = sigma_trial[5] - dlambda * (2.0 * G * n_dev[5]);
+    // Stress projection. Diagonal: subtract G*dlambda*dir, then add
+    // dlambda*alpha*K (the volumetric contribution from the plastic
+    // flow's alpha-term). Shear (Voigt rows 3..5): subtract
+    // G*dlambda*dir only (no volumetric mixing into the shear rows).
+    sigma_out[0] = sigma_trial[0] - dlambda * G * dir[0]
+                   + dlambda * params.alpha_dp * K;
+    sigma_out[1] = sigma_trial[1] - dlambda * G * dir[1]
+                   + dlambda * params.alpha_dp * K;
+    sigma_out[2] = sigma_trial[2] - dlambda * G * dir[2]
+                   + dlambda * params.alpha_dp * K;
+    sigma_out[3] = sigma_trial[3] - dlambda * G * dir[3];
+    sigma_out[4] = sigma_trial[4] - dlambda * G * dir[4];
+    sigma_out[5] = sigma_trial[5] - dlambda * G * dir[5];
 
-    // Plastic strain increment, Voigt with engineering shear in 3..5.
-    delta_eps_p_out[0] = dlambda * (n_dev[0] + params.alpha_dp / 3.0);
-    delta_eps_p_out[1] = dlambda * (n_dev[1] + params.alpha_dp / 3.0);
-    delta_eps_p_out[2] = dlambda * (n_dev[2] + params.alpha_dp / 3.0);
-    delta_eps_p_out[3] = dlambda * (2.0 * n_dev[3]);
-    delta_eps_p_out[4] = dlambda * (2.0 * n_dev[4]);
-    delta_eps_p_out[5] = dlambda * (2.0 * n_dev[5]);
+    // Plastic-strain increment in Voigt with engineering shear in 3..5.
+    // Tensor: deps_p_ij = dlambda * (s_ij/(2 sqrt(J2)) - alpha/3 delta_ij)
+    //                    = dlambda * (dir/2 - alpha/3 delta).
+    // Engineering shear stores 2 * tensor for off-diagonal Voigt rows.
+    delta_eps_p_out[0] = dlambda * (0.5 * dir[0] - params.alpha_dp / 3.0);
+    delta_eps_p_out[1] = dlambda * (0.5 * dir[1] - params.alpha_dp / 3.0);
+    delta_eps_p_out[2] = dlambda * (0.5 * dir[2] - params.alpha_dp / 3.0);
+    delta_eps_p_out[3] = dlambda * dir[3];
+    delta_eps_p_out[4] = dlambda * dir[4];
+    delta_eps_p_out[5] = dlambda * dir[5];
 
-    // Equivalent plastic strain. For pure deviatoric flow this is
-    // delta_lambda * sqrt(2/3); the volumetric (alpha) contribution adds
-    // (alpha/sqrt(3))^2 in quadrature.
-    const double e2 = 2.0 / 3.0
-                      + (2.0 / 3.0) * params.alpha_dp * params.alpha_dp;
-    res.delta_eps_p_eq = dlambda * std::sqrt(e2 > 0.0 ? e2 : 0.0);
+    // Equivalent plastic strain (deviatoric measure):
+    //   deps_p_eq = sqrt(2/3 * deps_p_dev : deps_p_dev).
+    // The deviatoric part of the DP plastic-strain increment is
+    //   deps_p_dev_ij = dlambda * s_ij / (2 sqrt(J2))
+    //                 = dlambda * dir/2 (in tensor form)
+    // so |deps_p_dev|^2 = dlambda^2 * (dir:dir) / 4. Since dir:dir
+    // (tensor) = (s:s)/J2 = 2, we get |deps_p_dev|^2 = dlambda^2/2 and
+    // deps_p_eq = dlambda * sqrt(1/3) = dlambda / sqrt(3). Independent
+    // of alpha (the volumetric contribution does not enter the
+    // equivalent measure).
+    res.delta_eps_p_eq = dlambda / std::sqrt(3.0);
     res.yielded = true;
     return res;
 }

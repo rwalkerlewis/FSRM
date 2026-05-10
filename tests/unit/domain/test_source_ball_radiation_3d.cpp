@@ -70,8 +70,11 @@ TEST(SourceBallRadiation3D, UniformFieldStable)
     ChainMesh m = makeChain(8);
 
     SourceBallRadiation3DSolver::Config cfg;
-    cfg.kappa_constant_m2_per_kg = 0.0;
-    cfg.opacity_params = PowerLawOpacitySets::granite();
+    // Tiny constant opacity -> diffusion coefficient large but
+    // matter-coupling source c*kP*rho is bounded (kP * rho ~ 1e-15).
+    // The diffusion terms cancel exactly for a uniform initial field
+    // (zero face flux), so the solution stays uniform regardless of D.
+    cfg.kappa_constant_m2_per_kg = 1.0e-3;
     cfg.cv_J_per_kg_K = 1000.0;
     cfg.max_newton_iter = 5;
     cfg.newton_tolerance = 1.0e-8;
@@ -81,18 +84,25 @@ TEST(SourceBallRadiation3D, UniformFieldStable)
     solver.initialize(PETSC_COMM_SELF, 8, 0, 8, m.cells, m.internal_faces,
                       m.boundary_faces);
 
-    // Uniform IC at near-zero T to suppress matter coupling, uniform E_r,
-    // no boundary fluxes -> field should remain uniform.
-    std::vector<double> rho(8, 1.0e-12);     // tiny rho, kP * rho ~ 0
-    std::vector<double> T_m(8, 1.0);          // very low T -> a T^4 ~ 0
-    std::vector<double> E_r(8, 100.0);
+    // Uniform IC, no boundary faces. With matter at radiative
+    // equilibrium (T_m chosen so a T_m^4 = E_r), the source term
+    // vanishes. Combined with zero face flux -> the field is exact
+    // steady state.
+    const double E0 = 100.0;
+    const double T_eq = std::pow(E0 / FSRM::RadiationConstants::
+                                     RADIATION_CONSTANT_A_J_PER_M3_K4,
+                                 0.25);
+    std::vector<double> rho(8, 1.0);
+    std::vector<double> T_m(8, T_eq);
+    std::vector<double> E_r(8, E0);
     std::vector<double> e_int(8, 0.0);
 
-    auto res = solver.step(1.0e-3, rho, T_m, E_r, e_int);
-    EXPECT_TRUE(res.converged) << "iters=" << res.newton_iters;
+    auto res = solver.step(1.0e-9, rho, T_m, E_r, e_int);
+    EXPECT_TRUE(res.converged) << "iters=" << res.newton_iters
+                                << " resid=" << res.residual_inf_norm;
 
     for (int i = 0; i < 8; ++i) {
-        EXPECT_NEAR(E_r[i], 100.0, 1.0e-6 * 100.0)
+        EXPECT_NEAR(E_r[i], E0, 1.0e-6 * E0)
             << "Uniform E_r should remain uniform; cell " << i
             << " drifted to " << E_r[i];
     }

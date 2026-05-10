@@ -49,6 +49,7 @@
 #include <tuple>
 
 #include "domain/explosion/MarshakRadiationDiffusion.hpp"
+#include "domain/explosion/Source3DBallImpl.hpp"
 
 namespace FSRM {
 
@@ -74,6 +75,10 @@ double RadialLagrangianSolver::faceAreaSpherical(double r)
 }
 
 RadialLagrangianSolver::RadialLagrangianSolver() = default;
+RadialLagrangianSolver::~RadialLagrangianSolver() = default;
+RadialLagrangianSolver::RadialLagrangianSolver(RadialLagrangianSolver&&) noexcept = default;
+RadialLagrangianSolver& RadialLagrangianSolver::operator=(
+    RadialLagrangianSolver&&) noexcept = default;
 
 void RadialLagrangianSolver::setSource(const UndergroundExplosionSource& src)
 {
@@ -92,21 +97,32 @@ void RadialLagrangianSolver::setConfig(const Config& c)
     // not allocate a new EOS each call.
     cavity_tillotson_.setParameters(c.tillotson_params);
 
-    // Pass-13a foundation: axis-1b 3D source ball ships the leaf
-    // Source3DBallImpl class (TetGen mesh -> distributed DMPlex), but
-    // the host-side delegation from RadialLagrangianSolver into
-    // Source3DBallImpl::step is pass-13b/c work. THREE_DIMENSIONAL
-    // therefore still throws here, with the message updated to point
-    // at pass-13b/c. Callers who construct Source3DBallImpl directly
-    // through makeSource3DBall() can already load the mesh.
+    // Pass-13b axis-1b host delegation. cavity_geometry =
+    // THREE_DIMENSIONAL constructs a Source3DBallImpl, copies the host
+    // material parameters (rho, K, G, depth) and the source-ball sub-
+    // config into it, and calls initialize(). Subsequent step() calls
+    // forward to ball_3d_->step(); getMomentTensor / getMomentRateTensor
+    // forward to ball_3d_ as well (pass-13b returns zeros from the
+    // impl; pass-13c lands the surface-integral extraction).
     if (c.cavity_geometry == CavityGeometry::THREE_DIMENSIONAL) {
-        throw std::runtime_error(
-            "RadialLagrangianSolver: cavity_geometry=THREE_DIMENSIONAL "
-            "is axis-1b 3D source ball. Pass-13a landed the leaf "
-            "Source3DBallImpl (mesh load + distributed DMPlex); the "
-            "host-side delegation from RadialLagrangianSolver is "
-            "pass-13b/c work. See docs/AXIS_1B_DESIGN.md. Use "
-            "cavity_geometry=SPHERICAL for the pass-10 1D radial path.");
+        ball_3d_ = std::make_unique<Source3DBallImpl>();
+        Source3DBallConfig sub = c.source_3d_ball;
+        // Host-rock material defaults from the configured EOS / source
+        // unless the sub-config already overrode them.
+        if (sub.host_density_kg_per_m3 <= 0.0) {
+            sub.host_density_kg_per_m3 = (eos_.rho0 > 0.0)
+                ? eos_.rho0 : 2700.0;
+        }
+        if (sub.source_depth_m <= 0.0 && src_.depth > 0.0) {
+            sub.source_depth_m = src_.depth;
+        }
+        // K, G, dp3d_alpha, dp3d_k, cv, T_ambient, medium_label come
+        // straight from the sub-config or its defaults.
+        ball_3d_->initialize(sub);
+        ball_3d_active_ = true;
+    } else {
+        ball_3d_.reset();
+        ball_3d_active_ = false;
     }
 
     // Pass-8/10: lazily construct the radiation solver under MARSHAK_GREY
@@ -416,6 +432,15 @@ void RadialLagrangianSolver::allocate(int N)
 
 void RadialLagrangianSolver::initialize()
 {
+    if (ball_3d_active_) {
+        // Pass-13b: the 3D source-ball impl is initialised inside
+        // setConfig() so callers do not need to call initialize()
+        // explicitly. Mark the host as initialised and return; the
+        // existing 1D mesh + state allocation is bypassed.
+        initialized_ = true;
+        current_time_ = 0.0;
+        return;
+    }
     const int N = safeMax(20, config_.radial_cells);
 
     // The host-medium NTS cavity radius sets the elastic radius at
@@ -1395,6 +1420,24 @@ void RadialLagrangianSolver::step(double dt_target)
     if (!initialized_) initialize();
     if (dt_target <= 0.0) return;
 
+    if (ball_3d_active_) {
+        // Pass-13b: forward to the 3D source ball. The host advances
+        // exactly dt_target so the outer Simulator loop's cadence is
+        // preserved. The 3D impl handles its own substepping.
+        if (ball_3d_) {
+            ball_3d_->step(dt_target);
+        }
+        current_time_ += dt_target;
+        // Pass-13b: getMomentTensor / getMomentRateTensor are populated
+        // by the impl (intentionally zero in pass-13b; surface-integral
+        // extraction is pass-13c). Keep the 1D Mdot_iso_ / M_iso_ in
+        // sync as zero so downstream callers see a coherent zero
+        // signal rather than stale 1D content.
+        Mdot_iso_ = {0, 0, 0, 0, 0, 0};
+        M_iso_ = {0, 0, 0, 0, 0, 0};
+        return;
+    }
+
     // Cache the previous Mdot trace so we can produce a finite
     // difference in M_iso between successive recordMomentExtraction()
     // updates. The simulator records Mdot at a known cadence
@@ -1456,12 +1499,28 @@ double RadialLagrangianSolver::getPlasticRadius() const
 void RadialLagrangianSolver::getMomentRateTensor(
     std::array<double, 6>& Mdot) const
 {
+    if (ball_3d_active_ && ball_3d_) {
+        ball_3d_->getMomentRateTensor(Mdot);
+        return;
+    }
     Mdot = Mdot_iso_;
 }
 
 void RadialLagrangianSolver::getMomentTensor(std::array<double, 6>& M) const
 {
+    if (ball_3d_active_ && ball_3d_) {
+        ball_3d_->getMomentTensor(M);
+        return;
+    }
     M = M_iso_;
+}
+
+const char* RadialLagrangianSolver::name() const
+{
+    if (ball_3d_active_) {
+        return "RadialLagrangianSolver+Source3DBallImpl_v1_pass13b_physics";
+    }
+    return "RadialLagrangianSolver";
 }
 
 void RadialLagrangianSolver::getRadialProfile(RadialProfile& profile) const

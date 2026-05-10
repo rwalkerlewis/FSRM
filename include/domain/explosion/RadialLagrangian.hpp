@@ -52,10 +52,13 @@
 #include "domain/explosion/MultigroupRadiationDiffusion.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/explosion/OpacityModel.hpp"
+#include "domain/explosion/Source3DBall.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
 #include "io/TabulatedData/TabulatedDataReader.hpp"
 
 namespace FSRM {
+
+class Source3DBallImpl;
 
 /**
  * @brief 1D radial Lagrangian finite-volume elastoplastic shock solver.
@@ -273,6 +276,12 @@ public:
         bool sponge_layer_enabled = false;
         double sponge_layer_thickness_fraction = 0.15;
         double sponge_layer_max_damping = 0.5;
+
+        /// Pass-13b axis-1b 3D source ball sub-config. Consulted only
+        /// when cavity_geometry = THREE_DIMENSIONAL. The host clones the
+        /// fields into Source3DBallImpl during setConfig() delegation.
+        /// At cavity_geometry = SPHERICAL these fields are unused.
+        Source3DBallConfig source_3d_ball;
     };
 
     /// Snapshot of the radial state at a single time. Layout matches the
@@ -295,16 +304,18 @@ public:
     };
 
     RadialLagrangianSolver();
-    ~RadialLagrangianSolver() = default;
+    /// Destructor / move-special-members defined out-of-line so the
+    /// pass-13b embedded `unique_ptr<Source3DBallImpl>` only needs a
+    /// forward declaration in the header (Source3DBallImpl is
+    /// included in RadialLagrangian.cpp).
+    ~RadialLagrangianSolver();
 
     // Move-only: the embedded MarshakRadiationDiffusionSolver
-    // unique_ptr makes the class non-copyable. Explicit defaults
-    // preserve the existing tests that return RadialLagrangianSolver
-    // by value via NRVO / move construction.
+    // unique_ptr makes the class non-copyable.
     RadialLagrangianSolver(const RadialLagrangianSolver&) = delete;
     RadialLagrangianSolver& operator=(const RadialLagrangianSolver&) = delete;
-    RadialLagrangianSolver(RadialLagrangianSolver&&) = default;
-    RadialLagrangianSolver& operator=(RadialLagrangianSolver&&) = default;
+    RadialLagrangianSolver(RadialLagrangianSolver&&) noexcept;
+    RadialLagrangianSolver& operator=(RadialLagrangianSolver&&) noexcept;
 
     void setSource(const UndergroundExplosionSource& src);
     void setEOS(const MieGruneisenEOS& eos);
@@ -409,6 +420,18 @@ public:
     /// OperatorSplittingConvergence_InstrumentedSubstep test.
     double getDiagnosticInnerSubstepDt() const { return diag_inner_substep_dt_; }
     int getDiagnosticInnerSubstepCount() const { return diag_inner_substep_count_; }
+
+    /// Pass-13b diagnostic: solver-name tag. Returns
+    /// "RadialLagrangianSolver" under cavity_geometry = SPHERICAL and
+    /// "RadialLagrangianSolver+Source3DBallImpl_v1_pass13b_physics"
+    /// when the 3D source-ball delegation is active. Used by the
+    /// pass-11/13a/13b axis-1b regression gates.
+    const char* name() const;
+
+    /// Pass-13b diagnostic accessor for the delegated 3D source-ball
+    /// solver. Returns nullptr under cavity_geometry = SPHERICAL.
+    const Source3DBallImpl* source3DBall() const { return ball_3d_.get(); }
+    Source3DBallImpl* source3DBall() { return ball_3d_.get(); }
 
 private:
     void allocate(int N);
@@ -579,6 +602,16 @@ private:
     mutable io::TabulatedDataReader cavity_eos_table_;
     mutable bool cavity_eos_table_load_attempted_ = false;
     mutable bool cavity_eos_table_load_succeeded_ = false;
+
+    // Pass-13b axis-1b 3D source-ball delegation. Allocated only when
+    // setConfig() is called with cavity_geometry = THREE_DIMENSIONAL.
+    // Under SPHERICAL this stays null and the existing 1D code path
+    // is unchanged. step() / getMomentTensor() / getMomentRateTensor()
+    // forward to ball_3d_ when it is non-null. getMomentTensor /
+    // getMomentRateTensor return zeros from the impl in pass-13b
+    // (intentionally; surface-integral extraction is pass-13c).
+    std::unique_ptr<Source3DBallImpl> ball_3d_;
+    bool ball_3d_active_ = false;
 };
 
 } // namespace FSRM
