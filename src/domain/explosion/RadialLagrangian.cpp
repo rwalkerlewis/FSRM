@@ -92,14 +92,20 @@ void RadialLagrangianSolver::setConfig(const Config& c)
     // not allocate a new EOS each call.
     cavity_tillotson_.setParameters(c.tillotson_params);
 
-    // Pass-11: axis-1b 3D source ball is pass-12 work. THREE_DIMENSIONAL
-    // throws on selection so callers cannot opt into a non-existent code
-    // path; pass-12 will replace this throw with the actual 3D solver.
+    // Pass-13a foundation: axis-1b 3D source ball ships the leaf
+    // Source3DBallImpl class (TetGen mesh -> distributed DMPlex), but
+    // the host-side delegation from RadialLagrangianSolver into
+    // Source3DBallImpl::step is pass-13b/c work. THREE_DIMENSIONAL
+    // therefore still throws here, with the message updated to point
+    // at pass-13b/c. Callers who construct Source3DBallImpl directly
+    // through makeSource3DBall() can already load the mesh.
     if (c.cavity_geometry == CavityGeometry::THREE_DIMENSIONAL) {
         throw std::runtime_error(
             "RadialLagrangianSolver: cavity_geometry=THREE_DIMENSIONAL "
-            "is axis-1b 3D source ball: pass-12 work, not yet implemented. "
-            "See docs/AXIS_1B_DESIGN.md for the design stub. Use "
+            "is axis-1b 3D source ball. Pass-13a landed the leaf "
+            "Source3DBallImpl (mesh load + distributed DMPlex); the "
+            "host-side delegation from RadialLagrangianSolver is "
+            "pass-13b/c work. See docs/AXIS_1B_DESIGN.md. Use "
             "cavity_geometry=SPHERICAL for the pass-10 1D radial path.");
     }
 

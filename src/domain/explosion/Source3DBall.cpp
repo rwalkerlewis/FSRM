@@ -1,24 +1,26 @@
 /**
  * @file Source3DBall.cpp
- * @brief Pass-11 (axis 1b) scaffolded factory for the 3D source-ball
- *        solver. Pass-11 throws on construction; pass-12 replaces
- *        the throw with a concrete implementation.
+ * @brief Pass-13a (axis-1b foundation) factory wiring for the 3D
+ *        source-ball solver.
+ *
+ *  Pass-11 throw replaced with construction of Source3DBallImpl. The
+ *  factory returns an uninitialized Source3DBallImpl; callers must
+ *  call initialize(cfg) to actually load the mesh. The factory itself
+ *  performs no I/O so the foundation regression test
+ *  (BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation)
+ *  succeeds even on hosts without a mesh fixture.
  */
 
 #include "domain/explosion/Source3DBall.hpp"
 
-#include <stdexcept>
+#include "domain/explosion/Source3DBallImpl.hpp"
 
 namespace FSRM {
 
 std::unique_ptr<Source3DBall> makeSource3DBall(const Source3DBallConfig& cfg)
 {
     (void)cfg;
-    throw std::runtime_error(
-        "Source3DBall: axis-1b 3D source ball is pass-12 work, not yet "
-        "implemented. See docs/AXIS_1B_DESIGN.md for the design stub. "
-        "Use cavity_geometry=SPHERICAL for the pass-10 1D radial "
-        "Lagrangian path.");
+    return std::unique_ptr<Source3DBall>(new Source3DBallImpl());
 }
 
 }  // namespace FSRM
