@@ -5,6 +5,11 @@ build-*/
 # Per-example output directories produced by examples/*/run.sh
 examples/*/output/
 examples/*/output_*/
+# Per-example artifacts written by Simulator::writeSummary() and
+# the per-station seismogram summary when an example is run from
+# a fresh shell against the in-tree binary.
+examples/*/_SUMMARY.txt
+examples/*/seismograms_summary.csv
 
 # Pass-13a source-ball mesh cache: TetGen output produced by
 # tools/mesh_generation/build_source_ball_mesh.py is not committed.
