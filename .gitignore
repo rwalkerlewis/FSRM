@@ -6,6 +6,11 @@ build-*/
 examples/*/output/
 examples/*/output_*/
 
+# Pass-13a source-ball mesh cache: TetGen output produced by
+# tools/mesh_generation/build_source_ball_mesh.py is not committed.
+# The cache regenerates from the script on demand.
+cache/source_ball_meshes/
+
 # Compiled object files
 *.o
 *.obj
