@@ -584,6 +584,16 @@ struct Simulator::ExplosionCoupling {
     double near_field_tabulated_opacity_blend_lower_k = 1.0e5;
     double near_field_tabulated_opacity_blend_upper_k = 1.26e5;
 
+    // Pass-13b axis-1b 3D source ball plumbing. Defaults preserve the
+    // pass-12 SPHERICAL byte-identical path: cavity_geometry stays at
+    // SPHERICAL, the 3D sub-keys are unread.
+    std::string near_field_cavity_geometry = "SPHERICAL";
+    double near_field_3d_cavity_radius_m = -1.0;
+    double near_field_3d_outer_radius_m = -1.0;
+    std::string near_field_3d_mesh_path = "";
+    double near_field_3d_overburden_K0 = 0.5;
+    std::string near_field_3d_radiation_discretization = "FV_CELL_CENTRED";
+
     RadialLagrangianSolver radial_solver;
 
     // Recorded near-field state. Populated in initializeFromConfigFile
@@ -1791,6 +1801,103 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         1;
                 }
 
+                // Pass-13b axis-1b sub-keys. cavity_geometry selects
+                // SPHERICAL (pass-10 default 1D radial Lagrangian path)
+                // vs THREE_DIMENSIONAL (the pass-13b 3D source ball).
+                // The 3D sub-keys are only consulted under
+                // THREE_DIMENSIONAL; missing keys under SPHERICAL are
+                // silently accepted to preserve byte-identical behaviour
+                // for the 32 historic-event configs.
+                {
+                    std::string cg_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "cavity_geometry",
+                        "SPHERICAL");
+                    for (auto& c : cg_raw)
+                        c = static_cast<char>(std::toupper(c));
+                    if (cg_raw != "SPHERICAL"
+                        && cg_raw != "THREE_DIMENSIONAL") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.cavity_geometry=\"%s\" "
+                                "not recognised (expected SPHERICAL|"
+                                "THREE_DIMENSIONAL); falling back to "
+                                "SPHERICAL.\n", cg_raw.c_str());
+                        }
+                        cg_raw = "SPHERICAL";
+                    }
+                    explosion_->near_field_cavity_geometry = cg_raw;
+                }
+                explosion_->near_field_3d_cavity_radius_m =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "cavity_radius_m", -1.0);
+                explosion_->near_field_3d_outer_radius_m =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "outer_radius_m", -1.0);
+                explosion_->near_field_3d_mesh_path =
+                    reader.getString("NEAR_FIELD_SOURCE", "mesh_path", "");
+                explosion_->near_field_3d_overburden_K0 =
+                    reader.getDouble("NEAR_FIELD_SOURCE",
+                                     "overburden_K0", 0.5);
+                {
+                    std::string rd_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE",
+                        "source_ball_radiation_discretization",
+                        "FV_CELL_CENTRED");
+                    for (auto& c : rd_raw)
+                        c = static_cast<char>(std::toupper(c));
+                    if (rd_raw != "FV_CELL_CENTRED"
+                        && rd_raw != "NODAL_FEM") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.source_ball_radiation_"
+                                "discretization=\"%s\" not recognised "
+                                "(expected FV_CELL_CENTRED|NODAL_FEM); "
+                                "falling back to FV_CELL_CENTRED.\n",
+                                rd_raw.c_str());
+                        }
+                        rd_raw = "FV_CELL_CENTRED";
+                    }
+                    explosion_->near_field_3d_radiation_discretization = rd_raw;
+                }
+
+                // Validate the 3D sub-keys when THREE_DIMENSIONAL is
+                // selected. Reject configurations that would produce a
+                // silent foundation no-op or a corrupt mesh load.
+                if (explosion_->near_field_cavity_geometry
+                    == "THREE_DIMENSIONAL") {
+                    if (explosion_->near_field_3d_mesh_path.empty()) {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.cavity_geometry="
+                                "THREE_DIMENSIONAL requires mesh_path to "
+                                "be set; falling back to SPHERICAL.\n");
+                        }
+                        explosion_->near_field_cavity_geometry = "SPHERICAL";
+                    }
+                    if (explosion_->near_field_3d_overburden_K0 < 0.0
+                        || explosion_->near_field_3d_overburden_K0 > 1.0) {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.overburden_K0=%.3f out "
+                                "of expected [0, 1] range (Hoek & Brown "
+                                "1980); clamping to 0.5.\n",
+                                explosion_->near_field_3d_overburden_K0);
+                        }
+                        explosion_->near_field_3d_overburden_K0 = 0.5;
+                    }
+                    if (explosion_->near_field_3d_cavity_radius_m <= 0.0
+                        || explosion_->near_field_3d_outer_radius_m <= 0.0) {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.cavity_geometry="
+                                "THREE_DIMENSIONAL requires positive "
+                                "cavity_radius_m and outer_radius_m; "
+                                "falling back to SPHERICAL.\n");
+                        }
+                        explosion_->near_field_cavity_geometry = "SPHERICAL";
+                    }
+                }
+
                 if (rank == 0 && nf_mode == "DYNAMIC_PLASTIC") {
                     PetscPrintf(comm,
                         "Near-field source: mode=DYNAMIC_PLASTIC, "
@@ -2157,6 +2264,39 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         explosion_->near_field_output_per_group_radiation;
                     rl_cfg.operator_splitting_convergence_diagnostic =
                         explosion_->near_field_op_split_convergence_diag;
+
+                    // Pass-13b axis-1b 3D source ball dispatch.
+                    if (explosion_->near_field_cavity_geometry
+                        == "THREE_DIMENSIONAL") {
+                        rl_cfg.cavity_geometry =
+                            RadialLagrangianSolver::CavityGeometry::
+                                THREE_DIMENSIONAL;
+                        rl_cfg.source_3d_ball.cavity_radius_m =
+                            explosion_->near_field_3d_cavity_radius_m;
+                        rl_cfg.source_3d_ball.outer_radius_m =
+                            explosion_->near_field_3d_outer_radius_m;
+                        rl_cfg.source_3d_ball.mesh_path =
+                            explosion_->near_field_3d_mesh_path;
+                        rl_cfg.source_3d_ball.overburden_K0 =
+                            explosion_->near_field_3d_overburden_K0;
+                        rl_cfg.source_3d_ball.host_density_kg_per_m3 = rho;
+                        rl_cfg.source_3d_ball.source_depth_m = depth_m;
+                        rl_cfg.source_3d_ball.medium_label =
+                            explosion_->medium_type;
+                        if (explosion_->near_field_3d_radiation_discretization
+                            == "NODAL_FEM") {
+                            rl_cfg.source_3d_ball.radiation_discretization =
+                                Source3DBallConfig::RadiationDiscretization::
+                                    FEM_NODAL;
+                        } else {
+                            rl_cfg.source_3d_ball.radiation_discretization =
+                                Source3DBallConfig::RadiationDiscretization::
+                                    FV_CELL_CENTRED;
+                        }
+                    } else {
+                        rl_cfg.cavity_geometry =
+                            RadialLagrangianSolver::CavityGeometry::SPHERICAL;
+                    }
 
                     explosion_->radial_solver.setConfig(rl_cfg);
                     explosion_->radial_solver.initialize();

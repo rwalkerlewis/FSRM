@@ -344,7 +344,7 @@ if(GTest_FOUND)
     add_test(NAME Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep COMMAND run_physics_tests --gtest_filter=Pass11OuterBCTest.Salmon549mFreeFieldBCSweep)
     add_test(NAME Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage COMMAND run_physics_tests --gtest_filter=Pass11ANEOSHugoniotTest.GraniteHugoniotMatchesShockData_FullCoverage)
     add_test(NAME Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage COMMAND run_physics_tests --gtest_filter=Pass11ANEOSHugoniotTest.SaltHugoniotMatchesShockData_FullCoverage)
-    add_test(NAME Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.ThreeDimensionalCavityGeometryThrows)
+    add_test(NAME Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryDelegates COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.ThreeDimensionalCavityGeometryDelegates)
     add_test(NAME Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.SphericalCavityGeometryDoesNotThrow)
     add_test(NAME Physics.Pass11Axis1bScaffold.Source3DBallFactoryReturnsImpl COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.Source3DBallFactoryReturnsImpl)
     add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
@@ -656,7 +656,7 @@ if(GTest_FOUND)
         Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep
         Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage
         Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage
-        Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows
+        Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryDelegates
         Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow
         Physics.Pass11Axis1bScaffold.Source3DBallFactoryReturnsImpl
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"

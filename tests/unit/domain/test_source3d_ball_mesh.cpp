@@ -201,7 +201,11 @@ TEST_F(SourceBallImplFoundationTest, FactoryReturnsValidImpl)
     auto ball = makeSource3DBall(cfg);
     ASSERT_NE(ball, nullptr);
     const std::string nm = ball->name();
-    EXPECT_NE(nm.find("pass-13a"), std::string::npos) << nm;
+    // Pass-13b: the foundation skeleton tag bumps to the physics tag.
+    // The "Source3DBallImpl" prefix and a "pass13b" substring must
+    // appear so callers can regression-check the implementation
+    // version.
+    EXPECT_NE(nm.find("pass13b"), std::string::npos) << nm;
     EXPECT_NE(nm.find("Source3DBallImpl"), std::string::npos) << nm;
 }
 
@@ -228,8 +232,12 @@ TEST_F(SourceBallImplFoundationTest, InitializeWithFixtureMeshSucceeds)
     EXPECT_EQ(ball.mesh()->numGlobalCells(), 5);
 }
 
-TEST_F(SourceBallImplFoundationTest, StepThrowsWithPass13bMessage)
+TEST_F(SourceBallImplFoundationTest, StepThrowsInFoundationNoOpMode)
 {
+    // Pass-13b: step() works on a real loaded mesh. In the foundation
+    // no-op mode (empty mesh_path) step still throws because there is
+    // no per-cell state allocated. The throw message must reference
+    // mesh_path so callers know to populate it.
     Source3DBallConfig cfg;
     cfg.mesh_path = "";
     Source3DBallImpl ball;
@@ -244,7 +252,35 @@ TEST_F(SourceBallImplFoundationTest, StepThrowsWithPass13bMessage)
         what = e.what();
     }
     EXPECT_TRUE(caught);
-    EXPECT_NE(what.find("pass-13b"), std::string::npos) << what;
+    EXPECT_NE(what.find("mesh_path"), std::string::npos) << what;
+}
+
+TEST_F(SourceBallImplFoundationTest, StepWithFixtureMeshAdvancesState)
+{
+    // Pass-13b: with a real loaded mesh, step() returns without
+    // throwing and advances the per-cell state. We exercise the
+    // smallest fixture so the gate stays fast.
+    Source3DBallConfig cfg;
+    cfg.mesh_path = fixtureBasename("cube_5tet");
+    cfg.asymmetric_overburden = false;  // skip the IC for this gate
+    cfg.host_density_kg_per_m3 = 2700.0;
+    cfg.bulk_modulus_K_pa = 30.0e9;
+    cfg.shear_modulus_G_pa = 18.0e9;
+    cfg.dp3d_alpha = 0.30;
+    cfg.dp3d_k_pa = 70.0e6;
+    Source3DBallImpl ball;
+    EXPECT_NO_THROW(ball.initialize(cfg));
+    EXPECT_TRUE(ball.isInitialized());
+
+    EXPECT_NO_THROW(ball.step(1.0e-9));
+    EXPECT_GT(ball.numLocalCells(), 0);
+    // No strain rate set -> stress unchanged from IC (zeros here).
+    const auto& sigma = ball.sigmaCells();
+    for (const auto& s : sigma) {
+        for (int i = 0; i < 6; ++i) {
+            EXPECT_EQ(s[i], 0.0);
+        }
+    }
 }
 
 TEST_F(SourceBallImplFoundationTest, MomentTensorIsZeroBeforeStep)

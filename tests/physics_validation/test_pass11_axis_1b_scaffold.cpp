@@ -1,19 +1,20 @@
 /**
  * @file test_pass11_axis_1b_scaffold.cpp
- * @brief Pass-11 / pass-13a regression gates for the axis-1b scaffold
- *        and foundation slice. Verifies:
+ * @brief Pass-11 / pass-13a / pass-13b axis-1b regression gates.
  *
- *  1. cavity_geometry = THREE_DIMENSIONAL throws on
- *     RadialLagrangianSolver::setConfig. Pass-13a foundation kept
- *     this throw because the host-side delegation from
- *     RadialLagrangianSolver into Source3DBallImpl is pass-13b/c work;
- *     the throw message now references pass-13 explicitly.
- *  2. cavity_geometry = SPHERICAL is the byte-identical default that
- *     does not exercise the scaffold code.
- *  3. Pass-13a foundation: makeSource3DBall() no longer throws and
- *     returns a Source3DBallImpl instance whose name() reports the
- *     foundation-skeleton tag. Replaces the pass-11
- *     Source3DBallFactoryThrows assertion.
+ * Pass-13b updates the 13a throw gate to a positive delegation gate:
+ *  1. cavity_geometry = THREE_DIMENSIONAL no longer throws on
+ *     setConfig (pass-13a kept the throw with a "pass-13b/c follow-on"
+ *     message; pass-13b lands the host-side delegation into
+ *     Source3DBallImpl).
+ *  2. After successful setConfig under THREE_DIMENSIONAL the host's
+ *     name() reports the pass-13b 3D impl tag.
+ *  3. SPHERICAL (default) does not throw and reports the legacy 1D
+ *     name. Backward-compat for the 32 historic-event integration
+ *     tests.
+ *  4. makeSource3DBall() returns a Source3DBallImpl whose name()
+ *     reports the pass-13b physics tag (pass-13a foundation tag
+ *     bumped on this branch).
  */
 
 #include <gtest/gtest.h>
@@ -41,10 +42,10 @@ class Pass11Axis1bScaffoldTest : public ::testing::Test
 {
 };
 
-// =========================================================================
-// 1. cavity_geometry = THREE_DIMENSIONAL throws.
-// =========================================================================
-TEST_F(Pass11Axis1bScaffoldTest, ThreeDimensionalCavityGeometryThrows)
+namespace
+{
+
+UndergroundExplosionSource makeTestSource()
 {
     UndergroundExplosionSource src;
     src.yield_kt = 1.0;
@@ -55,7 +56,18 @@ TEST_F(Pass11Axis1bScaffoldTest, ThreeDimensionalCavityGeometryThrows)
     src.host_vs = 3200.0;
     src.host_porosity = 0.005;
     src.overburden_stress = src.host_density * 9.81 * src.depth;
+    return src;
+}
 
+}  // namespace
+
+// =========================================================================
+// 1. Pass-13b: cavity_geometry = THREE_DIMENSIONAL delegates to
+//    Source3DBallImpl. The pass-11/13a throw is gone.
+// =========================================================================
+TEST_F(Pass11Axis1bScaffoldTest, ThreeDimensionalCavityGeometryDelegates)
+{
+    auto src = makeTestSource();
     RadialLagrangianSolver solver;
     solver.setSource(src);
     MieGruneisenEOS eos;
@@ -71,42 +83,44 @@ TEST_F(Pass11Axis1bScaffoldTest, ThreeDimensionalCavityGeometryThrows)
     cfg.cavity_geometry =
         RadialLagrangianSolver::CavityGeometry::THREE_DIMENSIONAL;
     cfg.tillotson_params = TillotsonParameterSets::granite();
+    // Foundation no-op mode: empty mesh path so the 3D impl
+    // initialises without touching the disk. This is the host-
+    // delegation gate; the full mesh-loaded path is exercised by the
+    // SphericalCellLevelEquivalenceVs1D physics-validation gate.
+    cfg.source_3d_ball.mesh_path = "";
 
-    // Throw must contain a clear "pass-12 work" or "axis-1b" diagnostic.
-    bool caught = false;
-    std::string what;
-    try {
-        solver.setConfig(cfg);
-    } catch (const std::runtime_error& e) {
-        caught = true;
-        what = e.what();
+    EXPECT_NO_THROW(solver.setConfig(cfg))
+        << "Pass-13b: cavity_geometry = THREE_DIMENSIONAL must no "
+           "longer throw. The host now constructs a Source3DBallImpl "
+           "and delegates step / moment-tensor accessors to it.";
+
+    const std::string nm = solver.name();
+    EXPECT_NE(nm.find("Source3DBallImpl"), std::string::npos)
+        << "name() should report the 3D impl tag when delegation is "
+           "active: " << nm;
+    EXPECT_NE(nm.find("pass13b"), std::string::npos)
+        << "name() should reference pass-13b: " << nm;
+
+    // getMomentTensor / getMomentRateTensor remain zero in pass-13b
+    // (intentionally; surface-integral extraction is pass-13c).
+    std::array<double, 6> M{};
+    std::array<double, 6> Mdot{};
+    solver.getMomentTensor(M);
+    solver.getMomentRateTensor(Mdot);
+    for (int i = 0; i < 6; ++i) {
+        EXPECT_EQ(M[i], 0.0)
+            << "Pass-13b: M[i] must be zero pending pass-13c surface "
+               "integration; M[" << i << "] = " << M[i];
+        EXPECT_EQ(Mdot[i], 0.0);
     }
-    EXPECT_TRUE(caught)
-        << "RadialLagrangianSolver must throw when cavity_geometry = "
-           "THREE_DIMENSIONAL is selected (pass-13b/c host delegation "
-           "still pending; foundation slice ships only the leaf "
-           "Source3DBallImpl).";
-    EXPECT_NE(what.find("pass-13"), std::string::npos)
-        << "Throw message should reference pass-13: " << what;
-    EXPECT_NE(what.find("axis-1b"), std::string::npos)
-        << "Throw message should reference axis-1b: " << what;
 }
 
 // =========================================================================
-// 2. SPHERICAL (default) does not throw.
+// 2. SPHERICAL (default) does not throw and reports the legacy 1D name.
 // =========================================================================
 TEST_F(Pass11Axis1bScaffoldTest, SphericalCavityGeometryDoesNotThrow)
 {
-    UndergroundExplosionSource src;
-    src.yield_kt = 1.0;
-    src.depth = 500.0;
-    src.location = {0.0, 0.0, -500.0};
-    src.host_density = 2700.0;
-    src.host_vp = 5500.0;
-    src.host_vs = 3200.0;
-    src.host_porosity = 0.005;
-    src.overburden_stress = src.host_density * 9.81 * src.depth;
-
+    auto src = makeTestSource();
     RadialLagrangianSolver solver;
     solver.setSource(src);
     MieGruneisenEOS eos;
@@ -124,12 +138,17 @@ TEST_F(Pass11Axis1bScaffoldTest, SphericalCavityGeometryDoesNotThrow)
     cfg.tillotson_params = TillotsonParameterSets::granite();
 
     EXPECT_NO_THROW(solver.setConfig(cfg))
-        << "SPHERICAL cavity_geometry is the pass-10 default and must not throw.";
+        << "SPHERICAL cavity_geometry is the pass-10 default and must "
+           "not throw.";
+    const std::string nm = solver.name();
+    EXPECT_EQ(nm.find("Source3DBallImpl"), std::string::npos)
+        << "Under SPHERICAL the host should report the legacy 1D "
+           "name without the 3D impl tag: " << nm;
 }
 
 // =========================================================================
-// 3. Pass-13a foundation: makeSource3DBall() returns a Source3DBallImpl.
-//    Replaces the pass-11 Source3DBallFactoryThrows assertion.
+// 3. Pass-13b: makeSource3DBall() returns a Source3DBallImpl with the
+//    pass-13b physics tag.
 // =========================================================================
 TEST_F(Pass11Axis1bScaffoldTest, Source3DBallFactoryReturnsImpl)
 {
@@ -141,12 +160,12 @@ TEST_F(Pass11Axis1bScaffoldTest, Source3DBallFactoryReturnsImpl)
 
     std::unique_ptr<Source3DBall> ball;
     EXPECT_NO_THROW({ ball = makeSource3DBall(cfg); })
-        << "Pass-13a foundation: makeSource3DBall must construct without "
-           "throwing. The pass-11 throw has been replaced with a "
-           "Source3DBallImpl instance.";
+        << "Pass-13b: makeSource3DBall must construct without "
+           "throwing. The pass-11 throw was replaced in pass-13a; "
+           "pass-13b bumps the implementation tag.";
     ASSERT_NE(ball, nullptr);
     const std::string nm = ball->name();
-    EXPECT_NE(nm.find("pass-13a"), std::string::npos)
-        << "Source3DBallImpl::name() should tag the pass-13a foundation "
-           "skeleton: " << nm;
+    EXPECT_NE(nm.find("pass13b"), std::string::npos)
+        << "Source3DBallImpl::name() should tag the pass-13b physics "
+           "implementation: " << nm;
 }
