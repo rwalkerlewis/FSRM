@@ -33,6 +33,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_explosion_source.cpp
     unit/domain/test_source3d_ball_mesh.cpp
     unit/domain/test_drucker_prager_3d.cpp
+    unit/domain/test_source_ball_overburden.cpp
     unit/domain/test_mueller_murphy_moment_consistency.cpp
     unit/domain/test_co2_properties.cpp
     unit/domain/test_flash_calculation.cpp
