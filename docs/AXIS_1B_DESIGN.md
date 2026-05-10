@@ -45,11 +45,11 @@ solver that resolves:
 
 ## Pass-13 slicing
 
-| Slice | Deliverable |
-|-------|-------------|
-| pass-13a foundation | TetGen pre-process tool, `Source3DBallMesh` (DMPlex create + distribute + per-vertex marker label), `Source3DBallImpl` skeleton (initialize loads mesh; step throws), unit tests, factory throw replaced. **This document's pass-13a section reflects what landed.** |
-| pass-13b physics | 3D Drucker-Prager radial-return constitutive (Simo & Hughes 1998), asymmetric overburden initial state, cell-centred FV grey radiation diffusion (matter Newton outer loop), host-side `RadialLagrangianSolver -> Source3DBallImpl` delegation, ConfigReader plumbing for `[NEAR_FIELD_SOURCE]` 3D sub-keys. |
-| pass-13c validation | Surface-integral moment-tensor extraction (Day & McLaughlin 1991), HDF5 + XDMF spatial-profile output, `examples/20_salmon_1964/paraview/3d.pvsm`, end-to-end MPI=4 Salmon-with-overburden integration test, spherical-symmetry regression-equivalence headline gate vs pass-10 1D, CLVD-content-with-overburden gate, cavity aspect ratio gate. |
+| Slice | Deliverable | Status |
+|-------|-------------|--------|
+| pass-13a foundation | TetGen pre-process tool, `Source3DBallMesh` (DMPlex create + distribute + per-vertex marker label), `Source3DBallImpl` skeleton (initialize loads mesh; step throws), unit tests, factory throw replaced. | LANDED (PR #129) |
+| pass-13b physics | 3D Drucker-Prager radial-return constitutive (Simo & Hughes 1998), asymmetric overburden initial state, cell-centred FV grey radiation diffusion (PETSc Mat + KSP + matter Newton outer loop), host-side `RadialLagrangianSolver -> Source3DBallImpl` delegation, ConfigReader plumbing for `[NEAR_FIELD_SOURCE]` 3D sub-keys, headline cell-level equivalence gate vs 1D scalar reduction. | LANDED (this branch) |
+| pass-13c validation | Surface-integral moment-tensor extraction (Day & McLaughlin 1991), HDF5 + XDMF spatial-profile output, `examples/20_salmon_1964/paraview/3d.pvsm`, end-to-end MPI=4 Salmon-with-overburden integration test, moment-tensor regression-equivalence headline gate vs pass-10 1D, CLVD-content-with-overburden gate, cavity aspect ratio gate. | PENDING |
 
 Pass-14+ continues with multigroup-3D radiation, tabulated EOS /
 opacity in 3D, RK3-SSP / BDF2 in 3D, and axis-1d 3D far-field FEM
@@ -80,11 +80,16 @@ Pass-13a foundation adds:
   load works; `step` and friends are pass-13b/c work and throw or
   return zeros).
 
-Pass-13b will wire the host `RadialLagrangianSolver` to instantiate
-`Source3DBallImpl` when `cavity_geometry = THREE_DIMENSIONAL`.
-Pass-13a kept the existing `RadialLagrangianSolver::setConfig` throw
-because foundation is leaf-only; the throw message now references
-pass-13b/c instead of pass-12.
+Pass-13b lands the host wiring: `RadialLagrangianSolver::setConfig`
+constructs a `Source3DBallImpl` when `cavity_geometry =
+THREE_DIMENSIONAL` and calls `initialize()` with the full sub-config
+populated from the parsed `[NEAR_FIELD_SOURCE]` keys. `step()`
+forwards `dt` to the impl; `getMomentTensor` and
+`getMomentRateTensor` forward as well (returning zeros from the impl
+in pass-13b; surface-integral extraction is pass-13c). A new
+`name()` accessor reports
+`RadialLagrangianSolver+Source3DBallImpl_v1_pass13b_physics` when
+the delegation is active.
 
 ## Mesh strategy
 

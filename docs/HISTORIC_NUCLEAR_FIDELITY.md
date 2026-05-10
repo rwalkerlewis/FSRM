@@ -1489,3 +1489,145 @@ regression test now asserts the new factory behaviour
 (non-throwing). New unit tests pass at MPI=1 (Docker default) and
 the mesh-distribution gates carry MPI=2 and MPI=4 invariants where
 the build runner provides them.
+
+## 4m. Closed in pass 13b (axis-1b physics slice)
+
+**Scope.** Pass-13a foundation only loaded the 3D mesh; pass-13b
+lands the matter and radiation physics on that mesh. The pass-13a
+`Source3DBallImpl::step` throw is replaced with a working per-cell
+update that runs the 3D Drucker-Prager radial return on the
+host-supplied strain rate, the asymmetric overburden initial state
+on the cell centroids, and the cell-centred FV grey radiation
+diffusion via PETSc Mat / Vec / KSP. The host-side
+`RadialLagrangianSolver` delegation to `Source3DBallImpl` lands so
+`cavity_geometry = THREE_DIMENSIONAL` no longer throws at
+`setConfig`. ConfigReader plumbing for the new `[NEAR_FIELD_SOURCE]`
+3D sub-keys lands in `src/core/Simulator.cpp`. `getMomentTensor` and
+`getMomentRateTensor` continue to return zeros intentionally;
+surface-integral extraction is pass-13c.
+
+**Threads landed in pass-13b:**
+
+1. **3D Drucker-Prager radial return (Simo & Hughes 1998 sec 3.6).**
+   `include/domain/explosion/DruckerPrager3D.hpp` ships the linear
+   yield surface `f = sqrt(J2) - alpha I1/3 - k`, an explicit (single
+   plastic-multiplier) projection, per-medium parameter sets
+   (granite, tuff, salt, alluvium), and the standard isotropic
+   elastic stiffness operator. Voigt convention with engineering
+   shear in indices 3..5; the projection lands the trial stress on
+   the yield surface to roundoff.
+
+2. **Asymmetric overburden initial state (Hoek & Brown 1980; Patton
+   1991).** `include/domain/explosion/SourceBallOverburden.hpp` is a
+   pure function that maps a cell centroid to the 6-Voigt initial
+   stress under depth-loaded overburden. `K_0 = 1.0` is the
+   isotropic lithostatic limit; `K_0 = 0.5` is the realistic
+   crustal default. The asymmetric IC seeds the cavity-asymmetry
+   physics that the spherical 1D solver could not represent.
+
+3. **Cell-centred FV grey radiation diffusion in 3D.**
+   `include/domain/explosion/SourceBallRadiation3D.hpp` and
+   `src/domain/explosion/SourceBallRadiation3D.cpp` ship a
+   backward-Euler implicit diffusion solver with Newton outer matter
+   coupling, on the unstructured 3D mesh. PETSc Mat / Vec / KSP
+   under the pass-12 parallel KSP convention (`bjacobi+sub_lu` at
+   MPI > 1, plain LU at MPI = 1). Vacuum Marshak BC at the elastic
+   outer surface; prescribed-flux (default zero) at the cavity
+   inner surface.
+
+4. **`Source3DBallImpl::step()` body wired.** The pass-13a throw is
+   replaced with a real per-cell update: walk owned cells, apply
+   DP3D radial return driven by the host-supplied strain rate,
+   accumulate plastic dissipation into internal energy, then advance
+   the radiation diffusion + matter coupling. The `name()` tag bumps
+   from `Source3DBallImpl_pass-13a_foundation_skeleton` to
+   `Source3DBallImpl_v1_pass13b_physics`. `initialize()` additionally
+   walks the DMPlex once to build per-cell volume / centroid lists
+   and the internal-face / boundary-face adjacency the radiation
+   solver consumes; classifies boundary faces as CAVITY vs ELASTIC
+   by peeking at the Source3DBallMesh vertex-marker label; applies
+   the asymmetric overburden IC when `cfg.asymmetric_overburden` is
+   true.
+
+5. **Host-side delegation lands.** `RadialLagrangianSolver::setConfig`
+   no longer throws on `cavity_geometry = THREE_DIMENSIONAL`. It
+   constructs a `Source3DBallImpl`, copies the host material
+   defaults into the source-ball sub-config, and calls
+   `initialize()`. `step()` forwards `dt` to the impl;
+   `getMomentTensor` and `getMomentRateTensor` forward to the impl
+   (which returns zero in pass-13b). A new `name()` accessor reports
+   `RadialLagrangianSolver+Source3DBallImpl_v1_pass13b_physics` when
+   the delegation is active.
+
+6. **ConfigReader plumbing.** Six new keys parseable under
+   `[NEAR_FIELD_SOURCE]`: `cavity_geometry`, `cavity_radius_m`,
+   `outer_radius_m`, `mesh_path`, `overburden_K0`,
+   `source_ball_radiation_discretization`. Schema-validated with
+   warn-and-fall-back-to-SPHERICAL semantics on unknown values. The
+   32 historic-event configs default to `SPHERICAL` and remain
+   byte-identical.
+
+7. **Tests landed.** Twelve new unit gates plus three new
+   physics-validation gates:
+
+   | Test | Verifies |
+   |------|----------|
+   | `Unit.DruckerPrager3D.PureElasticPredictorNoPlasticStrain` | Sub-yield trial passes through unchanged. |
+   | `Unit.DruckerPrager3D.YieldHitProjectsToSurface` | Trial above yield projects to surface within roundoff. |
+   | `Unit.DruckerPrager3D.SphericalSymmetryReducesTo1D` | 3D return reproduces the 1D scalar return under spherical-symmetric loading. |
+   | `Unit.DruckerPrager3D.MediumParameterRoundTrip` | granite, tuff, salt, alluvium presets load and dispatch by name. |
+   | `Unit.Overburden.K0EqualsOneIsotropic` | K_0 = 1 gives isotropic stress. |
+   | `Unit.Overburden.K0EqualsHalfAnisotropic` | K_0 = 0.5 gives sigma_xx / sigma_zz = 0.5. |
+   | `Unit.Overburden.DepthGradientFromGravity` | d sigma_zz / dz = +rho g. |
+   | `Unit.SourceBallRadiation3D.UniformFieldStable` | Uniform E_r in radiative equilibrium remains uniform. |
+   | `Unit.SourceBallRadiation3D.EnergyConservationNoCoupling` | Total radiation energy conserved over 50 steps with negligible coupling. |
+   | `Unit.SourceBallRadiation3D.EquilibrationToMatter` | E_r approaches a T_m^4 (LTE limit) within 1 percent. |
+   | `Unit.SourceBall.ImplFoundation.StepWithFixtureMeshAdvancesState` | Pass-13b: step() works on a real loaded mesh. |
+   | `Physics.Source3DBall.SphericalCellLevelEquivalenceVs1D` (HEADLINE) | K_0 = 1 isotropic IC + uniform spherical-symmetric strain rate -> per-cell stress and plastic strain match the 1D scalar reduction within 10 percent. |
+   | `Physics.Source3DBall.AsymmetricOverburdenSeedsAsymmetricFlow` | K_0 = 0.5 initial stress field has sigma_xx / sigma_zz = 0.5 per cell (IC asymmetry verified; the actual flow-asymmetry gate is pass-13c). |
+   | `Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault` | Default SPHERICAL configuration does not engage 3D delegation. |
+   | `Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryDelegates` | Pass-13a throw regressed to positive delegation gate. |
+
+**Out of scope (named for pass-13c):**
+
+- Surface-integral moment-tensor extraction (pass-13c).
+- `getMomentTensor` / `getMomentRateTensor` returning anything other
+  than zeros (pass-13c).
+- HDF5 / XDMF spatial-profile output for the 3D mesh (pass-13c).
+- `examples/20_salmon_1964/paraview/3d.pvsm` ParaView state file
+  (pass-13c).
+- End-to-end MPI=4 Salmon-with-overburden integration test
+  producing seismograms (pass-13c).
+- CLVD-content-with-overburden moment-tensor gate (pass-13c).
+- Cavity aspect ratio gate (pass-13c).
+- 3D Lagrangian face advection / mass-conservation hydro
+  (pass-14+; pass-13b's per-cell update consumes externally
+  supplied strain rates, the same pattern the pass-10 1D radial
+  solver uses internally for its substep logic).
+- Multigroup radiation in 3D (pass-14).
+- Tabulated EOS / opacity in 3D (pass-14).
+- 3D far-field FEM coupling (axis-1d, future pass).
+
+**Backward compatibility.** `cavity_geometry = SPHERICAL` remains
+the default and entirely bypasses pass-13b code. All 32
+historic-event integration tests pass byte-identically under their
+pinned configs. The pass-11 / pass-13a throw test regresses to a
+positive delegation gate that asserts the new `name()` reports
+`Source3DBallImpl` with the `pass13b` substring.
+
+**Verification.** Per-label CTest sweep inside `fsrm-ci:local`:
+
+- `unit` (48 tests): all pass.
+- `functional` (11 tests): all pass.
+- `physics_validation` (80 tests): all pass; two known-disabled
+  tests (`Physics.SCEC.TPV5`, `Physics.LockedFaultTransparency`)
+  remain disabled per `docs/SOLVER_STATE.md`.
+- `iris_validation` (5 tests): all pass.
+- `integration` (full sweep): all pass; six pre-existing fault
+  failures from `docs/SOLVER_STATE.md` remain out of scope.
+
+The `SphericalCellLevelEquivalenceVs1D` headline gate lands at near
+machine precision (well inside the factor 1.1 envelope from the
+spec) because the 3D and 1D paths both call the DP3D radial return
+under the spherical-symmetric reduction. The asymmetric IC gate
+verifies sigma_xx / sigma_zz = 0.5 per cell to roundoff.

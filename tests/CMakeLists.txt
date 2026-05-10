@@ -32,6 +32,9 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_seismic_source.cpp
     unit/domain/test_explosion_source.cpp
     unit/domain/test_source3d_ball_mesh.cpp
+    unit/domain/test_drucker_prager_3d.cpp
+    unit/domain/test_source_ball_overburden.cpp
+    unit/domain/test_source_ball_radiation_3d.cpp
     unit/domain/test_mueller_murphy_moment_consistency.cpp
     unit/domain/test_co2_properties.cpp
     unit/domain/test_flash_calculation.cpp
@@ -99,6 +102,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_pass11_outer_bc.cpp
     physics_validation/test_pass11_aneos_hugoniot.cpp
     physics_validation/test_pass11_axis_1b_scaffold.cpp
+    physics_validation/test_pass13b_axis_1b_physics.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -341,12 +345,19 @@ if(GTest_FOUND)
     add_test(NAME Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep COMMAND run_physics_tests --gtest_filter=Pass11OuterBCTest.Salmon549mFreeFieldBCSweep)
     add_test(NAME Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage COMMAND run_physics_tests --gtest_filter=Pass11ANEOSHugoniotTest.GraniteHugoniotMatchesShockData_FullCoverage)
     add_test(NAME Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage COMMAND run_physics_tests --gtest_filter=Pass11ANEOSHugoniotTest.SaltHugoniotMatchesShockData_FullCoverage)
-    add_test(NAME Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.ThreeDimensionalCavityGeometryThrows)
+    add_test(NAME Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryDelegates COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.ThreeDimensionalCavityGeometryDelegates)
     add_test(NAME Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.SphericalCavityGeometryDoesNotThrow)
     add_test(NAME Physics.Pass11Axis1bScaffold.Source3DBallFactoryReturnsImpl COMMAND run_physics_tests --gtest_filter=Pass11Axis1bScaffoldTest.Source3DBallFactoryReturnsImpl)
+    add_test(NAME Physics.Source3DBall.SphericalCellLevelEquivalenceVs1D COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.SphericalCellLevelEquivalenceVs1D)
+    add_test(NAME Physics.Source3DBall.AsymmetricOverburdenSeedsAsymmetricFlow COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.AsymmetricOverburdenSeedsAsymmetricFlow)
+    add_test(NAME Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.BackwardCompatSphericalDefaultActiveByDefault)
     add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
     add_test(NAME Unit.SourceBall.ImplFoundation COMMAND run_unit_tests --gtest_filter=SourceBallImplFoundationTest.*)
     add_test(NAME Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation COMMAND run_unit_tests --gtest_filter=BackwardCompatTest.Source3DBallScaffoldThrowGoneOnInstantiation)
+    # Pass-13b axis-1b physics: Drucker-Prager 3D, overburden, radiation 3D unit gates.
+    add_test(NAME Unit.DruckerPrager3D COMMAND run_unit_tests --gtest_filter=DruckerPrager3D.*)
+    add_test(NAME Unit.Overburden COMMAND run_unit_tests --gtest_filter=Overburden.*)
+    add_test(NAME Unit.SourceBallRadiation3D COMMAND run_unit_tests --gtest_filter=SourceBallRadiation3D.*)
     add_test(NAME Physics.MomentTensorSource          COMMAND run_physics_tests --gtest_filter=MomentTensorSourceTest.*)
     add_test(NAME Physics.ExplosionDamageZone         COMMAND run_physics_tests --gtest_filter=ExplosionDamageZoneTest.*)
     add_test(NAME Unit.PressurizedFractureCallbacks   COMMAND run_physics_tests --gtest_filter=PressurizedFractureValidationTest.*)
@@ -557,6 +568,9 @@ if(GTest_FOUND)
         Unit.SourceBall.Mesh
         Unit.SourceBall.ImplFoundation
         Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation
+        Unit.DruckerPrager3D
+        Unit.Overburden
+        Unit.SourceBallRadiation3D
         PROPERTIES TIMEOUT 120 LABELS "unit"
     )
 
@@ -646,9 +660,12 @@ if(GTest_FOUND)
         Physics.Pass11OuterBC.Salmon549mFreeFieldBCSweep
         Physics.TabulatedEOS.GraniteHugoniotMatchesShockData_FullCoverage
         Physics.TabulatedEOS.SaltHugoniotMatchesShockData_FullCoverage
-        Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryThrows
+        Physics.Pass11Axis1bScaffold.ThreeDimensionalCavityGeometryDelegates
         Physics.Pass11Axis1bScaffold.SphericalCavityGeometryDoesNotThrow
         Physics.Pass11Axis1bScaffold.Source3DBallFactoryReturnsImpl
+        Physics.Source3DBall.SphericalCellLevelEquivalenceVs1D
+        Physics.Source3DBall.AsymmetricOverburdenSeedsAsymmetricFlow
+        Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 

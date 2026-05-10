@@ -221,3 +221,62 @@ in this report are unchanged by pass-12. The pass-12 work shipped:
 See `docs/HISTORIC_NUCLEAR_FIDELITY.md` "4k. Closed in pass 12" for
 the full pass-12 closeout. Pass-13 rotates to axis-1b (3D source
 ball implementation on the pass-11 scaffold).
+
+## Pass 13 (axis-1b 3D source ball, in progress)
+
+Pass-13 was originally planned as a single pass but the scope (TetGen
+integration, 3D DMPlex, 3D Drucker-Prager, asymmetric overburden, 3D
+radiation diffusion, surface-integral moment extraction, host
+delegation, MPI=4 Salmon end-to-end) exceeded one pass. Pass-13 is
+split into three slices: 13a foundation (PR #129, merged), 13b
+physics (this branch), 13c validation (pending).
+
+### Pass 13a (axis-1b foundation slice, merged)
+
+TetGen pre-process tool, `Source3DBallMesh` (DMPlex create +
+distribute + per-vertex marker label), `Source3DBallImpl` skeleton
+whose `initialize` is real but whose `step` throws, six unit gates,
+and the `AXIS_1B_DESIGN.md` three-sub-pass roadmap. See
+`docs/HISTORIC_NUCLEAR_FIDELITY.md` "4l. Closed in pass 13a" for
+detail.
+
+### Pass 13b (axis-1b physics slice, this branch)
+
+Replaces the pass-13a `step` throw with a working 3D matter +
+radiation update on the unstructured mesh:
+
+- 3D Drucker-Prager radial-return constitutive (Simo & Hughes 1998
+  sec 3.6), header-only, four unit gates.
+- Asymmetric overburden initial state (Hoek & Brown 1980, Patton
+  1991), pure function, three unit gates.
+- 3D cell-centred FV grey radiation diffusion (Mihalas & Mihalas
+  1984; LeVeque 2002 sec 9), backward Euler + PETSc KSP under the
+  pass-12 parallel KSP convention, three unit gates.
+- Host-side `RadialLagrangianSolver -> Source3DBallImpl` delegation;
+  `cavity_geometry = THREE_DIMENSIONAL` no longer throws.
+- `[NEAR_FIELD_SOURCE]` ConfigReader plumbing for the six new 3D
+  sub-keys.
+- Headline `SphericalCellLevelEquivalenceVs1D` gate at near machine
+  precision (well inside the factor 1.1 envelope from the spec).
+- IC asymmetry verified at K_0 = 0.5; the actual flow-asymmetry gate
+  waits on pass-13c hydro and surface-integral extraction.
+
+`getMomentTensor` and `getMomentRateTensor` continue to return zeros
+intentionally; surface-integral extraction is pass-13c. The Salmon /
+Chagan CavityRadius gates remain pinned at the same envelopes
+because the moment tensor still drives the far-field magnitude;
+their closure waits on pass-13c.
+
+See `docs/HISTORIC_NUCLEAR_FIDELITY.md` "4m. Closed in pass 13b" for
+detail.
+
+### Pass 13c (axis-1b validation slice, pending)
+
+Surface-integral moment-tensor extraction at the elastic radius
+(Day & McLaughlin 1991), HDF5 + XDMF spatial-profile output for the
+3D mesh, ParaView state file for `examples/20_salmon_1964`,
+end-to-end MPI=4 Salmon-with-overburden integration test producing
+seismograms, headline moment-tensor regression-equivalence gate vs
+pass-10 1D, CLVD-content-with-overburden gate, cavity aspect ratio
+gate. Pass-13c is expected to close the Salmon CavityRadius gate to
+factor 1.5 (or better) and the Chagan CavityRadius gate similarly.
