@@ -1631,3 +1631,165 @@ machine precision (well inside the factor 1.1 envelope from the
 spec) because the 3D and 1D paths both call the DP3D radial return
 under the spherical-symmetric reduction. The asymmetric IC gate
 verifies sigma_xx / sigma_zz = 0.5 per cell to roundoff.
+
+## 4n. Closed in pass 13c (axis-1b validation slice + wavefield infrastructure + new examples)
+
+Pass-13c is the third and final slice of the pass-13 campaign on
+axis-1b. Pass-13a (PR #129) shipped the foundation; pass-13b (PR
+#130) shipped the matter and radiation physics; pass-13c lands the
+validation V&V infrastructure plus two additional threads (wavefield
+output for the FEM time loop, new academic verification anchors).
+
+### Architectural reality (constraint that shaped the validation slice)
+
+Pass-13b consumes externally supplied strain rates; 3D Lagrangian
+face advection is pass-14+. With symmetric strain rates from the 1D
+side, the cavity geometry stays spherical even under asymmetric
+overburden; only the stress and plastic-strain fields acquire
+asymmetric content. CLVD content from stress asymmetry alone is
+measurable but small (full literature 0.05-0.30 range requires
+pass-14 advection). Cavity aspect ratio stays at 1.00 within solver
+noise. Pass-13c adapts: ships CLVD as a best-effort gate
+(stress-asymmetry-only, > 0.01 ratio threshold) and defers the
+literature-range CLVD ratio + cavity aspect ratio gate to pass-14.
+
+### What landed (Thread A: axis-1b validation)
+
+1. **Surface-integral moment-tensor extraction.**
+   `Source3DBallImpl::recomputeMomentTensorFromSurface(dt)` accumulates
+   `M_ij = integral_S [sigma_jk(t) - sigma_jk(0)] * n_k * x_i dA` over
+   the elastic-radius spherical boundary on each rank, then
+   MPI_Allreduces to the global tensor (Day & McLaughlin 1991 sec 4;
+   Aki & Richards 2002 ch 4). Mdot is the finite difference of
+   successive M(t) snapshots. Pass-13b `getMomentTensor` /
+   `getMomentRateTensor` now return real signals.
+
+2. **Sign-corrected outward normals.** `buildCellAndFaceLists` extends
+   the pass-13b face traversal to cache, for each ELASTIC-classified
+   boundary face: cell index, area, centroid (local mesh frame), and
+   outward normal (sign-corrected via the dot product with the
+   face-cell vector).
+
+3. **`name()` tag bumps** from `Source3DBallImpl_v1_pass13b_physics`
+   to `Source3DBallImpl_v1_pass13c_validation`. The host
+   `RadialLagrangianSolver+Source3DBallImpl_v1_pass13c_validation`
+   tag mirrors.
+
+4. **Cavity-radius extremes accessor.**
+   `Source3DBallImpl::cavityRadiusExtremes` walks the mesh's vertex
+   coordinates filtered by the SourceBallVertexMarker label,
+   MPI-reduces the min and max. Pass-13c reports r_min == r_max within
+   solver noise (no advection); pass-14 will populate the asymmetric
+   extrema.
+
+### What landed (Thread B: wavefield output infrastructure)
+
+5. **New `[OUTPUT]` config keys.** All defaults are NONE so the 32
+   historic-event tests stay byte-identical:
+   - `wavefield_format` (NONE / VTU / HDF5_XDMF)
+   - `wavefield_cadence_steps` (default 100)
+   - `wavefield_fields` (comma-separated; default "displacement")
+   - `wavefield_output_directory` (default = output_directory)
+   - `wavefield_basename` (default "wavefield")
+   - `source_ball_3d_output_format` (NONE / HDF5_XDMF)
+   - `source_ball_3d_output_cadence_steps` (default 50)
+
+6. **Wavefield writer wired in `Simulator::MonitorFunction`.** When
+   `wavefield_format != NONE`, the post-step monitor calls
+   `writeWavefieldSnapshot()` at the configured cadence. VTU mode
+   emits one `<basename>_NNNNNN.vtu` per snapshot via
+   `PetscViewerVTKOpen`. HDF5_XDMF mode appends to a single
+   `<basename>.h5` with PETSc sequence numbers and refreshes a
+   `<basename>.xdmf` ParaView wrapper (Henderson 2007 schema,
+   Temporal collection).
+
+7. **Source-ball 3D HDF5/XDMF output.** When the explosion is in
+   `cavity_geometry = THREE_DIMENSIONAL` and
+   `source_ball_3d_output_format = HDF5_XDMF`, the monitor calls
+   `writeSourceBall3DSnapshot()` to write per-cell stress / plastic
+   strain / internal energy / radiation energy via
+   `RadialLagrangianSolver::source3DBall()`. Rank-0 single-writer
+   convention matches the pass-13b mat-assembly architecture;
+   multi-rank coalescence is pass-14.
+
+### What landed (Thread C: new examples)
+
+8. **`examples/44_lambs_problem/`.** Lamb 1904 vertical step force on
+   an elastic halfspace. 5 km cubic domain, free surface on top,
+   absorbing on sides and bottom, three surface receivers along +x at
+   ranges 500/1000/1500 m. Reference: Eringen & Suhubi 1975 vol II
+   ch 7 / Mooney 1974. Wavefield output enabled at cadence 50 steps.
+   Ships with `paraview/wavefield.pvsm`.
+
+9. **`examples/45_layered_halfspace_explosion/`.** Synthetic
+   isotropic explosion in a 4-layer Earth (sediment / upper crust /
+   lower crust / mantle). 100 km horizontal x 60 km vertical domain.
+   Reference: Haskell 1953 / Thomson 1950. Headline informal gate
+   (in README): Rg arrival time at 25 km matches v_Rg ~ 3.0 km/s
+   within 5 percent. Ships with `paraview/wavefield.pvsm`.
+
+10. **C3-C5 deferred** to a follow-up PR per the spec drop-priority
+    list (these are visualization upgrades, not verification
+    anchors).
+
+### Tests added in pass 13c
+
+| Test | Verifies |
+|------|----------|
+| `Unit.SourceBall.SurfaceIntegralMomentTensor.UniformIsotropicStressGivesIsotropicM` | M_ij = -p V delta_ij for uniform isotropic stress on closed cube. |
+| `Unit.SourceBall.SurfaceIntegralMomentTensor.PureDeviatoricStressGivesDeviatoricM` | CLVD pattern stress -> CLVD M with axis z and trace 0. |
+| `Unit.SourceBall.SurfaceIntegralMomentTensor.StressDropReferencesInitialState` | sigma == sigma_initial -> M = 0. |
+| `Unit.SourceBall.SurfaceIntegralMomentTensor.InitialStateNoStepReturnsZero` | As-loaded state has M = Mdot = 0. |
+| `Unit.SourceBall.SurfaceIntegralMomentTensor.MomentRateFiniteDifference` | Mdot = (M_2 - M_1) / dt. |
+| `Unit.SourceBall.SurfaceIntegralMomentTensor.CavityRadiusExtremesReportable` | cavityRadiusExtremes returns the cube origin (r = 0). |
+| `Physics.Source3DBall.CLVDContentWithOverburden` (HEADLINE) | K_0 = 0.5 IC + isotropic compression + low yield -> M has CLVD content; axis aligns z within 10 deg; ratio threshold 0.01. |
+| `Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing` | No-forcing run returns M = 0. |
+| `Functional.Wavefield.OutputDefaultIsNone` | Default config has wavefield_format = NONE. |
+| `Functional.Wavefield.HDF5XdmfParsesAndDefaults` | Explicit HDF5_XDMF + cadence + fields config parses. |
+| `Functional.Wavefield.XDMFTimeSeriesEmission` | XDMF wrapper enumerates 3 seeded snapshots. |
+
+### Verified gate envelopes (pass-13c highlights)
+
+- CLVDContentWithOverburden: |CLVD| / |isotropic| = 62.9 on the
+  cube_5tet fixture (gate threshold 0.01); CLVD axis cos(angle) =
+  0.999999 (gate threshold cos(10 deg) = 0.985).
+- All 32 historic-event integration tests pass byte-identically
+  under default SPHERICAL + OUTPUT NONE.
+
+### Residual (named axis-X follow-ups)
+
+- Cavity aspect ratio is 1.00 within solver noise (no advection in
+  pass-13c). Pass-14 geometric advection deliverable.
+- CLVD ratio reaches the literature 0.05-0.30 range only after the
+  pass-14 advective contribution lands; pass-13c stress-asymmetry-only
+  CLVD is best-effort.
+- A2 end-to-end MPI=4 Salmon-with-overburden integration test
+  (running to simulation completion) is deferred to a follow-up PR.
+  The infrastructure (host delegation, surface integral, wavefield
+  output) is in place; the missing piece is the Salmon-specific
+  TetGen mesh that pass-13a's policy keeps out of CI. The follow-up
+  will pre-generate the Salmon mesh, ship it under cache/, and add
+  the integration test.
+- 3D far-field FEM coupling (axis-1d, future pass).
+
+### Backward compatibility
+
+- `cavity_geometry = SPHERICAL` (default) is byte-identical to
+  pre-pass-13c for all 32 historic events.
+- `[OUTPUT] wavefield_format = NONE` (default) is byte-identical to
+  pre-pass-13c for all 32 historic events.
+- Pass-13b `name()` substring tests are updated to check for
+  "pass13c" instead of "pass13b".
+
+### Verification
+
+Per-label CTest sweep inside `fsrm-ci:local`:
+
+- `unit`: 49 tests, all pass (added Unit.SourceBall.SurfaceIntegralMomentTensor).
+- `functional`: 14 tests, all pass (added three Functional.Wavefield gates).
+- `physics_validation`: 84 tests, 82 pass + 2 pre-existing
+  GTEST_DISABLED (added Physics.Source3DBall.CLVDContentWithOverburden
+  and Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing).
+- `integration`: 90 tests, 84 pass + 6 pre-existing fault failures
+  per `docs/SOLVER_STATE.md`.
+- `iris_validation`: 5 tests, all pass.

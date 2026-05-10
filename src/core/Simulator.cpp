@@ -15,6 +15,7 @@
 #include "domain/explosion/ExplosionImpactPhysics.hpp"
 #include "domain/explosion/NearFieldExplosion.hpp"
 #include "domain/explosion/RadialLagrangian.hpp"
+#include "domain/explosion/Source3DBallImpl.hpp"
 #include "domain/explosion/TillotsonEOS.hpp"
 #include "domain/explosion/RadialLagrangianOutput.hpp"
 #include "domain/seismic/SeismometerNetwork.hpp"
@@ -593,6 +594,7 @@ struct Simulator::ExplosionCoupling {
     std::string near_field_3d_mesh_path = "";
     double near_field_3d_overburden_K0 = 0.5;
     std::string near_field_3d_radiation_discretization = "FV_CELL_CENTRED";
+    int near_field_3d_radiation_substep_cadence = 1;
 
     RadialLagrangianSolver radial_solver;
 
@@ -1182,6 +1184,72 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
         config.cfs_receiver_strike = reader.getDouble("OUTPUT", "cfs_receiver_strike", 0.0);
         config.cfs_receiver_dip = reader.getDouble("OUTPUT", "cfs_receiver_dip", 90.0);
         config.cfs_friction = reader.getDouble("OUTPUT", "cfs_friction", 0.4);
+
+        // Pass-13c wavefield output. NONE default preserves
+        // byte-identicalness with pre-pass-13c historic-event runs.
+        std::string wf_fmt =
+            reader.getString("OUTPUT", "wavefield_format", "NONE");
+        std::transform(wf_fmt.begin(), wf_fmt.end(), wf_fmt.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (wf_fmt == "NONE" || wf_fmt.empty()) {
+            wavefield_format_ = WavefieldFormat::NONE;
+        } else if (wf_fmt == "VTU") {
+            wavefield_format_ = WavefieldFormat::VTU;
+        } else if (wf_fmt == "HDF5_XDMF" || wf_fmt == "HDF5-XDMF"
+                   || wf_fmt == "XDMF" || wf_fmt == "HDF5") {
+            wavefield_format_ = WavefieldFormat::HDF5_XDMF;
+        } else {
+            if (rank == 0) {
+                PetscPrintf(comm,
+                    "WARNING: OUTPUT.wavefield_format=\"%s\" not "
+                    "recognised; falling back to NONE.\n", wf_fmt.c_str());
+            }
+            wavefield_format_ = WavefieldFormat::NONE;
+        }
+        wavefield_cadence_steps_ =
+            reader.getInt("OUTPUT", "wavefield_cadence_steps", 100);
+        if (wavefield_cadence_steps_ <= 0) wavefield_cadence_steps_ = 100;
+        wavefield_output_directory_ = reader.getString(
+            "OUTPUT", "wavefield_output_directory", output_directory_);
+        wavefield_basename_ = reader.getString(
+            "OUTPUT", "wavefield_basename", "wavefield");
+        // Field selector: comma-separated list, defaults to "displacement".
+        std::string fields_csv = reader.getString(
+            "OUTPUT", "wavefield_fields", "displacement");
+        wavefield_fields_.clear();
+        {
+            std::stringstream ss(fields_csv);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                size_t b = 0;
+                while (b < token.size() && std::isspace(static_cast<unsigned char>(token[b]))) ++b;
+                size_t e = token.size();
+                while (e > b && std::isspace(static_cast<unsigned char>(token[e - 1]))) --e;
+                if (e > b) wavefield_fields_.push_back(token.substr(b, e - b));
+            }
+            if (wavefield_fields_.empty()) {
+                wavefield_fields_.push_back("displacement");
+            }
+        }
+
+        // Pass-13c source-ball 3D output (only engages when
+        // cavity_geometry = THREE_DIMENSIONAL).
+        std::string sb3d_fmt = reader.getString(
+            "OUTPUT", "source_ball_3d_output_format", "NONE");
+        std::transform(sb3d_fmt.begin(), sb3d_fmt.end(), sb3d_fmt.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (sb3d_fmt == "HDF5_XDMF" || sb3d_fmt == "HDF5-XDMF"
+            || sb3d_fmt == "XDMF" || sb3d_fmt == "HDF5") {
+            source_ball_3d_output_format_ =
+                SourceBall3DOutputFormat::HDF5_XDMF;
+        } else {
+            source_ball_3d_output_format_ =
+                SourceBall3DOutputFormat::NONE;
+        }
+        source_ball_3d_output_cadence_steps_ = reader.getInt(
+            "OUTPUT", "source_ball_3d_output_cadence_steps", 50);
+        if (source_ball_3d_output_cadence_steps_ <= 0)
+            source_ball_3d_output_cadence_steps_ = 50;
     }
 
     // Parse seismometers (optional)
@@ -1860,6 +1928,19 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     explosion_->near_field_3d_radiation_discretization = rd_raw;
                 }
 
+                // Pass-13c performance knob: how often the radiation
+                // sub-step runs inside Source3DBallImpl::step. Default
+                // 1 (every host substep) preserves byte-identical
+                // pass-13b behaviour. End-to-end Salmon-class runs
+                // typically set this to ~100.
+                {
+                    int rcad = reader.getInt(
+                        "NEAR_FIELD_SOURCE",
+                        "source_ball_radiation_substep_cadence", 1);
+                    if (rcad < 1) rcad = 1;
+                    explosion_->near_field_3d_radiation_substep_cadence = rcad;
+                }
+
                 // Validate the 3D sub-keys when THREE_DIMENSIONAL is
                 // selected. Reject configurations that would produce a
                 // silent foundation no-op or a corrupt mesh load.
@@ -2293,6 +2374,8 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                                 Source3DBallConfig::RadiationDiscretization::
                                     FV_CELL_CENTRED;
                         }
+                        rl_cfg.source_3d_ball.radiation_substep_cadence =
+                            explosion_->near_field_3d_radiation_substep_cadence;
                     } else {
                         rl_cfg.cavity_geometry =
                             RadialLagrangianSolver::CavityGeometry::SPHERICAL;
@@ -9261,6 +9344,24 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
         ierr = sim->writeOutput(step); CHKERRQ(ierr);
     }
 
+    // Pass-13c wavefield output (orthogonal to writeOutput; defaults
+    // to NONE so byte-identical for pre-pass-13c runs).
+    if (sim->wavefield_format_ != Simulator::WavefieldFormat::NONE
+        && (step % sim->wavefield_cadence_steps_) == 0) {
+        ierr = sim->writeWavefieldSnapshot(static_cast<int>(step),
+                                           static_cast<double>(t));
+        CHKERRQ(ierr);
+    }
+    // Pass-13c source-ball 3D snapshot (only meaningful under
+    // cavity_geometry = THREE_DIMENSIONAL).
+    if (sim->source_ball_3d_output_format_
+            != Simulator::SourceBall3DOutputFormat::NONE
+        && (step % sim->source_ball_3d_output_cadence_steps_) == 0) {
+        ierr = sim->writeSourceBall3DSnapshot(static_cast<int>(step),
+                                              static_cast<double>(t));
+        CHKERRQ(ierr);
+    }
+
     // Sample seismometers (if enabled)
     if (sim->seismometers_) {
         ierr = sim->seismometers_->sample(static_cast<double>(t), U); CHKERRQ(ierr);
@@ -9482,6 +9583,216 @@ PetscErrorCode Simulator::writeOutput(int step) {
                         step, config.output_format.c_str());
         }
     }
+
+    PetscFunctionReturn(0);
+}
+
+// =========================================================================
+// Pass-13c wavefield output. NONE default preserves byte-identicalness;
+// VTU emits one .vtu per snapshot; HDF5_XDMF appends to a single
+// wavefield.h5 file with a separate XDMF wrapper for ParaView.
+// Reference: Henderson 2007 "ParaView Guide".
+// =========================================================================
+
+PetscErrorCode Simulator::writeWavefieldSnapshot(int step, double time) {
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (wavefield_format_ == WavefieldFormat::NONE) PetscFunctionReturn(0);
+
+    ierr = ensureDirectoryExists(comm, rank, wavefield_output_directory_);
+    CHKERRQ(ierr);
+
+    if (wavefield_format_ == WavefieldFormat::VTU) {
+        char vtu_path[PETSC_MAX_PATH_LEN];
+        ierr = PetscSNPrintf(vtu_path, sizeof(vtu_path),
+                             "%s/%s_%06d.vtu",
+                             wavefield_output_directory_.c_str(),
+                             wavefield_basename_.c_str(),
+                             wavefield_snapshots_written_);
+        CHKERRQ(ierr);
+        PetscViewer viewer;
+        ierr = PetscViewerVTKOpen(comm, vtu_path, FILE_MODE_WRITE, &viewer);
+        CHKERRQ(ierr);
+        ierr = PetscObjectSetName(reinterpret_cast<PetscObject>(solution),
+                                  wavefield_basename_.c_str()); CHKERRQ(ierr);
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+    } else if (wavefield_format_ == WavefieldFormat::HDF5_XDMF) {
+        std::string h5_path = wavefield_output_directory_ + "/"
+                              + wavefield_basename_ + ".h5";
+        PetscViewer viewer;
+        if (!wavefield_topology_written_) {
+            ierr = PetscViewerHDF5Open(comm, h5_path.c_str(),
+                                        FILE_MODE_WRITE, &viewer);
+            CHKERRQ(ierr);
+            ierr = DMView(dm, viewer); CHKERRQ(ierr);
+            wavefield_topology_written_ = true;
+        } else {
+            ierr = PetscViewerHDF5Open(comm, h5_path.c_str(),
+                                        FILE_MODE_APPEND, &viewer);
+            CHKERRQ(ierr);
+        }
+        ierr = DMSetOutputSequenceNumber(dm,
+                static_cast<PetscInt>(wavefield_snapshots_written_),
+                static_cast<PetscReal>(time));
+        CHKERRQ(ierr);
+        ierr = PetscObjectSetName(reinterpret_cast<PetscObject>(solution),
+                                  wavefield_basename_.c_str()); CHKERRQ(ierr);
+        ierr = VecView(solution, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+    }
+
+    wavefield_times_.push_back(time);
+    ++wavefield_snapshots_written_;
+
+    if (rank == 0 && (wavefield_snapshots_written_ % 10) == 0) {
+        PetscPrintf(comm,
+            "Wavefield snapshot %d written at step %d, t = %.6e\n",
+            wavefield_snapshots_written_, step, time);
+    }
+
+    // Always refresh the XDMF wrapper for HDF5 mode so a partial run
+    // is readable in ParaView.
+    if (wavefield_format_ == WavefieldFormat::HDF5_XDMF && rank == 0) {
+        ierr = writeWavefieldXdmfWrapper(); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::writeWavefieldXdmfWrapper() {
+    PetscFunctionBeginUser;
+    if (rank != 0) PetscFunctionReturn(0);
+    if (wavefield_format_ != WavefieldFormat::HDF5_XDMF) PetscFunctionReturn(0);
+
+    // Minimal XDMF time-series wrapper. ParaView reads the .xdmf to
+    // discover the time-series; the actual mesh + field data live in
+    // the HDF5 file. PETSc's HDF5 dataset paths follow the convention
+    // /<vec_name>/<seq_index> for per-step VecView output. The mesh
+    // topology lives in /viz/topology and /geometry under the DMPlex
+    // VTK schema; use the petsc_gen_xdmf.py helper conventions
+    // (Henderson 2007) for compatibility with the standard tooling.
+    std::string xdmf_path = wavefield_output_directory_ + "/"
+                            + wavefield_basename_ + ".xdmf";
+    std::ofstream f(xdmf_path);
+    if (!f.is_open()) PetscFunctionReturn(0);
+    f << "<?xml version=\"1.0\" ?>\n";
+    f << "<!DOCTYPE Xdmf SYSTEM \"Xdmf.dtd\" []>\n";
+    f << "<Xdmf Version=\"3.0\">\n";
+    f << "  <Domain>\n";
+    f << "    <Grid Name=\"Wavefield\" GridType=\"Collection\" "
+         "CollectionType=\"Temporal\">\n";
+    const std::string h5_rel = wavefield_basename_ + ".h5";
+    for (int i = 0; i < wavefield_snapshots_written_; ++i) {
+        f << "      <Grid Name=\"snap" << i << "\" GridType=\"Uniform\">\n";
+        f << "        <Time Value=\"" << wavefield_times_[i] << "\"/>\n";
+        f << "        <!-- Wavefield series: PETSc HDF5 sequence "
+             << i << " -->\n";
+        f << "        <!-- See petsc_gen_xdmf.py for topology details -->\n";
+        f << "      </Grid>\n";
+    }
+    f << "    </Grid>\n";
+    f << "  </Domain>\n";
+    f << "</Xdmf>\n";
+    f.close();
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::writeSourceBall3DSnapshot(int step, double time) {
+    (void)step;
+    PetscFunctionBeginUser;
+    PetscErrorCode ierr;
+
+    if (source_ball_3d_output_format_ == SourceBall3DOutputFormat::NONE)
+        PetscFunctionReturn(0);
+
+    ierr = ensureDirectoryExists(comm, rank, wavefield_output_directory_);
+    CHKERRQ(ierr);
+
+    // Source-ball 3D output is meaningful only when the explosion
+    // is in cavity_geometry = THREE_DIMENSIONAL mode. Pass-13c writes
+    // a per-cell snapshot of the source-ball state via the
+    // RadialLagrangianSolver -> Source3DBallImpl::getCellStates path.
+    if (!explosion_) PetscFunctionReturn(0);
+    if (explosion_->near_field_cavity_geometry != "THREE_DIMENSIONAL")
+        PetscFunctionReturn(0);
+    auto* ball = explosion_->radial_solver.source3DBall();
+    if (!ball) PetscFunctionReturn(0);
+
+    char h5_path[PETSC_MAX_PATH_LEN];
+    ierr = PetscSNPrintf(h5_path, sizeof(h5_path),
+                         "%s/source_ball_3d_%06d.h5",
+                         wavefield_output_directory_.c_str(),
+                         source_ball_3d_snapshots_written_);
+    CHKERRQ(ierr);
+
+    // Rank 0 writes the scalar per-cell fields. Pass-13c keeps the
+    // single-rank write convention consistent with the pass-13b mat
+    // assembly architecture; multi-rank coalescence is a pass-14 item.
+    if (rank == 0) {
+        std::vector<Source3DCellState> states;
+        ball->getCellStates(states);
+        std::ofstream csv(std::string(h5_path) + ".csv");
+        if (csv.is_open()) {
+            csv << "cell_idx,cx,cy,cz,sigma_xx,sigma_yy,sigma_zz,"
+                   "sigma_xy,sigma_xz,sigma_yz,eps_p_eq,rho,e_int,T_m,E_r\n";
+            for (size_t i = 0; i < states.size(); ++i) {
+                const auto& s = states[i];
+                csv << i << "," << s.centroid[0] << "," << s.centroid[1]
+                    << "," << s.centroid[2]
+                    << "," << s.sigma[0] << "," << s.sigma[1]
+                    << "," << s.sigma[2] << "," << s.sigma[3]
+                    << "," << s.sigma[4] << "," << s.sigma[5]
+                    << "," << s.eps_p_eq << "," << s.rho
+                    << "," << s.e_int << "," << s.T_m << "," << s.E_r
+                    << "\n";
+            }
+            csv.close();
+        }
+    }
+    source_ball_3d_snapshot_times_.push_back(time);
+    ++source_ball_3d_snapshots_written_;
+
+    if (rank == 0) {
+        ierr = writeSourceBall3DXdmfWrapper(); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode Simulator::writeSourceBall3DXdmfWrapper() {
+    PetscFunctionBeginUser;
+    if (rank != 0) PetscFunctionReturn(0);
+    if (source_ball_3d_output_format_ != SourceBall3DOutputFormat::HDF5_XDMF)
+        PetscFunctionReturn(0);
+
+    std::string xdmf_path = wavefield_output_directory_
+                            + "/source_ball_3d.xdmf";
+    std::ofstream f(xdmf_path);
+    if (!f.is_open()) PetscFunctionReturn(0);
+    f << "<?xml version=\"1.0\" ?>\n";
+    f << "<!DOCTYPE Xdmf SYSTEM \"Xdmf.dtd\" []>\n";
+    f << "<Xdmf Version=\"3.0\">\n";
+    f << "  <Domain>\n";
+    f << "    <Grid Name=\"SourceBall3D\" GridType=\"Collection\" "
+         "CollectionType=\"Temporal\">\n";
+    for (int i = 0; i < source_ball_3d_snapshots_written_; ++i) {
+        char h5_rel[64];
+        PetscSNPrintf(h5_rel, sizeof(h5_rel),
+                      "source_ball_3d_%06d.h5", i);
+        f << "      <Grid Name=\"snap" << i << "\" GridType=\"Uniform\">\n";
+        f << "        <Time Value=\"" << source_ball_3d_snapshot_times_[i]
+          << "\"/>\n";
+        f << "        <!-- Source-ball 3D snapshot: " << h5_rel
+          << " (CSV companion: " << h5_rel << ".csv) -->\n";
+        f << "      </Grid>\n";
+    }
+    f << "    </Grid>\n";
+    f << "  </Domain>\n";
+    f << "</Xdmf>\n";
+    f.close();
 
     PetscFunctionReturn(0);
 }
