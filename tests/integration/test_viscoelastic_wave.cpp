@@ -86,14 +86,19 @@ protected:
         cfg << "q_s = 100.0\n";
         cfg << "f_min = 0.1\n";
         cfg << "f_max = 10.0\n";
-        cfg << "\n[EXPLOSION]\n";
-        cfg << "enabled = true\n";
+        // Pass-12 followup 2: replaced the orphan [EXPLOSION] block
+        // (silently ignored by the parser, surfaced by strict
+        // validation) with the canonical [EXPLOSION_SOURCE] block.
+        cfg << "\n[EXPLOSION_SOURCE]\n";
+        cfg << "type = UNDERGROUND_NUCLEAR\n";
         cfg << "yield_kt = 1.0\n";
-        cfg << "depth = 3000.0\n";
-        cfg << "source_x = 3000.0\n";
-        cfg << "source_y = 3000.0\n";
-        cfg << "source_z = 3000.0\n";
-        cfg << "source_time = 0.0\n";
+        cfg << "depth_of_burial = 3000.0\n";
+        cfg << "location_x = 3000.0\n";
+        cfg << "location_y = 3000.0\n";
+        cfg << "location_z = 3000.0\n";
+        cfg << "onset_time = 0.0\n";
+        cfg << "rise_time = 0.01\n";
+        cfg << "cavity_overpressure = 1.0e10\n";
         cfg << "\n[BOUNDARY_CONDITIONS]\n";
         cfg << "bottom = fixed\n";
         cfg << "sides = roller\n";

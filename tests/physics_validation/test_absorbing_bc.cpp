@@ -356,14 +356,25 @@ protected:
           << "density = 2650.0\n"
           << "youngs_modulus = 50.0e9\n"
           << "poissons_ratio = 0.25\n"
-          << "\n[EXPLOSION]\n"
+          // Pass-12 followup 2: replaced [EXPLOSION] / orphan
+          // SEISMOMETER_1 (with x/y/z keys the parser ignored)
+          // with the canonical [EXPLOSION_SOURCE] block and the
+          // [BOUNDARY_CONDITIONS] block that strict validation
+          // requires alongside it.
+          << "\n[EXPLOSION_SOURCE]\n"
           << "type = UNDERGROUND_NUCLEAR\n"
-          << "x = 3000.0\n"
-          << "y = 3000.0\n"
-          << "z = 3000.0\n"
-          << "depth = 500.0\n"
+          << "location_x = 3000.0\n"
+          << "location_y = 3000.0\n"
+          << "location_z = 3000.0\n"
+          << "depth_of_burial = 500.0\n"
           << "yield_kt = 1.0\n"
-          << "cavity_radius = 10.0\n"
+          << "onset_time = 0.0\n"
+          << "rise_time = 0.005\n"
+          << "cavity_overpressure = 1.0e10\n"
+          << "\n[BOUNDARY_CONDITIONS]\n"
+          << "bottom = free\n"
+          << "sides = free\n"
+          << "top = free\n"
           << "\n[ABSORBING_BC]\n"
           << "enabled = true\n"
           << "x_min = true\n"
@@ -372,11 +383,13 @@ protected:
           << "y_max = true\n"
           << "z_min = true\n"
           << "z_max = true\n"
+          << "\n[SEISMOMETERS]\n"
+          << "enabled = true\n"
+          << "formats = SAC\n"
+          << "output_dir = output\n"
           << "\n[SEISMOMETER_1]\n"
-          << "name = RCV1\n"
-          << "x = 4500.0\n"
-          << "y = 3000.0\n"
-          << "z = 3000.0\n";
+          << "sta = RCV1\n"
+          << "location_xyz = 4500.0,3000.0,3000.0\n";
       cfg.close();
     }
     MPI_Barrier(PETSC_COMM_WORLD);
