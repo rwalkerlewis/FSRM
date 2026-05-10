@@ -106,6 +106,32 @@ struct Source3DBallConfig
     /// pass-13b applies it.
     double overburden_K0 = 0.5;
 
+    /// Pass-13b material parameters used by the per-cell constitutive
+    /// update. Defaults reproduce a granite-class host rock; the host
+    /// (RadialLagrangianSolver) overrides these from the configured
+    /// medium during cavity_geometry = THREE_DIMENSIONAL delegation.
+    double host_density_kg_per_m3 = 2700.0;
+    double bulk_modulus_K_pa = 30.0e9;
+    double shear_modulus_G_pa = 18.0e9;
+    double source_depth_m = 500.0;
+    /// Per-cell heat capacity at constant volume [J/(kg*K)]. Used by
+    /// the matter-coupling update inside the radiation diffusion
+    /// solver.
+    double cv_J_per_kg_K = 1000.0;
+    /// Initial (and ambient) matter temperature [K]. Used to seed the
+    /// per-cell T_m field and as the radiation-diffusion boundary
+    /// reservoir.
+    double T_ambient_K = 300.0;
+    /// Drucker-Prager 3D yield-surface parameters. Defaults to granite
+    /// (DruckerPrager3DSets::granite()). Set by the host's medium
+    /// dispatch during delegation.
+    double dp3d_alpha = 0.30;
+    double dp3d_k_pa = 70.0e6;
+    /// Medium label, propagated to the diagnostics. "GRANITE" by
+    /// default. Used by the host to select dp3d / opacity parameter
+    /// sets.
+    std::string medium_label = "GRANITE";
+
     /// 3D constitutive model selector. Pass-11 enumerated only the
     /// names; pass-13b will populate the radial-return implementation.
     enum class Constitutive
