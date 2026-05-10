@@ -104,6 +104,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_pass11_aneos_hugoniot.cpp
     physics_validation/test_pass11_axis_1b_scaffold.cpp
     physics_validation/test_pass13b_axis_1b_physics.cpp
+    physics_validation/test_pass13c_axis_1b_validation.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -352,6 +353,9 @@ if(GTest_FOUND)
     add_test(NAME Physics.Source3DBall.SphericalCellLevelEquivalenceVs1D COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.SphericalCellLevelEquivalenceVs1D)
     add_test(NAME Physics.Source3DBall.AsymmetricOverburdenSeedsAsymmetricFlow COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.AsymmetricOverburdenSeedsAsymmetricFlow)
     add_test(NAME Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.BackwardCompatSphericalDefaultActiveByDefault)
+    # Pass-13c axis-1b validation gates.
+    add_test(NAME Physics.Source3DBall.CLVDContentWithOverburden COMMAND run_physics_tests --gtest_filter=Pass13cAxis1bValidation.CLVDContentWithOverburden)
+    add_test(NAME Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing COMMAND run_physics_tests --gtest_filter=Pass13cAxis1bValidation.MomentTensorIsZeroWithoutSourceForcing)
     add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
     add_test(NAME Unit.SourceBall.ImplFoundation COMMAND run_unit_tests --gtest_filter=SourceBallImplFoundationTest.*)
     add_test(NAME Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation COMMAND run_unit_tests --gtest_filter=BackwardCompatTest.Source3DBallScaffoldThrowGoneOnInstantiation)
@@ -670,6 +674,8 @@ if(GTest_FOUND)
         Physics.Source3DBall.SphericalCellLevelEquivalenceVs1D
         Physics.Source3DBall.AsymmetricOverburdenSeedsAsymmetricFlow
         Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault
+        Physics.Source3DBall.CLVDContentWithOverburden
+        Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 
