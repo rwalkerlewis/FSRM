@@ -169,6 +169,11 @@ public:
     /// Diagnostic: number of cells that yielded in the most recent step.
     int lastYieldedCellCount() const { return last_yielded_count_; }
 
+    /// Configured cavity radius (from `Source3DBallConfig::cavity_radius_m`
+    /// at initialize time). Used by the host's getCavityRadius shim
+    /// which now early-outs for the 3D path.
+    double cfg_cavity_radius_m() const { return cfg_.cavity_radius_m; }
+
     /// Number of locally owned elastic-radius surface faces (pass-13c).
     int numLocalElasticSurfaceFaces() const
     { return static_cast<int>(elastic_surface_faces_.size()); }
@@ -224,6 +229,7 @@ private:
     int last_rad_newton_iters_ = 0;
     int last_yielded_count_ = 0;
     double current_time_ = 0.0;
+    int rad_substep_counter_ = 0;
 
     // Pass-13c surface-integral moment-tensor extraction.
     /// Per-cell stress at the start of the run (before any step() call).

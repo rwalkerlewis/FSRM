@@ -440,6 +440,10 @@ if(GTest_FOUND)
     # Tier 1 historic-nuclear additions: 20 events from 1957 (Rainier) through 2016 (DPRK September)
     add_test(NAME Integration.HistoricNuclear.Rainier1957 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Rainier1957)
     add_test(NAME Integration.HistoricNuclear.Salmon1964 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Salmon1964)
+    # Pass-13c axis-1b validation: Salmon with 3D source ball + K_0 = 0.5.
+    # GTEST_SKIPs when the mesh artifact is missing (generate via
+    # tools/mesh_generation/build_source_ball_mesh.py).
+    add_test(NAME Integration.NearFieldSource.Salmon3DWithOverburdenAtMPI4 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Salmon3D_WithOverburdenAtMPI4)
     # HistoricNuclearTest.Sterling1966 -- blocked at the 100x far-field envelope
     # (W=0.38 kt is below the small-yield threshold the smeared single-cell
     # source can resolve on the 4x4x4 CI mesh). Test code preserved; see
@@ -725,6 +729,7 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.FarFieldAmplitudeRegression
         Integration.HistoricNuclear.Rainier1957
         Integration.HistoricNuclear.Salmon1964
+        Integration.NearFieldSource.Salmon3DWithOverburdenAtMPI4
         Integration.HistoricNuclear.LongShot1965
         Integration.HistoricNuclear.Milrow1969
         Integration.HistoricNuclear.Cannikin1971

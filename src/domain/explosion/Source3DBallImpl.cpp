@@ -457,8 +457,17 @@ void Source3DBallImpl::step(double dt)
         }
     }
 
-    if (rad_solver_ && rad_solver_->isInitialized()) {
-        auto rres = rad_solver_->step(dt, rho_, T_m_, E_r_, e_int_);
+    // Pass-13c radiation cadence: run the diffusion sub-step every
+    // cfg_.radiation_substep_cadence calls. Backward Euler is
+    // unconditionally stable so a coarser cadence is physically fine
+    // for end-to-end runs that just need the matter / radiation
+    // coupling kept consistent. Default cadence = 1 preserves the
+    // pass-13b answer.
+    rad_substep_counter_ += 1;
+    const int rcad = std::max(1, cfg_.radiation_substep_cadence);
+    if (rad_solver_ && rad_solver_->isInitialized()
+        && (rad_substep_counter_ % rcad) == 0) {
+        auto rres = rad_solver_->step(rcad * dt, rho_, T_m_, E_r_, e_int_);
         last_rad_newton_iters_ = rres.newton_iters;
     }
 

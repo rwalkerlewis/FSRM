@@ -594,6 +594,7 @@ struct Simulator::ExplosionCoupling {
     std::string near_field_3d_mesh_path = "";
     double near_field_3d_overburden_K0 = 0.5;
     std::string near_field_3d_radiation_discretization = "FV_CELL_CENTRED";
+    int near_field_3d_radiation_substep_cadence = 1;
 
     RadialLagrangianSolver radial_solver;
 
@@ -1927,6 +1928,19 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     explosion_->near_field_3d_radiation_discretization = rd_raw;
                 }
 
+                // Pass-13c performance knob: how often the radiation
+                // sub-step runs inside Source3DBallImpl::step. Default
+                // 1 (every host substep) preserves byte-identical
+                // pass-13b behaviour. End-to-end Salmon-class runs
+                // typically set this to ~100.
+                {
+                    int rcad = reader.getInt(
+                        "NEAR_FIELD_SOURCE",
+                        "source_ball_radiation_substep_cadence", 1);
+                    if (rcad < 1) rcad = 1;
+                    explosion_->near_field_3d_radiation_substep_cadence = rcad;
+                }
+
                 // Validate the 3D sub-keys when THREE_DIMENSIONAL is
                 // selected. Reject configurations that would produce a
                 // silent foundation no-op or a corrupt mesh load.
@@ -2360,6 +2374,8 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                                 Source3DBallConfig::RadiationDiscretization::
                                     FV_CELL_CENTRED;
                         }
+                        rl_cfg.source_3d_ball.radiation_substep_cadence =
+                            explosion_->near_field_3d_radiation_substep_cadence;
                     } else {
                         rl_cfg.cavity_geometry =
                             RadialLagrangianSolver::CavityGeometry::SPHERICAL;

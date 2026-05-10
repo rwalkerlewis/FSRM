@@ -65,10 +65,16 @@ cache/source_ball_meshes/
     ...
 ```
 
-Each meshfile pair is keyed by event + resolution. Pass-13a does not
-yet read this cache from a runtime config field; that wires up in
-pass-13b once the hydro substep needs the mesh at production
-resolution. Foundation tests use the smaller fixtures committed under
+Each meshfile pair is keyed by event + resolution. Pass-13b wires
+the runtime to consume the cached meshes via the `[NEAR_FIELD_SOURCE]
+mesh_path` configuration key (see CLAUDE.md). Pass-13c additionally
+adds the end-to-end Salmon-with-overburden integration test
+(`Integration.NearFieldSource.Salmon3DWithOverburdenAtMPI4`), which
+expects the `salmon_default` mesh and skips with a clear
+`GTEST_SKIP` message when the mesh is missing. The recipe used by
+the integration test is the one above (cavity 17 m, elastic 70 m,
+edge_near 5 m, edge_outer 12 m → 935 nodes / 2972 tets). Foundation
+tests use the smaller hand-written fixtures committed under
 `tests/data/source_ball/`.
 
 ## Geometry

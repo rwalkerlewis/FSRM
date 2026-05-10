@@ -154,6 +154,16 @@ struct Source3DBallConfig
     };
     RadiationDiscretization radiation_discretization =
         RadiationDiscretization::FV_CELL_CENTRED;
+
+    /// Pass-13c performance knob: run the radiation diffusion sub-step
+    /// only every Nth call to `Source3DBallImpl::step()`. The 1D host
+    /// runs at ~10 us substeps for CFL on the radial mesh; the
+    /// radiation diffusion is implicit (unconditionally stable) and
+    /// physically only needs ~1 ms cadence to resolve the radiation-
+    /// transport timescale at Salmon-class yields. Default 1 (every
+    /// step) preserves the pass-13b numerical answer; set to 100 in
+    /// large-mesh end-to-end runs.
+    int radiation_substep_cadence = 1;
 };
 
 /// Snapshot of the 3D source-ball state at a single time. Used by the
