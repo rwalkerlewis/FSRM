@@ -270,13 +270,59 @@ their closure waits on pass-13c.
 See `docs/HISTORIC_NUCLEAR_FIDELITY.md` "4m. Closed in pass 13b" for
 detail.
 
-### Pass 13c (axis-1b validation slice, pending)
+### Pass 13c (axis-1b validation slice, this branch)
 
-Surface-integral moment-tensor extraction at the elastic radius
-(Day & McLaughlin 1991), HDF5 + XDMF spatial-profile output for the
-3D mesh, ParaView state file for `examples/20_salmon_1964`,
-end-to-end MPI=4 Salmon-with-overburden integration test producing
-seismograms, headline moment-tensor regression-equivalence gate vs
-pass-10 1D, CLVD-content-with-overburden gate, cavity aspect ratio
-gate. Pass-13c is expected to close the Salmon CavityRadius gate to
-factor 1.5 (or better) and the Chagan CavityRadius gate similarly.
+Lands the validation V&V infrastructure on top of pass-13b plus two
+additional threads (wavefield output infrastructure for the FEM time
+loop; new academic verification anchors).
+
+Closed:
+
+- Surface-integral moment-tensor extraction at the elastic radius
+  (Day & McLaughlin 1991 sec 4; Aki & Richards 2002 ch 4). Each rank
+  accumulates `M_ij = integral_S [sigma_jk(t) - sigma_jk(0)] *
+  n_k * x_i dA` over its owned ELASTIC-classified boundary faces and
+  MPI_Allreduces to the global tensor. Mdot via finite difference of
+  successive M(t) snapshots. Six unit gates on the cube_5tet fixture
+  pin correctness on uniform isotropic / pure deviatoric / stress-drop
+  / no-step / finite-difference cases.
+- Pass-13b `getMomentTensor` and `getMomentRateTensor` now return
+  real signals. `name()` bumps to
+  `Source3DBallImpl_v1_pass13c_validation`.
+- New `[OUTPUT]` config block (wavefield_format / cadence / fields /
+  basename / source_ball_3d_output_format / cadence). Defaults are
+  NONE so the 32 historic-event tests are byte-identical.
+- Wavefield writer wired in `Simulator::MonitorFunction`. VTU and
+  HDF5_XDMF (Henderson 2007 schema) modes, refreshed XDMF wrapper
+  every snapshot for partial-run readability.
+- Source-ball 3D snapshot writer (rank-0 single-writer convention
+  consistent with the pass-13b mat-assembly architecture; multi-rank
+  coalescence is pass-14).
+- Two new academic verification anchors with closed-form references:
+  `examples/44_lambs_problem/` (Lamb 1904 / Eringen-Suhubi 1975 /
+  Mooney 1974); `examples/45_layered_halfspace_explosion/` (Haskell
+  1953 / Thomson 1950 / Aki-Richards 2002 ch 7).
+- CLVD-content gate `Physics.Source3DBall.CLVDContentWithOverburden`
+  (best-effort, stress-asymmetry-only). Measured ratio on cube_5tet
+  with K_0 = 0.5 + low yield + isotropic compression: 62.9
+  (gate threshold 0.01); CLVD axis aligns with vertical at
+  cos(angle) = 0.999999 (gate threshold cos(10 deg) = 0.985).
+- Cavity-radius extremes accessor for A4 reporting (no gate; reports
+  ~1.00 in pass-13c, will populate asymmetric in pass-14).
+
+Deferred to follow-up PRs (still axis-1b, not pass-14):
+
+- A2 end-to-end MPI=4 Salmon-with-overburden integration test
+  running to simulation completion. The infrastructure (host
+  delegation, surface integral, wavefield output) is in place; the
+  missing piece is the Salmon-specific TetGen mesh that pass-13a's
+  policy keeps out of CI. The follow-up will pre-generate the Salmon
+  mesh, ship it under cache/, and add the integration test.
+
+Pass-13c does NOT close the Salmon / Chagan CavityRadius gates: those
+gates measure cavity geometry which stays spherical in pass-13c (no
+3D Lagrangian advection). Pass-14 closes them with the advective
+contribution.
+
+See `docs/HISTORIC_NUCLEAR_FIDELITY.md` "4n. Closed in pass 13c" for
+detail.
