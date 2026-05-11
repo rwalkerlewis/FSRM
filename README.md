@@ -153,16 +153,30 @@ see [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) and CLAUDE.md
 
 ---
 
-## Pass-11 status
+## Axis-1b status (3D source ball)
 
-Pass-11 closed axis-1c (implicit time integration for the radiation
-diffusion solve, Israeli-Orszag sponge layer for the 549 m free-field BC,
-extended ANEOS Hugoniot match) and shipped the axis-1b 3D source ball
-scaffolding ([docs/AXIS_1B_DESIGN.md](docs/AXIS_1B_DESIGN.md)). Pass-12
-is housekeeping: documentation hygiene, config relocation into example
-directories, the DPRK 2017 example, and presentation figures for the
-showcase events. The next physics pass (pass-13) implements the 3D source
-ball on the pass-11 scaffold.
+Pass-11 shipped the axis-1b scaffolding; pass-13a/b/c built the 3D
+source-ball infrastructure (TetGen mesh load + distribute, 3D
+Drucker-Prager constitutive, asymmetric overburden initial state,
+cell-centred FV grey radiation diffusion, surface-integral
+moment-tensor extraction) but the end-to-end 3D path produced a zero
+source signal -- with `cavity_geometry = THREE_DIMENSIONAL` the host's
+1D advection was bypassed and the 3D solver had no internal source
+term. Pass-14a (this pass) wires the source forcing: a new
+`[NEAR_FIELD_SOURCE]` source-forcing sub-block deposits the explosion
+yield as mechanical energy into the inner-cavity cells (Mueller &
+Murphy 1971 source-time function), the Tillotson host-rock EOS turns it
+into a cavity-wall pressure rise, the Sharpe 1942 elastostatic
+pressurised-cavity field spreads it through the rock, and the pass-13c
+surface integral over the elastic radius reads the resulting stress
+drop back as a real moment-rate tensor -- so the 3D Salmon path now
+produces measurable seismograms. The cavity does not yet grow (3D
+Lagrangian advection is the pass-14b slice; the literature-range CLVD
+content and cavity aspect ratio follow with it); pass-14c does the
+multi-event V&V campaign. See
+[docs/AXIS_1B_DESIGN.md](docs/AXIS_1B_DESIGN.md) and
+[HISTORIC_NUCLEAR_FIDELITY](docs/HISTORIC_NUCLEAR_FIDELITY.md)
+"4o. Closed in pass 14a".
 
 ---
 

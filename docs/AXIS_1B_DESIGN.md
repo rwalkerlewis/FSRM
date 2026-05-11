@@ -49,11 +49,19 @@ solver that resolves:
 |-------|-------------|--------|
 | pass-13a foundation | TetGen pre-process tool, `Source3DBallMesh` (DMPlex create + distribute + per-vertex marker label), `Source3DBallImpl` skeleton (initialize loads mesh; step throws), unit tests, factory throw replaced. | LANDED (PR #129) |
 | pass-13b physics | 3D Drucker-Prager radial-return constitutive (Simo & Hughes 1998), asymmetric overburden initial state, cell-centred FV grey radiation diffusion (PETSc Mat + KSP + matter Newton outer loop), host-side `RadialLagrangianSolver -> Source3DBallImpl` delegation, ConfigReader plumbing for `[NEAR_FIELD_SOURCE]` 3D sub-keys, headline cell-level equivalence gate vs 1D scalar reduction. | LANDED (this branch) |
-| pass-13c validation | Surface-integral moment-tensor extraction (Day & McLaughlin 1991), [OUTPUT] config block + wavefield + source-ball 3D HDF5/XDMF output, ParaView state files, two new academic verification anchors (Lamb's problem, layered halfspace explosion), CLVD-content-with-overburden best-effort gate, cavity aspect ratio measurement (no gate; ~1.00 in pass-13c). The end-to-end MPI=4 Salmon-with-overburden integration test running to simulation completion is deferred to a follow-up PR (the missing piece is the Salmon-specific TetGen mesh; the host delegation + surface integral + wavefield output infrastructure are in place). The literature-range CLVD ratio (0.05-0.30) and the cavity aspect ratio gate are pass-14 deliverables once 3D Lagrangian advection lands. | LANDED (this branch) |
+| pass-13c validation | Surface-integral moment-tensor extraction (Day & McLaughlin 1991), [OUTPUT] config block + wavefield + source-ball 3D HDF5/XDMF output, ParaView state files, two new academic verification anchors (Lamb's problem, layered halfspace explosion), CLVD-content-with-overburden best-effort gate (synthetic stress field), cavity aspect ratio measurement (no gate; ~1.00 in pass-13c). The end-to-end MPI=4 Salmon-with-overburden integration test ran but produced a zero source signal: with `cavity_geometry = THREE_DIMENSIONAL` the host's 1D advection was bypassed and the 3D solver had no internal source term. | LANDED (PR #131) |
 
-Pass-14+ continues with multigroup-3D radiation, tabulated EOS /
-opacity in 3D, RK3-SSP / BDF2 in 3D, and axis-1d 3D far-field FEM
-coupling.
+## Pass-14 slicing (axis-1b completion)
+
+| Slice | Deliverable | Status |
+|-------|-------------|--------|
+| pass-14a source forcing | `[NEAR_FIELD_SOURCE]` source-forcing sub-block (Mueller & Murphy 1971 / Brune 1970 source-time function, yield, deposition duration, efficiency), inner-cavity cell identification + `SourceBallInnerCavity` DMLabel, volumetric energy injection in `Source3DBallImpl::step()` raising the Tillotson cavity-wall matter pressure, the Sharpe 1942 / Lame elastostatic pressurised-cavity field spread through the rock, the implied volumetric strain fed into the existing radial return, the pass-13c elastic-radius surface integral reading it back as a real moment-rate tensor, source ball replicated on `PETSC_COMM_SELF` for rank-independence, HDF5 `source_forcing_power` / `inner_cavity_marker` / `dp_pressure_field` cell fields, `Salmon3DWithOverburdenAtMPI4` upgraded from "pipeline completes" to "peak SAC amplitude within a factor of the 1D RADIAL_LAGRANGIAN path". The cavity does NOT grow (no advection in 14a); the literature-range CLVD and the cavity aspect ratio remain pass-14b. | LANDED (this branch) |
+| pass-14b advection | 3D Lagrangian face advection (the cavity actually grows under the forcing), mass-conservation density update, asymmetric growth under K_0 < 1 -> the literature-range (0.05-0.30) CLVD ratio and the literature-range (1.05-1.30) cavity aspect ratio, stress rotation under finite deformation. | PLANNED |
+| pass-14c validation | Full V&V campaign across multiple events with the asymmetric-cavity physics in place: Salmon free-field peak-velocity gates at the three Healy ranges under the 3D path, cross-validation on Chagan / Pokhran I / DPRK 2017 under the 3D path. | PLANNED |
+
+Pass-15+ continues with multigroup-3D radiation, tabulated EOS /
+opacity in 3D, RK3-SSP / BDF2 in 3D, a coupled cavity gas EOS, and
+axis-1d 3D far-field FEM coupling.
 
 ## Interface
 
