@@ -51,7 +51,8 @@ services:
     
     # Environment variables
     environment:
-      - PETSC_DIR=/usr/lib/petsc
+      - PETSC_DIR=/opt/petsc-main
+      - PETSC_ARCH=arch-linux-c-opt
       - OMP_NUM_THREADS=1
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -118,7 +119,8 @@ services:
     working_dir: /workspace
 
     environment:
-      - PETSC_DIR=/usr/lib/petsc
+      - PETSC_DIR=/opt/petsc-main
+      - PETSC_ARCH=arch-linux-c-opt
       - OMP_NUM_THREADS=1
       - OMPI_ALLOW_RUN_AS_ROOT=1
       - OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1

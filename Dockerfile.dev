@@ -106,7 +106,10 @@ RUN git clone https://gitlab.com/petsc/petsc.git /opt/petsc-main \
     && git rev-parse HEAD > /opt/petsc-main/COMMIT_SHA
 
 WORKDIR /opt/petsc-main
-RUN ./configure \
+# Set PETSC_ARCH explicitly so configure and make use the same arch name
+# regardless of the --with-debugging flag (which would otherwise rename it
+# to arch-linux-c-debug and break the subsequent make command).
+RUN PETSC_ARCH=arch-linux-c-opt ./configure \
         --with-cc=mpicc \
         --with-cxx=mpicxx \
         --with-fc=mpif90 \
