@@ -15,7 +15,8 @@
       "Bash(do git mv \"$f\" aspirational/)",
       "Bash(done)",
       "Bash(for f in atmospheric_nuclear_test.config atmospheric_nuclear_test_high_altitude_emp_1400kt.config atmospheric_nuclear_test_surface_fallout_50kt.config buckley_leverett_2d.config cascadia_m9_tsunami.config)",
-      "Bash(xargs -I {} mv {} aspirational/)"
+      "Bash(xargs -I {} mv {} aspirational/)",
+      "Bash(git fetch *)"
     ],
     "deny": [],
     "ask": []

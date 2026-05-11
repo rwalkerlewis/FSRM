@@ -28,11 +28,11 @@ cat >> ~/.bashrc << 'EOF'
 
 # FSRM Development Aliases
 alias build='cmake --build /workspaces/FSRM/build -j$(nproc)'
-alias rebuild='rm -rf /workspaces/FSRM/build && mkdir /workspaces/FSRM/build && cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_CUDA=ON && build'
+alias rebuild='rm -rf /workspaces/FSRM/build && mkdir /workspaces/FSRM/build && cd /workspaces/FSRM/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_TESTING=ON -DBUILD_EXAMPLES=ON -DENABLE_PROJ=ON && build'
 alias test='ctest --test-dir /workspaces/FSRM/build --output-on-failure'
 alias testv='ctest --test-dir /workspaces/FSRM/build -V'
-alias sim='./build/examples/simulator -c config/default.config'
-alias mpisim='mpirun -np 4 ./build/examples/simulator -c config/default.config'
+alias sim='./build/fsrm -c config/default.config'
+alias mpisim='mpirun -np 4 ./build/fsrm -c config/default.config'
 
 # Change to workspace
 cd /workspaces/FSRM 2>/dev/null || true
@@ -53,7 +53,7 @@ if [ ! -f "/workspaces/FSRM/build/CMakeCache.txt" ]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DENABLE_TESTING=ON \
         -DBUILD_EXAMPLES=ON \
-        -DENABLE_CUDA=ON \
+        -DENABLE_PROJ=ON \
         || echo "CMake configuration will be completed when you open the project."
 fi
 
