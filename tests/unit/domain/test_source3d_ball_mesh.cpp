@@ -202,9 +202,9 @@ TEST_F(SourceBallImplFoundationTest, FactoryReturnsValidImpl)
     ASSERT_NE(ball, nullptr);
     const std::string nm = ball->name();
     // Pass-13c: physics tag bumps to the validation tag. The
-    // "Source3DBallImpl" prefix and a "pass13c" substring must appear
+    // "Source3DBallImpl" prefix and a "pass14a" substring must appear
     // so callers can regression-check the implementation version.
-    EXPECT_NE(nm.find("pass13c"), std::string::npos) << nm;
+    EXPECT_NE(nm.find("pass14a"), std::string::npos) << nm;
     EXPECT_NE(nm.find("Source3DBallImpl"), std::string::npos) << nm;
 }
 
