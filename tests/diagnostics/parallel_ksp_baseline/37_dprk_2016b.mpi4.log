@@ -1,0 +1,244 @@
+==================================================================
+FSRM parallel-KSP diagnostic capture
+  example      : 37_dprk_2016b
+  MPI ranks    : 4
+  final time   : 0.05 (FSRM_FINAL_TIME_OVERRIDE)
+  PETSC_OPTIONS: -snes_monitor -ksp_monitor_true_residual -snes_converged_reason -ksp_converged_reason -snes_linesearch_monitor -snes_view -snes_max_it 12 -ksp_max_it 200 -ts_max_steps 1 -options_left
+  date         : 2026-05-11T17:52:52Z
+==================================================================
+
+=== Example 37: DPRK 2016b (September) ===
+Config:  /workspace/examples/37_dprk_2016b/config.config
+Output:  /workspace/examples/37_dprk_2016b/output
+Ranks:   4
+
+--------------------------------------------------------------------------
+WARNING: Open MPI tried to bind a process but failed.  This is a
+warning only; your job will continue, though performance may
+be degraded.
+
+  Local host:        7b529141c209
+  Application name:  /workspace/build/fsrm
+  Error message:     failed to bind memory
+  Location:          ../../../../../../orte/mca/rtc/hwloc/rtc_hwloc.c:447
+
+--------------------------------------------------------------------------
+
+============================================================
+  FSRM - Full Service Reservoir Model
+  Coupled Multiphysics Simulator
+  Version 1.0.0
+============================================================
+
+Config file:   /workspace/examples/37_dprk_2016b/config.config
+Output prefix: output
+
+Initializing simulator...
+Loading configuration from: /workspace/examples/37_dprk_2016b/config.config
+[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=0.05 (was end_time=5)
+[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=0.05 (was end_time=5)
+[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=0.05 (was end_time=5)
+Heterogeneous material: 3 layers defined
+Absorbing BCs: x=[1,1] y=[1,1] z=[1,0]
+Boundary conditions: bottom=free, sides=free, top=free
+[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=0.05 (was end_time=5)
+COUPLED_ANALYTIC: NearField 1D solver completed
+  RDP psi_inf = 1.970e+06 m^3, fc = 0.855 Hz
+  Cavity R = 142.2 m, Crushed R = 355.4 m, Fractured R = 710.8 m
+Configuration:
+  Start time: 0.
+  End time: 0.05
+  Initial dt: 0.001
+  Fluid model: 0
+  Solid model: 0
+Configuration loaded successfully
+GPU execution: DISABLED (CPU-only mode)
+Setting up problem...
+Labeling boundary faces...
+  Bounding box: [0.000, 4000.000] x [0.000, 4000.000] x [0.000, 2000.000]
+  boundary_x_min: 150 faces
+  boundary_x_max: 150 faces
+  boundary_y_min: 150 faces
+  boundary_y_max: 150 faces
+  boundary_z_min: 225 faces
+  boundary_z_max: 225 faces
+Setting up boundary conditions...
+  Applied BC: absorbing_x_min (absorbing), field 0
+  Applied BC: absorbing_x_max (absorbing), field 0
+  Applied BC: absorbing_y_min (absorbing), field 0
+  Applied BC: absorbing_y_max (absorbing), field 0
+  Applied BC: absorbing_z_min (absorbing), field 0
+Registered absorbing BC callbacks on field 0
+Auxiliary DM setup complete: 3 layers, 5 material aux fields
+Using TSALPHA2 for elastodynamics (generalized-alpha, second-order)
+Setting initial conditions...
+Explosion source located in cell -1
+  Number of boundaries registered: 5
+  DS 0: 5 boundaries, 1 local fields
+  Local section: total dof=2715, constrained dof=0 (free=2715)
+    field 0: dof=2715, constrained=0, free=2715
+  Solution norm after BC insertion: 0.000000e+00
+
+Starting simulation...
+------------------------------------------------------------
+Step 0, Time = 0.
+HDF5 output written at step 0 to output/solution.h5
+    0 SNES Function norm 4.865379320304e+13
+      0 KSP none resid norm 4.865379320304e+13 true resid norm 4.865379320304e+13 ||r(i)||/||b|| 1.000000000000e+00
+      1 KSP none resid norm 1.397745337701e+13 true resid norm 1.397745337701e+13 ||r(i)||/||b|| 2.872839393772e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 4.865379320304e+13 gnorm 1.397745337701e+13
+    1 SNES Function norm 1.397745337701e+13
+      0 KSP none resid norm 1.397745337701e+13 true resid norm 6.247085370954e+13 ||r(i)||/||b|| 4.469401687454e+00
+      1 KSP none resid norm 5.859240466195e+12 true resid norm 5.859240466195e+12 ||r(i)||/||b|| 4.191922740254e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 1.397745337701e+13 gnorm 5.859240466195e+12
+    2 SNES Function norm 5.859240466195e+12
+      0 KSP none resid norm 5.859240466195e+12 true resid norm 2.261623239581e+13 ||r(i)||/||b|| 3.859925621127e+00
+      1 KSP none resid norm 2.767217653871e+12 true resid norm 2.767217653871e+12 ||r(i)||/||b|| 4.722826567431e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 5.859240466195e+12 gnorm 2.767217653871e+12
+    3 SNES Function norm 2.767217653871e+12
+      0 KSP none resid norm 2.767217653871e+12 true resid norm 1.025067052697e+13 ||r(i)||/||b|| 3.704323912733e+00
+      1 KSP none resid norm 1.418793843833e+12 true resid norm 1.418793843833e+12 ||r(i)||/||b|| 5.127149437803e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 2.767217653871e+12 gnorm 1.418793843833e+12
+    4 SNES Function norm 1.418793843833e+12
+      0 KSP none resid norm 1.418793843833e+12 true resid norm 5.095483624771e+12 ||r(i)||/||b|| 3.591419322067e+00
+      1 KSP none resid norm 7.302132036250e+11 true resid norm 7.302132036250e+11 ||r(i)||/||b|| 5.146718156405e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 1.418793843833e+12 gnorm 7.302132036250e+11
+    5 SNES Function norm 7.302132036250e+11
+      0 KSP none resid norm 7.302132036250e+11 true resid norm 2.624518501884e+12 ||r(i)||/||b|| 3.594181108826e+00
+      1 KSP none resid norm 3.837591385101e+11 true resid norm 3.837591385101e+11 ||r(i)||/||b|| 5.255439597710e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 7.302132036250e+11 gnorm 3.837591385101e+11
+    6 SNES Function norm 3.837591385101e+11
+      0 KSP none resid norm 3.837591385101e+11 true resid norm 1.367638336264e+12 ||r(i)||/||b|| 3.563793533552e+00
+      1 KSP none resid norm 2.010898250137e+11 true resid norm 2.010898250137e+11 ||r(i)||/||b|| 5.240000949407e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 3.837591385101e+11 gnorm 2.010898250136e+11
+    7 SNES Function norm 2.010898250136e+11
+      0 KSP none resid norm 2.010898250136e+11 true resid norm 7.179652721339e+11 ||r(i)||/||b|| 3.570370962754e+00
+      1 KSP none resid norm 1.060035875130e+11 true resid norm 1.060035875130e+11 ||r(i)||/||b|| 5.271454560460e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 2.010898250136e+11 gnorm 1.060035875130e+11
+    8 SNES Function norm 1.060035875130e+11
+      0 KSP none resid norm 1.060035875130e+11 true resid norm 3.775393399912e+11 ||r(i)||/||b|| 3.561571347242e+00
+      1 KSP none resid norm 5.577322995885e+10 true resid norm 5.577322995885e+10 ||r(i)||/||b|| 5.261447396956e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 1.060035875130e+11 gnorm 5.577322995884e+10
+    9 SNES Function norm 5.577322995884e+10
+      0 KSP none resid norm 5.577322995884e+10 true resid norm 1.988466355379e+11 ||r(i)||/||b|| 3.565270214485e+00
+      1 KSP none resid norm 2.941037294918e+10 true resid norm 2.941037294918e+10 ||r(i)||/||b|| 5.273205975498e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 5.577322995884e+10 gnorm 2.941037294918e+10
+   10 SNES Function norm 2.941037294918e+10
+      0 KSP none resid norm 2.941037294918e+10 true resid norm 1.047580415829e+11 ||r(i)||/||b|| 3.561941963943e+00
+      1 KSP none resid norm 1.548935101326e+10 true resid norm 1.548935101326e+10 ||r(i)||/||b|| 5.266628559938e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 2.941037294918e+10 gnorm 1.548935101326e+10
+   11 SNES Function norm 1.548935101326e+10
+      0 KSP none resid norm 1.548935101326e+10 true resid norm 5.520818786536e+10 ||r(i)||/||b|| 3.564267335544e+00
+      1 KSP none resid norm 8.167976444959e+09 true resid norm 8.167976444959e+09 ||r(i)||/||b|| 5.273285135036e-01
+      Linear solve converged due to CONVERGED_ITS iterations 1
+        Line search: Using full step: fnorm 1.548935101326e+10 gnorm 8.167976444958e+09
+   12 SNES Function norm 8.167976444958e+09
+    Nonlinear solve did not converge due to DIVERGED_MAX_IT iterations 12
+SNES Object: 4 MPI processes
+  type: newtonls
+  maximum iterations=12, maximum function evaluations=10000
+  tolerances: relative=1e-06, absolute=1e-08, solution=1e-08
+  total number of linear solver iterations=12
+  total number of function evaluations=13
+  norm schedule ALWAYS
+  SNESLineSearch Object: 4 MPI processes
+    type: bt
+      interpolation: cubic
+      alpha=1.000000e-04
+    maxlambda=1.000000e+00, minlambda=1.000000e-12
+    tolerances: relative=1.000000e-08, absolute=1.000000e-15, lambda=1.000000e-08
+    maximum iterations=40
+  KSP Object: 4 MPI processes
+    type: preonly
+    maximum iterations=1000, initial guess is zero
+    tolerances: relative=1e-06, absolute=1e-08, divergence=10000.
+    left preconditioning
+    not checking for convergence
+  PC Object: 4 MPI processes
+    type: bjacobi
+      number of blocks = 4
+      Local solver information for first block is in the following KSP and PC objects on rank 0:
+      Use -ksp_view ::ascii_info_detail to display information for all blocks
+      KSP Object: (sub_) 1 MPI process
+        type: preonly
+        maximum iterations=10000, initial guess is zero
+        tolerances: relative=1e-05, absolute=1e-50, divergence=10000.
+        left preconditioning
+        not checking for convergence
+      PC Object: (sub_) 1 MPI process
+        type: lu
+          out-of-place factorization
+          tolerance for zero pivot 2.22045e-14
+          matrix ordering: nd
+          factor fill ratio given 5., needed 3.68113
+            Factored matrix:
+              Mat Object: (sub_) 1 MPI process
+                type: seqaij
+                rows=1896, cols=1896, bs=3
+                package used to perform factorization: petsc
+                total: nonzeros=377154, allocated nonzeros=377154
+                  using I-node routines: found 601 nodes, limit used is 5
+        linear system matrix, which is also used to construct the preconditioner:
+        Mat Object: (sub_) 1 MPI process
+          type: seqaij
+          rows=1896, cols=1896, bs=3
+          total: nonzeros=102456, allocated nonzeros=102456
+          total number of mallocs used during MatSetValues calls=0
+            using I-node routines: found 632 nodes, limit used is 5
+    linear system matrix, which is also used to construct the preconditioner:
+    Mat Object: 4 MPI processes
+      type: mpiaij
+      rows=8448, cols=8448, bs=3 variable blocks set
+      total: nonzeros=590364, allocated nonzeros=590364
+      total number of mallocs used during MatSetValues calls=0
+        using I-node (on process 0) routines: found 632 nodes, limit used is 5
+[0]PETSC ERROR: --------------------- Error Message --------------------------------------------------------------
+[0]PETSC ERROR: TSStep has failed due to DIVERGED_NONLINEAR_SOLVE, increase -ts_max_snes_failures or use unlimited to attempt recovery
+[0]PETSC ERROR: WARNING! There are unused option(s) set! Could be the program crashed before usage or a spelling mistake, etc!
+[0]PETSC ERROR:   Option left: name:-options_left (no value) source: environment
+[0]PETSC ERROR: See https://petsc.org/release/faq/ for trouble shooting.
+[0]PETSC ERROR: PETSc Development Git Revision: v3.25.0-117-g267b8824abd Git Date: 2026-04-17 11:09:30 -0500
+[0]PETSC ERROR: /workspace/build/fsrm with 4 MPI process(es) and PETSC_ARCH arch-linux-c-opt on 7b529141c209 by Unknown Mon May 11 17:52:53 2026
+[0]PETSC ERROR: Configure options: --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 --with-mpi=1 --download-fblaslapack --download-ctetgen --with-hdf5-include=/usr/include/hdf5/openmpi --with-hdf5-lib="-L/usr/lib/x86_64-linux-gnu/hdf5/openmpi -lhdf5" --with-debugging=0 COPTFLAGS=-O3 CXXOPTFLAGS=-O3 FOPTFLAGS=-O3
+[0]PETSC ERROR: #1 TSStep() at /opt/petsc-main/src/ts/interface/ts.c:3538
+[0]PETSC ERROR: #2 TSSolve() at /opt/petsc-main/src/ts/interface/ts.c:4187
+[0]PETSC ERROR: #3 run() at /workspace/src/core/Simulator.cpp:8821
+[0]PETSC ERROR: #4 main() at /workspace/src/core/main.cpp:123
+[0]PETSC ERROR: PETSc Option Table entries:
+[0]PETSC ERROR: -c /workspace/examples/37_dprk_2016b/config.config (source: command line)
+[0]PETSC ERROR: -ksp_converged_reason (source: environment)
+[0]PETSC ERROR: -ksp_max_it 200 (source: environment)
+[0]PETSC ERROR: -ksp_monitor_true_residual (source: environment)
+[0]PETSC ERROR: -options_left (source: environment)
+[0]PETSC ERROR: -pc_type bjacobi (source: command line)
+[0]PETSC ERROR: -snes_converged_reason (source: environment)
+[0]PETSC ERROR: -snes_linesearch_monitor (source: environment)
+[0]PETSC ERROR: -snes_max_it 12 (source: environment)
+[0]PETSC ERROR: -snes_monitor (source: environment)
+[0]PETSC ERROR: -snes_view (source: environment)
+[0]PETSC ERROR: -sub_pc_type lu (source: command line)
+[0]PETSC ERROR: -ts_max_steps 1 (source: environment)
+[0]PETSC ERROR: ----------------End of Error Message -------send entire error message to petsc-maint@mcs.anl.gov----------
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_SELF
+with errorcode 91.
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------
+[7b529141c209:00471] 3 more processes have sent help message help-orte-odls-default.txt / memory not bound
+[7b529141c209:00471] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages
+
+=== run.sh exit code: 91 ===
