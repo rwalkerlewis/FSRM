@@ -125,8 +125,8 @@ Non-historic examples cover bring-up and feature verification:
 ## Verified Capabilities
 
 Every feature has automated tests with quantitative pass/fail criteria.
-Run `ctest --output-on-failure` to verify. 116 tests are registered;
-110 pass and 6 are documented honest failures (six fault-solver tests
+Run `ctest --output-on-failure` to verify. 120 tests are registered;
+114 pass and 6 are documented honest failures (six fault-solver tests
 blocked by a PETSc 3.25 BdResidual limitation; see
 [docs/SOLVER_STATE.md](docs/SOLVER_STATE.md)). For the per-test detail
 see [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) and CLAUDE.md
@@ -234,7 +234,7 @@ transfer is automatic.
 ```
 src/                  Live source code (~54 kloc across 63 .cpp files)
 include/              Headers (~34 kloc across 73 .hpp files)
-tests/                116 automated tests (unit, functional, physics, integration)
+tests/                120 automated tests (unit, functional, physics, integration)
 config/               Schema-anchor templates (default, complete_template,
                       test_*); per-event configs live next to their examples
 examples/             38 runnable examples with config.config, README.md,

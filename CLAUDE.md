@@ -39,7 +39,7 @@ Dead code (~45,000 lines across ~60 files) has been moved to `archive/src/` and 
 
 ### Test Suite
 
-116 registered tests. 110 pass, 6 fail honestly (no fake skips). Measured at Session 30 (default path, no env vars).
+120 registered tests. 114 pass, 6 documented honest failures (GTEST_DISABLED fault-solver tests). Measured at Session 30 / pass-14a (default path, no env vars).
 
 Known failures on default path (source of truth: `docs/SOLVER_STATE.md`):
 
