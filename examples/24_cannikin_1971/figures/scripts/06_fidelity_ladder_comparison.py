@@ -70,9 +70,9 @@ def main():
               file=sys.stderr)
         return 1
 
-    ax.set_xlabel("t (s)")
-    ax.set_ylabel("velocity (m/s)")
-    ax.set_title("Cannikin 1971: peak velocity at closest station, "
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Displacement (m)")
+    ax.set_title("Cannikin 1971: peak displacement at closest station, "
                  "by fidelity tier")
     ax.legend(loc="upper right")
 

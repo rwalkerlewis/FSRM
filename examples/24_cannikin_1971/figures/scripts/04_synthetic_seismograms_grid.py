@@ -41,8 +41,8 @@ def main():
         ax = axes[i // cols][i % cols]
         plot_seismogram(ax, sac, label=sac.stem, color="synthetic")
         ax.set_title(sac.stem, fontsize=9)
-        ax.set_xlabel("t (s)")
-        ax.set_ylabel("velocity (m/s)")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Displacement (m)")
 
     # Hide unused axes
     for j in range(n, rows * cols):

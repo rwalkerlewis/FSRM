@@ -86,9 +86,9 @@ def main():
                      fontsize=10)
         if i == 0:
             ax.legend(loc="upper right", fontsize=8)
-        ax.set_ylabel("velocity (m/s)")
+        ax.set_ylabel("Displacement (m)")
 
-    axes[-1].set_xlabel("t (s)")
+    axes[-1].set_xlabel("Time (s)")
     fig.suptitle("Cannikin 1971: synthetic vs observed (0.5-5 Hz band)",
                  y=1.00)
     out = Path(__file__).resolve().parents[1] / \

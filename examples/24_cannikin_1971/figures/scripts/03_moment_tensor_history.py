@@ -49,13 +49,13 @@ def main():
     for c, key in zip(components, color_keys):
         ax1.plot(t, M[c], color=PALETTE[key], label=f"M_{c}")
         ax2.plot(t, Mdot[c], color=PALETTE[key], label=f"Mdot_{c}")
-    ax1.set_xlabel("t (s)")
-    ax1.set_ylabel("M (N·m)")
+    ax1.set_xlabel("Time (s)")
+    ax1.set_ylabel("M (N\u00b7m)")
     ax1.set_title("Moment tensor M(t)")
     ax1.legend(fontsize=7, ncol=2)
-    ax2.set_xlabel("t (s)")
-    ax2.set_ylabel("Mdot (N·m/s)")
-    ax2.set_title("Moment-rate Mdot(t)")
+    ax2.set_xlabel("Time (s)")
+    ax2.set_ylabel(r"$\dot{M}$ (N\u00b7m/s)")
+    ax2.set_title("Moment-rate $\\dot{M}$(t)")
     ax2.legend(fontsize=7, ncol=2)
 
     fig.suptitle("Cannikin 1971: 6-component moment tensor history",

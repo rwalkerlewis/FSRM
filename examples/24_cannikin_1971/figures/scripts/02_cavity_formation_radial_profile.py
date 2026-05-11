@@ -48,7 +48,7 @@ def main():
         fields = [
             ("velocity_m_per_s", "Velocity (m/s)"),
             ("pressure_pa", "Pressure (Pa)"),
-            ("plastic_strain", "Plastic strain"),
+            ("plastic_strain", "Plastic strain (--)"),
             ("temperature_radiation_K", "T_rad (K)"),
         ]
 
@@ -64,6 +64,7 @@ def main():
                 ax.plot(radius, data, color=PALETTE[color_key],
                         label=f"t = {t:.2e} s")
             ax.set_xlabel("Radius (m)")
+            ax.set_ylabel(label)
             ax.set_title(label)
             if "pressure" in field or "temperature" in field:
                 ax.set_yscale("log")

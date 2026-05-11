@@ -100,7 +100,7 @@ def main():
                                        alpha=0.5,
                                        edgecolor=PALETTE["neutral"]))
         ax.text(Lx / 2, (z0 + z1) / 2,
-                f"{l['name'] if 'name' in l else f'L{i+1}'}: rho={l['rho']:.0f}",
+                f"{l['name'] if 'name' in l else f'L{i+1}'}: rho={l['rho']:.0f} kg/m\u00b3",
                 ha="center", va="center", fontsize=9)
 
     ax.plot(src[0], src[2], "*", color=PALETTE["annotation"],
