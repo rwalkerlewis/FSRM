@@ -1,0 +1,9 @@
+# The diagnostic baseline / post-fix log files are committed -- they are
+# the regression reference for the pass-12-followup-3 parallel KSP/PC
+# fix. The repository root .gitignore excludes "*.log", so the .mpi4.log
+# files would be dropped without the negation below.
+!*.mpi4.log
+
+# Scratch / ad-hoc captures stay out of git. Name throwaway runs
+# *.scratch.log.
+*.scratch.log

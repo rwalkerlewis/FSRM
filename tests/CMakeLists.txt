@@ -862,41 +862,42 @@ if(GTest_FOUND)
     # they use the per-example override below.
     set(EXAMPLE_SMOKE_FINAL_TIME "0.05")
     # Per-example overrides for outliers. Examples not listed here
-    # use EXAMPLE_SMOKE_FINAL_TIME.
+    # use EXAMPLE_SMOKE_FINAL_TIME. 46_synthetic_cavity_showcase is a
+    # heavy 32k-cell wavefield-output showcase (pass-13c); after the
+    # pass-12-followup-3 parallel-KSP fix it converges, but the 50-step
+    # default budget takes ~3 min at MPI=4, past the per-test timeout,
+    # so it gets the same kind of short smoke budget the cohesive and
+    # gmsh examples already use.
     set(EXAMPLE_SMOKE_OVERRIDES
         "04_locked_fault=0.001"
         "08_time_dependent_slip=0.001"
         "16_scec_tpv5=0.001"
         "06_gmsh_multimaterial=0.001"
-        "17_velocity_model=0.01")
+        "17_velocity_model=0.01"
+        "46_synthetic_cavity_showcase=0.005")
 
-    # Examples that today fail at MPI_RANKS=4 with the bjacobi+lu
-    # parallel preconditioner that scripts/run_with_mpi.sh injects.
-    # These run cleanly at MPI_RANKS=1 (verified during pass-12
-    # followup 2) but the per-rank LU factorisation does not
-    # converge for these specific physics setups. The gate marks
-    # them WILL_FAIL TRUE so they remain visible in ctest output
-    # without blocking CI; investigating the parallel KSP
-    # convergence is a follow-up axis (see
-    # docs/CONFIGURATION_VALIDATION.md "Known broken examples").
-    # When an example is fixed, removing it from this list flips
-    # the gate from inverted-pass to genuine-pass.
+    # Examples that still fail at MPI_RANKS=4. After pass-12 followup 3
+    # (the parallel KSP/PC fix; see docs/PARALLEL_KSP.md) the only
+    # remaining entries are the three cohesive-cells fault examples,
+    # which are blocked on the PETSc 3.25 saddle-point solver tracked
+    # in docs/SOLVER_STATE.md (out of scope for the launcher pass).
+    # The twelve former "SNES diverges step 0" examples were unblocked
+    # by adding -ksp_type gmres to the parallel option string in
+    # scripts/run_with_mpi.sh (which wraps the per-rank block-Jacobi
+    # LU in a real Krylov loop instead of leaving the KSPPREONLY that
+    # Simulator::setupSolvers sets on the elastodynamics path), plus
+    # two example-local fixes: 06_gmsh_multimaterial had a stale
+    # relative mesh_file path after pass-12 relocated its config into
+    # the example directory, and 17_velocity_model never shipped the
+    # velocity_model.bin it references (now a committed 12 KB fixture).
+    # The gate marks the entries below WILL_FAIL TRUE so they stay
+    # visible in ctest output without blocking CI. When an example is
+    # fixed, removing it from this list flips the gate from
+    # inverted-pass to genuine-pass.
     set(EXAMPLE_SMOKE_MPI4_KNOWN_BROKEN
-        "04_locked_fault"           # cohesive cells; SNES timeout
-        "06_gmsh_multimaterial"     # SNES diverges step 0
-        "08_time_dependent_slip"    # cohesive cells; SNES timeout
-        "09_gasbuggy_1967"          # SNES diverges step 0
-        "16_scec_tpv5"              # cohesive cells; SNES timeout
-        "17_velocity_model"         # SNES diverges step 0
-        "23_milrow_1969"            # SNES diverges step 0
-        "24_cannikin_1971"          # SNES diverges step 0
-        "25_faultless_1968"         # SNES diverges step 0
-        "29_rio_blanco_1973"        # SNES diverges step 0
-        "33_dprk_2006"              # SNES diverges step 0
-        "34_dprk_2009"              # SNES diverges step 0
-        "35_dprk_2013"              # SNES diverges step 0
-        "36_dprk_2016a"             # SNES diverges step 0
-        "37_dprk_2016b")            # SNES diverges step 0
+        "04_locked_fault"           # cohesive cells; PETSc 3.25 saddle-point solver (SOLVER_STATE.md)
+        "08_time_dependent_slip"    # cohesive cells; PETSc 3.25 saddle-point solver (SOLVER_STATE.md)
+        "16_scec_tpv5")             # cohesive cells; PETSc 3.25 saddle-point solver (SOLVER_STATE.md)
 
     file(GLOB EXAMPLE_DIRS LIST_DIRECTORIES true
          ${CMAKE_SOURCE_DIR}/examples/[0-9]*_*)
@@ -1015,6 +1016,99 @@ if(GTest_FOUND)
         "Pass-12 followup 2: registered ${NUM_EXAMPLES_RUNTIME_TESTS} "
         "examples_runtime tests "
         "(set FSRM_EXAMPLES_RUNTIME_FULL=ON for full MPI matrix)")
+
+    # ---------------------------------------------------------------------
+    # Pass-12 followup 3: parallel KSP / PC diagnostic baseline + the
+    # backward-compatibility regression guards.
+    #
+    # Diagnostic.ParallelKSP.<N>_<event>.BaselineMPI4Capture (label
+    # "diagnostic"): re-runs each of the twelve former "SNES diverges
+    # step 0" examples at MPI=4 with a verbose PETSc monitor string and
+    # writes the combined output to
+    #   tests/diagnostics/parallel_ksp_baseline/<N>_<event>.mpi4.log
+    # The committed copy of that log is the regression reference: before
+    # pass-12 followup 3 it captured the divergence signature, after the
+    # fix it captures the successful convergence. The test asserts only
+    # that a non-empty log is produced, so it succeeds whether the
+    # example converges or not (the point is to capture the signature).
+    set(PARALLEL_KSP_DIAGNOSTIC_RUNNER
+        ${CMAKE_SOURCE_DIR}/tests/diagnostics/capture_parallel_ksp_baseline.sh)
+    set(PARALLEL_KSP_DIAGNOSTIC_EXAMPLES
+        06_gmsh_multimaterial
+        09_gasbuggy_1967
+        17_velocity_model
+        23_milrow_1969
+        24_cannikin_1971
+        25_faultless_1968
+        29_rio_blanco_1973
+        33_dprk_2006
+        34_dprk_2009
+        35_dprk_2013
+        36_dprk_2016a
+        37_dprk_2016b)
+    foreach(DKEX ${PARALLEL_KSP_DIAGNOSTIC_EXAMPLES})
+        set(DKDIR ${CMAKE_SOURCE_DIR}/examples/${DKEX})
+        if(NOT EXISTS ${DKDIR}/run.sh)
+            continue()
+        endif()
+        # Use the same smoke budget the examples_runtime gate uses.
+        set(DKFT ${EXAMPLE_SMOKE_FINAL_TIME})
+        foreach(OVER ${EXAMPLE_SMOKE_OVERRIDES})
+            string(REPLACE "=" ";" OVER_PARTS ${OVER})
+            list(GET OVER_PARTS 0 OVER_NAME)
+            list(GET OVER_PARTS 1 OVER_TIME)
+            if(DKEX STREQUAL OVER_NAME)
+                set(DKFT ${OVER_TIME})
+            endif()
+        endforeach()
+        set(DKTN Diagnostic.ParallelKSP.${DKEX}.BaselineMPI4Capture)
+        add_test(NAME ${DKTN}
+                 COMMAND bash ${PARALLEL_KSP_DIAGNOSTIC_RUNNER}
+                              ${DKDIR} ${DKFT}
+                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        set_tests_properties(${DKTN} PROPERTIES
+            TIMEOUT 150
+            PROCESSORS 4
+            LABELS "diagnostic")
+    endforeach()
+
+    # BackwardCompat.<Event>MPI4ContinuesToPass (labels
+    # "examples_runtime;backward_compat"): the three showcase examples
+    # that already ran cleanly at MPI=4 before pass-12 followup 3.
+    # These are explicit named regression guards: if the new parallel
+    # KSP/PC default ever breaks one of them the build fails here with
+    # a name that says exactly what regressed.
+    set(BACKWARD_COMPAT_GUARDS
+        "Salmon1964=20_salmon_1964"
+        "Sedan1962=11_sedan_1962"
+        "Punggye_ri=05_punggye_ri_nuclear_test")
+    foreach(BCG ${BACKWARD_COMPAT_GUARDS})
+        string(REPLACE "=" ";" BCG_PARTS ${BCG})
+        list(GET BCG_PARTS 0 BCG_LABEL)
+        list(GET BCG_PARTS 1 BCG_DIRNAME)
+        set(BCG_DIR ${CMAKE_SOURCE_DIR}/examples/${BCG_DIRNAME})
+        if(NOT EXISTS ${BCG_DIR}/run.sh)
+            continue()
+        endif()
+        set(BCG_FT ${EXAMPLE_SMOKE_FINAL_TIME})
+        foreach(OVER ${EXAMPLE_SMOKE_OVERRIDES})
+            string(REPLACE "=" ";" OVER_PARTS ${OVER})
+            list(GET OVER_PARTS 0 OVER_NAME)
+            list(GET OVER_PARTS 1 OVER_TIME)
+            if(BCG_DIRNAME STREQUAL OVER_NAME)
+                set(BCG_FT ${OVER_TIME})
+            endif()
+        endforeach()
+        set(BCG_TN BackwardCompat.${BCG_LABEL}MPI4ContinuesToPass)
+        add_test(NAME ${BCG_TN}
+                 COMMAND bash ${EXAMPLE_SMOKE_RUNNER}
+                              ${BCG_DIR} 4 ${BCG_FT}
+                 WORKING_DIRECTORY ${BCG_DIR})
+        set_tests_properties(${BCG_TN} PROPERTIES
+            TIMEOUT 180
+            PROCESSORS 4
+            LABELS "examples_runtime;backward_compat")
+    endforeach()
 
 else()
     message(WARNING "GTest not found. Skipping test suite.")

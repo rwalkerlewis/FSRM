@@ -1,0 +1,336 @@
+==================================================================
+FSRM parallel-KSP diagnostic capture
+  example      : 37_dprk_2016b
+  MPI ranks    : 4
+  final time   : 0.05 (FSRM_FINAL_TIME_OVERRIDE)
+  PETSC_OPTIONS: -snes_monitor -ksp_monitor_true_residual -snes_converged_reason -ksp_converged_reason -snes_linesearch_monitor -snes_view -snes_max_it 12 -ksp_max_it 200 -ts_max_steps 1 -options_left
+  date         : 2026-05-11T17:56:20Z
+==================================================================
+
+=== Example 37: DPRK 2016b (September) ===
+Config:  /workspace/examples/37_dprk_2016b/config.config
+Output:  /workspace/examples/37_dprk_2016b/output
+Ranks:   4
+
+--------------------------------------------------------------------------
+WARNING: Open MPI tried to bind a process but failed.  This is a
+warning only; your job will continue, though performance may
+be degraded.
+
+  Local host:        bfdd6f2df00f
+  Application name:  /workspace/build/fsrm
+  Error message:     failed to bind memory
+  Location:          ../../../../../../orte/mca/rtc/hwloc/rtc_hwloc.c:447
+
+--------------------------------------------------------------------------
+
+============================================================
+  FSRM - Full Service Reservoir Model
+  Coupled Multiphysics Simulator
+  Version 1.0.0
+============================================================
+
+Config file:   /workspace/examples/37_dprk_2016b/config.config
+Output prefix: output
+
+Initializing simulator...
+Loading configuration from: /workspace/examples/37_dprk_2016b/config.config
+[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=0.05 (was end_time=5)[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=0.05 (was end_time=5)
+[ConfigReader] FSRM_FINAL_TIME_OVERRIDE=0.05 (was end_time=5)
+0.05 (was end_time=5)
+
+Heterogeneous material: 3 layers defined
+Absorbing BCs: x=[1,1] y=[1,1] z=[1,0]
+Boundary conditions: bottom=free, sides=free, top=free
+COUPLED_ANALYTIC: NearField 1D solver completed
+  RDP psi_inf = 1.970e+06 m^3, fc = 0.855 Hz
+  Cavity R = 142.2 m, Crushed R = 355.4 m, Fractured R = 710.8 m
+Configuration:
+  Start time: 0.
+  End time: 0.05
+  Initial dt: 0.001
+  Fluid model: 0
+  Solid model: 0
+Configuration loaded successfully
+GPU execution: DISABLED (CPU-only mode)
+Setting up problem...
+Labeling boundary faces...
+  Bounding box: [0.000, 4000.000] x [0.000, 4000.000] x [0.000, 2000.000]
+  boundary_x_min: 150 faces
+  boundary_x_max: 150 faces
+  boundary_y_min: 150 faces
+  boundary_y_max: 150 faces
+  boundary_z_min: 225 faces
+  boundary_z_max: 225 faces
+Setting up boundary conditions...
+  Applied BC: absorbing_x_min (absorbing), field 0
+  Applied BC: absorbing_x_max (absorbing), field 0
+  Applied BC: absorbing_y_min (absorbing), field 0
+  Applied BC: absorbing_y_max (absorbing), field 0
+  Applied BC: absorbing_z_min (absorbing), field 0
+Registered absorbing BC callbacks on field 0
+Auxiliary DM setup complete: 3 layers, 5 material aux fields
+Using TSALPHA2 for elastodynamics (generalized-alpha, second-order)
+Setting initial conditions...
+Explosion source located in cell -1
+  Number of boundaries registered: 5
+  DS 0: 5 boundaries, 1 local fields
+  Local section: total dof=2715, constrained dof=0 (free=2715)
+    field 0: dof=2715, constrained=0, free=2715
+  Solution norm after BC insertion: 0.000000e+00
+
+Starting simulation...
+------------------------------------------------------------
+Step 0, Time = 0.
+HDF5 output written at step 0 to output/solution.h5
+    0 SNES Function norm 4.865379320304e+13
+      0 KSP preconditioned resid norm 7.265204932298e-04 true resid norm 4.865379320304e+13 ||r(i)||/||b|| 1.000000000000e+00
+      1 KSP preconditioned resid norm 1.536590521868e-04 true resid norm 1.247285525426e+13 ||r(i)||/||b|| 2.563593593249e-01
+      2 KSP preconditioned resid norm 4.640655757880e-05 true resid norm 3.350292171574e+12 ||r(i)||/||b|| 6.885983498948e-02
+      3 KSP preconditioned resid norm 1.780977906223e-05 true resid norm 1.155919011168e+12 ||r(i)||/||b|| 2.375804505815e-02
+      4 KSP preconditioned resid norm 5.366190299375e-06 true resid norm 3.588679051962e+11 ||r(i)||/||b|| 7.375949161837e-03
+      5 KSP preconditioned resid norm 1.413276960683e-06 true resid norm 8.528758520594e+10 ||r(i)||/||b|| 1.752948323063e-03
+      6 KSP preconditioned resid norm 2.559926668744e-07 true resid norm 1.614950297829e+10 ||r(i)||/||b|| 3.319269046689e-04
+      7 KSP preconditioned resid norm 4.672472894329e-08 true resid norm 2.996077123882e+09 ||r(i)||/||b|| 6.157951778556e-05
+      8 KSP preconditioned resid norm 1.197962529540e-08 true resid norm 7.237523241540e+08 ||r(i)||/||b|| 1.487555802964e-05
+      9 KSP preconditioned resid norm 2.453220229157e-09 true resid norm 1.659641278226e+08 ||r(i)||/||b|| 3.411124126128e-06
+      Linear solve converged due to CONVERGED_ATOL iterations 9
+        Line search: Using full step: fnorm 4.865379320304e+13 gnorm 1.659642579052e+08
+    1 SNES Function norm 1.659642579052e+08
+      0 KSP preconditioned resid norm 2.453095152515e-09 true resid norm 1.659642579052e+08 ||r(i)||/||b|| 1.000000000000e+00
+      Linear solve converged due to CONVERGED_ATOL iterations 0
+        Line search: Initial direction and size is 0
+    Nonlinear solve converged due to CONVERGED_SNORM_RELATIVE iterations 1
+SNES Object: 4 MPI processes
+  type: newtonls
+  maximum iterations=12, maximum function evaluations=10000
+  tolerances: relative=1e-06, absolute=1e-08, solution=1e-08
+  total number of linear solver iterations=9
+  total number of function evaluations=2
+  norm schedule ALWAYS
+  SNESLineSearch Object: 4 MPI processes
+    type: bt
+      interpolation: cubic
+      alpha=1.000000e-04
+    maxlambda=1.000000e+00, minlambda=1.000000e-12
+    tolerances: relative=1.000000e-08, absolute=1.000000e-15, lambda=1.000000e-08
+    maximum iterations=40
+  KSP Object: 4 MPI processes
+    type: gmres
+      restart=30, using classical (unmodified) Gram-Schmidt orthogonalization with no iterative refinement
+      happy breakdown tolerance=1e-30
+    maximum iterations=200, initial guess is zero
+    tolerances: relative=1e-06, absolute=1e-08, divergence=10000.
+    left preconditioning
+    using PRECONDITIONED norm type for convergence test
+  PC Object: 4 MPI processes
+    type: bjacobi
+      number of blocks = 4
+      Local solver information for first block is in the following KSP and PC objects on rank 0:
+      Use -ksp_view ::ascii_info_detail to display information for all blocks
+      KSP Object: (sub_) 1 MPI process
+        type: preonly
+        maximum iterations=10000, initial guess is zero
+        tolerances: relative=1e-05, absolute=1e-50, divergence=10000.
+        left preconditioning
+        not checking for convergence
+      PC Object: (sub_) 1 MPI process
+        type: lu
+          out-of-place factorization
+          tolerance for zero pivot 2.22045e-14
+          matrix ordering: nd
+          factor fill ratio given 5., needed 3.68113
+            Factored matrix:
+              Mat Object: (sub_) 1 MPI process
+                type: seqaij
+                rows=1896, cols=1896, bs=3
+                package used to perform factorization: petsc
+                total: nonzeros=377154, allocated nonzeros=377154
+                  using I-node routines: found 601 nodes, limit used is 5
+        linear system matrix, which is also used to construct the preconditioner:
+        Mat Object: (sub_) 1 MPI process
+          type: seqaij
+          rows=1896, cols=1896, bs=3
+          total: nonzeros=102456, allocated nonzeros=102456
+          total number of mallocs used during MatSetValues calls=0
+            using I-node routines: found 632 nodes, limit used is 5
+    linear system matrix, which is also used to construct the preconditioner:
+    Mat Object: 4 MPI processes
+      type: mpiaij
+      rows=8448, cols=8448, bs=3 variable blocks set
+      total: nonzeros=590364, allocated nonzeros=590364
+      total number of mallocs used during MatSetValues calls=0
+        using I-node (on process 0) routines: found 632 nodes, limit used is 5
+    0 SNES Function norm 1.942911276343e+14
+      0 KSP preconditioned resid norm 2.901040675734e-03 true resid norm 1.942911276343e+14 ||r(i)||/||b|| 1.000000000000e+00
+      1 KSP preconditioned resid norm 6.135295223487e-04 true resid norm 4.980475007227e+13 ||r(i)||/||b|| 2.563408359337e-01
+      2 KSP preconditioned resid norm 1.853039490452e-04 true resid norm 1.337819943790e+13 ||r(i)||/||b|| 6.885646092439e-02
+      3 KSP preconditioned resid norm 7.111631849215e-05 true resid norm 4.615693534702e+12 ||r(i)||/||b|| 2.375658420899e-02
+      4 KSP preconditioned resid norm 2.142738712822e-05 true resid norm 1.432972537475e+12 ||r(i)||/||b|| 7.375388443739e-03
+      5 KSP preconditioned resid norm 5.643179405003e-06 true resid norm 3.405414075422e+11 ||r(i)||/||b|| 1.752737820243e-03
+      6 KSP preconditioned resid norm 1.022188892091e-06 true resid norm 6.448999270734e+10 ||r(i)||/||b|| 3.319245376389e-04
+      7 KSP preconditioned resid norm 1.865802034457e-07 true resid norm 1.196441410832e+10 ||r(i)||/||b|| 6.157982741673e-05
+      8 KSP preconditioned resid norm 4.783578513030e-08 true resid norm 2.890044409721e+09 ||r(i)||/||b|| 1.487481412513e-05
+      9 KSP preconditioned resid norm 9.796212940425e-09 true resid norm 6.627298382111e+08 ||r(i)||/||b|| 3.411014420888e-06
+      Linear solve converged due to CONVERGED_ATOL iterations 9
+        Line search: Using full step: fnorm 1.942911276343e+14 gnorm 6.627303541206e+08
+    1 SNES Function norm 6.627303541206e+08
+      0 KSP preconditioned resid norm 9.795713789036e-09 true resid norm 6.627303541206e+08 ||r(i)||/||b|| 1.000000000000e+00
+      Linear solve converged due to CONVERGED_ATOL iterations 0
+        Line search: Initial direction and size is 0
+    Nonlinear solve converged due to CONVERGED_SNORM_RELATIVE iterations 1
+SNES Object: 4 MPI processes
+  type: newtonls
+  maximum iterations=12, maximum function evaluations=10000
+  tolerances: relative=1e-06, absolute=1e-08, solution=1e-08
+  total number of linear solver iterations=9
+  total number of function evaluations=2
+  norm schedule ALWAYS
+  SNESLineSearch Object: 4 MPI processes
+    type: bt
+      interpolation: cubic
+      alpha=1.000000e-04
+    maxlambda=1.000000e+00, minlambda=1.000000e-12
+    tolerances: relative=1.000000e-08, absolute=1.000000e-15, lambda=1.000000e-08
+    maximum iterations=40
+  KSP Object: 4 MPI processes
+    type: gmres
+      restart=30, using classical (unmodified) Gram-Schmidt orthogonalization with no iterative refinement
+      happy breakdown tolerance=1e-30
+    maximum iterations=200, initial guess is zero
+    tolerances: relative=1e-06, absolute=1e-08, divergence=10000.
+    left preconditioning
+    using PRECONDITIONED norm type for convergence test
+  PC Object: 4 MPI processes
+    type: bjacobi
+      number of blocks = 4
+      Local solver information for first block is in the following KSP and PC objects on rank 0:
+      Use -ksp_view ::ascii_info_detail to display information for all blocks
+      KSP Object: (sub_) 1 MPI process
+        type: preonly
+        maximum iterations=10000, initial guess is zero
+        tolerances: relative=1e-05, absolute=1e-50, divergence=10000.
+        left preconditioning
+        not checking for convergence
+      PC Object: (sub_) 1 MPI process
+        type: lu
+          out-of-place factorization
+          tolerance for zero pivot 2.22045e-14
+          matrix ordering: nd
+          factor fill ratio given 5., needed 3.68113
+            Factored matrix:
+              Mat Object: (sub_) 1 MPI process
+                type: seqaij
+                rows=1896, cols=1896, bs=3
+                package used to perform factorization: petsc
+                total: nonzeros=377154, allocated nonzeros=377154
+                  using I-node routines: found 601 nodes, limit used is 5
+        linear system matrix, which is also used to construct the preconditioner:
+        Mat Object: (sub_) 1 MPI process
+          type: seqaij
+          rows=1896, cols=1896, bs=3
+          total: nonzeros=102456, allocated nonzeros=102456
+          total number of mallocs used during MatSetValues calls=0
+            using I-node routines: found 632 nodes, limit used is 5
+    linear system matrix, which is also used to construct the preconditioner:
+    Mat Object: 4 MPI processes
+      type: mpiaij
+      rows=8448, cols=8448, bs=3 variable blocks set
+      total: nonzeros=590364, allocated nonzeros=590364
+      total number of mallocs used during MatSetValues calls=0
+        using I-node (on process 0) routines: found 632 nodes, limit used is 5
+    0 SNES Function norm 9.730758640609e+13
+      0 KSP preconditioned resid norm 2.904683542391e-03 true resid norm 9.730758640609e+13 ||r(i)||/||b|| 1.000000000000e+00
+      1 KSP preconditioned resid norm 6.141225978170e-04 true resid norm 2.493481842754e+13 ||r(i)||/||b|| 2.562474247741e-01
+      2 KSP preconditioned resid norm 1.854306929865e-04 true resid norm 6.695930867264e+12 ||r(i)||/||b|| 6.881201265563e-02
+      3 KSP preconditioned resid norm 7.115348799363e-05 true resid norm 2.309880602026e+12 ||r(i)||/||b|| 2.373792925442e-02
+      4 KSP preconditioned resid norm 2.142872863587e-05 true resid norm 7.167397854942e+11 ||r(i)||/||b|| 7.365713321704e-03
+      5 KSP preconditioned resid norm 5.639609556526e-06 true resid norm 1.702211826583e+11 ||r(i)||/||b|| 1.749310500292e-03
+      6 KSP preconditioned resid norm 1.020880655082e-06 true resid norm 3.221008872946e+10 ||r(i)||/||b|| 3.310131297990e-04
+      7 KSP preconditioned resid norm 1.863756084542e-07 true resid norm 5.976044876938e+09 ||r(i)||/||b|| 6.141396675896e-05
+      8 KSP preconditioned resid norm 4.775459484422e-08 true resid norm 1.443602300185e+09 ||r(i)||/||b|| 1.483545480370e-05
+      9 KSP preconditioned resid norm 9.760954093655e-09 true resid norm 3.304498016480e+08 ||r(i)||/||b|| 3.395930511203e-06
+      Linear solve converged due to CONVERGED_ATOL iterations 9
+        Line search: Using full step: fnorm 9.730758640609e+13 gnorm 3.304508439780e+08
+    1 SNES Function norm 3.304508439780e+08
+      0 KSP preconditioned resid norm 9.760046855233e-09 true resid norm 3.304508439780e+08 ||r(i)||/||b|| 1.000000000000e+00
+      Linear solve converged due to CONVERGED_ATOL iterations 0
+        Line search: Initial direction and size is 0
+    Nonlinear solve converged due to CONVERGED_SNORM_RELATIVE iterations 1
+SNES Object: 4 MPI processes
+  type: newtonls
+  maximum iterations=12, maximum function evaluations=10000
+  tolerances: relative=1e-06, absolute=1e-08, solution=1e-08
+  total number of linear solver iterations=9
+  total number of function evaluations=2
+  norm schedule ALWAYS
+  SNESLineSearch Object: 4 MPI processes
+    type: bt
+      interpolation: cubic
+      alpha=1.000000e-04
+    maxlambda=1.000000e+00, minlambda=1.000000e-12
+    tolerances: relative=1.000000e-08, absolute=1.000000e-15, lambda=1.000000e-08
+    maximum iterations=40
+  KSP Object: 4 MPI processes
+    type: gmres
+      restart=30, using classical (unmodified) Gram-Schmidt orthogonalization with no iterative refinement
+      happy breakdown tolerance=1e-30
+    maximum iterations=200, initial guess is zero
+    tolerances: relative=1e-06, absolute=1e-08, divergence=10000.
+    left preconditioning
+    using PRECONDITIONED norm type for convergence test
+  PC Object: 4 MPI processes
+    type: bjacobi
+      number of blocks = 4
+      Local solver information for first block is in the following KSP and PC objects on rank 0:
+      Use -ksp_view ::ascii_info_detail to display information for all blocks
+      KSP Object: (sub_) 1 MPI process
+        type: preonly
+        maximum iterations=10000, initial guess is zero
+        tolerances: relative=1e-05, absolute=1e-50, divergence=10000.
+        left preconditioning
+        not checking for convergence
+      PC Object: (sub_) 1 MPI process
+        type: lu
+          out-of-place factorization
+          tolerance for zero pivot 2.22045e-14
+          matrix ordering: nd
+          factor fill ratio given 5., needed 3.68113
+            Factored matrix:
+              Mat Object: (sub_) 1 MPI process
+                type: seqaij
+                rows=1896, cols=1896, bs=3
+                package used to perform factorization: petsc
+                total: nonzeros=377154, allocated nonzeros=377154
+                  using I-node routines: found 601 nodes, limit used is 5
+        linear system matrix, which is also used to construct the preconditioner:
+        Mat Object: (sub_) 1 MPI process
+          type: seqaij
+          rows=1896, cols=1896, bs=3
+          total: nonzeros=102456, allocated nonzeros=102456
+          total number of mallocs used during MatSetValues calls=0
+            using I-node routines: found 632 nodes, limit used is 5
+    linear system matrix, which is also used to construct the preconditioner:
+    Mat Object: 4 MPI processes
+      type: mpiaij
+      rows=8448, cols=8448, bs=3 variable blocks set
+      total: nonzeros=590364, allocated nonzeros=590364
+      total number of mallocs used during MatSetValues calls=0
+        using I-node (on process 0) routines: found 632 nodes, limit used is 5
+------------------------------------------------------------
+Simulation completed successfully!
+Total wall time: 1.27 seconds
+
+Output files written to: output.*
+
+============================================================
+There are no unused options.
+[bfdd6f2df00f:00482] 3 more processes have sent help message help-orte-odls-default.txt / memory not bound
+[bfdd6f2df00f:00482] Set MCA parameter "orte_base_help_aggregate" to 0 to see all help / error messages
+
+=== Output Files ===
+total 1020K
+drwxr-xr-x 2 root root  4.0K May 11 17:56 dprk_2016b
+-rw-r--r-- 1 root root 1014K May 11 17:56 solution.h5
+
+=== run.sh exit code: 0 ===
