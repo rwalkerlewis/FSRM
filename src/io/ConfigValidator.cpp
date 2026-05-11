@@ -276,6 +276,12 @@ const SectionMap& knownSections() {
             "cavity_geometry", "cavity_radius_m", "outer_radius_m",
             "mesh_path", "overburden_K0",
             "source_ball_radiation_discretization",
+            // Pass-13c
+            "source_ball_radiation_substep_cadence",
+            // Pass-14a source forcing
+            "source_forcing_enabled", "source_time_function",
+            "source_yield_kt", "source_deposition_duration_s",
+            "source_deposition_efficiency",
         }},
         {"SOURCE_DISTRIBUTION", {
             "mode", "support_radius_factor", "gaussian_sigma_factor",

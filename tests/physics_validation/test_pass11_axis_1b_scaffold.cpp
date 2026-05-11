@@ -98,8 +98,8 @@ TEST_F(Pass11Axis1bScaffoldTest, ThreeDimensionalCavityGeometryDelegates)
     EXPECT_NE(nm.find("Source3DBallImpl"), std::string::npos)
         << "name() should report the 3D impl tag when delegation is "
            "active: " << nm;
-    EXPECT_NE(nm.find("pass13c"), std::string::npos)
-        << "name() should reference pass-13c: " << nm;
+    EXPECT_NE(nm.find("pass14a"), std::string::npos)
+        << "name() should reference pass-14a: " << nm;
 
     // Foundation no-op mode (empty mesh_path) leaves M / Mdot at zero
     // because no surface-integral set exists. The full integral is
@@ -164,11 +164,11 @@ TEST_F(Pass11Axis1bScaffoldTest, Source3DBallFactoryReturnsImpl)
     EXPECT_NO_THROW({ ball = makeSource3DBall(cfg); })
         << "Pass-13c: makeSource3DBall must construct without "
            "throwing. The pass-11 throw was replaced in pass-13a; "
-           "pass-13c bumps the implementation tag to the validation "
+           "pass-14a bumps the implementation tag to the source-forcing "
            "milestone.";
     ASSERT_NE(ball, nullptr);
     const std::string nm = ball->name();
-    EXPECT_NE(nm.find("pass13c"), std::string::npos)
-        << "Source3DBallImpl::name() should tag the pass-13c "
+    EXPECT_NE(nm.find("pass14a"), std::string::npos)
+        << "Source3DBallImpl::name() should tag the pass-14a "
            "validation implementation: " << nm;
 }

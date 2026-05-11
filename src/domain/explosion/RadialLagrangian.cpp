@@ -116,8 +116,24 @@ void RadialLagrangianSolver::setConfig(const Config& c)
         if (sub.source_depth_m <= 0.0 && src_.depth > 0.0) {
             sub.source_depth_m = src_.depth;
         }
+        // Pass-14a: fill the source-forcing yield from the configured
+        // explosion source unless overridden, and default the master
+        // switch on for the 3D path (the spec: source_forcing_enabled
+        // defaults true when cavity_geometry = THREE_DIMENSIONAL).
+        if (sub.source_yield_kt <= 0.0 && src_.yield_kt > 0.0) {
+            sub.source_yield_kt = src_.yield_kt;
+        }
         // K, G, dp3d_alpha, dp3d_k, cv, T_ambient, medium_label come
         // straight from the sub-config or its defaults.
+        //
+        // Run the 3D source ball replicated on PETSC_COMM_SELF rather
+        // than on the host communicator: the source ball is small
+        // (hundreds to a few thousand cells), the explicit acoustic
+        // pulse update needs the full cell graph on one rank, and the
+        // FEM far-field that consumes the recorded moment tensor is
+        // where the simulator's MPI parallelism lives. This mirrors the
+        // 1D radial Lagrangian solver, which is serial by design.
+        ball_3d_->setComm(PETSC_COMM_SELF);
         ball_3d_->initialize(sub);
         ball_3d_active_ = true;
     } else {
@@ -1534,7 +1550,7 @@ void RadialLagrangianSolver::getMomentTensor(std::array<double, 6>& M) const
 const char* RadialLagrangianSolver::name() const
 {
     if (ball_3d_active_) {
-        return "RadialLagrangianSolver+Source3DBallImpl_v1_pass13c_validation";
+        return "RadialLagrangianSolver+Source3DBallImpl_v1_pass14a_source_forcing";
     }
     return "RadialLagrangianSolver";
 }

@@ -1923,3 +1923,124 @@ Per-label CTest sweep inside `fsrm-ci:local`:
 - `integration`: 90 tests, 84 pass + 6 pre-existing fault failures
   per `docs/SOLVER_STATE.md`.
 - `iris_validation`: 5 tests, all pass.
+
+## 4o. Closed in pass 14a (axis-1b source-forcing slice)
+
+Pass-13a/b/c built the 3D source-ball infrastructure (TetGen mesh
+load + distribute, 3D Drucker-Prager constitutive, asymmetric
+overburden initial state, cell-centred FV grey radiation diffusion,
+surface-integral moment-tensor extraction). The A2 Salmon-with-3D-ball
+test ran end-to-end but produced a zero source signal: with
+`cavity_geometry = THREE_DIMENSIONAL` the host's 1D advection is
+bypassed and the 3D solver had no internal source term, so the cavity
+wall sat motionless, the per-cell stress never changed, and the
+surface integral over the elastic radius returned zero. Pass-14a wires
+the source forcing so the 3D path produces a real moment-rate tensor
+(and therefore real seismograms), while the cavity itself still does
+not move (3D Lagrangian advection is the pass-14b slice).
+
+### What landed
+
+1. **`[NEAR_FIELD_SOURCE]` source-forcing sub-block.** Five new sub-
+   keys, consulted only under `cavity_geometry = THREE_DIMENSIONAL`:
+   - `source_forcing_enabled` (default `true` for the 3D path, `false`
+     otherwise -- setting it `false` reproduces pass-13c byte-for-byte)
+   - `source_time_function` (`MUELLER_MURPHY` default | `BRUNE` | `RAMP`
+     | `DELTA`; the MUELLER_MURPHY / BRUNE shapes are the critically-
+     damped reduced-displacement-potential pulse `g(t) = omega^2 t
+     exp(-omega t)`, Mueller & Murphy 1971 BSSA 61(6) / Brune 1970 JGR
+     75, normalised so the time integral of the rate is unity)
+   - `source_yield_kt` (negative -> the host fills it from the
+     configured explosion yield)
+   - `source_deposition_duration_s` (default 1 ms)
+   - `source_deposition_efficiency` (default 1.0; the fraction of the
+     yield deposited as mechanical cavity energy)
+
+2. **Inner-cavity cell identification + `SourceBallInnerCavity`
+   DMLabel.** At `Source3DBallImpl::initialize()` the cells whose
+   centroid lies within `cavity_radius_m` are tagged (DMLabel value 1);
+   on a shell mesh, where no centroid lies inside `cavity_radius_m`,
+   the fallback tags the innermost cavity-wall layer (centroid radius
+   within `R_inner_global + 0.10 * cavity_radius_m`). The per-rank
+   count is reported; a rank with zero inner-cavity cells (possible at
+   MPI > 1) is a deposit no-op but still participates in the global
+   energy bookkeeping, asserted via `MPI_Allreduce`.
+
+3. **Volumetric energy injection in `Source3DBallImpl::step()`.** Each
+   host step, before the constitutive update: evaluate the STF rate
+   `s(t)` (J/s integrated globally), deposit `dE_i = s(t) dt V_i /
+   V_inner` into each inner-cavity cell (so the specific-internal-energy
+   increment per unit mass is `s(t) dt / (rho_i V_inner)` and the total
+   sums to `s(t) dt`), recompute the Tillotson host-rock matter
+   pressure from the raised internal energy (the cavity-wall pressure
+   perturbation), spread it through the rock as the Sharpe 1942 / Lame
+   elastostatic pressurised-cavity field `dp(r) = dp_cavity (a/r)^3`
+   (clamped to `dp_cavity` inside the cavity wall), feed the implied
+   per-cell volumetric strain `deps_vol = -d(dp)/K` into the existing
+   Drucker-Prager radial return, and let the pass-13c surface integral
+   over the elastic radius read the resulting stress drop back as a
+   moment-rate tensor (Day & McLaughlin 1991; Aki & Richards 2002 ch
+   4). Total deposited energy at the end of the STF equals
+   `source_yield_kt * 4.184e12 * source_deposition_efficiency`.
+
+4. **Source ball runs replicated on `PETSC_COMM_SELF`.** The host
+   (`RadialLagrangianSolver` 3D delegation) sets the source-ball
+   communicator to `PETSC_COMM_SELF` so the elastostatic pressure-field
+   update sees the full cell graph on one rank and the moment tensor is
+   rank-independent. This mirrors the 1D radial Lagrangian solver,
+   which is serial by design; the FEM far-field that consumes the
+   recorded moment tensor remains fully MPI-parallel.
+
+5. **HDF5 / source-ball-3D output fields.** `Source3DCellState` gains
+   `source_forcing_power` (instantaneous deposited power density,
+   W/m^3), `inner_cavity_marker` (binary cavity-wall flag), and
+   `dp_pressure_field` (the per-cell pressure-perturbation field, Pa)
+   for the source-ball-3D HDF5/XDMF writer.
+
+6. **`name()` tag bump.** `Source3DBallImpl_v1_pass13c_validation` ->
+   `Source3DBallImpl_v1_pass14a_source_forcing`;
+   `RadialLagrangianSolver` reports
+   `RadialLagrangianSolver+Source3DBallImpl_v1_pass14a_source_forcing`
+   when 3D delegation is active. The pass-13c `name()` substring tests
+   are updated to check for `pass14a`.
+
+### Tests added in pass 14a
+
+| Test | Verifies |
+|------|----------|
+| `Unit.SourceBall.SourceForcing.InnerCavityCellsIdentifiedCorrectly` | cavity-wall cells tagged (DMLabel + impl list), others not. |
+| `Unit.SourceBall.SourceForcing.SourceTimeFunctionDeliversTotalYield` | integrating the STF over the pulse gives `yield * 4.184e12 * efficiency` to 0.1%, all four shapes. |
+| `Unit.SourceBall.SourceForcing.VolumetricEnergyDistributionConservation` | one host step in the deposition window deposits exactly `rate(t_mid) * dt` globally, uniform per unit mass over the inner cavity. |
+| `Physics.Source3DBall.SourceForcingProducesNonZeroMoment` (HEADLINE) | moment-tensor trace at the elastic radius exceeds `1e-2 * (yield * 4.184e12)` after the deposition window (pass-13c had M = 0). |
+| `Physics.Source3DBall.SphericalSymmetrySourceForcingGivesIsotropicMoment` | isotropic IC -> moment deviator below 10% of the isotropic part. |
+| `Physics.Source3DBall.ThreeDimensionalWithoutSourceForcingGivesZeroMoment` | `source_forcing_enabled = false` -> M = 0 (pass-13c regression guard). |
+| `Integration.NearFieldSource.Salmon3DWithOverburdenAtMPI4` (UPGRADE) | end-to-end Salmon 3D + K_0 = 0.5 + source forcing; peak SAC amplitude within a factor 4 of the 1D RADIAL_LAGRANGIAN reference (pass-14b target: factor 2). The actual achieved ratio is printed for the PR body. |
+
+### Residual (named axis-X follow-ups)
+
+- The cavity does not grow (no 3D Lagrangian advection in pass-14a;
+  that is the pass-14b slice). Cavity aspect ratio stays at 1.00
+  within solver noise.
+- The CLVD content with `K_0 < 1` stays well below the literature
+  0.05-0.30 range: the pass-14a per-cell stress drop under pure
+  compression is purely isotropic (the Drucker-Prager yield surface
+  grows with confining pressure faster than the deviatoric stress, so
+  the cells do not yield), so the moment is dominantly isotropic. The
+  literature-range CLVD needs the pass-14b cavity-asymmetry physics.
+  The pass-14a small-CLVD documentation moves to the PR body without a
+  formal gate (drop-priority per the pass-14a spec).
+- Salmon free-field peak-velocity gates at the three Healy ranges
+  under the 3D path, and cross-validation on Chagan / Pokhran I /
+  DPRK 2017 under the 3D path, are pass-14c.
+- 3D far-field FEM coupling (axis-1d, future pass).
+
+### Backward compatibility
+
+- `cavity_geometry = SPHERICAL` (default) byte-identical to pre-pass-14a
+  for all 32 historic events (the 3D source ball is not even
+  constructed).
+- `cavity_geometry = THREE_DIMENSIONAL` with `source_forcing_enabled =
+  false` byte-identical to pass-13c (the deposit / pressure-field
+  updates are no-ops; the cavity wall stays motionless; M = 0).
+- The pass-13c `name()` substring tests are updated to check for
+  `pass14a` instead of `pass13c`.

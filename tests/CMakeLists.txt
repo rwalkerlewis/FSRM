@@ -33,6 +33,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_explosion_source.cpp
     unit/domain/test_source3d_ball_mesh.cpp
     unit/domain/test_source3d_ball_moment_tensor.cpp
+    unit/domain/test_source3d_source_forcing.cpp
     unit/domain/test_drucker_prager_3d.cpp
     unit/domain/test_source_ball_overburden.cpp
     unit/domain/test_source_ball_radiation_3d.cpp
@@ -108,6 +109,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_pass11_axis_1b_scaffold.cpp
     physics_validation/test_pass13b_axis_1b_physics.cpp
     physics_validation/test_pass13c_axis_1b_validation.cpp
+    physics_validation/test_pass14a_source_forcing.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -370,6 +372,11 @@ if(GTest_FOUND)
     # Pass-13c axis-1b validation gates.
     add_test(NAME Physics.Source3DBall.CLVDContentWithOverburden COMMAND run_physics_tests --gtest_filter=Pass13cAxis1bValidation.CLVDContentWithOverburden)
     add_test(NAME Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing COMMAND run_physics_tests --gtest_filter=Pass13cAxis1bValidation.MomentTensorIsZeroWithoutSourceForcing)
+    # Pass-14a axis-1b source-forcing gates.
+    add_test(NAME Physics.Source3DBall.SourceForcingProducesNonZeroMoment COMMAND run_physics_tests --gtest_filter=Pass14aSourceForcing.SourceForcingProducesNonZeroMoment)
+    add_test(NAME Physics.Source3DBall.SphericalSymmetrySourceForcingGivesIsotropicMoment COMMAND run_physics_tests --gtest_filter=Pass14aSourceForcing.SphericalSymmetrySourceForcingGivesIsotropicMoment)
+    add_test(NAME Physics.Source3DBall.ThreeDimensionalWithoutSourceForcingGivesZeroMoment COMMAND run_physics_tests --gtest_filter=Pass14aSourceForcing.ThreeDimensionalWithoutSourceForcingGivesZeroMoment)
+    add_test(NAME Unit.SourceBall.SourceForcing COMMAND run_unit_tests --gtest_filter=Source3DSourceForcing.*)
     add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
     add_test(NAME Unit.SourceBall.ImplFoundation COMMAND run_unit_tests --gtest_filter=SourceBallImplFoundationTest.*)
     add_test(NAME Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation COMMAND run_unit_tests --gtest_filter=BackwardCompatTest.Source3DBallScaffoldThrowGoneOnInstantiation)
@@ -595,6 +602,7 @@ if(GTest_FOUND)
         Unit.SourceBall.ImplFoundation
         Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation
         Unit.SourceBall.SurfaceIntegralMomentTensor
+        Unit.SourceBall.SourceForcing
         Unit.DruckerPrager3D
         Unit.Overburden
         Unit.SourceBallRadiation3D
@@ -698,6 +706,9 @@ if(GTest_FOUND)
         Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault
         Physics.Source3DBall.CLVDContentWithOverburden
         Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing
+        Physics.Source3DBall.SourceForcingProducesNonZeroMoment
+        Physics.Source3DBall.SphericalSymmetrySourceForcingGivesIsotropicMoment
+        Physics.Source3DBall.ThreeDimensionalWithoutSourceForcingGivesZeroMoment
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 

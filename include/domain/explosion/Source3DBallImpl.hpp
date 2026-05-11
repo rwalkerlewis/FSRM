@@ -60,6 +60,7 @@
 #include "domain/explosion/DruckerPrager3D.hpp"
 #include "domain/explosion/SourceBallRadiation3D.hpp"
 #include "domain/explosion/SourceBallOverburden.hpp"
+#include "domain/explosion/TillotsonEOS.hpp"
 
 #include <array>
 #include <memory>
@@ -82,6 +83,17 @@ struct Source3DCellState
     double e_int = 0.0;                       ///< Specific internal energy [J/kg].
     double T_m = 0.0;                          ///< Matter temperature [K].
     double E_r = 0.0;                          ///< Radiation energy density [J/m^3].
+    /// Pass-14a: instantaneous deposited energy rate per unit volume
+    /// [W/m^3]. Zero outside the inner cavity and outside the
+    /// deposition window.
+    double source_forcing_power = 0.0;
+    /// Pass-14a: 1.0 if the cell is in the inner-cavity (cavity-wall)
+    /// layer the deposited energy goes into, 0.0 otherwise.
+    double inner_cavity_marker = 0.0;
+    /// Pass-14a: pressure-perturbation field at this cell [Pa],
+    /// compression positive (dp_cavity inside the cavity wall,
+    /// dp_cavity * (a/r)^3 in the surrounding rock).
+    double dp_pressure_field = 0.0;
 };
 
 class Source3DBallImpl final : public Source3DBall
@@ -169,6 +181,41 @@ public:
     /// Diagnostic: number of cells that yielded in the most recent step.
     int lastYieldedCellCount() const { return last_yielded_count_; }
 
+    // Pass-14a source-forcing diagnostics --------------------------
+
+    /// True after initialize() when source forcing is active (config
+    /// enabled, cavity_geometry = THREE_DIMENSIONAL, positive yield,
+    /// and at least one inner-cavity cell globally).
+    bool sourceForcingActive() const { return source_forcing_active_; }
+
+    /// Number of inner-cavity cells owned by this rank (cells whose
+    /// centroid is within cavity_radius_m of the source center).
+    int numInnerCavityCells() const
+    { return static_cast<int>(inner_cavity_cells_.size()); }
+
+    /// Local cell index list of the inner-cavity cells (for tests).
+    const std::vector<int>& innerCavityCellIndices() const
+    { return inner_cavity_cells_; }
+
+    /// Total inner-cavity volume across all ranks [m^3] (MPI-reduced
+    /// at initialize).
+    double innerCavityVolumeGlobal() const
+    { return inner_cavity_volume_global_; }
+
+    /// Total mechanical energy actually deposited so far [J], summed
+    /// over all ranks (cumulative across step() calls).
+    double depositedEnergyGlobalJ() const
+    { return deposited_energy_global_J_; }
+
+    /// Source-time-function rate (J/s) the host ball deposits globally
+    /// at simulation time t (seconds since the source forcing began).
+    /// Public so the unit gate can integrate it.
+    double sourceTimeFunctionPowerJ(double t) const;
+
+    /// Total mechanical energy the source forcing will deposit over the
+    /// whole STF [J] = source_yield_kt * 4.184e12 * efficiency.
+    double totalSourceEnergyJ() const { return total_source_energy_J_; }
+
     /// Configured cavity radius (from `Source3DBallConfig::cavity_radius_m`
     /// at initialize time). Used by the host's getCavityRadius shim
     /// which now early-outs for the 3D path.
@@ -197,6 +244,24 @@ private:
     void buildCellAndFaceLists();
     void applyOverburdenIC();
     void cacheElasticSurfaceGeometry();
+
+    // Pass-14a source forcing -------------------------------------
+    /// Identify inner-cavity cells (centroid within cavity_radius_m),
+    /// build the SourceBallInnerCavity DMLabel, sum the inner-cavity
+    /// volume across ranks, and seed the cavity-pressure / Tillotson
+    /// state.
+    void setupSourceForcing();
+    /// Deposit dt of source energy into the inner-cavity cells, raise
+    /// their specific internal energy, and recompute the Tillotson
+    /// matter pressure (the cavity-wall pressure perturbation).
+    void depositSourceEnergyStep(double dt);
+    /// Update the per-cell pressure-perturbation field from the current
+    /// cavity-wall pressure: dp_cell = dp_cavity inside the cavity
+    /// wall, dp_cavity * (a / r)^3 in the surrounding rock (the Sharpe
+    /// 1942 / Lame elastostatic pressurised-cavity field). Returns the
+    /// change in dp_cell over the host step so step() can feed the
+    /// implied volumetric strain into the radial return.
+    void updateCavityPressureField(std::vector<double>& d_dp_out);
 
     MPI_Comm comm_ = MPI_COMM_NULL;
     bool comm_set_ = false;
@@ -264,6 +329,37 @@ private:
     // class host rock).
     double bulk_modulus_K_ = 30.0e9;
     double shear_modulus_G_ = 18.0e9;
+
+    // ----------------------------------------------------------------
+    // Pass-14a source-forcing state.
+    // ----------------------------------------------------------------
+    bool source_forcing_active_ = false;
+    double total_source_energy_J_ = 0.0;     ///< yield * 4.184e12 * eff.
+    double deposited_energy_global_J_ = 0.0; ///< cumulative, all ranks.
+    double source_forcing_t0_ = 0.0;         ///< sim time when forcing
+                                             ///< began (= 0 here).
+    /// Inner-cavity cell list (local indices) and the volume
+    /// bookkeeping for the energy distribution.
+    std::vector<int> inner_cavity_cells_;
+    double inner_cavity_volume_local_ = 0.0;
+    double inner_cavity_volume_global_ = 0.0;
+    /// Effective cavity radius used for the (a/r)^3 pressure-field
+    /// envelope [m] (configured cavity_radius_m, or the largest
+    /// inner-cavity-cell centroid radius when that is bigger).
+    double inner_cavity_radius_a_ = 0.0;
+    /// Tillotson host-rock EOS used to convert deposited internal
+    /// energy into a matter pressure rise inside the cavity cells.
+    TillotsonEOS source_tillotson_;
+    /// Volume-averaged cavity-wall pressure perturbation [Pa] from the
+    /// most recent step (diagnostic).
+    double dp_cavity_mean_ = 0.0;
+    /// Per-cell pressure-perturbation field [Pa] (compression > 0):
+    /// dp_cavity inside the cavity wall, dp_cavity * (a/r)^3 in the
+    /// rock. Carried as a member so step() can finite-difference it.
+    std::vector<double> dp_cell_;
+    /// Per-cell instantaneous deposited power density [W/m^3] from the
+    /// most recent step (for the HDF5 / ParaView output).
+    std::vector<double> source_power_density_;
 };
 
 }  // namespace FSRM
