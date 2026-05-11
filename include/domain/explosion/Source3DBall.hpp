@@ -164,6 +164,60 @@ struct Source3DBallConfig
     /// step) preserves the pass-13b numerical answer; set to 100 in
     /// large-mesh end-to-end runs.
     int radiation_substep_cadence = 1;
+
+    // ----------------------------------------------------------------
+    // Pass-14a (axis-1b source-forcing slice) -- volumetric energy
+    // deposition that drives the matter pressure (Tillotson EOS) inside
+    // the inner-cavity cells and radiates an acoustic pressure pulse
+    // outward to the elastic-radius extraction surface. Before pass-14a
+    // the 3D path had no internal source term: the cavity wall sat
+    // motionless and the surface-integral moment tensor stayed zero.
+    // ----------------------------------------------------------------
+
+    /// Source-time-function shapes for the deposited mechanical energy.
+    /// All shapes are normalised so the time integral of the rate is
+    /// unity; the rate is multiplied by the total deposited energy
+    /// (source_yield_kt * 4.184e12 J/kt * source_deposition_efficiency)
+    /// to give J/s. MUELLER_MURPHY / BRUNE use the critically-damped
+    /// reduced-displacement-potential pulse shape (Mueller & Murphy
+    /// 1971 BSSA 61(6); Brune 1970 JGR 75). RAMP is a boxcar (linear
+    /// cumulative energy over the deposition window). DELTA dumps the
+    /// whole energy in the first step.
+    enum class SourceTimeFunction
+    {
+        MUELLER_MURPHY,
+        BRUNE,
+        RAMP,
+        DELTA
+    };
+
+    /// Master switch for the source forcing. The host (RadialLagrangian
+    /// delegation) defaults this to true when cavity_geometry =
+    /// THREE_DIMENSIONAL and false otherwise. With source_forcing_enabled
+    /// = false the 3D path reproduces pass-13c byte-for-byte (the cavity
+    /// wall stays motionless, the moment tensor stays zero) so the
+    /// pass-13c "pipeline completes" regression guard still applies.
+    bool source_forcing_enabled = false;
+
+    /// Source-time-function shape selector.
+    SourceTimeFunction source_time_function = SourceTimeFunction::MUELLER_MURPHY;
+
+    /// Yield in kilotons of TNT. The deposited mechanical energy is
+    /// source_yield_kt * 4.184e12 J/kt * source_deposition_efficiency.
+    /// Negative -> the host fills this from the configured explosion
+    /// yield during delegation; if still non-positive at initialize()
+    /// the source forcing is disabled with a one-time warning.
+    double source_yield_kt = -1.0;
+
+    /// Full timescale of the source-time function [s]. Mueller-Murphy
+    /// default 1 ms; this sets the deposition rate, not the eventual
+    /// seismic corner frequency.
+    double source_deposition_duration_s = 1.0e-3;
+
+    /// Fraction of the yield deposited as mechanical (cavity) energy.
+    /// 1.0 deposits the whole nominal yield; smaller values model the
+    /// radiative / vaporization losses. Clamped to (0, 1] at initialize.
+    double source_deposition_efficiency = 1.0;
 };
 
 /// Snapshot of the 3D source-ball state at a single time. Used by the

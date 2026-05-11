@@ -597,6 +597,16 @@ struct Simulator::ExplosionCoupling {
     std::string near_field_3d_radiation_discretization = "FV_CELL_CENTRED";
     int near_field_3d_radiation_substep_cadence = 1;
 
+    // Pass-14a axis-1b source-forcing plumbing. Only consulted under
+    // cavity_geometry = THREE_DIMENSIONAL. source_forcing_enabled
+    // defaults true for the 3D path (false otherwise) so the 3D path
+    // produces a real moment; setting it false reproduces pass-13c.
+    bool near_field_3d_source_forcing_enabled = false;
+    std::string near_field_3d_source_time_function = "MUELLER_MURPHY";
+    double near_field_3d_source_yield_kt = -1.0;
+    double near_field_3d_source_deposition_duration_s = 1.0e-3;
+    double near_field_3d_source_deposition_efficiency = 1.0;
+
     RadialLagrangianSolver radial_solver;
 
     // Recorded near-field state. Populated in initializeFromConfigFile
@@ -1957,6 +1967,69 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                     explosion_->near_field_3d_radiation_substep_cadence = rcad;
                 }
 
+                // Pass-14a axis-1b source-forcing sub-keys. Volumetric
+                // mechanical-energy deposition into the inner-cavity
+                // cells that drives the Tillotson matter pressure and
+                // radiates an acoustic pressure pulse out to the
+                // elastic-radius extraction surface. Only consulted
+                // under cavity_geometry = THREE_DIMENSIONAL.
+                // source_forcing_enabled defaults true for the 3D path
+                // (false otherwise), so setting it false reproduces the
+                // pass-13c "pipeline completes, M = 0" behaviour.
+                {
+                    const bool is_3d = (explosion_->near_field_cavity_geometry
+                                        == "THREE_DIMENSIONAL");
+                    explosion_->near_field_3d_source_forcing_enabled =
+                        reader.getBool("NEAR_FIELD_SOURCE",
+                                       "source_forcing_enabled", is_3d);
+                    std::string stf_raw = reader.getString(
+                        "NEAR_FIELD_SOURCE", "source_time_function",
+                        "MUELLER_MURPHY");
+                    for (auto& c : stf_raw)
+                        c = static_cast<char>(std::toupper(c));
+                    if (stf_raw != "MUELLER_MURPHY" && stf_raw != "BRUNE"
+                        && stf_raw != "RAMP" && stf_raw != "DELTA") {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.source_time_function="
+                                "\"%s\" not recognised (expected "
+                                "MUELLER_MURPHY|BRUNE|RAMP|DELTA); falling "
+                                "back to MUELLER_MURPHY.\n", stf_raw.c_str());
+                        }
+                        stf_raw = "MUELLER_MURPHY";
+                    }
+                    explosion_->near_field_3d_source_time_function = stf_raw;
+                    explosion_->near_field_3d_source_yield_kt =
+                        reader.getDouble("NEAR_FIELD_SOURCE",
+                                         "source_yield_kt", -1.0);
+                    explosion_->near_field_3d_source_deposition_duration_s =
+                        reader.getDouble("NEAR_FIELD_SOURCE",
+                                         "source_deposition_duration_s",
+                                         1.0e-3);
+                    if (explosion_->near_field_3d_source_deposition_duration_s
+                        <= 0.0) {
+                        explosion_->near_field_3d_source_deposition_duration_s =
+                            1.0e-3;
+                    }
+                    explosion_->near_field_3d_source_deposition_efficiency =
+                        reader.getDouble("NEAR_FIELD_SOURCE",
+                                         "source_deposition_efficiency", 1.0);
+                    if (explosion_->near_field_3d_source_deposition_efficiency
+                            <= 0.0
+                        || explosion_->near_field_3d_source_deposition_efficiency
+                            > 1.0) {
+                        if (rank == 0) {
+                            PetscPrintf(comm,
+                                "NEAR_FIELD_SOURCE.source_deposition_efficiency"
+                                "=%.4g out of (0, 1]; clamping to 1.0.\n",
+                                explosion_->
+                                    near_field_3d_source_deposition_efficiency);
+                        }
+                        explosion_->near_field_3d_source_deposition_efficiency =
+                            1.0;
+                    }
+                }
+
                 // Validate the 3D sub-keys when THREE_DIMENSIONAL is
                 // selected. Reject configurations that would produce a
                 // silent foundation no-op or a corrupt mesh load.
@@ -2392,6 +2465,39 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         }
                         rl_cfg.source_3d_ball.radiation_substep_cadence =
                             explosion_->near_field_3d_radiation_substep_cadence;
+                        // Pass-14a source forcing.
+                        rl_cfg.source_3d_ball.source_forcing_enabled =
+                            explosion_->near_field_3d_source_forcing_enabled;
+                        {
+                            const std::string& sf =
+                                explosion_->near_field_3d_source_time_function;
+                            if (sf == "BRUNE") {
+                                rl_cfg.source_3d_ball.source_time_function =
+                                    Source3DBallConfig::SourceTimeFunction::BRUNE;
+                            } else if (sf == "RAMP") {
+                                rl_cfg.source_3d_ball.source_time_function =
+                                    Source3DBallConfig::SourceTimeFunction::RAMP;
+                            } else if (sf == "DELTA") {
+                                rl_cfg.source_3d_ball.source_time_function =
+                                    Source3DBallConfig::SourceTimeFunction::DELTA;
+                            } else {
+                                rl_cfg.source_3d_ball.source_time_function =
+                                    Source3DBallConfig::SourceTimeFunction::
+                                        MUELLER_MURPHY;
+                            }
+                        }
+                        // Yield: explicit source_yield_kt wins; else the
+                        // configured explosion yield.
+                        rl_cfg.source_3d_ball.source_yield_kt =
+                            (explosion_->near_field_3d_source_yield_kt > 0.0)
+                                ? explosion_->near_field_3d_source_yield_kt
+                                : yield_kt;
+                        rl_cfg.source_3d_ball.source_deposition_duration_s =
+                            explosion_->
+                                near_field_3d_source_deposition_duration_s;
+                        rl_cfg.source_3d_ball.source_deposition_efficiency =
+                            explosion_->
+                                near_field_3d_source_deposition_efficiency;
                     } else {
                         rl_cfg.cavity_geometry =
                             RadialLagrangianSolver::CavityGeometry::SPHERICAL;
