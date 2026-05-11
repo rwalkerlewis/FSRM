@@ -87,13 +87,29 @@ The PETSc 3.25 build that ships in the FSRM Docker image does not
 include MUMPS or SuperLU_DIST, so PETSc's default `-pc_type lu` (KLU)
 fails on `MPIAIJ` matrices when running with more than one rank.
 `scripts/run_with_mpi.sh` automatically appends
-`-pc_type bjacobi -sub_pc_type lu` when `MPI_RANKS > 1` so each rank
-does its own block LU. Override or extend by setting
-`FSRM_MPI_PETSC_OPTS` in the environment (set to empty string to
-disable injection):
+
+```
+-ksp_type gmres -pc_type bjacobi -sub_pc_type lu
+```
+
+when `MPI_RANKS > 1`: a GMRES Krylov loop around a per-rank block-LU
+preconditioner. The `-ksp_type gmres` part is load-bearing.
+`Simulator::setupSolvers` puts the elastodynamics solver on
+`KSPPREONLY` + `PCLU` (a direct solve, so serial Newton converges
+quadratically). In parallel, `-pc_type bjacobi` overrides the
+preconditioner but not the KSP type, so without `-ksp_type gmres` each
+Newton step would be a single block-Jacobi sweep, which is a
+fixed-point iteration rather than a Newton step, and SNES stalls
+(`DIVERGED_MAX_IT` at step 0). This was the "SNES diverges step 0"
+failure that pass-12 followup 2 surfaced on twelve examples; pass-12
+followup 3 fixed it. See [PARALLEL_KSP.md](PARALLEL_KSP.md) for the
+diagnosis, the PC sweep, and the per-example evidence.
+
+Override or extend by setting `FSRM_MPI_PETSC_OPTS` in the
+environment (set to empty string to disable the injection entirely):
 
 ```bash
-FSRM_MPI_PETSC_OPTS="-pc_type gamg -ksp_type cg" MPI_RANKS=8 ./run.sh
+FSRM_MPI_PETSC_OPTS="-ksp_type gmres -pc_type asm -sub_pc_type lu" MPI_RANKS=8 ./run.sh
 ```
 
 The `examples_runtime` CTest gate added in pass-12 followup 2
@@ -101,13 +117,24 @@ exercises every example end-to-end at `MPI_RANKS=4` (the
 production default) with three representative examples also run
 at `MPI_RANKS=1` and `MPI_RANKS=2`. The gate will fail the build
 if any shipped example regresses on the parallel KSP path the
-launcher above patches. Set `FSRM_EXAMPLES_RUNTIME_FULL=ON` at
-CMake configure time to register the full `MPI={1,2,4}` matrix
-for every example. Run with:
+launcher above patches. Three named regression guards
+(`BackwardCompat.Salmon1964MPI4ContinuesToPass`,
+`BackwardCompat.Sedan1962MPI4ContinuesToPass`,
+`BackwardCompat.Punggye_riMPI4ContinuesToPass`, label
+`backward_compat`) protect the showcase examples specifically. Set
+`FSRM_EXAMPLES_RUNTIME_FULL=ON` at CMake configure time to register
+the full `MPI={1,2,4}` matrix for every example. Run with:
 
 ```bash
 ctest -L examples_runtime --output-on-failure
 ```
+
+The `diagnostic` label runs
+`Diagnostic.ParallelKSP.<N>_<event>.BaselineMPI4Capture` for the
+twelve formerly broken examples: each re-runs the example at
+`MPI_RANKS=4` with a verbose PETSc monitor string and writes the
+log to `tests/diagnostics/parallel_ksp_baseline/<N>_<event>.mpi4.log`.
+The committed copy of that log is the regression reference.
 
 See [CONFIGURATION_VALIDATION.md](CONFIGURATION_VALIDATION.md)
 for the strict configuration validator that runs alongside the

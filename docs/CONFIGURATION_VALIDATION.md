@@ -190,15 +190,27 @@ The gate runs in under one second.
 
 Pass-12 followup 2 added the `examples_runtime` CTest gate
 that runs every example end-to-end at `MPI_RANKS=4`. Fifteen
-shipped examples currently fail this gate because of a
-parallel-KSP convergence issue that is beyond the scope of
-the V&V hardening pass (no physics changes allowed). All
-fifteen run cleanly at `MPI_RANKS=1` but the per-rank LU
-factorisation injected by `scripts/run_with_mpi.sh` does not
-converge for these specific physics setups. They are marked
-`WILL_FAIL TRUE` in `tests/CMakeLists.txt` so they remain
-visible in ctest output without blocking CI; investigating
-the parallel KSP convergence is a follow-up.
+shipped examples failed that gate at the time. Pass-12
+followup 3 (the parallel KSP/PC fix, see
+[PARALLEL_KSP.md](PARALLEL_KSP.md)) unblocked twelve of them:
+ten "SNES diverges step 0" cases shared one root cause -- the
+parallel option string `scripts/run_with_mpi.sh` injected
+overrode `-pc_type` to `bjacobi` but left the KSP type at the
+`KSPPREONLY` that `Simulator::setupSolvers` sets, so each
+Newton step was a single block-Jacobi sweep -- and the fix
+was to add `-ksp_type gmres` to that string. The remaining
+two (`06_gmsh_multimaterial`, `17_velocity_model`) were
+mislabelled: 06 had a stale relative `mesh_file` path after
+pass-12 relocated its config into the example directory, and
+17 never shipped the `velocity_model.bin` it references; both
+got example-local fixes.
+
+The three cohesive-cells fault examples (`04_locked_fault`,
+`08_time_dependent_slip`, `16_scec_tpv5`) stay in
+`EXAMPLE_SMOKE_MPI4_KNOWN_BROKEN`. They are blocked on the
+PETSc 3.25 saddle-point solver tracked in
+`docs/SOLVER_STATE.md`, which is a separate axis from the
+launcher fix.
 
 The list lives in `tests/CMakeLists.txt` as
 `EXAMPLE_SMOKE_MPI4_KNOWN_BROKEN`. Removing an entry from
@@ -206,18 +218,14 @@ that list flips the gate for that example from inverted-pass
 to genuine-pass, so a fix that lands separately is detected
 the moment the test starts succeeding.
 
-To investigate locally:
+To inspect the diagnosis:
 
 ```bash
-# Confirm the example works at MPI=1
-MPI_RANKS=1 FSRM_FINAL_TIME_OVERRIDE=0.05 \
-    bash tests/integration/run_example_smoke.sh \
-    examples/09_gasbuggy_1967 1 0.05
+# The committed before/after PETSc-verbose run logs:
+ls tests/diagnostics/parallel_ksp_baseline/
 
-# Reproduce the MPI=4 failure
-MPI_RANKS=4 FSRM_FINAL_TIME_OVERRIDE=0.05 \
-    bash tests/integration/run_example_smoke.sh \
-    examples/09_gasbuggy_1967 4 0.05
+# Regenerate one (post-fix it shows convergence):
+ctest -L diagnostic -R 09_gasbuggy_1967 --output-on-failure
 ```
 
 The smoke wrapper supports a `config_ci.config` override per
