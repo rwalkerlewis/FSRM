@@ -1016,6 +1016,99 @@ if(GTest_FOUND)
         "examples_runtime tests "
         "(set FSRM_EXAMPLES_RUNTIME_FULL=ON for full MPI matrix)")
 
+    # ---------------------------------------------------------------------
+    # Pass-12 followup 3: parallel KSP / PC diagnostic baseline + the
+    # backward-compatibility regression guards.
+    #
+    # Diagnostic.ParallelKSP.<N>_<event>.BaselineMPI4Capture (label
+    # "diagnostic"): re-runs each of the twelve former "SNES diverges
+    # step 0" examples at MPI=4 with a verbose PETSc monitor string and
+    # writes the combined output to
+    #   tests/diagnostics/parallel_ksp_baseline/<N>_<event>.mpi4.log
+    # The committed copy of that log is the regression reference: before
+    # pass-12 followup 3 it captured the divergence signature, after the
+    # fix it captures the successful convergence. The test asserts only
+    # that a non-empty log is produced, so it succeeds whether the
+    # example converges or not (the point is to capture the signature).
+    set(PARALLEL_KSP_DIAGNOSTIC_RUNNER
+        ${CMAKE_SOURCE_DIR}/tests/diagnostics/capture_parallel_ksp_baseline.sh)
+    set(PARALLEL_KSP_DIAGNOSTIC_EXAMPLES
+        06_gmsh_multimaterial
+        09_gasbuggy_1967
+        17_velocity_model
+        23_milrow_1969
+        24_cannikin_1971
+        25_faultless_1968
+        29_rio_blanco_1973
+        33_dprk_2006
+        34_dprk_2009
+        35_dprk_2013
+        36_dprk_2016a
+        37_dprk_2016b)
+    foreach(DKEX ${PARALLEL_KSP_DIAGNOSTIC_EXAMPLES})
+        set(DKDIR ${CMAKE_SOURCE_DIR}/examples/${DKEX})
+        if(NOT EXISTS ${DKDIR}/run.sh)
+            continue()
+        endif()
+        # Use the same smoke budget the examples_runtime gate uses.
+        set(DKFT ${EXAMPLE_SMOKE_FINAL_TIME})
+        foreach(OVER ${EXAMPLE_SMOKE_OVERRIDES})
+            string(REPLACE "=" ";" OVER_PARTS ${OVER})
+            list(GET OVER_PARTS 0 OVER_NAME)
+            list(GET OVER_PARTS 1 OVER_TIME)
+            if(DKEX STREQUAL OVER_NAME)
+                set(DKFT ${OVER_TIME})
+            endif()
+        endforeach()
+        set(DKTN Diagnostic.ParallelKSP.${DKEX}.BaselineMPI4Capture)
+        add_test(NAME ${DKTN}
+                 COMMAND bash ${PARALLEL_KSP_DIAGNOSTIC_RUNNER}
+                              ${DKDIR} ${DKFT}
+                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        set_tests_properties(${DKTN} PROPERTIES
+            TIMEOUT 150
+            PROCESSORS 4
+            LABELS "diagnostic")
+    endforeach()
+
+    # BackwardCompat.<Event>MPI4ContinuesToPass (labels
+    # "examples_runtime;backward_compat"): the three showcase examples
+    # that already ran cleanly at MPI=4 before pass-12 followup 3.
+    # These are explicit named regression guards: if the new parallel
+    # KSP/PC default ever breaks one of them the build fails here with
+    # a name that says exactly what regressed.
+    set(BACKWARD_COMPAT_GUARDS
+        "Salmon1964=20_salmon_1964"
+        "Sedan1962=11_sedan_1962"
+        "Punggye_ri=05_punggye_ri_nuclear_test")
+    foreach(BCG ${BACKWARD_COMPAT_GUARDS})
+        string(REPLACE "=" ";" BCG_PARTS ${BCG})
+        list(GET BCG_PARTS 0 BCG_LABEL)
+        list(GET BCG_PARTS 1 BCG_DIRNAME)
+        set(BCG_DIR ${CMAKE_SOURCE_DIR}/examples/${BCG_DIRNAME})
+        if(NOT EXISTS ${BCG_DIR}/run.sh)
+            continue()
+        endif()
+        set(BCG_FT ${EXAMPLE_SMOKE_FINAL_TIME})
+        foreach(OVER ${EXAMPLE_SMOKE_OVERRIDES})
+            string(REPLACE "=" ";" OVER_PARTS ${OVER})
+            list(GET OVER_PARTS 0 OVER_NAME)
+            list(GET OVER_PARTS 1 OVER_TIME)
+            if(BCG_DIRNAME STREQUAL OVER_NAME)
+                set(BCG_FT ${OVER_TIME})
+            endif()
+        endforeach()
+        set(BCG_TN BackwardCompat.${BCG_LABEL}MPI4ContinuesToPass)
+        add_test(NAME ${BCG_TN}
+                 COMMAND bash ${EXAMPLE_SMOKE_RUNNER}
+                              ${BCG_DIR} 4 ${BCG_FT}
+                 WORKING_DIRECTORY ${BCG_DIR})
+        set_tests_properties(${BCG_TN} PROPERTIES
+            TIMEOUT 180
+            PROCESSORS 4
+            LABELS "examples_runtime;backward_compat")
+    endforeach()
+
 else()
     message(WARNING "GTest not found. Skipping test suite.")
 endif()
