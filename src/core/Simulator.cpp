@@ -9859,7 +9859,9 @@ PetscErrorCode Simulator::writeSourceBall3DSnapshot(int step, double time) {
         std::ofstream csv(std::string(h5_path) + ".csv");
         if (csv.is_open()) {
             csv << "cell_idx,cx,cy,cz,sigma_xx,sigma_yy,sigma_zz,"
-                   "sigma_xy,sigma_xz,sigma_yz,eps_p_eq,rho,e_int,T_m,E_r\n";
+                   "sigma_xy,sigma_xz,sigma_yz,eps_p_eq,rho,e_int,T_m,E_r,"
+                   "source_forcing_power,inner_cavity_marker,dp_pressure_field"
+                   "\n";
             for (size_t i = 0; i < states.size(); ++i) {
                 const auto& s = states[i];
                 csv << i << "," << s.centroid[0] << "," << s.centroid[1]
@@ -9869,6 +9871,9 @@ PetscErrorCode Simulator::writeSourceBall3DSnapshot(int step, double time) {
                     << "," << s.sigma[4] << "," << s.sigma[5]
                     << "," << s.eps_p_eq << "," << s.rho
                     << "," << s.e_int << "," << s.T_m << "," << s.E_r
+                    << "," << s.source_forcing_power
+                    << "," << s.inner_cavity_marker
+                    << "," << s.dp_pressure_field
                     << "\n";
             }
             csv.close();
