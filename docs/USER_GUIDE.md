@@ -96,6 +96,24 @@ disable injection):
 FSRM_MPI_PETSC_OPTS="-pc_type gamg -ksp_type cg" MPI_RANKS=8 ./run.sh
 ```
 
+The `examples_runtime` CTest gate added in pass-12 followup 2
+exercises every example end-to-end at `MPI_RANKS=4` (the
+production default) with three representative examples also run
+at `MPI_RANKS=1` and `MPI_RANKS=2`. The gate will fail the build
+if any shipped example regresses on the parallel KSP path the
+launcher above patches. Set `FSRM_EXAMPLES_RUNTIME_FULL=ON` at
+CMake configure time to register the full `MPI={1,2,4}` matrix
+for every example. Run with:
+
+```bash
+ctest -L examples_runtime --output-on-failure
+```
+
+See [CONFIGURATION_VALIDATION.md](CONFIGURATION_VALIDATION.md)
+for the strict configuration validator that runs alongside the
+gate, and `tests/integration/run_example_smoke.sh` for the
+per-example smoke wrapper.
+
 ## Config-file structure
 
 Configs use INI format. Each section name is uppercase; keys are

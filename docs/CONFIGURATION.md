@@ -18,9 +18,26 @@ scientific = 1.5e6
 ```
 
 The parser is in `src/core/ConfigReader.cpp`. Section names are
-uppercase, keys are lowercase. Unknown keys are silently ignored;
-unknown values for enum keys warn-and-fall-back to the default with
-a one-time stderr message on rank 0.
+uppercase, keys are lowercase. Unknown values for enum keys
+warn-and-fall-back to the default with a one-time stderr message
+on rank 0.
+
+Pass-12 followup 2 added a strict configuration validator wired
+into `Simulator::initializeFromConfigFile`. Unknown sections,
+unknown keys within known sections, deprecated key forms, and
+missing required sections (such as `[BOUNDARY_CONDITIONS]` on an
+explosion-source config) are now hard errors. See
+[CONFIGURATION_VALIDATION.md](CONFIGURATION_VALIDATION.md) for
+the schema, opt-out mechanisms, and how to extend.
+
+## Environment overrides
+
+| Env var | Default | Effect |
+|---|---|---|
+| `FSRM_FINAL_TIME_OVERRIDE` | unset | Override `[SIMULATION] end_time` with a smaller positive value. Used by the `examples_runtime` CTest gate so each example completes inside a 30-second smoke budget while still exercising the full pipeline (setupDM through TSSolve). Out-of-range values (zero, negative, or larger than the configured `end_time`) are ignored with a stderr warning. |
+| `FSRM_DISABLE_STRICT_VALIDATION` | unset | Skip strict configuration validation entirely. Emergency override only; no warning is emitted. Prefer the per-file `[META] strict_validation = false` opt-out. |
+| `FSRM_MPI_PETSC_OPTS` | `-pc_type bjacobi -sub_pc_type lu` | PETSc options injected by `scripts/run_with_mpi.sh` for parallel runs. The default is required because the FSRM PETSc 3.25 build does not include MUMPS or SuperLU_DIST. Set to the empty string to disable injection. |
+| `MPI_RANKS` | 4 | Rank count used by `scripts/run_with_mpi.sh` and the `examples_runtime` CTest gate. |
 
 ## Sections
 
