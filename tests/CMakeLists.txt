@@ -870,33 +870,28 @@ if(GTest_FOUND)
         "06_gmsh_multimaterial=0.001"
         "17_velocity_model=0.01")
 
-    # Examples that today fail at MPI_RANKS=4 with the bjacobi+lu
-    # parallel preconditioner that scripts/run_with_mpi.sh injects.
-    # These run cleanly at MPI_RANKS=1 (verified during pass-12
-    # followup 2) but the per-rank LU factorisation does not
-    # converge for these specific physics setups. The gate marks
-    # them WILL_FAIL TRUE so they remain visible in ctest output
-    # without blocking CI; investigating the parallel KSP
-    # convergence is a follow-up axis (see
-    # docs/CONFIGURATION_VALIDATION.md "Known broken examples").
-    # When an example is fixed, removing it from this list flips
-    # the gate from inverted-pass to genuine-pass.
+    # Examples that still fail at MPI_RANKS=4. After pass-12 followup 3
+    # (the parallel KSP/PC fix; see docs/PARALLEL_KSP.md) the only
+    # remaining entries are the three cohesive-cells fault examples,
+    # which are blocked on the PETSc 3.25 saddle-point solver tracked
+    # in docs/SOLVER_STATE.md (out of scope for the launcher pass).
+    # The twelve former "SNES diverges step 0" examples were unblocked
+    # by adding -ksp_type gmres to the parallel option string in
+    # scripts/run_with_mpi.sh (which wraps the per-rank block-Jacobi
+    # LU in a real Krylov loop instead of leaving the KSPPREONLY that
+    # Simulator::setupSolvers sets on the elastodynamics path), plus
+    # two example-local fixes: 06_gmsh_multimaterial had a stale
+    # relative mesh_file path after pass-12 relocated its config into
+    # the example directory, and 17_velocity_model never shipped the
+    # velocity_model.bin it references (now a committed 12 KB fixture).
+    # The gate marks the entries below WILL_FAIL TRUE so they stay
+    # visible in ctest output without blocking CI. When an example is
+    # fixed, removing it from this list flips the gate from
+    # inverted-pass to genuine-pass.
     set(EXAMPLE_SMOKE_MPI4_KNOWN_BROKEN
-        "04_locked_fault"           # cohesive cells; SNES timeout
-        "06_gmsh_multimaterial"     # SNES diverges step 0
-        "08_time_dependent_slip"    # cohesive cells; SNES timeout
-        "09_gasbuggy_1967"          # SNES diverges step 0
-        "16_scec_tpv5"              # cohesive cells; SNES timeout
-        "17_velocity_model"         # SNES diverges step 0
-        "23_milrow_1969"            # SNES diverges step 0
-        "24_cannikin_1971"          # SNES diverges step 0
-        "25_faultless_1968"         # SNES diverges step 0
-        "29_rio_blanco_1973"        # SNES diverges step 0
-        "33_dprk_2006"              # SNES diverges step 0
-        "34_dprk_2009"              # SNES diverges step 0
-        "35_dprk_2013"              # SNES diverges step 0
-        "36_dprk_2016a"             # SNES diverges step 0
-        "37_dprk_2016b")            # SNES diverges step 0
+        "04_locked_fault"           # cohesive cells; PETSc 3.25 saddle-point solver (SOLVER_STATE.md)
+        "08_time_dependent_slip"    # cohesive cells; PETSc 3.25 saddle-point solver (SOLVER_STATE.md)
+        "16_scec_tpv5")             # cohesive cells; PETSc 3.25 saddle-point solver (SOLVER_STATE.md)
 
     file(GLOB EXAMPLE_DIRS LIST_DIRECTORIES true
          ${CMAKE_SOURCE_DIR}/examples/[0-9]*_*)
