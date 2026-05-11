@@ -201,11 +201,10 @@ TEST_F(SourceBallImplFoundationTest, FactoryReturnsValidImpl)
     auto ball = makeSource3DBall(cfg);
     ASSERT_NE(ball, nullptr);
     const std::string nm = ball->name();
-    // Pass-13b: the foundation skeleton tag bumps to the physics tag.
-    // The "Source3DBallImpl" prefix and a "pass13b" substring must
-    // appear so callers can regression-check the implementation
-    // version.
-    EXPECT_NE(nm.find("pass13b"), std::string::npos) << nm;
+    // Pass-13c: physics tag bumps to the validation tag. The
+    // "Source3DBallImpl" prefix and a "pass13c" substring must appear
+    // so callers can regression-check the implementation version.
+    EXPECT_NE(nm.find("pass13c"), std::string::npos) << nm;
     EXPECT_NE(nm.find("Source3DBallImpl"), std::string::npos) << nm;
 }
 

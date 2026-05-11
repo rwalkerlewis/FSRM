@@ -1,0 +1,83 @@
+<?xml version="1.0"?>
+<!--
+  Pass-13c ParaView 5.10+ state file for the layered-halfspace
+  wavefield animation. Loads ../output/wavefield.xdmf and configures:
+    - 3D RenderView with the ~ 100 km horizontal x 60 km vertical
+      domain centred at the source (50, 50, 55) km.
+    - Displacement-magnitude pseudo-colour, Viridis colormap.
+    - Camera angle from a side-looking view to highlight the layered
+      structure and the Rg phase travelling along the free surface.
+
+  Reference: Henderson 2007 "ParaView Guide" (state-file schema).
+-->
+<ParaView>
+  <ServerManagerState version="5.10.0">
+    <Proxy group="sources" type="XDMFReader" id="1" servers="21">
+      <Property name="FileName" id="1.FileName" number_of_elements="1">
+        <Element index="0" value="../output/wavefield.xdmf"/>
+      </Property>
+      <Property name="GridStatus" id="1.GridStatus" number_of_elements="1">
+        <Element index="0" value="Wavefield"/>
+      </Property>
+    </Proxy>
+    <Proxy group="views" type="RenderView" id="2" servers="21">
+      <Property name="CameraPosition" id="2.CameraPosition"
+                number_of_elements="3">
+        <Element index="0" value="200000.0"/>
+        <Element index="1" value="50000.0"/>
+        <Element index="2" value="80000.0"/>
+      </Property>
+      <Property name="CameraFocalPoint" id="2.CameraFocalPoint"
+                number_of_elements="3">
+        <Element index="0" value="50000.0"/>
+        <Element index="1" value="50000.0"/>
+        <Element index="2" value="40000.0"/>
+      </Property>
+      <Property name="CameraViewUp" id="2.CameraViewUp"
+                number_of_elements="3">
+        <Element index="0" value="0.0"/>
+        <Element index="1" value="0.0"/>
+        <Element index="2" value="1.0"/>
+      </Property>
+    </Proxy>
+    <Proxy group="representations" type="UnstructuredGridRepresentation"
+           id="3" servers="21">
+      <Property name="Input" id="3.Input" number_of_elements="1">
+        <Proxy value="1"/>
+      </Property>
+      <Property name="ColorArrayName" id="3.ColorArrayName"
+                number_of_elements="5">
+        <Element index="0" value=""/>
+        <Element index="1" value=""/>
+        <Element index="2" value=""/>
+        <Element index="3" value="POINTS"/>
+        <Element index="4" value="wavefield"/>
+      </Property>
+      <Property name="LookupTable" id="3.LookupTable"
+                number_of_elements="1">
+        <Proxy value="4"/>
+      </Property>
+      <Property name="Representation" id="3.Representation"
+                number_of_elements="1">
+        <Element index="0" value="Surface"/>
+      </Property>
+      <Property name="Opacity" id="3.Opacity" number_of_elements="1">
+        <Element index="0" value="0.85"/>
+      </Property>
+    </Proxy>
+    <Proxy group="lookup_tables" type="PVLookupTable" id="4"
+           servers="21">
+      <Property name="ColorSpace" id="4.ColorSpace" number_of_elements="1">
+        <Element index="0" value="Lab"/>
+      </Property>
+      <Property name="UseLogScale" id="4.UseLogScale"
+                number_of_elements="1">
+        <Element index="0" value="0"/>
+      </Property>
+      <Property name="ApplyPreset" id="4.ApplyPreset"
+                number_of_elements="1">
+        <Element index="0" value="Viridis (matplotlib)"/>
+      </Property>
+    </Proxy>
+  </ServerManagerState>
+</ParaView>

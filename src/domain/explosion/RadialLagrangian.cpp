@@ -1483,13 +1483,29 @@ void RadialLagrangianSolver::step(double dt_target)
 
 double RadialLagrangianSolver::getCavityRadius() const
 {
+    if (ball_3d_active_) {
+        // Pass-13c: 3D delegation has no 1D radial mesh. Return the
+        // configured cavity radius from the source-ball sub-config.
+        return ball_3d_ ? ball_3d_->cfg_cavity_radius_m() : 0.0;
+    }
     if (!initialized_ || gas_cells_ <= 0) return Rc_init_;
+    // Guard against an empty radial mesh (foundation no-op or any
+    // path that skips initialize allocation).
+    if (gas_cells_ >= static_cast<int>(r_face_.size())) return Rc_init_;
     // The cavity radius is the position of the gas / solid interface.
     return r_face_[gas_cells_];
 }
 
 double RadialLagrangianSolver::getPlasticRadius() const
 {
+    if (ball_3d_active_) {
+        // Pass-13c: 3D path has no 1D plastic radius diagnostic.
+        // Return the configured cavity radius as a sentinel; the
+        // caller's plastic-radius estimate falls back to the analytic
+        // shock-decay scan in setupPhysics.
+        return ball_3d_ ? ball_3d_->cfg_cavity_radius_m() : 0.0;
+    }
+    if (eps_p_.empty() || r_cell_.empty()) return Rc_init_;
     for (int i = N_ - 1; i >= 0; --i) {
         if (eps_p_[i] > 1e-9) return r_cell_[i];
     }
@@ -1518,7 +1534,7 @@ void RadialLagrangianSolver::getMomentTensor(std::array<double, 6>& M) const
 const char* RadialLagrangianSolver::name() const
 {
     if (ball_3d_active_) {
-        return "RadialLagrangianSolver+Source3DBallImpl_v1_pass13b_physics";
+        return "RadialLagrangianSolver+Source3DBallImpl_v1_pass13c_validation";
     }
     return "RadialLagrangianSolver";
 }

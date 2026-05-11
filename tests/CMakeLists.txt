@@ -32,6 +32,7 @@ set(UNIT_TEST_SOURCES
     unit/domain/test_seismic_source.cpp
     unit/domain/test_explosion_source.cpp
     unit/domain/test_source3d_ball_mesh.cpp
+    unit/domain/test_source3d_ball_moment_tensor.cpp
     unit/domain/test_drucker_prager_3d.cpp
     unit/domain/test_source_ball_overburden.cpp
     unit/domain/test_source_ball_radiation_3d.cpp
@@ -72,6 +73,7 @@ set(FUNCTIONAL_TEST_SOURCES
     functional/test_solver_convergence.cpp
     functional/test_well_operations.cpp
     functional/test_paraview_state_load.cpp
+    functional/test_wavefield_output.cpp
 )
 
 set(PHYSICS_VALIDATION_TEST_SOURCES
@@ -105,6 +107,7 @@ set(PHYSICS_VALIDATION_TEST_SOURCES
     physics_validation/test_pass11_aneos_hugoniot.cpp
     physics_validation/test_pass11_axis_1b_scaffold.cpp
     physics_validation/test_pass13b_axis_1b_physics.cpp
+    physics_validation/test_pass13c_axis_1b_validation.cpp
     physics_validation/test_drucker_prager.cpp
     physics_validation/test_moment_tensor_source.cpp
     physics_validation/test_explosion_damage_zone.cpp
@@ -277,6 +280,10 @@ if(GTest_FOUND)
     # fsrm-ci (pvpython not installed); developers run the script
     # standalone via scripts/verify_pvsm.sh.
     add_test(NAME Functional.ParaView.NearFieldCavityStateLoads COMMAND run_functional_tests --gtest_filter=ParaViewStateLoadTest.NearFieldCavityStateLoads)
+    # Pass-13c wavefield + source-ball 3D output gates.
+    add_test(NAME Functional.Wavefield.OutputDefaultIsNone COMMAND run_functional_tests --gtest_filter=WavefieldOutputTest.BackwardCompat_WavefieldOutputDefaultIsNone)
+    add_test(NAME Functional.Wavefield.HDF5XdmfParsesAndDefaults COMMAND run_functional_tests --gtest_filter=WavefieldOutputTest.WavefieldFormatHDF5XdmfParsesAndDefaults)
+    add_test(NAME Functional.Wavefield.XDMFTimeSeriesEmission COMMAND run_functional_tests --gtest_filter=WavefieldOutputTest.XDMFTimeSeriesEmissionContainsSnapshots)
 
     # --- Physics validation (MMS) tests ---
     add_test(NAME Physics.MMS.Diffusion       COMMAND run_physics_tests --gtest_filter=MMSDiffusionTest.*)
@@ -360,9 +367,14 @@ if(GTest_FOUND)
     add_test(NAME Physics.Source3DBall.SphericalCellLevelEquivalenceVs1D COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.SphericalCellLevelEquivalenceVs1D)
     add_test(NAME Physics.Source3DBall.AsymmetricOverburdenSeedsAsymmetricFlow COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.AsymmetricOverburdenSeedsAsymmetricFlow)
     add_test(NAME Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault COMMAND run_physics_tests --gtest_filter=Pass13bAxis1bPhysics.BackwardCompatSphericalDefaultActiveByDefault)
+    # Pass-13c axis-1b validation gates.
+    add_test(NAME Physics.Source3DBall.CLVDContentWithOverburden COMMAND run_physics_tests --gtest_filter=Pass13cAxis1bValidation.CLVDContentWithOverburden)
+    add_test(NAME Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing COMMAND run_physics_tests --gtest_filter=Pass13cAxis1bValidation.MomentTensorIsZeroWithoutSourceForcing)
     add_test(NAME Unit.SourceBall.Mesh COMMAND run_unit_tests --gtest_filter=SourceBallMeshTest.*)
     add_test(NAME Unit.SourceBall.ImplFoundation COMMAND run_unit_tests --gtest_filter=SourceBallImplFoundationTest.*)
     add_test(NAME Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation COMMAND run_unit_tests --gtest_filter=BackwardCompatTest.Source3DBallScaffoldThrowGoneOnInstantiation)
+    # Pass-13c surface-integral moment-tensor extraction (Day & McLaughlin 1991).
+    add_test(NAME Unit.SourceBall.SurfaceIntegralMomentTensor COMMAND run_unit_tests --gtest_filter=Source3DBallSurfaceIntegralTest.*)
     # Pass-13b axis-1b physics: Drucker-Prager 3D, overburden, radiation 3D unit gates.
     add_test(NAME Unit.DruckerPrager3D COMMAND run_unit_tests --gtest_filter=DruckerPrager3D.*)
     add_test(NAME Unit.Overburden COMMAND run_unit_tests --gtest_filter=Overburden.*)
@@ -437,6 +449,10 @@ if(GTest_FOUND)
     # Tier 1 historic-nuclear additions: 20 events from 1957 (Rainier) through 2016 (DPRK September)
     add_test(NAME Integration.HistoricNuclear.Rainier1957 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Rainier1957)
     add_test(NAME Integration.HistoricNuclear.Salmon1964 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Salmon1964)
+    # Pass-13c axis-1b validation: Salmon with 3D source ball + K_0 = 0.5.
+    # GTEST_SKIPs when the mesh artifact is missing (generate via
+    # tools/mesh_generation/build_source_ball_mesh.py).
+    add_test(NAME Integration.NearFieldSource.Salmon3DWithOverburdenAtMPI4 COMMAND run_integration_tests --gtest_filter=HistoricNuclearTest.Salmon3D_WithOverburdenAtMPI4)
     # HistoricNuclearTest.Sterling1966 -- blocked at the 100x far-field envelope
     # (W=0.38 kt is below the small-yield threshold the smeared single-cell
     # source can resolve on the 4x4x4 CI mesh). Test code preserved; see
@@ -578,6 +594,7 @@ if(GTest_FOUND)
         Unit.SourceBall.Mesh
         Unit.SourceBall.ImplFoundation
         Unit.BackwardCompat.Source3DBallScaffoldThrowGoneOnInstantiation
+        Unit.SourceBall.SurfaceIntegralMomentTensor
         Unit.DruckerPrager3D
         Unit.Overburden
         Unit.SourceBallRadiation3D
@@ -589,6 +606,9 @@ if(GTest_FOUND)
         Functional.SimulatorInit Functional.ModuleLifecycle
         Functional.SolverConvergence Functional.WellOperations
         Functional.ParaView.NearFieldCavityStateLoads
+        Functional.Wavefield.OutputDefaultIsNone
+        Functional.Wavefield.HDF5XdmfParsesAndDefaults
+        Functional.Wavefield.XDMFTimeSeriesEmission
         Functional.DynamicRuptureSetup.MeshSplitting
         Functional.DynamicRuptureSetup.LockedFault
         Functional.DynamicRuptureSetup.FaultGeometryFromConfig
@@ -676,6 +696,8 @@ if(GTest_FOUND)
         Physics.Source3DBall.SphericalCellLevelEquivalenceVs1D
         Physics.Source3DBall.AsymmetricOverburdenSeedsAsymmetricFlow
         Physics.Source3DBall.BackwardCompatSphericalDefaultActiveByDefault
+        Physics.Source3DBall.CLVDContentWithOverburden
+        Physics.Source3DBall.MomentTensorIsZeroWithoutSourceForcing
         PROPERTIES TIMEOUT 1800 LABELS "physics_validation"
     )
 
@@ -717,6 +739,7 @@ if(GTest_FOUND)
         Integration.HistoricNuclear.FarFieldAmplitudeRegression
         Integration.HistoricNuclear.Rainier1957
         Integration.HistoricNuclear.Salmon1964
+        Integration.NearFieldSource.Salmon3DWithOverburdenAtMPI4
         Integration.HistoricNuclear.LongShot1965
         Integration.HistoricNuclear.Milrow1969
         Integration.HistoricNuclear.Cannikin1971

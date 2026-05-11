@@ -90,27 +90,29 @@ TEST_F(Pass11Axis1bScaffoldTest, ThreeDimensionalCavityGeometryDelegates)
     cfg.source_3d_ball.mesh_path = "";
 
     EXPECT_NO_THROW(solver.setConfig(cfg))
-        << "Pass-13b: cavity_geometry = THREE_DIMENSIONAL must no "
-           "longer throw. The host now constructs a Source3DBallImpl "
-           "and delegates step / moment-tensor accessors to it.";
+        << "Pass-13c: cavity_geometry = THREE_DIMENSIONAL must no "
+           "longer throw. The host constructs a Source3DBallImpl and "
+           "delegates step / moment-tensor accessors to it.";
 
     const std::string nm = solver.name();
     EXPECT_NE(nm.find("Source3DBallImpl"), std::string::npos)
         << "name() should report the 3D impl tag when delegation is "
            "active: " << nm;
-    EXPECT_NE(nm.find("pass13b"), std::string::npos)
-        << "name() should reference pass-13b: " << nm;
+    EXPECT_NE(nm.find("pass13c"), std::string::npos)
+        << "name() should reference pass-13c: " << nm;
 
-    // getMomentTensor / getMomentRateTensor remain zero in pass-13b
-    // (intentionally; surface-integral extraction is pass-13c).
+    // Foundation no-op mode (empty mesh_path) leaves M / Mdot at zero
+    // because no surface-integral set exists. The full integral is
+    // exercised by Source3DBallSurfaceIntegral.* unit gates and the
+    // Salmon3DWithOverburdenAtMPI4 integration gate.
     std::array<double, 6> M{};
     std::array<double, 6> Mdot{};
     solver.getMomentTensor(M);
     solver.getMomentRateTensor(Mdot);
     for (int i = 0; i < 6; ++i) {
         EXPECT_EQ(M[i], 0.0)
-            << "Pass-13b: M[i] must be zero pending pass-13c surface "
-               "integration; M[" << i << "] = " << M[i];
+            << "Foundation no-op mode (empty mesh_path) must leave M=0; "
+               "M[" << i << "] = " << M[i];
         EXPECT_EQ(Mdot[i], 0.0);
     }
 }
@@ -160,12 +162,13 @@ TEST_F(Pass11Axis1bScaffoldTest, Source3DBallFactoryReturnsImpl)
 
     std::unique_ptr<Source3DBall> ball;
     EXPECT_NO_THROW({ ball = makeSource3DBall(cfg); })
-        << "Pass-13b: makeSource3DBall must construct without "
+        << "Pass-13c: makeSource3DBall must construct without "
            "throwing. The pass-11 throw was replaced in pass-13a; "
-           "pass-13b bumps the implementation tag.";
+           "pass-13c bumps the implementation tag to the validation "
+           "milestone.";
     ASSERT_NE(ball, nullptr);
     const std::string nm = ball->name();
-    EXPECT_NE(nm.find("pass13b"), std::string::npos)
-        << "Source3DBallImpl::name() should tag the pass-13b physics "
-           "implementation: " << nm;
+    EXPECT_NE(nm.find("pass13c"), std::string::npos)
+        << "Source3DBallImpl::name() should tag the pass-13c "
+           "validation implementation: " << nm;
 }
