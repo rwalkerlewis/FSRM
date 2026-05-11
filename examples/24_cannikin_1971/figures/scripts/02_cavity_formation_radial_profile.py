@@ -29,10 +29,7 @@ def main():
         return 1
 
     with h5py.File(str(h5_path), "r") as f:
-        radius = f["radius_m"][:]
-        snap_keys = sorted(f["snapshots"].keys(),
-                           key=lambda s: int(s)
-                           if s.isdigit() else float("inf"))
+        snap_keys = sorted(f["profiles"].keys(), key=lambda s: int(s))
         n_snaps = len(snap_keys)
         if n_snaps < 4:
             print(f"WARN: only {n_snaps} snapshots in {h5_path}",
@@ -43,30 +40,42 @@ def main():
                  snap_keys[n_snaps // 3],
                  snap_keys[2 * n_snaps // 3],
                  snap_keys[-1]]
+        times = f["time"][:]
+
+        # Read cell-centre radii from first snapshot (constant grid)
+        r_cell = f[f"profiles/{picks[0]}/r_cell"][:]
 
         fig, axes = plt.subplots(1, 4, figsize=FIG_WIDE, sharex=True)
+        # Map (h5_field, use_node_r, label, log_scale)
         fields = [
-            ("velocity_m_per_s", "Velocity (m/s)"),
-            ("pressure_pa", "Pressure (Pa)"),
-            ("plastic_strain", "Plastic strain (--)"),
-            ("temperature_radiation_K", "T_rad (K)"),
+            ("v_r",    True,  "Velocity (m/s)",    False),
+            ("p",      False, "Pressure (Pa)",      True),
+            ("eps_p",  False, "Plastic strain (--)", False),
+            ("damage", False, "Damage (--)",         False),
         ]
 
-        for ax, (field, label) in zip(axes, fields):
+        for ax, (field, use_node, label, do_log) in zip(axes, fields):
             for k, snap_id in enumerate(picks):
-                grp = f[f"snapshots/{snap_id}"]
+                grp = f[f"profiles/{snap_id}"]
                 if field not in grp:
                     continue
-                data = grp[field][:]
-                t = grp.attrs.get("time_s", float("nan"))
+                raw = grp[field][:]
+                if use_node:
+                    # v_r lives on nodes (201 pts); average to cell centres
+                    data = 0.5 * (raw[:-1] + raw[1:])
+                    r = r_cell
+                else:
+                    data = raw
+                    r = r_cell
+                t_snap = times[int(snap_id)]
                 color_key = ["low_tier", "med_tier",
                              "high_tier", "highest_tier"][k]
-                ax.plot(radius, data, color=PALETTE[color_key],
-                        label=f"t = {t:.2e} s")
+                ax.plot(r, data, color=PALETTE[color_key],
+                        label=f"t = {t_snap:.2e} s")
             ax.set_xlabel("Radius (m)")
             ax.set_ylabel(label)
             ax.set_title(label)
-            if "pressure" in field or "temperature" in field:
+            if do_log:
                 ax.set_yscale("log")
         axes[0].legend(loc="upper right", fontsize=7)
 

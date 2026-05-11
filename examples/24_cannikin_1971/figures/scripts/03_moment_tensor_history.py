@@ -9,6 +9,7 @@ Visualization only.
 from __future__ import annotations
 
 import csv
+import io
 import sys
 from pathlib import Path
 
@@ -29,19 +30,24 @@ def main():
               file=sys.stderr)
         return 1
 
-    with open(csv_path, newline="") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-    if not rows:
+    with open(csv_path, newline="") as fh:
+        lines = [l for l in fh if not l.startswith("#")]
+    if not lines:
         print(f"WARN: {csv_path} empty", file=sys.stderr)
         return 1
+    reader = csv.DictReader(io.StringIO("".join(lines)))
+    rows = list(reader)
+    if not rows:
+        print(f"WARN: {csv_path} has no data rows", file=sys.stderr)
+        return 1
 
-    t = np.array([float(r["time_s"]) for r in rows])
+    t = np.array([float(r["t"]) for r in rows])
     components = ["xx", "yy", "zz", "xy", "xz", "yz"]
-    M = {c: np.array([float(r[f"M_{c}_Nm"]) for r in rows])
-         for c in components}
-    Mdot = {c: np.array([float(r[f"Mdot_{c}_Nms"]) for r in rows])
+    # CSV has moment-rate columns; integrate to get cumulative moment
+    Mdot = {c: np.array([float(r[f"M{c}_dot"]) for r in rows])
             for c in components}
+    dt = np.diff(t, prepend=t[0])
+    M = {c: np.cumsum(Mdot[c] * dt) for c in components}
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=FIG_WIDE)
     color_keys = ["synthetic", "observed", "analytic",
