@@ -58,6 +58,11 @@ std::string writeTempConfig(const std::string& body)
 /// trying to set up a real mesh / time stepper. The [OUTPUT] section is
 /// the part under test; the rest is just enough to keep
 /// initializeFromConfigFile from erroring before reaching [OUTPUT].
+/// Keys conform to the pass-12 followup-2 strict validator schema
+/// (see src/io/ConfigValidator.cpp): [SIMULATION] uses dt_initial /
+/// end_time, and the material moduli live in a [ROCK] block, since
+/// parseMaterialProperties() reads ROCK_* sections and the [MATERIAL]
+/// schema does not accept lambda / mu / density directly.
 const char* kMinimalConfigPrefix = R"(
 [GRID]
 nx = 4
@@ -67,14 +72,14 @@ Lx = 100.0
 Ly = 100.0
 Lz = 100.0
 
-[MATERIAL]
+[ROCK]
 lambda = 1.0e9
 mu = 1.0e9
 density = 2700.0
 
 [SIMULATION]
-total_time = 1.0e-6
-dt = 1.0e-7
+end_time = 1.0e-6
+dt_initial = 1.0e-7
 )";
 
 }  // namespace
