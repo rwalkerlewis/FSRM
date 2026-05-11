@@ -862,13 +862,19 @@ if(GTest_FOUND)
     # they use the per-example override below.
     set(EXAMPLE_SMOKE_FINAL_TIME "0.05")
     # Per-example overrides for outliers. Examples not listed here
-    # use EXAMPLE_SMOKE_FINAL_TIME.
+    # use EXAMPLE_SMOKE_FINAL_TIME. 46_synthetic_cavity_showcase is a
+    # heavy 32k-cell wavefield-output showcase (pass-13c); after the
+    # pass-12-followup-3 parallel-KSP fix it converges, but the 50-step
+    # default budget takes ~3 min at MPI=4, past the per-test timeout,
+    # so it gets the same kind of short smoke budget the cohesive and
+    # gmsh examples already use.
     set(EXAMPLE_SMOKE_OVERRIDES
         "04_locked_fault=0.001"
         "08_time_dependent_slip=0.001"
         "16_scec_tpv5=0.001"
         "06_gmsh_multimaterial=0.001"
-        "17_velocity_model=0.01")
+        "17_velocity_model=0.01"
+        "46_synthetic_cavity_showcase=0.005")
 
     # Examples that still fail at MPI_RANKS=4. After pass-12 followup 3
     # (the parallel KSP/PC fix; see docs/PARALLEL_KSP.md) the only

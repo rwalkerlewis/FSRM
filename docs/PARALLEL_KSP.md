@@ -189,6 +189,35 @@ stay in the known-broken list: they are blocked on the PETSc 3.25
 saddle-point solver tracked in `docs/SOLVER_STATE.md`, which is a
 separate axis from this launcher fix.
 
+## Side effects surfaced by the post-fix gate
+
+- `42_jve_1988`, `43_mururoa`, `44_lambs_problem`,
+  `45_layered_halfspace_explosion`: these were added after the original
+  `EXAMPLE_SMOKE_MPI4_KNOWN_BROKEN` list was written, so they were never
+  on it. They are elastodynamics configs and were diverging at step 0 at
+  MPI=4 on the pre-fix branch the same way the named twelve were; the
+  `-ksp_type gmres` launcher change unblocked them too, and they now pass
+  the gate at MPI=4.
+- `46_synthetic_cavity_showcase`: also a previously-diverging
+  elastodynamics example (added in pass-13c, never on the known-broken
+  list). The launcher fix makes it converge, but it is a heavy 32k-cell
+  wavefield-output showcase, so the 50-step default smoke budget takes
+  ~3 minutes at MPI=4, past the 180 s per-test timeout. It gets a short
+  `EXAMPLE_SMOKE_OVERRIDES` budget (0.005 s, ~5 steps, ~60 s) like the
+  cohesive and gmsh examples already have, and then passes.
+- `ExamplesRuntime.11_sedan_1962.MPI1` (one of the three
+  `MPI={1,2,4}`-sample tests): pre-existing borderline timeout, not
+  affected by this pass. At `MPI_RANKS=1` the launcher does not inject
+  any PETSc options (`run_with_mpi.sh` returns early for ranks <= 1), so
+  the Simulator's elastodynamics default `KSPPREONLY` + serial `PCLU` is
+  used; a full direct LU factorisation of the ~8.4k-DOF Sedan matrix is
+  about 2 s per timestep, so the 50-step smoke budget is ~179 s, which
+  just fits the 180 s timeout in isolation but can tip over under
+  `ctest -j` CPU oversubscription. This behaviour is byte-identical
+  before and after this pass; bumping the sample-test timeout (or
+  shrinking the sample smoke budget) is left as a follow-up so this pass
+  does not touch the gate infrastructure.
+
 ## Not in scope
 
 No physics changes, no SNES/KSP tolerance relaxation in the production
