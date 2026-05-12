@@ -240,6 +240,14 @@ public:
     /// integral from a synthetic stress field.
     void recomputeMomentTensorFromSurface(double dt);
 
+    /// Re-read the TetGen .node / .ele files that were used to build
+    /// the mesh and return the raw vertex coordinates (float32, local
+    /// frame, metres) and tet connectivity (0-indexed int32).
+    /// Returns false if cfg_.mesh_path is empty or the files cannot
+    /// be opened; in that case verts and tets are left empty.
+    bool getMeshGeometry(std::vector<std::array<float, 3>>& verts,
+                         std::vector<std::array<int, 4>>& tets) const;
+
 private:
     void buildCellAndFaceLists();
     void applyOverburdenIC();

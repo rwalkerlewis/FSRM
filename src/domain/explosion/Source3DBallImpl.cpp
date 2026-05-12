@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -985,4 +986,73 @@ void Source3DBallImpl::getCellStates(std::vector<Source3DCellState>& out) const
     }
 }
 
+bool Source3DBallImpl::getMeshGeometry(
+    std::vector<std::array<float, 3>>& verts,
+    std::vector<std::array<int, 4>>& tets) const
+{
+    verts.clear();
+    tets.clear();
+    if (cfg_.mesh_path.empty())
+        return false;
+
+    // Read .node file  (format: N_verts dim 0 1 / idx x y z attr)
+    {
+        std::string node_path = cfg_.mesh_path + ".node";
+        std::ifstream fin(node_path);
+        if (!fin.is_open())
+            return false;
+        int n_verts = 0, dim = 0, n_attr = 0, n_bmark = 0;
+        fin >> n_verts >> dim >> n_attr >> n_bmark;
+        if (n_verts <= 0 || dim != 3)
+            return false;
+        verts.reserve(static_cast<size_t>(n_verts));
+        for (int i = 0; i < n_verts; ++i)
+        {
+            int idx;
+            float x, y, z;
+            fin >> idx >> x >> y >> z;
+            // skip n_attr attributes and boundary marker
+            for (int a = 0; a < n_attr + n_bmark; ++a)
+            {
+                float dummy;
+                fin >> dummy;
+            }
+            verts.push_back({x, y, z});
+        }
+    }
+
+    // Read .ele file  (format: N_tets 4 n_attr / idx n1 n2 n3 n4 [attr])
+    {
+        std::string ele_path = cfg_.mesh_path + ".ele";
+        std::ifstream fin(ele_path);
+        if (!fin.is_open())
+        {
+            verts.clear();
+            return false;
+        }
+        int n_tets = 0, npc = 0, n_attr = 0;
+        fin >> n_tets >> npc >> n_attr;
+        if (n_tets <= 0 || npc != 4)
+        {
+            verts.clear();
+            return false;
+        }
+        tets.reserve(static_cast<size_t>(n_tets));
+        for (int i = 0; i < n_tets; ++i)
+        {
+            int idx, n0, n1, n2, n3;
+            fin >> idx >> n0 >> n1 >> n2 >> n3;
+            for (int a = 0; a < n_attr; ++a)
+            {
+                int dummy;
+                fin >> dummy;
+            }
+            // TetGen is 1-indexed; convert to 0-indexed
+            tets.push_back({n0 - 1, n1 - 1, n2 - 1, n3 - 1});
+        }
+    }
+    return true;
+}
+
 }  // namespace FSRM
+

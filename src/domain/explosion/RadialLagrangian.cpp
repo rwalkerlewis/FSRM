@@ -451,11 +451,10 @@ void RadialLagrangianSolver::initialize()
     if (ball_3d_active_) {
         // Pass-13b: the 3D source-ball impl is initialised inside
         // setConfig() so callers do not need to call initialize()
-        // explicitly. Mark the host as initialised and return; the
-        // existing 1D mesh + state allocation is bypassed.
-        initialized_ = true;
-        current_time_ = 0.0;
-        return;
+        // explicitly for the 3D ball. However we still need to build
+        // the 1D radial mesh so step1D() (used during the Simulator
+        // setup phase to record M(t)) has valid arrays to work with.
+        // Fall through to the 1D mesh allocation below.
     }
     const int N = safeMax(20, config_.radial_cells);
 
@@ -1495,6 +1494,58 @@ void RadialLagrangianSolver::step(double dt_target)
     for (int k = 0; k < 6; ++k) {
         Mdot_iso_[k] = (M_iso_[k] - M_prev[k]) / dt;
     }
+}
+
+void RadialLagrangianSolver::step1D(double dt_target)
+{
+    // Always run the 1D spherical solver, regardless of ball_3d_active_.
+    // This is used by the Simulator setup phase to build the M(t)
+    // history table for addExplosionSourceToResidual. The 3D ball is
+    // NOT advanced here; call step() from the FEM time-stepping loop.
+    if (!initialized_) initialize();
+    if (dt_target <= 0.0) return;
+
+    const std::array<double, 6> M_prev = M_iso_;
+    const double t_prev = current_time_;
+
+    const double t_end = current_time_ + dt_target;
+    int safety_iters = 0;
+    while (current_time_ < t_end - 1e-15) {
+        double dt_sub = t_end - current_time_;
+        cflLimit(dt_sub);
+        if (dt_sub > t_end - current_time_) dt_sub = t_end - current_time_;
+        if (dt_sub <= 1e-15) {
+            current_time_ = t_end;
+            break;
+        }
+        substep(dt_sub);
+        if (++safety_iters > 1000) {
+            current_time_ = t_end;
+            break;
+        }
+    }
+    if (current_time_ < t_end) current_time_ = t_end;
+
+    const double dt = safeMax(1e-30, current_time_ - t_prev);
+    for (int k = 0; k < 6; ++k) {
+        Mdot_iso_[k] = (M_iso_[k] - M_prev[k]) / dt;
+    }
+}
+
+double RadialLagrangianSolver::getCavityRadius1D() const
+{
+    if (!initialized_ || gas_cells_ <= 0) return Rc_init_;
+    if (gas_cells_ >= static_cast<int>(r_face_.size())) return Rc_init_;
+    return r_face_[gas_cells_];
+}
+
+double RadialLagrangianSolver::getPlasticRadius1D() const
+{
+    if (eps_p_.empty() || r_cell_.empty()) return Rc_init_;
+    for (int i = N_ - 1; i >= 0; --i) {
+        if (eps_p_[i] > 1e-9) return r_cell_[i];
+    }
+    return Rc_init_;
 }
 
 double RadialLagrangianSolver::getCavityRadius() const

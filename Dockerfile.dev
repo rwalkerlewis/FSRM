@@ -96,7 +96,20 @@ RUN mkdir -p /tmp/gtest-build \
     && make install \
     && ldconfig \
     && rm -rf /tmp/gtest-build
-
+# TetGen 1.6.0 -- standalone CLI required by
+# tools/mesh_generation/build_source_ball_mesh.py.
+# Source: https://wias-berlin.de/software/tetgen (BSD licensed).
+# GitHub mirror (libigl) used here for build reliability.
+ARG TETGEN_VERSION=master
+RUN mkdir -p /tmp/tetgen-build \
+    && wget -q \
+        https://github.com/libigl/tetgen/archive/refs/heads/master.tar.gz \
+        -O /tmp/tetgen-build/tetgen.tar.gz \
+    && tar -xzf /tmp/tetgen-build/tetgen.tar.gz -C /tmp/tetgen-build --strip-components=1 \
+    && cd /tmp/tetgen-build \
+    && g++ -O2 -DNDEBUG -o tetgen tetgen.cxx predicates.cxx -lm \
+    && install -m 755 tetgen /usr/local/bin/tetgen \
+    && rm -rf /tmp/tetgen-build
 # PETSc main pinned to commit 267b8824abdb82fedbefdec8ea8d0cb3c505ddfd
 # (2026-04-17, "Merge remote-tracking branch 'origin/release'").
 ARG PETSC_SHA=267b8824abdb82fedbefdec8ea8d0cb3c505ddfd

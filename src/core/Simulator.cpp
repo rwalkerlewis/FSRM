@@ -42,6 +42,7 @@
 #include <limits>
 #include <sys/stat.h>
 #include <petscviewerhdf5.h>
+#include <hdf5.h>
 #include <petscfe.h>
 
 namespace {
@@ -2562,18 +2563,21 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                         double R_cavity_record = Rc;
                         double r_plastic = Rc;
                         if (use_radial_lagrangian) {
-                            explosion_->radial_solver.getMomentRateTensor(
+                            explosion_->radial_solver.getMomentRateTensor1D(
                                 Mdot_t);
-                            // Direct cavity radius from the solver's
-                            // gas / solid interface tracker. The
-                            // closed-form "approach scaling" is not
-                            // needed; the radial solver already runs
-                            // the actual physics that determines Rc(t).
+                            // Direct cavity radius from the 1D spherical
+                            // solver. The closed-form "approach scaling"
+                            // is not needed; the radial solver already
+                            // runs the actual physics that determines
+                            // Rc(t). Use the 1D-specific accessor so
+                            // the THREE_DIMENSIONAL cavity_geometry path
+                            // still returns a physical value from the 1D
+                            // mesh (not the configured sentinel).
                             R_cavity_record = std::min(
                                 Rc,
-                                explosion_->radial_solver.getCavityRadius());
+                                explosion_->radial_solver.getCavityRadius1D());
                             r_plastic =
-                                explosion_->radial_solver.getPlasticRadius();
+                                explosion_->radial_solver.getPlasticRadius1D();
                         } else {
                             // CLOSED_FORM (pass-5 byte-identical path).
                             // The far-field injection helper in
@@ -2637,7 +2641,7 @@ PetscErrorCode Simulator::initializeFromConfigFile(const std::string& config_fil
                             rl_profiles.push_back(std::move(prof));
                             next_profile_sample += profile_cadence_s;
                         }
-                        explosion_->radial_solver.step(nf_dt);
+                        explosion_->radial_solver.step1D(nf_dt);
                     } else {
                         explosion_->nf_solver.prestep(dpc_t, nf_dt);
                         explosion_->nf_solver.step(nf_dt);
@@ -9449,18 +9453,17 @@ PetscErrorCode Simulator::FormJacobian(TS ts, PetscReal t, Vec U, Vec U_t,
 
 PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
                                           Vec U, void *ctx) {
-    (void)ts;  // Part of PETSc callback interface - accessed via ctx
     (void)U;   // Solution available through ctx->solution
-    
+
     PetscFunctionBeginUser;
     Simulator *sim = static_cast<Simulator*>(ctx);
     PetscErrorCode ierr;
-    
+
     // Print progress
     if (sim->rank == 0 && step % 10 == 0) {
         PetscPrintf(sim->comm, "Step %d, Time = %g\n", (int)step, (double)t);
     }
-    
+
     // Write output if necessary
     if (step % sim->config.output_frequency == 0) {
         ierr = sim->writeOutput(step); CHKERRQ(ierr);
@@ -9474,6 +9477,25 @@ PetscErrorCode Simulator::MonitorFunction(TS ts, PetscInt step, PetscReal t,
                                            static_cast<double>(t));
         CHKERRQ(ierr);
     }
+
+    // Advance the 3D source ball by the FEM time step so that the
+    // per-cell stress, plastic strain, and energy fields evolve in
+    // lock-step with the FEM simulation.  step1D() is used only in the
+    // setup history-recording loop; here we call step() which delegates
+    // to Source3DBallImpl::step() and runs the Drucker-Prager update and
+    // surface-integral moment extraction for each FEM step.
+    if (sim->explosion_
+        && sim->explosion_->near_field_cavity_geometry == "THREE_DIMENSIONAL"
+        && sim->source_ball_3d_output_format_
+               != Simulator::SourceBall3DOutputFormat::NONE) {
+        PetscReal dt_fem = 0.0;
+        ierr = TSGetTimeStep(ts, &dt_fem); CHKERRQ(ierr);
+        if (dt_fem > 0.0) {
+            sim->explosion_->radial_solver.step(
+                static_cast<double>(dt_fem));
+        }
+    }
+
     // Pass-13c source-ball 3D snapshot (only meaningful under
     // cavity_geometry = THREE_DIMENSIONAL).
     if (sim->source_ball_3d_output_format_
@@ -9750,6 +9772,46 @@ PetscErrorCode Simulator::writeWavefieldSnapshot(int step, double time) {
             CHKERRQ(ierr);
             ierr = DMView(dm, viewer); CHKERRQ(ierr);
             wavefield_topology_written_ = true;
+
+            // Cache the vertex and hexahedral cell counts for the XDMF
+            // wrapper. Vertices are the coordinate section size; hex cells
+            // come from the viz/topology/cells dataset written by DMView.
+            // Use DMGetCoordinatesLocal to count vertices without MPI.
+            Vec coords;
+            ierr = DMGetCoordinatesLocal(dm, &coords); CHKERRQ(ierr);
+            PetscInt coord_size = 0;
+            ierr = VecGetSize(coords, &coord_size); CHKERRQ(ierr);
+            PetscInt dim = 0;
+            ierr = DMGetCoordinateDim(dm, &dim); CHKERRQ(ierr);
+            wavefield_n_verts_ = (dim > 0) ? coord_size / dim : coord_size;
+
+            // Cell count: read from the HDF5 file just written so we stay
+            // independent of the internal DMPlex cone-array layout.
+            if (rank == 0) {
+                hid_t fid = H5Fopen(h5_path.c_str(), H5F_ACC_RDONLY,
+                                    H5P_DEFAULT);
+                if (fid >= 0) {
+                    hid_t ds = H5Dopen2(fid, "/viz/topology/cells",
+                                        H5P_DEFAULT);
+                    if (ds >= 0) {
+                        hid_t sp = H5Dget_space(ds);
+                        hsize_t dims[2] = {0, 0};
+                        H5Sget_simple_extent_dims(sp, dims, nullptr);
+                        wavefield_n_cells_ = static_cast<PetscInt>(dims[0]);
+                        wavefield_n_nodes_per_cell_ = static_cast<PetscInt>(dims[1]);
+                        H5Sclose(sp);
+                        H5Dclose(ds);
+                    }
+                    H5Fclose(fid);
+                }
+            }
+            // Broadcast to all ranks so every rank has the counts.
+            ierr = MPI_Bcast(&wavefield_n_verts_, 1, MPIU_INT, 0, comm);
+            CHKERRQ(ierr);
+            ierr = MPI_Bcast(&wavefield_n_cells_, 1, MPIU_INT, 0, comm);
+            CHKERRQ(ierr);
+            ierr = MPI_Bcast(&wavefield_n_nodes_per_cell_, 1, MPIU_INT, 0, comm);
+            CHKERRQ(ierr);
         } else {
             ierr = PetscViewerHDF5Open(comm, h5_path.c_str(),
                                         FILE_MODE_APPEND, &viewer);
@@ -9788,32 +9850,85 @@ PetscErrorCode Simulator::writeWavefieldXdmfWrapper() {
     if (rank != 0) PetscFunctionReturn(0);
     if (wavefield_format_ != WavefieldFormat::HDF5_XDMF) PetscFunctionReturn(0);
 
-    // Minimal XDMF time-series wrapper. ParaView reads the .xdmf to
-    // discover the time-series; the actual mesh + field data live in
-    // the HDF5 file. PETSc's HDF5 dataset paths follow the convention
-    // /<vec_name>/<seq_index> for per-step VecView output. The mesh
-    // topology lives in /viz/topology and /geometry under the DMPlex
-    // VTK schema; use the petsc_gen_xdmf.py helper conventions
-    // (Henderson 2007) for compatibility with the standard tooling.
+    // Complete XDMF2 time-series wrapper for ParaView.
+    //
+    // Layout in wavefield.h5 (written by PETSc DMView + VecView):
+    //   /geometry/vertices        float64 [n_verts x 3]           -- node coordinates
+    //   /viz/topology/cells       int32   [n_cells x nodes/cell]  -- connectivity
+    //   /fields/wavefield         float64 [n_steps x n_verts x 3] -- displacement
+    //   /time                     float64 [n_steps x 1]            -- time stamps
+    //
+    // The XDMF2 Temporal Collection references each snapshot via a
+    // HyperSlab that selects step i from the 3-D fields dataset.
+    // This is the format ParaView's native XDMF2 reader expects.
+    // Reference: Kitware 2010 "XDMF Model and Format".
     std::string xdmf_path = wavefield_output_directory_ + "/"
                             + wavefield_basename_ + ".xdmf";
     std::ofstream f(xdmf_path);
     if (!f.is_open()) PetscFunctionReturn(0);
+
+    const std::string h5_rel = wavefield_basename_ + ".h5";
+    const int n_steps  = wavefield_snapshots_written_;
+    const long n_verts = static_cast<long>(wavefield_n_verts_);
+    const long n_cells = static_cast<long>(wavefield_n_cells_);
+
     f << "<?xml version=\"1.0\" ?>\n";
     f << "<!DOCTYPE Xdmf SYSTEM \"Xdmf.dtd\" []>\n";
-    f << "<Xdmf Version=\"3.0\">\n";
+    f << "<Xdmf Version=\"2.0\">\n";
     f << "  <Domain>\n";
-    f << "    <Grid Name=\"Wavefield\" GridType=\"Collection\" "
-         "CollectionType=\"Temporal\">\n";
-    const std::string h5_rel = wavefield_basename_ + ".h5";
-    for (int i = 0; i < wavefield_snapshots_written_; ++i) {
+    f << "    <Grid Name=\"Wavefield\" GridType=\"Collection\""
+         " CollectionType=\"Temporal\">\n";
+
+    for (int i = 0; i < n_steps; ++i) {
         f << "      <Grid Name=\"snap" << i << "\" GridType=\"Uniform\">\n";
         f << "        <Time Value=\"" << wavefield_times_[i] << "\"/>\n";
-        f << "        <!-- Wavefield series: PETSc HDF5 sequence "
-             << i << " -->\n";
-        f << "        <!-- See petsc_gen_xdmf.py for topology details -->\n";
+
+        // Topology: select type from the actual nodes-per-cell in the HDF5.
+        const int npc = static_cast<int>(wavefield_n_nodes_per_cell_);
+        const char* topo_type = (npc == 4) ? "Tetrahedron"
+                              : (npc == 8) ? "Hexahedron"
+                              : (npc == 6) ? "Wedge"
+                              : (npc == 5) ? "Pyramid"
+                              :              "Tetrahedron"; // safe fallback
+        f << "        <Topology TopologyType=\"" << topo_type << "\""
+             " NumberOfElements=\"" << n_cells << "\">\n";
+        f << "          <DataItem Format=\"HDF\" NumberType=\"Int\""
+             " Dimensions=\"" << n_cells << " " << npc << "\">\n";
+        f << "            " << h5_rel << ":/viz/topology/cells\n";
+        f << "          </DataItem>\n";
+        f << "        </Topology>\n";
+
+        // Geometry: XYZ node coordinates
+        f << "        <Geometry GeometryType=\"XYZ\">\n";
+        f << "          <DataItem Format=\"HDF\" NumberType=\"Float\""
+             " Precision=\"8\" Dimensions=\"" << n_verts << " 3\">\n";
+        f << "            " << h5_rel << ":/geometry/vertices\n";
+        f << "          </DataItem>\n";
+        f << "        </Geometry>\n";
+
+        // Displacement vector attribute: select step i from the 3-D array
+        // via an XDMF2 HyperSlab (start, stride, count).
+        f << "        <Attribute Name=\"displacement\""
+             " AttributeType=\"Vector\" Center=\"Node\">\n";
+        f << "          <DataItem ItemType=\"HyperSlab\""
+             " Dimensions=\"" << n_verts << " 3\">\n";
+        f << "            <DataItem Dimensions=\"3 3\""
+             " Format=\"XML\">\n";
+        f << "              " << i << " 0 0\n";   // start
+        f << "              1 1 1\n";              // stride
+        f << "              1 " << n_verts << " 3\n"; // count
+        f << "            </DataItem>\n";
+        f << "            <DataItem Format=\"HDF\" NumberType=\"Float\""
+             " Precision=\"8\""
+             " Dimensions=\"" << n_steps << " " << n_verts << " 3\">\n";
+        f << "              " << h5_rel << ":/fields/wavefield\n";
+        f << "          </DataItem>\n";
+        f << "          </DataItem>\n";
+        f << "        </Attribute>\n";
+
         f << "      </Grid>\n";
     }
+
     f << "    </Grid>\n";
     f << "  </Domain>\n";
     f << "</Xdmf>\n";
@@ -9830,55 +9945,203 @@ PetscErrorCode Simulator::writeSourceBall3DSnapshot(int step, double time) {
     if (source_ball_3d_output_format_ == SourceBall3DOutputFormat::NONE)
         PetscFunctionReturn(0);
 
-    ierr = ensureDirectoryExists(comm, rank, wavefield_output_directory_);
-    CHKERRQ(ierr);
-
-    // Source-ball 3D output is meaningful only when the explosion
-    // is in cavity_geometry = THREE_DIMENSIONAL mode. Pass-13c writes
-    // a per-cell snapshot of the source-ball state via the
-    // RadialLagrangianSolver -> Source3DBallImpl::getCellStates path.
     if (!explosion_) PetscFunctionReturn(0);
     if (explosion_->near_field_cavity_geometry != "THREE_DIMENSIONAL")
         PetscFunctionReturn(0);
     auto* ball = explosion_->radial_solver.source3DBall();
     if (!ball) PetscFunctionReturn(0);
 
-    char h5_path[PETSC_MAX_PATH_LEN];
-    ierr = PetscSNPrintf(h5_path, sizeof(h5_path),
-                         "%s/source_ball_3d_%06d.h5",
-                         wavefield_output_directory_.c_str(),
-                         source_ball_3d_snapshots_written_);
+    ierr = ensureDirectoryExists(comm, rank, wavefield_output_directory_);
     CHKERRQ(ierr);
 
-    // Rank 0 writes the scalar per-cell fields. Pass-13c keeps the
-    // single-rank write convention consistent with the pass-13b mat
-    // assembly architecture; multi-rank coalescence is a pass-14 item.
+    const std::string h5_path =
+        wavefield_output_directory_ + "/source_ball_3d.h5";
+    const int snap_idx = source_ball_3d_snapshots_written_;
+
+    // Rank 0 writes the consolidated HDF5 (mesh once + per-snap fields).
+    // The 3D source ball runs on PETSC_COMM_SELF, so every rank holds
+    // the full cell-state vector; rank 0 writes for all.
     if (rank == 0) {
         std::vector<Source3DCellState> states;
         ball->getCellStates(states);
-        std::ofstream csv(std::string(h5_path) + ".csv");
-        if (csv.is_open()) {
-            csv << "cell_idx,cx,cy,cz,sigma_xx,sigma_yy,sigma_zz,"
-                   "sigma_xy,sigma_xz,sigma_yz,eps_p_eq,rho,e_int,T_m,E_r,"
-                   "source_forcing_power,inner_cavity_marker,dp_pressure_field"
-                   "\n";
-            for (size_t i = 0; i < states.size(); ++i) {
-                const auto& s = states[i];
-                csv << i << "," << s.centroid[0] << "," << s.centroid[1]
-                    << "," << s.centroid[2]
-                    << "," << s.sigma[0] << "," << s.sigma[1]
-                    << "," << s.sigma[2] << "," << s.sigma[3]
-                    << "," << s.sigma[4] << "," << s.sigma[5]
-                    << "," << s.eps_p_eq << "," << s.rho
-                    << "," << s.e_int << "," << s.T_m << "," << s.E_r
-                    << "," << s.source_forcing_power
-                    << "," << s.inner_cavity_marker
-                    << "," << s.dp_pressure_field
-                    << "\n";
+        const int n_cells = static_cast<int>(states.size());
+
+        hid_t fid = -1;
+        bool h5_ok = true;
+
+        if (!source_ball_3d_mesh_written_) {
+            // First snapshot: create file and write mesh topology.
+            fid = H5Fcreate(h5_path.c_str(), H5F_ACC_TRUNC,
+                            H5P_DEFAULT, H5P_DEFAULT);
+            if (fid < 0) {
+                PetscPrintf(PETSC_COMM_SELF,
+                    "WARNING: Cannot create %s; skipping source-ball HDF5 "
+                    "output.\n", h5_path.c_str());
+                h5_ok = false;
             }
-            csv.close();
+
+            if (h5_ok) {
+                std::vector<std::array<float, 3>> verts;
+                std::vector<std::array<int, 4>> tets;
+                bool mesh_ok = ball->getMeshGeometry(verts, tets);
+                if (!mesh_ok || verts.empty() || tets.empty()) {
+                    PetscPrintf(PETSC_COMM_SELF,
+                        "WARNING: Source-ball mesh not available; "
+                        "skipping source-ball 3D HDF5 output.\n");
+                    H5Fclose(fid);
+                    h5_ok = false;
+                }
+
+                if (h5_ok) {
+                    hid_t mesh_grp = H5Gcreate2(fid, "/Mesh",
+                        H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+
+                    // Write /Mesh/vertices  (n_verts x 3, float32)
+                    {
+                        hsize_t dims[2] = {
+                            static_cast<hsize_t>(verts.size()), 3};
+                        hid_t sp = H5Screate_simple(2, dims, nullptr);
+                        hid_t ds = H5Dcreate2(mesh_grp, "vertices",
+                            H5T_NATIVE_FLOAT, sp,
+                            H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+                        std::vector<float> flat(verts.size() * 3);
+                        for (size_t i = 0; i < verts.size(); ++i) {
+                            flat[i * 3 + 0] = verts[i][0];
+                            flat[i * 3 + 1] = verts[i][1];
+                            flat[i * 3 + 2] = verts[i][2];
+                        }
+                        H5Dwrite(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL,
+                                 H5P_DEFAULT, flat.data());
+                        H5Dclose(ds);
+                        H5Sclose(sp);
+                    }
+
+                    // Write /Mesh/connectivity  (n_tets x 4, int32)
+                    {
+                        hsize_t dims[2] = {
+                            static_cast<hsize_t>(tets.size()), 4};
+                        hid_t sp = H5Screate_simple(2, dims, nullptr);
+                        hid_t ds = H5Dcreate2(mesh_grp, "connectivity",
+                            H5T_NATIVE_INT, sp,
+                            H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+                        std::vector<int> flat(tets.size() * 4);
+                        for (size_t i = 0; i < tets.size(); ++i) {
+                            flat[i * 4 + 0] = tets[i][0];
+                            flat[i * 4 + 1] = tets[i][1];
+                            flat[i * 4 + 2] = tets[i][2];
+                            flat[i * 4 + 3] = tets[i][3];
+                        }
+                        H5Dwrite(ds, H5T_NATIVE_INT, H5S_ALL, H5S_ALL,
+                                 H5P_DEFAULT, flat.data());
+                        H5Dclose(ds);
+                        H5Sclose(sp);
+                    }
+
+                    H5Gclose(mesh_grp);
+                    source_ball_3d_n_verts_ =
+                        static_cast<int>(verts.size());
+                    source_ball_3d_n_cells_ =
+                        static_cast<int>(tets.size());
+                    source_ball_3d_mesh_written_ = true;
+                }
+            }
+        }
+        else {
+            // Subsequent snapshots: open existing file for writing.
+            fid = H5Fopen(h5_path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+            if (fid < 0) {
+                PetscPrintf(PETSC_COMM_SELF,
+                    "WARNING: Cannot open %s for writing.\n",
+                    h5_path.c_str());
+                h5_ok = false;
+            }
+        }
+
+        if (h5_ok && fid >= 0) {
+            // Create /Snap root group on first use.
+            hid_t snap_root;
+            if (H5Lexists(fid, "/Snap", H5P_DEFAULT) <= 0)
+                snap_root = H5Gcreate2(fid, "/Snap",
+                    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+            else
+                snap_root = H5Gopen2(fid, "/Snap", H5P_DEFAULT);
+
+            // Create /Snap/NNNN group for this snapshot.
+            char snap_name[16];
+            std::snprintf(snap_name, sizeof(snap_name), "%04d", snap_idx);
+            hid_t snap_grp = H5Gcreate2(snap_root, snap_name,
+                H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+
+            // Helper lambda: write a 1-D (n_cells) float64 dataset.
+            auto write_field = [&](const char* name,
+                                   const std::vector<double>& data) {
+                hsize_t dim = static_cast<hsize_t>(data.size());
+                hid_t sp = H5Screate_simple(1, &dim, nullptr);
+                hid_t ds = H5Dcreate2(snap_grp, name, H5T_NATIVE_DOUBLE,
+                    sp, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+                H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
+                         H5P_DEFAULT, data.data());
+                H5Dclose(ds);
+                H5Sclose(sp);
+            };
+
+            // Extract per-cell scalar vectors from states.
+            std::vector<double> sx(n_cells), sy(n_cells), sz(n_cells),
+                sxy(n_cells), sxz(n_cells), syz(n_cells),
+                eps(n_cells), rho_v(n_cells), eint(n_cells),
+                tm(n_cells), er(n_cells),
+                sfp(n_cells), icm(n_cells), dpp(n_cells),
+                vm(n_cells), ms(n_cells);
+
+            for (int i = 0; i < n_cells; ++i) {
+                const auto& s = states[i];
+                sx[i]  = s.sigma[0];
+                sy[i]  = s.sigma[1];
+                sz[i]  = s.sigma[2];
+                sxy[i] = s.sigma[3];
+                sxz[i] = s.sigma[4];
+                syz[i] = s.sigma[5];
+                eps[i] = s.eps_p_eq;
+                rho_v[i]  = s.rho;
+                eint[i]= s.e_int;
+                tm[i]  = s.T_m;
+                er[i]  = s.E_r;
+                sfp[i] = s.source_forcing_power;
+                icm[i] = s.inner_cavity_marker;
+                dpp[i] = s.dp_pressure_field;
+                // Derived scalars.
+                ms[i]  = (s.sigma[0] + s.sigma[1] + s.sigma[2]) / 3.0;
+                double d0 = s.sigma[0] - ms[i];
+                double d1 = s.sigma[1] - ms[i];
+                double d2 = s.sigma[2] - ms[i];
+                double d3 = s.sigma[3], d4 = s.sigma[4], d5 = s.sigma[5];
+                vm[i] = std::sqrt(0.5 * (d0*d0 + d1*d1 + d2*d2
+                                  + 2.0*(d3*d3 + d4*d4 + d5*d5)));
+            }
+
+            write_field("sigma_xx",             sx);
+            write_field("sigma_yy",             sy);
+            write_field("sigma_zz",             sz);
+            write_field("sigma_xy",             sxy);
+            write_field("sigma_xz",             sxz);
+            write_field("sigma_yz",             syz);
+            write_field("eps_p_eq",             eps);
+            write_field("rho",                  rho_v);
+            write_field("e_int",                eint);
+            write_field("T_m",                  tm);
+            write_field("E_r",                  er);
+            write_field("source_forcing_power", sfp);
+            write_field("inner_cavity_marker",  icm);
+            write_field("dp_pressure_field",    dpp);
+            write_field("von_mises",            vm);
+            write_field("mean_stress",          ms);
+
+            H5Gclose(snap_grp);
+            H5Gclose(snap_root);
+            H5Fclose(fid);
         }
     }
+
     source_ball_3d_snapshot_times_.push_back(time);
     ++source_ball_3d_snapshots_written_;
 
@@ -9894,28 +10157,78 @@ PetscErrorCode Simulator::writeSourceBall3DXdmfWrapper() {
     if (rank != 0) PetscFunctionReturn(0);
     if (source_ball_3d_output_format_ != SourceBall3DOutputFormat::HDF5_XDMF)
         PetscFunctionReturn(0);
+    if (!source_ball_3d_mesh_written_) PetscFunctionReturn(0);
 
-    std::string xdmf_path = wavefield_output_directory_
-                            + "/source_ball_3d.xdmf";
+    const std::string xdmf_path =
+        wavefield_output_directory_ + "/source_ball_3d.xdmf";
     std::ofstream f(xdmf_path);
     if (!f.is_open()) PetscFunctionReturn(0);
+
+    const int n_verts = source_ball_3d_n_verts_;
+    const int n_cells = source_ball_3d_n_cells_;
+    const int n_snaps = source_ball_3d_snapshots_written_;
+
+    // The HDF5 file is written relative to the XDMF file location.
+    const std::string h5_rel = "source_ball_3d.h5";
+
+    // List of per-cell scalar attribute names stored in each /Snap/NNNN group.
+    static const char* kFields[] = {
+        "sigma_xx", "sigma_yy", "sigma_zz",
+        "sigma_xy", "sigma_xz", "sigma_yz",
+        "eps_p_eq", "rho", "e_int", "T_m", "E_r",
+        "source_forcing_power", "inner_cavity_marker",
+        "dp_pressure_field", "von_mises", "mean_stress",
+        nullptr
+    };
+
     f << "<?xml version=\"1.0\" ?>\n";
     f << "<!DOCTYPE Xdmf SYSTEM \"Xdmf.dtd\" []>\n";
-    f << "<Xdmf Version=\"3.0\">\n";
+    f << "<Xdmf Version=\"2.0\">\n";
     f << "  <Domain>\n";
-    f << "    <Grid Name=\"SourceBall3D\" GridType=\"Collection\" "
-         "CollectionType=\"Temporal\">\n";
-    for (int i = 0; i < source_ball_3d_snapshots_written_; ++i) {
-        char h5_rel[64];
-        PetscSNPrintf(h5_rel, sizeof(h5_rel),
-                      "source_ball_3d_%06d.h5", i);
+    f << "    <Grid Name=\"SourceBall3D\" GridType=\"Collection\""
+         " CollectionType=\"Temporal\">\n";
+
+    for (int i = 0; i < n_snaps; ++i) {
+        char snap_name[16];
+        std::snprintf(snap_name, sizeof(snap_name), "%04d", i);
+
         f << "      <Grid Name=\"snap" << i << "\" GridType=\"Uniform\">\n";
-        f << "        <Time Value=\"" << source_ball_3d_snapshot_times_[i]
-          << "\"/>\n";
-        f << "        <!-- Source-ball 3D snapshot: " << h5_rel
-          << " (CSV companion: " << h5_rel << ".csv) -->\n";
+        f << "        <Time Value=\""
+          << source_ball_3d_snapshot_times_[i] << "\"/>\n";
+
+        // Topology
+        f << "        <Topology TopologyType=\"Tetrahedron\""
+          << " NumberOfElements=\"" << n_cells << "\">\n";
+        f << "          <DataItem Format=\"HDF\" DataType=\"Int\""
+          << " Dimensions=\"" << n_cells << " 4\">\n";
+        f << "            " << h5_rel << ":/Mesh/connectivity\n";
+        f << "          </DataItem>\n";
+        f << "        </Topology>\n";
+
+        // Geometry
+        f << "        <Geometry GeometryType=\"XYZ\">\n";
+        f << "          <DataItem Format=\"HDF\" NumberType=\"Float\""
+          << " Precision=\"4\" Dimensions=\"" << n_verts << " 3\">\n";
+        f << "            " << h5_rel << ":/Mesh/vertices\n";
+        f << "          </DataItem>\n";
+        f << "        </Geometry>\n";
+
+        // Per-cell scalar attributes
+        for (int fi = 0; kFields[fi] != nullptr; ++fi) {
+            f << "        <Attribute Name=\"" << kFields[fi]
+              << "\" Center=\"Cell\" AttributeType=\"Scalar\">\n";
+            f << "          <DataItem Format=\"HDF\""
+              << " NumberType=\"Float\" Precision=\"8\""
+              << " Dimensions=\"" << n_cells << "\">\n";
+            f << "            " << h5_rel << ":/Snap/" << snap_name
+              << "/" << kFields[fi] << "\n";
+            f << "          </DataItem>\n";
+            f << "        </Attribute>\n";
+        }
+
         f << "      </Grid>\n";
     }
+
     f << "    </Grid>\n";
     f << "  </Domain>\n";
     f << "</Xdmf>\n";

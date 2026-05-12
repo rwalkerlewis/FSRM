@@ -334,6 +334,29 @@ public:
     /// own cadence.
     void step(double dt_target);
 
+    /// Advance the 1D spherical solver by dt_target, even when
+    /// cavity_geometry = THREE_DIMENSIONAL. Used by the setup-phase
+    /// history recording loop in Simulator.cpp to build the M(t) table
+    /// that addExplosionSourceToResidual interpolates. The 3D source
+    /// ball is NOT stepped; call step() from the FEM time-stepping loop
+    /// to advance the 3D ball and produce ParaView output.
+    void step1D(double dt_target);
+
+    /// 1D-solver moment-rate tensor. Always returns Mdot_iso_ from the
+    /// 1D spherical solver, even when cavity_geometry=THREE_DIMENSIONAL.
+    /// Use this in the setup recording loop after step1D() calls.
+    void getMomentRateTensor1D(std::array<double, 6>& Mdot) const
+    {
+        Mdot = Mdot_iso_;
+    }
+
+    /// 1D-solver cavity radius. Always reads the 1D radial mesh gas/solid
+    /// interface, bypassing the 3D ball delegation.
+    double getCavityRadius1D() const;
+
+    /// 1D-solver plastic radius. Always reads eps_p_ from the 1D mesh.
+    double getPlasticRadius1D() const;
+
     double getCurrentTime() const { return current_time_; }
 
     /// Cavity radius at the current time. Tracks the inner face position

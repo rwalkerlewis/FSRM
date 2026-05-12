@@ -448,6 +448,9 @@ private:
     int wavefield_snapshots_written_ = 0;
     bool wavefield_topology_written_ = false;          ///< HDF5 topology written once
     std::vector<double> wavefield_times_;              ///< for XDMF wrapper
+    PetscInt wavefield_n_verts_ = 0;                  ///< vertex count for XDMF geometry
+    PetscInt wavefield_n_cells_ = 0;                  ///< cell count for XDMF topology
+    PetscInt wavefield_n_nodes_per_cell_ = 4;          ///< nodes per cell (4=tet, 8=hex)
 
     // Pass-13c source-ball 3D HDF5/XDMF spatial-profile output. Only
     // engages when cavity_geometry = THREE_DIMENSIONAL. Enum is
@@ -457,6 +460,9 @@ private:
     int source_ball_3d_output_cadence_steps_ = 50;
     int source_ball_3d_snapshots_written_ = 0;
     std::vector<double> source_ball_3d_snapshot_times_;
+    bool source_ball_3d_mesh_written_ = false;   ///< HDF5 mesh written once
+    int source_ball_3d_n_verts_ = 0;             ///< vertex count for XDMF
+    int source_ball_3d_n_cells_ = 0;             ///< cell count for XDMF
 
     PetscErrorCode writeWavefieldSnapshot(int step, double time);
     PetscErrorCode writeWavefieldXdmfWrapper();
