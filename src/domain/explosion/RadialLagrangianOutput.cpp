@@ -147,10 +147,28 @@ bool writeRadialProfilesXDMF(
     const int N = static_cast<int>(profiles.front().rho.size());
     const int Nface = N + 1;
 
+    // Shared, Domain-level topology + Y/Z geometry. Repeating these
+    // inline per snapshot is what produced 1.2 GB XDMF files on long
+    // Sedan runs (94k snapshots) and segfaulted ParaView. Each
+    // per-snapshot Grid references the named DataItems below.
     xml << "<?xml version=\"1.0\" ?>\n"
         << "<!DOCTYPE Xdmf SYSTEM \"Xdmf.dtd\" []>\n"
         << "<Xdmf Version=\"3.0\">\n"
         << "  <Domain>\n"
+        << "    <DataItem Name=\"connectivity\" Dimensions=\"" << N
+        << " 2\" Format=\"XML\" DataType=\"Int\">\n";
+    for (int j = 0; j < N; ++j) {
+        xml << "      " << j << " " << (j + 1) << "\n";
+    }
+    xml << "    </DataItem>\n"
+        << "    <DataItem Name=\"y_zero\" Dimensions=\"" << Nface
+        << "\" NumberType=\"Float\" Precision=\"8\" Format=\"XML\">\n";
+    for (int j = 0; j < Nface; ++j) xml << "      0.0\n";
+    xml << "    </DataItem>\n"
+        << "    <DataItem Name=\"z_zero\" Dimensions=\"" << Nface
+        << "\" NumberType=\"Float\" Precision=\"8\" Format=\"XML\">\n";
+    for (int j = 0; j < Nface; ++j) xml << "      0.0\n";
+    xml << "    </DataItem>\n"
         << "    <Grid Name=\"NearFieldProfileSeries\" "
            "GridType=\"Collection\" CollectionType=\"Temporal\">\n";
 
@@ -165,12 +183,11 @@ bool writeRadialProfilesXDMF(
             << "        <Topology TopologyType=\"Polyline\" "
                "NumberOfElements=\"" << N << "\" "
                "NodesPerElement=\"2\">\n"
-            << "          <DataItem Dimensions=\"" << N << " 2\" "
-               "Format=\"XML\" DataType=\"Int\">\n";
-        for (int j = 0; j < N; ++j) {
-            xml << "            " << j << " " << (j + 1) << "\n";
-        }
-        xml << "          </DataItem>\n"
+            << "          <DataItem Dimensions=\"" << N
+            << " 2\" Format=\"XML\" DataType=\"Int\" "
+               "Reference=\"XML\">"
+               "/Xdmf/Domain/DataItem[@Name='connectivity']"
+               "</DataItem>\n"
             << "        </Topology>\n"
             << "        <Geometry GeometryType=\"X_Y_Z\">\n"
             << "          <DataItem Dimensions=\"" << Nface
@@ -178,13 +195,15 @@ bool writeRadialProfilesXDMF(
             << "            " << h5_basename << ":/profiles/" << g << "/r\n"
             << "          </DataItem>\n"
             << "          <DataItem Dimensions=\"" << Nface
-            << "\" NumberType=\"Float\" Precision=\"8\" Format=\"XML\">\n";
-        for (int j = 0; j < Nface; ++j) xml << "            0.0\n";
-        xml << "          </DataItem>\n"
+            << "\" NumberType=\"Float\" Precision=\"8\" "
+               "Format=\"XML\" Reference=\"XML\">"
+               "/Xdmf/Domain/DataItem[@Name='y_zero']"
+               "</DataItem>\n"
             << "          <DataItem Dimensions=\"" << Nface
-            << "\" NumberType=\"Float\" Precision=\"8\" Format=\"XML\">\n";
-        for (int j = 0; j < Nface; ++j) xml << "            0.0\n";
-        xml << "          </DataItem>\n"
+            << "\" NumberType=\"Float\" Precision=\"8\" "
+               "Format=\"XML\" Reference=\"XML\">"
+               "/Xdmf/Domain/DataItem[@Name='z_zero']"
+               "</DataItem>\n"
             << "        </Geometry>\n";
 
         // Cell-centred attributes: pressure, sigma_rr, sigma_tt, eps_p,

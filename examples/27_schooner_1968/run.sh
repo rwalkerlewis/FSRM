@@ -29,5 +29,9 @@ echo ""
 run_with_mpi "${BUILD_DIR}/fsrm" -c "${CONFIG}"
 
 echo ""
+
+echo ""
+echo "=== Post-process: build wavefield XDMF + render figures ==="
+bash "${REPO_DIR}/tools/postprocess_example.sh" "${SCRIPT_DIR}" "${CONFIG}" "output" "27_schooner_1968" || true
 echo "=== Output Files ==="
 ls -lh "${OUT_DIR}" 2>/dev/null || echo "No output files generated."

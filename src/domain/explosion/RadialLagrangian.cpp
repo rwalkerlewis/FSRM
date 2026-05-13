@@ -497,11 +497,24 @@ void RadialLagrangianSolver::initialize()
 
     allocate(N);
 
-    // Geometric grid: gas / inner cells uniformly spaced from 0 to
-    // Rc_init, solid cells geometrically refined toward Rc_init so the
-    // shock front near the cavity wall is resolved. A simple two-zone
-    // tanh-stretched layout suffices for pass-6.
-    gas_cells_ = safeMax(2, N / 50);
+    // Two-zone radial mesh.
+    //
+    //   Gas region: r in [0, Rc_init_], uniform spacing.
+    //   Solid region: r in [Rc_init_, r_outer_], geometrically stretched
+    //   so the FIRST solid cell width matches the gas-cell width. This
+    //   avoids the catastrophic impedance / CFL mismatch that arose
+    //   under the pass-6/7 layout (stretch=1.04 from the outer end
+    //   produced dr_solid_0 ~ 6 mm next to dr_gas ~ 5 m, mass ratio
+    //   O(10^3), and the first solid cell collapsed to near-zero
+    //   volume in the first substep). The stretch ratio is solved by
+    //   bisection so dr_gas * (s^n - 1) / (s - 1) = L_solid.
+    //
+    // Gas-cell count scales with N: more gas cells -> finer dr_gas ->
+    // finer dr_solid_0 (since dr_solid_0 = dr_gas), so the cavity wall
+    // is well-resolved without producing a near-zero-thickness first
+    // solid cell.
+    gas_cells_ = safeMax(2, N / 10);
+    if (gas_cells_ > N / 3) gas_cells_ = safeMax(2, N / 3);
     const double r_gas_inner = 0.0;
     const double r_gas_outer = Rc_init_;
     for (int i = 0; i <= gas_cells_; ++i) {
@@ -509,20 +522,48 @@ void RadialLagrangianSolver::initialize()
             (r_gas_outer - r_gas_inner) *
                 (static_cast<double>(i) / gas_cells_);
     }
-    // Solid cells: geometric stretching from r_gas_outer to r_outer.
     const int n_solid = N - gas_cells_;
     const double L_solid = r_outer_ - r_gas_outer;
-    const double stretch = 1.04;  // mild geometric ratio, ~4% per cell
-    double accum = 0.0;
-    for (int j = 0; j < n_solid; ++j) accum += std::pow(stretch, j);
-    const double dr0 = L_solid / accum;
+    const double dr_gas = (r_gas_outer - r_gas_inner) / gas_cells_;
+
+    // Solve dr_gas * sum_{j=0..n-1} s^j = L_solid for s by bisection.
+    // The function is monotone increasing in s for n >= 1 and s > 0;
+    // for s = 1 the sum is n; for s -> infinity it diverges. If the
+    // required sum is less than n (i.e. dr_gas > L_solid / n_solid)
+    // we fall back to uniform spacing of width L_solid / n_solid so
+    // we never SHRINK cells outward (which would waste resolution at
+    // the cavity wall to over-resolve the far-field).
+    const double sum_target = L_solid / safeMax(1e-9, dr_gas);
+    double stretch = 1.0;
+    double dr0 = dr_gas;
+    if (sum_target <= static_cast<double>(n_solid)) {
+        // Uniform spacing (dr_gas larger than the average solid cell):
+        // force the solid cells to be exactly L_solid / n_solid each.
+        dr0 = L_solid / static_cast<double>(n_solid);
+        stretch = 1.0;
+    } else {
+        double s_lo = 1.0, s_hi = 1.5;
+        // Expand s_hi until the geometric sum exceeds sum_target.
+        for (int it = 0; it < 50; ++it) {
+            const double sum = (std::pow(s_hi, n_solid) - 1.0) /
+                               (s_hi - 1.0);
+            if (sum >= sum_target) break;
+            s_hi *= 1.5;
+        }
+        for (int it = 0; it < 80; ++it) {
+            const double s = 0.5 * (s_lo + s_hi);
+            const double sum = (std::abs(s - 1.0) < 1.0e-12)
+                ? static_cast<double>(n_solid)
+                : (std::pow(s, n_solid) - 1.0) / (s - 1.0);
+            if (sum < sum_target) s_lo = s; else s_hi = s;
+        }
+        stretch = 0.5 * (s_lo + s_hi);
+        dr0 = dr_gas;
+    }
+    double cumulative = 0.0;
     for (int j = 1; j <= n_solid; ++j) {
-        const double sub_accum = [&]() {
-            double s = 0.0;
-            for (int k = 0; k < j; ++k) s += std::pow(stretch, k);
-            return s;
-        }();
-        r_face_[gas_cells_ + j] = r_gas_outer + dr0 * sub_accum;
+        cumulative += dr0 * std::pow(stretch, j - 1);
+        r_face_[gas_cells_ + j] = r_gas_outer + cumulative;
     }
     // Force the outermost face exactly to r_outer for floating-point cleanliness.
     r_face_[N] = r_outer_;
@@ -745,13 +786,39 @@ void RadialLagrangianSolver::advanceFaces(double dt)
     // preserve spherical symmetry.
     r_face_[0] = 0.0;
     v_face_[0] = 0.0;
+    // Per-step face-displacement cap. The CFL bound on dt is based on
+    // (cs + |v|) and is satisfied by cflLimit, but a single large
+    // pressure imbalance at the cavity wall can still try to advance
+    // a face by more than the adjacent cell width in one step. We
+    // therefore cap |dx_face| to a safe fraction of the smaller of
+    // the two adjacent cell widths so no cell can be compressed to
+    // less than (1 - max_frac) of its current volume per substep.
+    // max_frac = 0.3 keeps the explicit hydro stable even when the
+    // initial pressure ratio across the cavity wall is O(10^4).
+    constexpr double max_frac = 0.3;
     for (int i = 1; i <= N_; ++i) {
-        r_face_[i] += v_face_[i] * dt;
+        double dx = v_face_[i] * dt;
+        const double dr_left = r_face_[i] - r_face_[i - 1];
+        const double dr_right = (i < N_) ? (r_face_[i + 1] - r_face_[i])
+                                         : dr_left;
+        const double dr_min = std::min(dr_left, dr_right);
+        const double cap = max_frac * dr_min;
+        if (dx > cap) {
+            dx = cap;
+            // Reduce the face velocity so the next step starts from a
+            // consistent v, dt state.
+            v_face_[i] = dx / safeMax(1e-30, dt);
+        } else if (dx < -cap) {
+            dx = -cap;
+            v_face_[i] = dx / safeMax(1e-30, dt);
+        }
+        r_face_[i] += dx;
     }
-    // Guard against face crossings (would imply CFL violation).
+    // Final guard against face crossings (CFL violation).
     for (int i = 1; i <= N_; ++i) {
         if (r_face_[i] <= r_face_[i - 1]) {
             r_face_[i] = r_face_[i - 1] + 1e-9;
+            v_face_[i] = 0.0;
         }
     }
     for (int i = 0; i < N_; ++i) {
@@ -970,14 +1037,27 @@ void RadialLagrangianSolver::updateInternalEnergy(double dt)
 
 void RadialLagrangianSolver::updateEOS()
 {
+    // Pressure sanity cap. The explicit Lagrangian update can briefly
+    // produce extreme (rho, e) states during the first few substeps
+    // after the cavity pressure is released; without a clamp the
+    // Tillotson EOS in the over-compressed regime can return 1e20+ Pa
+    // values that destabilise downstream momentum / energy updates.
+    // The cap is well above any physically realistic shock peak
+    // (~ 10 TPa for hypervelocity impacts) so it never triggers in a
+    // well-resolved simulation.
+    constexpr double P_MAX = 1.0e13;
     for (int i = 0; i < N_; ++i) {
         if (is_gas_[i]) {
             // Pass-7: dispatch via cavityPressure(). TILLOTSON
             // evaluates the configured Tillotson parameter set at
             // (rho, e); IDEAL_GAS reproduces the pass-6 placeholder
             // p = (gamma - 1) rho e for byte-identical regression.
-            p_[i] = cavityPressure(safeMax(1.0e-6, rho_[i]),
-                                   safeMax(0.0, e_int_[i]));
+            double p_til = cavityPressure(safeMax(1.0e-6, rho_[i]),
+                                          safeMax(0.0, e_int_[i]));
+            if (!std::isfinite(p_til)) p_til = P_MAX;
+            if (p_til >  P_MAX) p_til =  P_MAX;
+            if (p_til < -P_MAX) p_til = -P_MAX;
+            p_[i] = p_til;
         } else {
             // Mie-Gruneisen with the configured reference state. The
             // EOS expects rho and specific internal energy and returns
@@ -985,8 +1065,10 @@ void RadialLagrangianSolver::updateEOS()
             // states (rho < rho0) the EOS branches return the linear
             // part, so we cap at the configured tensile cutoff to
             // avoid runaway negative pressure.
-            const double p_eos = eos_.pressure(rho_[i],
-                                               safeMax(0.0, e_int_[i]));
+            double p_eos = eos_.pressure(rho_[i],
+                                         safeMax(0.0, e_int_[i]));
+            if (!std::isfinite(p_eos)) p_eos = P_MAX;
+            if (p_eos >  P_MAX) p_eos =  P_MAX;
             // Tension cap from strength model.
             const double T_cap = strength_.tensileStrength(damage_[i]);
             p_[i] = safeMax(-T_cap, p_eos);
