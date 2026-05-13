@@ -1,7 +1,7 @@
 # Solver State
 
-Last updated: Session 31. Update at the end of every session that changes
-solver state (see `CLAUDE.md` Rule 19).
+Last updated: Session 32 (friction-Jacobian linearization). Update at the
+end of every session that changes solver state (see `CLAUDE.md` Rule 19).
 
 This document is the standing truth about the fault-solver investigation. It
 replaces "read the last N session reports" as the resume-work workflow.
@@ -11,7 +11,7 @@ Facts here are cross-referenced to specific `SESSION_NN_REPORT.md` files.
 
 | Config | Fault subset pass | Full suite | Verified |
 |---|:-:|:-:|---|
-| Default (no env vars) | 10 / 16 | 110 / 116 | S30 |
+| Default (no env vars) | 10 / 16 | 110 / 116 | S32 (verified after friction-Jacobian linearization land; no regressions) |
 | Experimental (`FSRM_ENABLE_SLIP_AUX=1 FSRM_SADDLE_SOLVER=fieldsplit`) | 7 / 16 | -- | S30 |
 
 Fault subset regex (16 tests):
@@ -27,12 +27,12 @@ Physics.LockedFaultTransparency|Physics.CohesiveBdResidual|Integration.DynamicRu
 
 | Test | Diagnosis | Last touched |
 |---|---|---|
-| `Physics.SCEC.TPV5` | Friction Jacobian port needed; slip-weakening + nucleation patch not Jacobian-coupled | S28 audit, no fix |
+| `Physics.SCEC.TPV5` | `applyInitialFaultStress` writes to 0 Lagrange DOF sets, so the nucleation traction is never deposited and sol_norm = 0. Separate plumbing bug; not a friction Jacobian issue. | S32 (Subagent B baseline trace) |
 | `Physics.LockedFaultTransparency` | PETSc 3.25 BdResidual on cohesive geometry; S15 marked "flipped pass" but later sessions observe it failing — flaky between runs | S30 |
 | `Integration.PressurizedFractureFEM` | Hydrofrac rewire (separate scope; unrelated to the fault-solver bottleneck) | pre-S10 |
 | `Integration.DynamicRuptureSolve.PrescribedSlip` | Constants-path writes a non-zero target jump (S-fix verified); SNES under direct LU still converges to zero slip because the BdResidual on the Lagrange field does not fire on the cohesive geometry | S30 |
-| `Integration.SlippingFaultSolve` | Friction Jacobian | S28 audit, no fix |
-| `Integration.SlipWeakeningFault` | Friction Jacobian | S28 audit, no fix |
+| `Integration.SlippingFaultSolve` | S32: iter-0 singular Jacobian fixed by slipping-branch locked fallback in `CohesiveFaultKernel`. SNES now iterates but oscillates between active sets under `basic` line search (residual cycles ~3.3e5 vs ~5e5); converges to DIVERGED_MAX_IT after 50 iters. Needs active-set smoothing or `bt` line search to flip. | S32 |
+| `Integration.SlipWeakeningFault` | Same as SlippingFaultSolve. Slip-weakening contributes nothing at iter 0 (slip = 0), so the failure mode is identical. | S32 |
 
 ## Extra failures under experimental path (Session 30 verified)
 
@@ -248,6 +248,28 @@ One line per session. New lines go at the BOTTOM.
   Integration.SourceDistribution.*, 5 tests; historic-nuclear _Distributed
   variants, 7 tests). Does not modify Jacobian / cohesive code paths;
   default fault subset count unchanged at 10/16.
+- S32: friction-Jacobian linearization landed in
+  `CohesiveFaultKernel::g0_hybrid_lambda_u`, `g0_hybrid_lambda_lambda`, and
+  `f0_hybrid_lambda` slipping branch. Adds a three-way active-set gating
+  (stuck / return-mapping / slipping) paired between residual and Jacobian.
+  Stuck sub-state (`slip_t_mag <= 1e-15` AND `|lambda_t| <= tau_f + 1e-10`)
+  now uses the locked-branch identity coupling so the cohesive Lagrange
+  row block stays full rank at the initial sticking iterate -- this fixes
+  the `DIVERGED_LINEAR_SOLVE iterations 0` observed for
+  `Integration.SlippingFaultSolve` and `Integration.SlipWeakeningFault` at
+  u=0 lambda=0 (S31 baseline trace, captured by Subagent B in this pass).
+  Return-mapping sub-state (`slip_t_mag <= 1e-15` AND `|lambda_t| > tau_f
+  + 1e-10`) implements the projection-form Jacobian d(lambda_t * (1 -
+  tau_f/|lambda_t|))/d(lambda) so the linearization is paired with the
+  residual. Two tests now reach the SNES iteration loop (was: failed at
+  iter 0 KSP); they still do not converge: 50 SNES iterations oscillate
+  between residuals ~3.3e5 and ~5e5 under the test-supplied `basic` line
+  search, which cannot damp active-set bouncing across the friction
+  discontinuity. `Physics.SCEC.TPV5` is a separate problem
+  (`applyInitialFaultStress` writes to 0 Lagrange DOFs so nucleation is
+  never deposited; sol_norm = 0), not a friction Jacobian issue. Tests
+  remain DISABLED with updated rationale. Default fault subset
+  unchanged at 10/16; no regressions on the 10 passing fault tests.
 
 ## Quantitative timeline
 
@@ -261,6 +283,7 @@ One line per session. New lines go at the BOTTOM.
 | S23 | -- (direct LU) | -- | 263 m  | 10/16 | 6/16 |
 | S27 | -- (direct LU) | -- | 263 m  | 10/16 | 5/16 |
 | S30 | 1.76e+18 | 1.13e-08 | 263 m  | 10/16 | 7/16 |
+| S32 | -- | -- | 263 m  | 10/16 | -- |
 
 `max fault slip = 263 m` on the default path is the S12 over-constrained
 rim-pin overshoot; the test expects 1 mm. `max fault slip = 0` indicates

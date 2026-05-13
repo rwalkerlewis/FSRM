@@ -812,8 +812,13 @@ if(GTest_FOUND)
     # Disabled fault-solver tests pending architectural fixes.
     # Source of truth: docs/SOLVER_STATE.md "Failing fault tests (default path)".
     # Re-enable each set when the linked tracking issue lands.
-    # TODO(#116): friction Jacobian port -- Physics.SCEC.TPV5,
-    #   Integration.SlippingFaultSolve, Integration.SlipWeakeningFault.
+    # TODO(#116): friction Jacobian convergence --
+    #   Physics.SCEC.TPV5 (separate: applyInitialFaultStress writes to 0
+    #     Lagrange DOFs; nucleation never deposited).
+    #   Integration.SlippingFaultSolve, Integration.SlipWeakeningFault
+    #     (iter-0 singular Jacobian is now resolved by the slipping-branch
+    #     locked fallback in CohesiveFaultKernel; SNES iterates but
+    #     oscillates between active sets under basic line search).
     # TODO(#117): PETSc 3.25 BdResidual on cohesive geometry --
     #   Physics.LockedFaultTransparency,
     #   Integration.DynamicRuptureSolve.PrescribedSlip.
