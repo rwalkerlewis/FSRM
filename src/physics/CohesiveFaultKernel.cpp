@@ -1023,14 +1023,19 @@ void CohesiveFaultKernel::f0_hybrid_lambda(
             if (slip_mag > 1e-15) {
                 PetscReal slip_hat = slip_t[d] / slip_mag;
                 component = lambda_t[d] - tau_f * slip_hat;
+                component += (slip_n < 0.0 ? -slip_n : 0.0) * n[d];
+            } else if (lambda_t_mag > tau_f + 1e-10) {
+                component = lambda_t[d] * (1.0 - tau_f / lambda_t_mag);
+                component += (slip_n < 0.0 ? -slip_n : 0.0) * n[d];
             } else {
-                if (lambda_t_mag > tau_f + 1e-10) {
-                    component = lambda_t[d] * (1.0 - tau_f / lambda_t_mag);
-                } else {
-                    component = 0.0;
-                }
+                // Locked fallback. Tangential slip below the eps_zero
+                // regularization floor and trial traction within the
+                // Coulomb cone: enforce slip = 0 (the locked-branch
+                // constraint). Pairs with the locked Jacobian in
+                // g0_hybrid_lambda_u and keeps the cohesive Lagrange row
+                // block full rank at the initial sticking iterate.
+                component = slip[d];
             }
-            component += (slip_n < 0.0 ? -slip_n : 0.0) * n[d];
             f0[d] = component;
         }
     }
@@ -1191,13 +1196,6 @@ void CohesiveFaultKernel::g0_hybrid_lambda_u(
         }
         PetscReal slip_t_mag = std::sqrt(slip_t_mag2);
 
-        PetscReal s_hat[3] = {0.0, 0.0, 0.0};
-        if (slip_t_mag > 1e-15) {
-            for (PetscInt d = 0; d < Nc; ++d) {
-                s_hat[d] = slip_t[d] / slip_t_mag;
-            }
-        }
-
         PetscReal friction_model =
             (numConstants > COHESIVE_CONST_FRICTION_MODEL)
             ? PetscRealPart(constants[COHESIVE_CONST_FRICTION_MODEL]) : 0.0;
@@ -1222,6 +1220,38 @@ void CohesiveFaultKernel::g0_hybrid_lambda_u(
         }
         PetscReal sigma_n_comp = std::max(0.0, -lambda_n);
         PetscReal tau_f = mu_f * sigma_n_comp;
+
+        // Branch the slipping-mode Jacobian into stuck / return-mapping /
+        // slipping to match the three sub-states of f0_hybrid_lambda. The
+        // gating uses the same thresholds (slip floor 1e-15, lambda-cone
+        // tolerance 1e-10) so residual and Jacobian stay paired.
+        if (slip_t_mag <= 1e-15) {
+            PetscReal lambda_t_loc[3] = {0.0, 0.0, 0.0};
+            PetscReal lambda_t_mag2_loc = 0.0;
+            for (PetscInt d = 0; d < Nc; ++d) {
+                lambda_t_loc[d] = PetscRealPart(u[uOff[1] + d]) - lambda_n * n[d];
+                lambda_t_mag2_loc += lambda_t_loc[d] * lambda_t_loc[d];
+            }
+            PetscReal lambda_t_mag_loc = std::sqrt(lambda_t_mag2_loc);
+
+            if (lambda_t_mag_loc <= tau_f + 1e-10) {
+                // Stuck sub-state: f0 = slip[d] (locked fallback). The
+                // Jacobian is the locked-branch identity coupling so the
+                // cohesive Lagrange row block stays full rank.
+                for (PetscInt c = 0; c < Nc; ++c) {
+                    g0[c * Nc + c]            = -1.0;
+                    g0[Nc * Nc + c * Nc + c]  =  1.0;
+                }
+            }
+            // Return-mapping sub-state: f0 = lambda_t * (1 - tau_f/|lambda_t|)
+            // has no slip dependence; leave g0[d/du] = 0 (zero-initialized).
+            return;
+        }
+
+        PetscReal s_hat[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < Nc; ++d) {
+            s_hat[d] = slip_t[d] / slip_t_mag;
+        }
 
         PetscReal dmu_dslip = 0.0;
         if (friction_model > 0.5 && slip_t_mag < D_c) {
@@ -1331,16 +1361,53 @@ void CohesiveFaultKernel::g0_hybrid_lambda_lambda(
         lambda_n += PetscRealPart(u[uOff[1] + d]) * n[d];
     }
     PetscReal sigma_n_comp = std::max(0.0, -lambda_n);
+    PetscReal tau_f_val = mu_f * sigma_n_comp;
 
-    for (PetscInt i = 0; i < Nc; ++i) {
-        for (PetscInt j = 0; j < Nc; ++j) {
-            PetscReal P_ij = ((i == j) ? 1.0 : 0.0) - n[i] * n[j];
-            g0[i * Nc + j] = P_ij;
-            if (sigma_n_comp > 0.0 && slip_t_mag > 1e-15) {
-                g0[i * Nc + j] += mu_f * s_hat[i] * n[j];
+    PetscReal lambda_t_loc[3] = {0.0, 0.0, 0.0};
+    PetscReal lambda_t_mag2_loc = 0.0;
+    for (PetscInt d = 0; d < Nc; ++d) {
+        lambda_t_loc[d] = PetscRealPart(u[uOff[1] + d]) - lambda_n * n[d];
+        lambda_t_mag2_loc += lambda_t_loc[d] * lambda_t_loc[d];
+    }
+    PetscReal lambda_t_mag_loc = std::sqrt(lambda_t_mag2_loc);
+
+    if (slip_t_mag > 1e-15) {
+        // Slipping branch. f0 = lambda_t - tau_f * slip_hat; the lambda-
+        // lambda block carries the tangential projector plus the friction-
+        // normal coupling from d(tau_f)/d(lambda_n) = -mu_f * n.
+        for (PetscInt i = 0; i < Nc; ++i) {
+            for (PetscInt j = 0; j < Nc; ++j) {
+                PetscReal P_ij = ((i == j) ? 1.0 : 0.0) - n[i] * n[j];
+                g0[i * Nc + j] = P_ij;
+                if (sigma_n_comp > 0.0) {
+                    g0[i * Nc + j] += mu_f * s_hat[i] * n[j];
+                }
+            }
+        }
+    } else if (lambda_t_mag_loc > tau_f_val + 1e-10) {
+        // Return-mapping sub-state. f0 = lambda_t - tau_f * lambda_t_hat.
+        // The lambda-lambda Jacobian carries three pieces:
+        //   d(lambda_t)/d(lambda) = P
+        //   - tau_f * d(lambda_t_hat)/d(lambda) = -tau_f * (P - lh lh^T)/|lambda_t|
+        //   - d(tau_f)/d(lambda) * lambda_t_hat = +mu_f * lambda_t_hat * n^T
+        PetscReal lh[3] = {0.0, 0.0, 0.0};
+        for (PetscInt d = 0; d < Nc; ++d) {
+            lh[d] = lambda_t_loc[d] / lambda_t_mag_loc;
+        }
+        for (PetscInt i = 0; i < Nc; ++i) {
+            for (PetscInt j = 0; j < Nc; ++j) {
+                PetscReal P_ij = ((i == j) ? 1.0 : 0.0) - n[i] * n[j];
+                PetscReal entry = P_ij * (1.0 - tau_f_val / lambda_t_mag_loc)
+                                + (tau_f_val / lambda_t_mag_loc) * lh[i] * lh[j];
+                if (sigma_n_comp > 0.0) {
+                    entry += mu_f * lh[i] * n[j];
+                }
+                g0[i * Nc + j] = entry;
             }
         }
     }
+    // Stuck sub-state (slip_t_mag <= 1e-15 and lambda_t_mag <= tau_f + eps):
+    // f0 = slip[d] has no lambda dependence; g0 stays zero.
 }
 
 } // namespace FSRM
